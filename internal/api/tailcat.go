@@ -108,7 +108,8 @@ func (s *Server) privateAgentHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		allowed := r.URL.Path == agent.PathJoin || r.URL.Path == agent.PathHeartbeat ||
 			r.URL.Path == agent.PathTasks || r.URL.Path == agent.PathResults || r.URL.Path == agent.PathReport ||
-			strings.HasPrefix(r.URL.Path, agent.PathLogs+"/")
+			strings.HasPrefix(r.URL.Path, agent.PathLogs+"/") ||
+			(r.Method == http.MethodPost && strings.HasPrefix(r.URL.Path, "/api/v1/provider-setups/") && strings.HasSuffix(r.URL.Path, "/complete"))
 		if !allowed {
 			http.NotFound(w, r)
 			return

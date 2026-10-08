@@ -4267,6 +4267,86 @@ paths:
         "409": { $ref: "#/components/responses/Conflict" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
+  /provider-setups:
+    post:
+      operationId: createProviderSetup
+      tags: [providers]
+      summary: Generate a one-time Proxmox host setup command
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                controller_url: { type: string, description: Optional HTTPS callback address. Omit to use the private Tailcat controller connection. }
+      responses:
+        "201":
+          description: Setup command; keep private and run within one hour.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProviderSetup" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /provider-setups/{id}:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    get:
+      operationId: getProviderSetup
+      tags: [providers]
+      summary: Wait for the Proxmox host connection without reading its secrets
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: Pending or ready connection. Secrets are never returned.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ProviderSetup" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /provider-setups/{id}/complete:
+    parameters:
+      - name: id
+        in: path
+        required: true
+        schema: { type: string }
+    post:
+      operationId: completeProviderSetup
+      x-internal: true
+      tags: [providers]
+      summary: Upload the host connection with the connection-bound setup capability
+      description: >-
+        Uses only the setup command's bearer token, not a user session or runner join
+        token. Uploads are sealed at rest. Identical retries are acknowledged; a completed
+        connection cannot be replaced. This route cannot create providers or hosts.
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, endpoint, credential, ca_pem, tailcat_address]
+              properties:
+                name: { type: string }
+                endpoint: { type: string }
+                credential: { type: string, writeOnly: true }
+                ca_pem: { type: string }
+                tailcat_address: { type: string, writeOnly: true }
+      responses:
+        "204": { description: Connection accepted. }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
   /providers:
     get:
       operationId: listProviders
@@ -10444,12 +10524,24 @@ components:
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
 
+    ProviderSetup:
+      type: object
+      required: [id, expires_at, ready]
+      properties:
+        id: { type: string }
+        expires_at: { type: string, format: date-time }
+        ready: { type: boolean }
+        name: { type: string }
+        endpoint: { type: string }
+        command: { type: string, description: Returned only at creation; contains the short-lived setup capability. }
+
     ProviderInput:
       type: object
       description: >-
         Creating and editing a provider take the same body. On a PATCH every field is
         optional and independent; what is not named is left alone.
       properties:
+        setup_id: { type: string, description: Ready Proxmox setup whose sealed connection settings replace the connect fields. Expires after one hour. }
         kind: { $ref: "#/components/schemas/ProviderKindName" }
         name: { type: string }
         endpoint: { type: string }

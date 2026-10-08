@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import {
   applyDiscovery,
   emptyDraft,
+  draftErrors,
+  toProviderBody,
   normaliseEndpoint,
   providerCommand,
   shellWord,
@@ -220,4 +222,22 @@ test('discovery answers the questions with one answer and leaves the rest', () =
   const open = applyDiscovery(emptyDraft(), specs, two);
   assert.equal(open.settings.nodes, undefined, 'two nodes is a question, not an answer');
   assert.equal(applyDiscovery(draft, specs, null), draft, 'no discovery changes nothing');
+});
+
+test('a ready Proxmox setup supplies the connection without sending secrets', () => {
+  const draft = emptyDraft();
+  draft.kind = 'proxmox';
+  draft.setup_id = 'pvs_ready';
+  draft.name = 'proxmox-pve-1';
+  draft.endpoint = 'https://pve.example:8006';
+  draft.connection = 'tailcat';
+  draft.tailcat_configured = true;
+  const errors = draftErrors(draft, []);
+  assert.equal(errors.credential, undefined);
+  assert.equal(errors.tailcat_address, undefined);
+  const body = toProviderBody(draft);
+  assert.equal(body.setup_id, 'pvs_ready');
+  assert.equal(body.credential, undefined);
+  assert.equal(body.tailcat_address, undefined);
+  assert.equal(body.max_machines, 0);
 });

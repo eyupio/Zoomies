@@ -2731,6 +2731,64 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/provider-setups": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Generate a one-time Proxmox host setup command */
+        post: operations["createProviderSetup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/provider-setups/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        /** Wait for the Proxmox host connection without reading its secrets */
+        get: operations["getProviderSetup"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/provider-setups/{id}/complete": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload the host connection with the connection-bound setup capability
+         * @description Uses only the setup command's bearer token, not a user session or runner join token. Uploads are sealed at rest. Identical retries are acknowledged; a completed connection cannot be replaced. This route cannot create providers or hosts.
+         */
+        post: operations["completeProviderSetup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/providers": {
         parameters: {
             query?: never;
@@ -8053,8 +8111,20 @@ export interface components {
             /** Format: date-time */
             updated_at?: string;
         };
+        ProviderSetup: {
+            id: string;
+            /** Format: date-time */
+            expires_at: string;
+            ready: boolean;
+            name?: string;
+            endpoint?: string;
+            /** @description Returned only at creation; contains the short-lived setup capability. */
+            command?: string;
+        };
         /** @description Creating and editing a provider take the same body. On a PATCH every field is optional and independent; what is not named is left alone. */
         ProviderInput: {
+            /** @description Ready Proxmox setup whose sealed connection settings replace the connect fields. Expires after one hour. */
+            setup_id?: string;
             kind?: components["schemas"]["ProviderKindName"];
             name?: string;
             endpoint?: string;
@@ -13396,6 +13466,94 @@ export interface operations {
             };
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    createProviderSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** @description Optional HTTPS callback address. Omit to use the private Tailcat controller connection. */
+                    controller_url?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Setup command; keep private and run within one hour. */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderSetup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    getProviderSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Pending or ready connection. Secrets are never returned. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ProviderSetup"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    completeProviderSetup: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                    endpoint: string;
+                    credential: string;
+                    ca_pem: string;
+                    tailcat_address: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Connection accepted. */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            401: components["responses"]["Unauthorized"];
             409: components["responses"]["Conflict"];
             422: components["responses"]["Unprocessable"];
         };

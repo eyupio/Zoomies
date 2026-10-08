@@ -7,6 +7,7 @@
   import Skeleton from '$lib/components/Skeleton.svelte';
   import MaintenanceWizard from '$lib/aicontext/MaintenanceWizard.svelte';
   import SetupWizard from '$lib/aicontext/SetupWizard.svelte';
+  import { repositoryIdFromAddress } from '$lib/aicontext/preselect';
 
   // Setup is open to an administrator and to anyone made owner of an
   // installation. The server decides per installation; this only chooses
@@ -40,6 +41,7 @@
     />{:else}<SetupWizard
       draftId={router.param('draft_id')}
       installationId={router.param('installation_id')}
+      repositoryId={repositoryIdFromAddress(router.param('repository_id'))}
     />{/if}{:else}<ErrorState
     title="Installation ownership required"
     description="Preparing repositories requires an administrator, or ownership of the GitHub installation, which an administrator can grant. Your existing source access is available from AI Context."
