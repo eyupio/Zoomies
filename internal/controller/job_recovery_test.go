@@ -51,6 +51,60 @@ func TestMissedCompletionIsRecoveredDespiteFreshWebhooks(t *testing.T) {
 	}
 }
 
+// Hosted-elsewhere rows still feed the Jobs page. A missing completion must
+// not leave them running for days just because they occupy no fleet capacity.
+func TestMissedCompletionIsRecoveredForJobsHostedElsewhere(t *testing.T) {
+	for _, conclusion := range []string{"success", "failure", "cancelled"} {
+		t.Run(conclusion, func(t *testing.T) {
+			h := newHarness(t)
+			inst, _, _ := h.fleet()
+			labels := []string{"blacksmith-2vcpu-ubuntu-2404"}
+			q := h.gh.AddQueuedJob("acme/widgets", "CI", "shard (light)", labels)
+			runnerName := "blacksmith-2vcpu-ubuntu-2404-Runner-example"
+			for _, action := range []string{"queued", "in_progress"} {
+				rec := h.deliverJob(jobEvent{
+					Action: action, JobID: q.ID, RunID: q.RunID,
+					Name: q.JobName, Workflow: q.WorkflowName, Labels: labels,
+					RunnerName: runnerName,
+				})
+				if rec.Code != http.StatusAccepted {
+					t.Fatalf("%s webhook: %d (%s)", action, rec.Code, rec.Body.String())
+				}
+			}
+			job := h.polledJob(q.ID)
+			if job.State != store.JobInProgress || job.Matched || job.RunnerID != "" {
+				t.Fatalf("job = %+v, want it running elsewhere", job)
+			}
+			h.gh.StartJob(q.ID, runnerName)
+			h.gh.CompleteJob(q.ID, conclusion)
+			h.advance(6 * 24 * time.Hour)
+			h.cfg.GitHub.PollFallback = false
+			if err := h.st.RecordDelivery(h.ctx, &store.WebhookDelivery{
+				DeliveryID: "unrelated", Event: "workflow_job", Repo: "acme/widgets", InstallationID: inst.ID,
+				Status: "accepted", ReceivedAt: h.c.Now(),
+			}); err != nil {
+				t.Fatal(err)
+			}
+			h.c.reconcileKnownJobs(h.ctx, h.c.Now())
+			job = h.polledJob(q.ID)
+			if job.State != store.JobCompleted || job.Conclusion != conclusion || job.CompletedAt == nil {
+				t.Fatalf("job = %+v, want GitHub's completion", job)
+			}
+			events := h.timeline(job.ID)
+			if last := events[len(events)-1]; last.Kind != store.JobEventCompleted || last.Source != sourcePoller {
+				t.Fatalf("last event = %+v, want the recovered completion", last)
+			}
+			h.c.reconcileKnownJobs(h.ctx, h.c.Now())
+			if got := len(h.timeline(job.ID)); got != len(events) {
+				t.Fatalf("duplicate completion: %d events, want %d", got, len(events))
+			}
+			if got := len(h.runners()); got != 0 {
+				t.Fatalf("recovery created %d fleet runners for work hosted elsewhere", got)
+			}
+		})
+	}
+}
+
 func TestJobRecoveryDoesNotInventCancellationOnGitHubFailure(t *testing.T) {
 	for _, status := range []int{http.StatusNotFound, http.StatusForbidden, http.StatusInternalServerError} {
 		h := newHarness(t)
