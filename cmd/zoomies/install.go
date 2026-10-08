@@ -5,7 +5,9 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/installer"
@@ -257,7 +259,8 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 			return err
 		}
 		ui.Rule(e.out, "1/4 Binary")
-		if err := selfUpdate(ctx, e, *binary, *wantVersion); err != nil {
+		selector := deploymentSelector{ConfigDir: *configDir, DockerHost: *dockerHost, Runtime: *runtime, Image: *image, Mode: *mode}
+		if err := selfUpdate(ctx, e, *binary, *wantVersion, selector); err != nil {
 			return err
 		}
 	} else if !*check && os.Getenv("ZOOMIES_UPGRADE_STARTED") == "" {
@@ -267,6 +270,63 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 	return installer.Upgrade(ctx, opts)
 }
 
+// deploymentSelector is the part of `zoomies upgrade`'s command line that says
+// which deployment is meant, as opposed to what to do with it. The downloaded
+// release is handed exactly these, so it checks the deployment this run would
+// have upgraded and not whichever one it would find on its own.
+type deploymentSelector struct {
+	ConfigDir, DockerHost, Runtime, Image, Mode string
+}
+
+func (d deploymentSelector) args() []string {
+	var out []string
+	for _, f := range []struct{ flag, value string }{
+		{"--config-dir", d.ConfigDir}, {"--docker-host", d.DockerHost}, {"--runtime", d.Runtime},
+		{"--image", d.Image}, {"--mode", d.Mode},
+	} {
+		if f.value != "" {
+			out = append(out, f.flag, f.value)
+		}
+	}
+	return out
+}
+
+// runCandidate runs the downloaded release with an explicit environment. It is
+// a variable so a test can see what the candidate was asked without running it.
+var runCandidate = func(ctx context.Context, env []string, name string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, name, args...)
+	cmd.Env = env
+	out, err := cmd.CombinedOutput()
+	text := strings.TrimSpace(string(out))
+	if err != nil && text != "" {
+		return text, fmt.Errorf("%w: %s", err, text)
+	}
+	return text, err
+}
+
+// candidatePreflight asks the downloaded release to check this deployment with
+// its own expectations, while the binary that is known to work is still the one
+// installed. A release can need something the running one does not know to
+// ask for -- a folder, a setting -- and finding that out after the swap leaves
+// a host on a binary that refuses to upgrade it.
+//
+// --installed-binary is what makes this work: without it the candidate would
+// take os.Executable() for the binary the service runs, which is its own
+// temporary path, and refuse the deployment for pointing at the wrong file.
+// --check and --non-interactive keep it from changing or asking anything, and
+// --yes is deliberately absent, so an addition that needs approval fails the
+// pre-flight rather than being approved on the operator's behalf.
+func candidatePreflight(installed string, sel deploymentSelector) func(context.Context, string) error {
+	return func(ctx context.Context, candidate string) error {
+		args := append([]string{"upgrade", "--check", "--non-interactive", "--no-download", "--installed-binary", installed}, sel.args()...)
+		// The marker keeps the candidate from printing its own title: what it
+		// prints is only shown if it refuses.
+		env := append(os.Environ(), installer.SelfUpdateEnv+"=1", "ZOOMIES_UPGRADE_STARTED=1")
+		_, err := runCandidate(ctx, env, candidate, args...)
+		return err
+	}
+}
+
 // selfUpdate brings the installed binary up to date and, if it changed,
 // restarts this command inside the new one. Upgrade used to apply whatever was
 // already on disk, so a host that ran `zoomies upgrade` rather than install.sh
@@ -274,7 +334,7 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 //
 // A failed download stops the upgrade; an offline host can explicitly use
 // --no-download rather than report a partial upgrade as successful.
-func selfUpdate(ctx context.Context, e *env, binary, wantVersion string) error {
+func selfUpdate(ctx context.Context, e *env, binary, wantVersion string, sel deploymentSelector) error {
 	if binary == "" {
 		binary, _ = os.Executable()
 	}
@@ -285,6 +345,7 @@ func selfUpdate(ctx context.Context, e *env, binary, wantVersion string) error {
 	ui.Doing(e.out, "Checking for a newer Zoomies")
 	res, err := installer.SelfUpdate(ctx, installer.SelfUpdateOptions{
 		BinaryPath: binary, Version: wantVersion, Current: version.Version, Out: e.out,
+		Preflight: candidatePreflight(binary, sel),
 	})
 	if err != nil {
 		return fmt.Errorf("binary update failed: %w; retry, or use --no-download to apply the installed binary", err)

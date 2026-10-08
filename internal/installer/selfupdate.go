@@ -41,6 +41,10 @@ type SelfUpdateOptions struct {
 	Client  *http.Client
 	// Check only says what would change.
 	Check bool
+	// Preflight, when set, is asked about the downloaded file after it has been
+	// verified and before it replaces anything. An error stops the update with
+	// the installed binary untouched.
+	Preflight func(ctx context.Context, candidate string) error
 
 	goos, goarch string
 	run          commandRunner
@@ -88,76 +92,146 @@ func (o *SelfUpdateOptions) defaults() {
 // of install.sh, so `zoomies upgrade` on its own leaves a host on the current
 // release rather than restarting the build it already had.
 //
-// Whether a build is out of date is decided by hashing the installed file
-// against the release's checksums.txt, not by comparing version strings: a
-// rolling dev build carries no version worth comparing, and a hash cannot be
-// fooled by two builds of one tag.
+// It is fetch, then the optional pre-flight, then install, and the three are
+// separate so that the downloaded release can be asked about this deployment
+// while the binary that is known to work is still the one in place.
 func SelfUpdate(ctx context.Context, opts SelfUpdateOptions) (SelfUpdateResult, error) {
+	opts.defaults()
+	cand, res, err := FetchRelease(ctx, opts)
+	if err != nil || cand == nil {
+		return res, err
+	}
+	defer cand.Discard()
+	if opts.Preflight != nil {
+		if err := opts.Preflight(ctx, cand.Path); err != nil {
+			return res, fmt.Errorf("the downloaded %s does not accept this deployment, so the installed binary was left in place: %w", cand.Tag, err)
+		}
+	}
+	if err := cand.Install(opts); err != nil {
+		return res, err
+	}
+	res.Updated = true
+	return res, nil
+}
+
+// Candidate is a release that has been downloaded, hashed against the
+// published checksums and started once, and that has replaced nothing. Its
+// owner either installs it or discards it.
+type Candidate struct {
+	Tag string
+	// Path is the temporary file beside the installed binary, so that the
+	// rename in Install stays on one filesystem.
+	Path string
+}
+
+// FetchRelease is everything SelfUpdate does short of replacing the binary:
+// choose the tag, apply the downgrade guard, compare hashes, download to a
+// temporary file, verify the checksum and run `version --short` on it. The
+// checksum is verified before the file is executed, and the installed binary
+// is not touched. The Candidate is nil when nothing newer was found, and
+// always when opts.Check is set.
+func FetchRelease(ctx context.Context, opts SelfUpdateOptions) (*Candidate, SelfUpdateResult, error) {
 	opts.defaults()
 	var res SelfUpdateResult
 	if opts.goos != "linux" && opts.goos != "darwin" {
-		return res, nil
+		return nil, res, nil
 	}
 	tag, err := opts.target(ctx)
 	if err != nil {
-		return res, err
+		return nil, res, err
 	}
 	res.Tag = tag
 	if tag == "" {
-		return res, nil
+		return nil, res, nil
 	}
 	if tag != "dev" && opts.Current != "" && version.CompareBuilds(opts.Current, tag) == version.SkewAhead {
 		// Never turn `upgrade` into a downgrade: an older build may not read
 		// a database a newer one has migrated.
-		return res, nil
+		return nil, res, nil
 	}
 	asset := "zoomies_" + opts.goos + "_" + opts.goarch
 	sums, err := opts.fetchText(ctx, opts.BaseURL+"/download/"+tag+"/checksums.txt")
 	if err != nil {
-		return res, fmt.Errorf("could not fetch the checksums for %s, so no binary was downloaded: %w", tag, err)
+		return nil, res, fmt.Errorf("could not fetch the checksums for %s, so no binary was downloaded: %w", tag, err)
 	}
 	want := checksumFor(sums, asset)
 	if want == "" {
-		return res, fmt.Errorf("the checksums for %s have no entry for %s, so no binary was downloaded", tag, asset)
+		return nil, res, fmt.Errorf("the checksums for %s have no entry for %s, so no binary was downloaded", tag, asset)
 	}
 	have, err := fileSHA256(opts.BinaryPath)
 	if err != nil {
-		return res, fmt.Errorf("read the installed binary: %w", err)
+		return nil, res, fmt.Errorf("read the installed binary: %w", err)
 	}
 	if have == want {
-		return res, nil
+		return nil, res, nil
 	}
 	res.Newer = true
 	if opts.Check {
-		return res, nil
+		return nil, res, nil
 	}
 	dir := filepath.Dir(opts.BinaryPath)
 	tmp, err := os.CreateTemp(dir, ".zoomies-update-*")
 	if err != nil {
-		return res, fmt.Errorf("cannot write to %s: %w; run the upgrade as root (sudo zoomies upgrade), or use install.sh --upgrade --prefix for another directory", dir, err)
+		return nil, res, fmt.Errorf("cannot write to %s: %w; run the upgrade as root (sudo zoomies upgrade), or use install.sh --upgrade --prefix for another directory", dir, err)
 	}
-	defer os.Remove(tmp.Name())
+	cand := &Candidate{Tag: tag, Path: tmp.Name()}
 	got, err := opts.download(ctx, opts.BaseURL+"/download/"+tag+"/"+asset, tmp)
 	_ = tmp.Close()
 	if err != nil {
-		return res, fmt.Errorf("download %s %s: %w", asset, tag, err)
+		cand.Discard()
+		return nil, res, fmt.Errorf("download %s %s: %w", asset, tag, err)
 	}
 	if got != want {
-		return res, fmt.Errorf("checksum mismatch for %s %s (expected %s, got %s); the installed binary was left in place. Try again, and report it if it happens twice", asset, tag, want[:12], got[:12])
+		cand.Discard()
+		return nil, res, fmt.Errorf("checksum mismatch for %s %s (expected %s, got %s); the installed binary was left in place. Try again, and report it if it happens twice", asset, tag, want[:12], got[:12])
 	}
-	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
-		return res, err
+	if err := os.Chmod(cand.Path, 0o755); err != nil {
+		cand.Discard()
+		return nil, res, err
 	}
 	// A file that hashes right but will not run -- the wrong architecture
 	// behind a matching sums file on a mirror -- must not replace one that does.
-	if _, err := opts.run(ctx, tmp.Name(), "version", "--short"); err != nil {
-		return res, fmt.Errorf("the downloaded binary will not run on this host; the installed one was left in place: %w", err)
+	if _, err := opts.run(ctx, cand.Path, "version", "--short"); err != nil {
+		cand.Discard()
+		return nil, res, fmt.Errorf("the downloaded binary will not run on this host; the installed one was left in place: %w", err)
 	}
-	if err := os.Rename(tmp.Name(), opts.BinaryPath); err != nil {
-		return res, fmt.Errorf("replace %s: %w", opts.BinaryPath, err)
+	return cand, res, nil
+}
+
+// PreviousSuffix is what the binary it replaced is kept under, beside it.
+const PreviousSuffix = ".previous"
+
+// Install puts the candidate in place of opts.BinaryPath and keeps what was
+// there as BinaryPath+".previous", replacing any earlier one, so a manual
+// rollback has a binary to go back to.
+//
+// The old binary is hard-linked rather than copied: the link names the old
+// inode, which survives the rename that follows, so there is no moment at which
+// the path has no binary and no second copy of a file that may be large. The
+// link is made under a temporary name and renamed over any earlier .previous,
+// so a failure here leaves the installed binary and the last .previous as they
+// were.
+func (c *Candidate) Install(opts SelfUpdateOptions) error {
+	previous := opts.BinaryPath + PreviousSuffix
+	staged := previous + ".new"
+	_ = os.Remove(staged)
+	if err := os.Link(opts.BinaryPath, staged); err != nil {
+		return fmt.Errorf("keep %s as %s: %w; the installed binary was left in place", opts.BinaryPath, previous, err)
 	}
-	res.Updated = true
-	return res, nil
+	if err := os.Rename(staged, previous); err != nil {
+		_ = os.Remove(staged)
+		return fmt.Errorf("keep %s as %s: %w; the installed binary was left in place", opts.BinaryPath, previous, err)
+	}
+	if err := os.Rename(c.Path, opts.BinaryPath); err != nil {
+		return fmt.Errorf("replace %s: %w", opts.BinaryPath, err)
+	}
+	return nil
+}
+
+// Discard removes the temporary file. It is safe after Install, when the file
+// has already become the installed binary and there is nothing at Path.
+func (c *Candidate) Discard() {
+	_ = os.Remove(c.Path)
 }
 
 // target is the tag to follow: the one asked for, the rolling dev build for a
