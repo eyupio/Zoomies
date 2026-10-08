@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { getHost, revokeHostCheck } from '$lib/api/client';
+  import { checkHostHealth, getHost, revokeHostCheck } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { Host } from '$lib/api/types';
   import { href, router } from '$lib/router';
@@ -16,6 +16,7 @@
     type DoctorResult,
   } from '$lib/hosts/health';
   import { cordon } from '$lib/hosts/actions';
+  import { checkNow, superseded } from '$lib/hosts/check-now';
   import { DOCTOR_COMMAND, nextStep, rebootAdvice, rebootPending } from '$lib/hosts/next-step';
   import {
     REPORT_ONLY_SAFE_DESCRIPTION,
@@ -35,7 +36,7 @@
   import { toasts } from '$lib/state/toasts.svelte';
   import type { StatusTone } from '$lib/status';
   import { tick, untrack } from 'svelte';
-  import { ServerCog } from '@lucide/svelte';
+  import { ServerCog, Stethoscope } from '@lucide/svelte';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
@@ -164,6 +165,115 @@
       ].slice(0, 5);
     });
   });
+  // "Check now": the agent runs its read-only checks once and sends the report,
+  // which arrives as the host.updated frame that moves everything else on this
+  // page. Not optimistic: there is no honest local patch for "asked", so the
+  // answer is the host, as it is for accepting a check.
+  let posting = $state(false);
+  // Kept after the request returns until the controller shows an answer, so an
+  // ask that a restarted controller forgot still times out on this page.
+  let localAskedAt = $state<number | null>(null);
+  let restate = $state(false);
+  let checkLive = $state('');
+  let checkWrap = $state<HTMLElement | undefined>();
+  // The shared clock ticks every ten seconds, which is too coarse for a five
+  // second patience or a countdown, so a finer one runs only while a check is
+  // in play.
+  let checkTick = $state(Date.now());
+  const checking = $derived(posting || localAskedAt !== null || host?.health_check !== undefined);
+  $effect(() => {
+    if (!checking) return;
+    checkTick = Date.now();
+    const timer = setInterval(() => (checkTick = Date.now()), 1000);
+    return () => clearInterval(timer);
+  });
+  // The changes this check brought are the ones the page's own diff stamped with
+  // the new report's time.
+  const checkChanges = $derived(
+    report ? changeLog.filter((c) => c.at === report.checked_at).length : 0,
+  );
+  const check = $derived(
+    host
+      ? checkNow({
+          host,
+          canOperate,
+          now: Math.max(now, checkTick),
+          localAskedAt,
+          posting,
+          changes: checkChanges,
+          restate,
+        })
+      : null,
+  );
+  $effect(() => {
+    if (check && !check.cooling) restate = false;
+  });
+  async function ask(): Promise<void> {
+    const target = host;
+    if (!target?.id || !check || check.loading || check.disabled) return;
+    // Inside the cooldown a press changes nothing on the controller; the line
+    // says how long is left, and the button keeps focus.
+    if (check.cooling) {
+      restate = true;
+      return;
+    }
+    const hostId = target.id;
+    posting = true;
+    localAskedAt = Date.now();
+    try {
+      const updated = await checkHostHealth(hostId);
+      // The answer to the ask can arrive after the agent's own, and is then the
+      // older of the two.
+      const held = fleet.hosts.find((h) => h.id === hostId) ?? (id === hostId ? fetched : null);
+      if (!superseded(held?.health_check, updated.health_check)) {
+        fleet.ingestHosts([updated]);
+        if (id === hostId) fetched = updated;
+      }
+    } catch (cause) {
+      if (id === hostId) localAskedAt = null;
+      toasts.fromError(cause, `Could not ask ${target.name ?? hostId} to check`);
+    } finally {
+      if (id === hostId) posting = false;
+    }
+  }
+  // A failure the person caused by pressing the button is told to them once,
+  // and stays until read. One another operator caused, or one found on opening
+  // the page, is only the line: a background event is shown by the page.
+  let toastedFor = '';
+  $effect(() => {
+    const r = check;
+    const state = host?.health_check?.state;
+    // Tracked, so an answer that landed while the request was still out clears
+    // the page's own clock once the request returns.
+    const busy = posting;
+    untrack(() => {
+      if (r?.failureKey && r.failureKey !== toastedFor) {
+        toastedFor = r.failureKey;
+        if (localAskedAt !== null && host)
+          toasts.error(`Check now failed on ${host.name ?? id}`, r.status);
+      }
+      if ((state === 'done' || state === 'failed') && !busy) localAskedAt = null;
+    });
+  });
+  // Said once when the state arrives. A line that only changes its wording
+  // (still waiting) or counts down is not news.
+  $effect(() => {
+    const said = check?.announce;
+    const kind = check?.statusKind;
+    untrack(() => {
+      if (said !== undefined) checkLive = said;
+      else if (kind !== 'waiting' && kind !== 'cooling') checkLive = '';
+    });
+  });
+  // Button.svelte takes no description, and the reason a button is off must be
+  // linked to it, not only sit nearby.
+  $effect(() => {
+    const button = checkWrap?.querySelector('button');
+    if (!button) return;
+    if (check?.reason) button.setAttribute('aria-describedby', 'check-now-reason');
+    else button.removeAttribute('aria-describedby');
+  });
+
   // The in-page links under "Needs attention" are plain #id links, which the
   // router leaves to the browser; this is what moves focus for them too.
   $effect(() => {
@@ -304,6 +414,12 @@
     const controller = new AbortController();
     loading = true;
     fetched = null;
+    // A check asked of the last host is not this one's.
+    posting = false;
+    localAskedAt = null;
+    restate = false;
+    checkLive = '';
+    toastedFor = '';
     getHost(hostId, controller.signal)
       .then((h) => {
         fetched = h;
@@ -334,6 +450,18 @@
   breadcrumb={[{ label: 'Hosts', href: '/hosts' }, { label: host?.name || id }]}
   onrefresh={refresh}
 >
+  {#if check?.show}
+    <span class="check-now" bind:this={checkWrap}>
+      <Button
+        variant="secondary"
+        icon={Stethoscope}
+        iconSpin={check.loading}
+        disabled={check.disabled}
+        title={check.title}
+        onclick={() => void ask()}>Check now</Button
+      >
+    </span>
+  {/if}
   <Badge label={summary.label} tone={summary.tone} title={summary.hint} />
   {#snippet meta()}
     {#if fresh && report}
@@ -345,6 +473,17 @@
             plain
           />{/if}{fresh.tail}</span
       >
+    {/if}
+    {#if check}
+      <div class="check-note">
+        {#if check.reason}<span id="check-now-reason" class="note">{check.reason}</span>{/if}
+        <!-- Plain text, not a live region: what is said aloud is the output below,
+             once, so a line that counts down is not read again and again. -->
+        {#if check.status}
+          <span class="note" class:failed={check.statusKind === 'failed'}>{check.status}</span>
+        {/if}
+        <output class="sr-only" aria-live="polite">{checkLive}</output>
+      </div>
     {/if}
   {/snippet}
 </PageHeader>
@@ -709,6 +848,23 @@
   .fresh {
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
+  }
+  .check-now {
+    display: inline-flex;
+  }
+  .check-note {
+    display: grid;
+    flex: 1 1 100%;
+    gap: var(--z-space-1);
+    min-width: 0;
+  }
+  .note {
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+    overflow-wrap: anywhere;
+  }
+  .note.failed {
+    color: var(--z-text);
   }
   .command {
     display: grid;
