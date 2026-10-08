@@ -39,11 +39,9 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import GitHubLink from './GitHubLink.svelte';
   import JobLabels from './JobLabels.svelte';
-  import JobOutcome from './JobOutcome.svelte';
   import JobSteps from './JobSteps.svelte';
   import JobTimeline from './JobTimeline.svelte';
-  import JobWaiting from './JobWaiting.svelte';
-  import UnmatchedNote from './UnmatchedNote.svelte';
+  import JobWhy from './JobWhy.svelte';
 
   interface Props {
     open?: boolean;
@@ -160,17 +158,13 @@
           />{/if}
       </div>
 
-      {#if failed}
-        <JobOutcome {job} onRerun={canRerun ? rerun : null} {rerunning} />
-      {:else if unmatched}
-        <UnmatchedNote
-          labels={job.labels}
-          repo={job.repo}
-          installationId={job.installation_id}
-          compact
+      {#if failed || unmatched || pending}
+        <JobWhy
+          {job}
+          mode={failed ? 'failed' : 'waiting'}
+          onRerun={canRerun ? rerun : null}
+          {rerunning}
         />
-      {:else if pending}
-        <JobWaiting {job} />
       {/if}
 
       {#if unresolvedJobName(job.job_name)}

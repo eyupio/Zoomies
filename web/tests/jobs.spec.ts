@@ -407,6 +407,9 @@ test("a job whose runner died under it is called the fleet's failure", async ({ 
   // three different answers.
   await expect(why).toContainText("raise the pool's memory limit");
   await expect(why.getByRole('link', { name: 'Open the runner' })).toBeVisible();
+  // The class, which is what a skill matches on and the CLI prints: the same
+  // word here as `zoomies why` gives, because both read the same explanation.
+  await expect(why).toContainText(/\boom\b/);
 
   const timeline = drawer.getByRole('list', { name: 'Timeline' });
   await expect(timeline).toContainText('Runner lost');
