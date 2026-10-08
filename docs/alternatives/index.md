@@ -1,12 +1,17 @@
 ---
 icon: material/compare-horizontal
-title: Alternatives to Zoomies for GitHub Actions runners
+title: GitHub Actions runner alternatives
 description: >-
-  Ways to run GitHub Actions on machines you control, side by side: ARC, GARM,
-  the AWS Terraform module, TestFlows, Cirun and hosted runner services.
+  GitHub Actions runner alternatives compared: Zoomies, ARC, GARM, the AWS
+  Terraform module, TestFlows, Cirun and hosted runner services, and when each fits.
 ---
 
 # Alternatives to Zoomies
+
+This page compares ways to run GitHub Actions jobs on runners other than GitHub's
+own. If you are looking for an alternative to GitHub Actions itself, such as
+GitLab CI or Buildkite, this is not that comparison: here your workflows stay as
+they are and only the machines that run them change.
 
 There are several good ways to run GitHub Actions jobs somewhere other than
 GitHub's own runners. Zoomies is one of them, and for many setups it is not the
