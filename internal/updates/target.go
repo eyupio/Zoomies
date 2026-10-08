@@ -55,7 +55,7 @@ type Target struct {
 	// auto, and zero in manual, where the person asking is the only wait. It
 	// means nothing unless Newer.
 	DueAt time.Time
-	// Reason is the sentence the status shows, in an operator's words.
+	// Reason is the text the status shows, in an operator's words.
 	Reason string
 }
 
