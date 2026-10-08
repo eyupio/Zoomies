@@ -112,10 +112,21 @@ const (
 	createBusyBackoff = 10 * time.Second
 )
 
+// HostDoctor is the part of hosttune.Monitor the agent uses: the periodic
+// report that rides the heartbeat, and a run on request.
+type HostDoctor interface {
+	Latest(ctx context.Context) *hosttune.Report
+	CheckNow(ctx context.Context) (*hosttune.Report, error)
+	CanCheckNow() bool
+}
+
 // Options configures an Agent.
 type Options struct {
 	// Doctor is enabled by production wiring; tests inject a fake or leave it nil.
-	Doctor *hosttune.Monitor
+	// Production passes a *hosttune.Monitor, whose methods are all safe on a
+	// nil receiver, because a typed nil inside an interface is not a nil
+	// interface and would otherwise panic at the first call.
+	Doctor HostDoctor
 	// Name is how this host appears in the UI and in `zoomies hosts`.
 	Name string
 	// WorkDir holds the agent's credentials and the runners' scratch space.
@@ -825,7 +836,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	cpus, memoryMB := hostSize(infos, m)
 	total, free := a.workDirSpace()
 	resp, err := a.tr.Heartbeat(hctx, HeartbeatRequest{
-		Doctor:          a.opts.Doctor.Latest(ctx),
+		Doctor:          a.latestDoctor(ctx),
 		Usage:           a.hostUsage(infos, cpus, memoryMB),
 		ProtocolVersion: ProtocolVersion,
 		Features:        a.features(),
@@ -1169,6 +1180,16 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 			a.runLogTask(ctx, task)
 		}()
 		return
+	case TaskCheckHost:
+		// A check is neither lifecycle work nor a runner's: it must answer on a
+		// full or cordoned host alike, and in a capacity slot it would stop
+		// runners being created for as long as the checks take.
+		a.tasks.Add(1)
+		go func() {
+			defer a.tasks.Done()
+			a.handleCheckHost(ctx, task)
+		}()
+		return
 	case TaskFillToolCache:
 		// Nor is a fill, which is minutes of downloading: in a lifecycle slot
 		// or the startup queue it would hold back the very runners it exists
@@ -1359,6 +1380,8 @@ func validateTask(task Task) error {
 		if len(task.Tools) == 0 {
 			return errors.New("fill_tool_cache task names no toolchains to fill")
 		}
+	case TaskCheckHost:
+		// Nothing to check beyond the ID: it names no runner and carries no spec.
 	default:
 		return fmt.Errorf("unknown task kind %q; this agent speaks protocol version %d, so upgrade it to match the controller", task.Kind, ProtocolVersion)
 	}

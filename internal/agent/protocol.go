@@ -39,6 +39,14 @@ const FeatureElasticMemory = "elastic-memory"
 // safe but would read on the controller as a fill that failed on every host.
 const FeatureToolCacheFill = "tool-cache-fill"
 
+// FeatureHostCheck is advertised by an agent that understands TaskCheckHost,
+// and only where its own monitor can run the OS checks: a native Linux agent.
+// An agent in a container only re-reads a report another unit writes, and
+// off Linux there is nothing to look at, so neither says it. The controller
+// asks for the flag before it queues the kind, which is how an older agent is
+// never sent a task it would refuse.
+const FeatureHostCheck = "host-check"
+
 // FeatureTmpfs is advertised by an agent whose container backends mount a
 // pool's RAM-backed work folder and /tmp. An older agent ignores the field it
 // does not know and starts the runner on disk, which is safe and invisible: the
@@ -337,6 +345,10 @@ const (
 	// TaskFillToolCache puts the toolchain versions a pool's jobs ask for in
 	// its kept tool cache on this host, ahead of the jobs.
 	TaskFillToolCache TaskKind = "fill_tool_cache"
+	// TaskCheckHost asks the agent to run its OS health checks once, now, and
+	// send the report back in the result. It names no runner and carries no
+	// spec, and nothing on the host is changed.
+	TaskCheckHost TaskKind = "check_host"
 )
 
 // Task is one unit of work handed to an agent. Tasks are idempotent: the
@@ -387,7 +399,11 @@ type TaskResult struct {
 	// ToolFills is what a TaskFillToolCache did with each request, including
 	// when the fill as a whole failed part way.
 	ToolFills []backend.ToolFill `json:"tool_fills,omitempty"`
-	TaskID    string             `json:"task_id"`
+	// Doctor is the report a TaskCheckHost took. Additive: a controller that
+	// does not know the field drops it, and an agent that does not know the
+	// task never sends it, so ProtocolVersion does not move.
+	Doctor *hosttune.Report `json:"doctor,omitempty"`
+	TaskID string           `json:"task_id"`
 	// Kind is the kind of the task this answers. The controller uses it to
 	// tell a lifecycle task that failed -- which leaves the runner unusable --
 	// from a log relay that could not be opened, which leaves it exactly as it
