@@ -153,3 +153,27 @@ func TestUpdateSettingsCannotWriteTheUpdatesMode(t *testing.T) {
 		t.Errorf("the check interval was refused: %v", err)
 	}
 }
+
+// An entry that does not end in a dot names one key. Read as a prefix it would
+// also admit updates.check_interval_x the day the section grows one, and the
+// allowlist exists so that a new key is not tunable until somebody names it.
+func TestAnAllowlistEntryWithoutATrailingDotNamesOneKey(t *testing.T) {
+	for key, want := range map[string]bool{
+		"updates.check_interval":   true,
+		"updates.check_interval_x": false,
+		"updates.check_interval.x": false,
+		"scheduler.anything":       true,
+	} {
+		if got := tunable(key); got != want {
+			t.Errorf("tunable(%q) = %v, want %v", key, got, want)
+		}
+	}
+
+	_, err := call(t, "update_settings", &recorder{object: `{}`}, `{"changes":{"updates.check_interval_x":"1h"}}`)
+	if err == nil || !strings.Contains(err.Error(), "updates.check_interval_x cannot be changed over MCP") {
+		t.Fatalf("error = %v, want a refusal naming the key", err)
+	}
+	if !strings.Contains(err.Error(), "only these can") || strings.Contains(err.Error(), "only keys under") {
+		t.Errorf("the refusal reads as though every entry were a prefix: %v", err)
+	}
+}
