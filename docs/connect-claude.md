@@ -156,7 +156,11 @@ Three more tools read [Kennel Club](kennel-club.md), and any viewer may call the
   is tracked and, if not, who stopped it and why.
 * `kennel_findings` lists the repositories that have a check open or a finding
   of a severity, worst first and paged, narrowed by check, severity, standing,
-  tracking or a fragment of the name.
+  tracking or a fragment of the name. Three yes-or-no filters open the same lists
+  the Overview's cards do: `active` for the repositories the fleet has run a job
+  for lately (or, with false, the quiet ones), `incomplete` for the ones only
+  partly checked or not yet looked at, and `waived` for the ones with a waived
+  finding (or, with false, none).
 
 They cannot recheck a repository, waive a finding or stop tracking one: those
 are decisions, they are not MCP tools, and the REST routes behind them want an
