@@ -11,6 +11,9 @@ func setupCheck(code Code, label, detail, fix string, publicOnly bool) Check {
 	return Check{
 		Code: code, Area: AreaSetup, Severity: SeverityInfo,
 		Detects: "No repository-local " + label + " was found on the default branch.",
+		Fix:     fix,
+		Verify:  "Press Recheck once the file is on the default branch; the finding closes when the next tree read finds it.",
+		Docs:    docsAnchor(code),
 		Needs:   []Source{SourceMetadata}, Conditional: []Source{SourceSetup},
 		eval: func(s *Snapshot) result {
 			if publicOnly && s.Repo.Visibility != VisibilityPublic {

@@ -337,7 +337,7 @@
     {#if fleet.loaded && hosts.length > 0}
       <p class="summary">
         {pluralise(hosts.length, 'host')} · {connected} connected · {inUse} of {capacity} runner slots
-        in use{#if hosts.some((h) => h.connection === 'tailcat')}
+        in use {#if hosts.some((h) => h.connection === 'tailcat')}
           · {hosts.filter((h) => h.connection === 'tailcat').length} via Tailcat{/if}
       </p>
     {/if}

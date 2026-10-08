@@ -11,6 +11,9 @@ has a CI job that diffs them:
   editing the spec, run `go run internal/api/gen_openapi.go` from the repo root.
 * `web/src/lib/api/schema.d.ts` is generated from the same spec. Run
   `make openapi` and commit the result.
+* `internal/catalog/catalog.json` and the check list on `docs/kennel-club.md`
+  are generated from `docs/problem-codes.md` and the Kennel registry by
+  `make generate`; `TestTheCatalogIsCurrent` fails on a stale copy.
 * The runner image catalogue in `internal/naming/images.go` is the source for
   both workflows' build matrices, the Makefile's `variant.*` rows and the table
   in `docs/naming.md`. Adding or swapping an operating system is a row there and

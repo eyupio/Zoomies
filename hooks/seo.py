@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import logging
 import os
+import shutil
 import subprocess
 from datetime import datetime, timezone
 
@@ -156,6 +157,7 @@ def on_post_build(config):
         f"- [Repository]({config['repo_url']}): the Go controller, the Svelte UI and these docs.",
         f"- [install.sh]({site_url}/install.sh): the one-line installer, byte-identical to the one in the repository.",
         f"- [OpenAPI document]({config['repo_url']}/blob/main/api/openapi.yaml): the REST contract both clients are generated from.",
+        f"- [Catalog of problem codes and checks]({site_url}/catalog.json): every code Zoomies can raise, with what to do and how to see it worked, as JSON; its schema is beside it at catalog.schema.json.",
         "",
         f"Generated {datetime.now(timezone.utc).strftime('%Y-%m-%d')}.",
         "",
@@ -163,3 +165,10 @@ def on_post_build(config):
 
     with open(os.path.join(config["site_dir"], "llms.txt"), "w", encoding="utf-8") as fh:
         fh.write("\n".join(lines))
+
+    # The catalog is generated into the Go package that embeds it, so the
+    # binary and the site serve the same bytes; the site copies it rather than
+    # keeping a second tracked file that could fall behind.
+    catalog_dir = os.path.join(os.path.dirname(os.path.abspath(config["docs_dir"])), "internal", "catalog")
+    for name, published in (("catalog.json", "catalog.json"), ("schema.json", "catalog.schema.json")):
+        shutil.copyfile(os.path.join(catalog_dir, name), os.path.join(config["site_dir"], published))

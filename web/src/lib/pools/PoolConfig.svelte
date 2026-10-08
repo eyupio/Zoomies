@@ -235,24 +235,25 @@
     <dd class="note">
       {#if fromProfile}
         Each runner is given the standard size of the host it lands on, as that host's runner sizes
-        say.{#if fleetStandard && ((fleetStandard.cpus ?? 0) > 0 || (fleetStandard.memory_mb ?? 0) > 0)}
+        say. {#if fleetStandard && ((fleetStandard.cpus ?? 0) > 0 || (fleetStandard.memory_mb ?? 0) > 0)}
           A host that sets none gives the fleet's default, {formatNumber(fleetStandard.cpus ?? 0)} CPU
-          and {formatMegabytes(fleetStandard.memory_mb ?? 0)}.{/if}{#if dind}
+          and {formatMegabytes(fleetStandard.memory_mb ?? 0)}.{/if}
+        {#if dind}
           Its runner and its Docker daemon share that size, so a slot here is one runner like
           anywhere else.{/if}
       {:else if automatic}
         Each runner is given one slot's share of the machine it lands on — the same share the fleet
         charges its host — so this pool is sized correctly on every host, and follows one that is
-        resized.{#if dind}
+        resized. {#if dind}
           Its runner and its Docker daemon share that slot, so a slot here is one runner like
-          anywhere else.{#if daemonCpu !== 50 || daemonMemory !== 50}
+          anywhere else. {#if daemonCpu !== 50 || daemonMemory !== 50}
             {#if daemonCpu === daemonMemory}
               The daemon is given {daemonCpu}% of it and the runner {100 - daemonCpu}%.{:else}
               The daemon is given {daemonCpu}% of its CPU and {daemonMemory}% of its memory; the
               runner keeps the rest.{/if}{:else}
             They split it evenly.{/if}{/if}
       {:else}
-        A runner is charged this against its host, wherever it lands.{#if dind}
+        A runner is charged this against its host, wherever it lands. {#if dind}
           Twice over: the build runs in a Docker daemon beside it, which is given the same limits.{/if}
       {/if}
     </dd>

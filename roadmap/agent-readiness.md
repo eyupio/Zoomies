@@ -262,7 +262,7 @@ hostile-log fixture whose "instructions" survive only as scrubbed text.
 `high` confidence; a job the fleet never touched returns `workflow-failure`,
 never `unknown`.
 
-## 5. Phase 3 — show the figures behind size advice (ZF-232)
+## 5. Phase 3 — show the figures behind size advice (ZF-236)
 
 The advice exists. What an agent, and an operator, cannot see is the data it
 rests on. This phase is deliberately small.
@@ -639,7 +639,7 @@ evidence (section 6.1).
 
 1. ZF-230 catalog, guard, command generator
 2. ZF-231 `why`
-3. ZF-232 size-advice figures
+3. ZF-236 size-advice figures
 4. ZF-229c the rest of Kennel Club Stage 3 — location evidence, the owed
    checks, the parser move — with `zoomies kennel check`
 5. ZF-233 skills

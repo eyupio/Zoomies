@@ -186,6 +186,9 @@ type KennelCheckInfo struct {
 	Area     kennel.Area     `json:"area"`
 	Severity kennel.Severity `json:"severity"`
 	Detects  string          `json:"detects"`
+	Fix      string          `json:"fix"`
+	Verify   string          `json:"verify"`
+	Docs     string          `json:"docs"`
 	Needs    []KennelNeed    `json:"needs"`
 	// Disabled says the operator turned it off, by its code or its area.
 	Disabled bool `json:"disabled"`
@@ -201,6 +204,7 @@ func (c *Controller) KennelChecks() []KennelCheckInfo {
 	for _, ck := range checks {
 		info := KennelCheckInfo{
 			Code: ck.Code, Area: ck.Area, Severity: ck.Severity, Detects: ck.Detects,
+			Fix: ck.Fix, Verify: ck.Verify, Docs: ck.Docs,
 			Needs:    make([]KennelNeed, 0, len(ck.Needs)),
 			Disabled: disabled[string(ck.Code)] || disabled[string(ck.Area)],
 		}

@@ -22,7 +22,8 @@
 -->
 <script lang="ts">
   import { untrack } from 'svelte';
-  import { Search, Trophy } from '@lucide/svelte';
+  import { SvelteMap } from 'svelte/reactivity';
+  import { EyeOff, Search, Trophy } from '@lucide/svelte';
   import {
     getKennelOverview,
     listInstallations,
@@ -34,7 +35,12 @@
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import DataGrid from '$lib/components/DataGrid.svelte';
-  import type { GridColumn, GridPage, GridQuery } from '$lib/components/DataGrid.svelte';
+  import type {
+    BulkAction,
+    GridColumn,
+    GridPage,
+    GridQuery,
+  } from '$lib/components/DataGrid.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import FilterBar from '$lib/components/FilterBar.svelte';
   import type { FilterChip } from '$lib/components/FilterBar.svelte';
@@ -44,15 +50,18 @@
   import Select from '$lib/components/Select.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Switch from '$lib/components/Switch.svelte';
+  import BulkTrackingDialog from '$lib/kennel/BulkTrackingDialog.svelte';
+  import type { BulkStopResult } from '$lib/kennel/BulkTrackingDialog.svelte';
   import KennelShell from '$lib/kennel/KennelShell.svelte';
   import KennelTurnOn from '$lib/kennel/KennelTurnOn.svelte';
-  import { openFindingsText, worstSeverity } from '$lib/kennel/words';
+  import { openFindingsText, planStop, stopOutcome, worstSeverity } from '$lib/kennel/words';
   import { kennelClub } from '$lib/state/kennel.svelte';
   import { registerSearch } from '$lib/keys';
   import { router } from '$lib/router';
   import { fleet } from '$lib/state/fleet.svelte';
   import { prefs, remember, remembered } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
+  import { toasts } from '$lib/state/toasts.svelte';
   import { kennelStatus, kennelTrackingStatus } from '$lib/status';
 
   /* -- whether there is anything to list ------------------------------------- */
@@ -298,8 +307,69 @@
       },
       signal,
     );
+    for (const row of page.items ?? []) loaded.set(row.id, row);
     return { items: page.items ?? [], total: page.total };
   }
+
+  /* -- stopping several at once ---------------------------------------------- */
+
+  // The grid hands a bulk action ids, and the dialog has to name what it is about to
+  // stop and leave alone what is already stopped, so the page keeps the rows it has
+  // loaded. A selection can outlast the page it was ticked on, and so can this.
+  const loaded = new SvelteMap<string, KennelRepository>();
+
+  // Stopping silences a repository's errors, which is an administrator's decision,
+  // so nobody else is offered a column of tick boxes that could only be refused.
+  const canAdmin = $derived(session.can('admin'));
+
+  let bulk = $state<{
+    repositories: { id: string; name: string }[];
+    alreadyStopped: number;
+  } | null>(null);
+  let bulkOpen = $state(false);
+  let settleBulk: ((done: boolean) => void) | undefined;
+
+  function askToStop(ids: string[]): Promise<boolean> {
+    if (bulk) return Promise.resolve(false);
+    const plan = planStop(ids, loaded);
+    if (plan.stop.length === 0) {
+      toasts.info(
+        'Nothing to stop',
+        'Those repositories are already not tracked, so there is nothing for Kennel Club to stop looking at.',
+      );
+      return Promise.resolve(false);
+    }
+    bulk = {
+      repositories: plan.stop.map((row) => ({ id: row.id, name: row.name })),
+      alreadyStopped: plan.alreadyStopped,
+    };
+    bulkOpen = true;
+    return new Promise((resolve) => (settleBulk = resolve));
+  }
+
+  function cancelBulk(): void {
+    bulk = null;
+    bulkOpen = false;
+    settleBulk?.(false);
+    settleBulk = undefined;
+  }
+
+  function finishBulk(result: BulkStopResult): void {
+    const outcome = stopOutcome(result.stopped.length + result.failures.length, result.failures);
+    if (outcome.failed) toasts.error(outcome.title, outcome.detail);
+    else toasts.success(outcome.title, outcome.detail);
+    reload += 1;
+    liveKey += 1;
+    bulk = null;
+    // Some not stopped keeps them ticked, so the rest can be tried again: the ones
+    // that did stop are then left alone, not stopped a second time under a new reason.
+    settleBulk?.(!outcome.failed);
+    settleBulk = undefined;
+  }
+
+  const bulkActions = $derived<BulkAction[]>(
+    canAdmin ? [{ id: 'stop-tracking', label: 'Stop tracking', icon: EyeOff, run: askToStop }] : [],
+  );
 
   // How many more would be listed without the scope, with the same filters, so the
   // page can say what it is leaving out instead of quietly leaving it out.
@@ -514,6 +584,8 @@
         {columns}
         fetcher={fetchRepositories}
         rowId={(row) => row.id}
+        selectable={canAdmin}
+        {bulkActions}
         {filters}
         defaultSort="severity"
         defaultOrder="desc"
@@ -547,6 +619,16 @@
     {/if}
   </div>
 </KennelShell>
+
+{#if bulk}
+  <BulkTrackingDialog
+    bind:open={bulkOpen}
+    repositories={bulk.repositories}
+    alreadyStopped={bulk.alreadyStopped}
+    onfinished={finishBulk}
+    oncancel={cancelBulk}
+  />
+{/if}
 
 <style>
   .content {

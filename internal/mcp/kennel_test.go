@@ -228,6 +228,17 @@ func TestFindingsAreAskedForWithTheFiltersGivenAndAPageSmallEnoughToRead(t *test
 		{"only the ones tracked", `{"tracked":true}`, url.Values{"limit": {"25"}, "tracked": {"true"}}},
 		{"a standing, a name and a page", `{"state":"attention","q":"acme","limit":100,"offset":200}`,
 			url.Values{"limit": {"100"}, "state": {"attention"}, "q": {"acme"}, "offset": {"200"}}},
+		// The three the Overview's cards open, asked for the same way. False is an
+		// answer here too: the quiet repositories, and the ones nobody waived
+		// anything for, are what somebody asking for them wants.
+		{"only the ones with a job lately", `{"active":true}`, url.Values{"limit": {"25"}, "active": {"true"}}},
+		{"only the quiet ones", `{"active":false}`, url.Values{"limit": {"25"}, "active": {"false"}}},
+		{"only the partly checked", `{"incomplete":true}`, url.Values{"limit": {"25"}, "incomplete": {"true"}}},
+		{"only the ones with a waived finding", `{"waived":true}`, url.Values{"limit": {"25"}, "waived": {"true"}}},
+		{"only the ones with none waived", `{"waived":false}`, url.Values{"limit": {"25"}, "waived": {"false"}}},
+		{"every filter at once, each as itself",
+			`{"active":true,"incomplete":true,"waived":false,"tracked":true,"state":"partial"}`,
+			url.Values{"limit": {"25"}, "active": {"true"}, "incomplete": {"true"}, "waived": {"false"}, "tracked": {"true"}, "state": {"partial"}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			api := &kennelAPI{body: `{"items":[],"total":0,"limit":25,"offset":0}`}
@@ -241,8 +252,38 @@ func TestFindingsAreAskedForWithTheFiltersGivenAndAPageSmallEnoughToRead(t *test
 	}
 }
 
+// An assistant learns that a filter exists from the schema and from nowhere else,
+// so a filter the tool takes and the schema does not list is one nobody will ever
+// ask for. The four that narrow by a yes or a no say so, because a model that
+// reads "true" as a string sends one the tool refuses.
+func TestFindingsTellTheAssistantEveryFilterTheyTake(t *testing.T) {
+	props, ok := kennelTool(t, "kennel_findings").InputSchema["properties"].(map[string]any)
+	if !ok {
+		t.Fatal("kennel_findings has no properties in its schema")
+	}
+	for _, name := range []string{"code", "severity", "state", "q", "limit", "offset"} {
+		if _, there := props[name]; !there {
+			t.Errorf("the schema does not list %s", name)
+		}
+	}
+	for _, name := range []string{"tracked", "active", "incomplete", "waived"} {
+		prop, there := props[name].(map[string]any)
+		if !there {
+			t.Errorf("the schema does not list %s", name)
+			continue
+		}
+		if prop["type"] != "boolean" {
+			t.Errorf("%s is %v in the schema, want boolean", name, prop["type"])
+		}
+		if d, _ := prop["description"].(string); len(d) < 20 {
+			t.Errorf("%s has no description worth the name: %q", name, d)
+		}
+	}
+}
+
 func TestFindingsRefuseWhatTheAPIWouldBeAskedNonsenseAboutBeforeAskingIt(t *testing.T) {
-	for _, args := range []string{`{"limit":101}`, `{"limit":-1}`, `{"offset":-1}`, `{"severity":7}`, `{"tracked":"no"}`, `{"id":"kcr_1"}`, `[]`} {
+	for _, args := range []string{`{"limit":101}`, `{"limit":-1}`, `{"offset":-1}`, `{"severity":7}`, `{"tracked":"no"}`,
+		`{"active":"yes"}`, `{"active":1}`, `{"incomplete":"true"}`, `{"waived":null,"incomplete":2}`, `{"id":"kcr_1"}`, `[]`} {
 		api := &kennelAPI{}
 		if _, err := kennelCall(t, kennelFindings, api, args); err == nil || api.calls != 0 {
 			t.Errorf("%s reached REST (calls=%d, err=%v)", args, api.calls, err)
