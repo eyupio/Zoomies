@@ -8,7 +8,6 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
-	"syscall"
 )
 
 var proxmoxKey = regexp.MustCompile(`^[0-9a-f]{12}$`)
@@ -53,10 +52,10 @@ func (p *upgradePlan) upgradeProxmoxGateways(ctx context.Context) error {
 			return err
 		}
 		defer lock.Close()
-		if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		if err := tryLockExclusive(lock); err != nil {
 			return fmt.Errorf("installer: %s is being configured; retry the upgrade when setup finishes", unit)
 		}
-		defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		defer unlockFile(lock)
 		binary, err := os.ReadFile(p.opts.BinaryPath)
 		if err != nil {
 			return err
