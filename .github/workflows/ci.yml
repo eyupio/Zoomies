@@ -189,6 +189,26 @@ jobs:
   # instrumentation Go offers, and the number it produces is the one Codecov
   # tracks on main. A pull request still runs every test under the race
   # detector.
+      # Commit messages carry no third-party names: the clean-room rule in
+      # roadmap/agent-readiness.md section 2. The tree itself is checked by a
+      # test in internal/docs on every run; the messages need the pull
+      # request's commits, which the shallow checkout does not have, so they
+      # come from the API.
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: github.event_name == 'pull_request'
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+      - name: Commit messages carry no third-party names
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          set -eu
+          gh api "repos/$GITHUB_REPOSITORY/pulls/$NUMBER/commits" --paginate --jq '.[].commit.message' > "$RUNNER_TEMP/commit-messages.txt"
+          PROVENANCE_MESSAGES_FILE="$RUNNER_TEMP/commit-messages.txt" go test ./internal/provenance -run TestTheCommitRangeIsClean
+
   go:
     name: Go (${{ matrix.shard }})
     needs: [changes]
