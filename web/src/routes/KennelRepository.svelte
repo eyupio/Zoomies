@@ -84,12 +84,18 @@
   let gone = $state(false);
   let reload = $state(0);
   let showing = '';
+  // How many frames for this page's repository have been applied. A read is
+  // answered for the moment it was made, so one that was already out when a frame
+  // arrived must not replace what the frame set: it is the older of the two, and
+  // nothing would ever put the newer back.
+  let frames = 0;
 
   $effect(() => {
     void reload;
     // Turned on or off from the rail, here or in another tab: ask again.
     void kennelClub.epoch;
     const current = id;
+    const asked = frames;
     // The page is not keyed, so a different repository is the same component
     // with a different id: what was showing must not outlive the change.
     if (untrack(() => showing) !== current) {
@@ -102,6 +108,7 @@
     loading = true;
     void getKennelRepository(current, controller.signal)
       .then((next) => {
+        if (frames !== asked) return;
         repo = next;
         error = null;
       })
@@ -126,6 +133,7 @@
   $effect(() =>
     events.subscribe('kennel.updated', (row) => {
       if (row.id === id) {
+        frames += 1;
         repo = row;
         error = null;
       }
