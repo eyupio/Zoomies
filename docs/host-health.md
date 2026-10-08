@@ -331,7 +331,9 @@ The same count reaches the other places you look:
   unreachable or has sent no report. See [the CLI](cli.md).
 * **Assistants.** MCP's `list_hosts` tells the assistant to read
   `doctor.summary` before `doctor.results`, and `list_problems` returns the
-  three problems like any other.
+  three problems like any other. `list_hosts` takes `include_checks=false` to
+  leave the results out when the question is about capacity, and `host_health`
+  returns one host's report in full.
 
 ### What it cannot see
 
