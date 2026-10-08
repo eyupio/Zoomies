@@ -78,7 +78,7 @@ func TestAnExitCodeReachesTheJobAsACategoryAndAFix(t *testing.T) {
 	// The explanation offers the category's own remedy rather than the generic
 	// "go and look", which is the difference between being told the fleet
 	// broke the job and being told what to change.
-	why, err := h.c.ExplainJob(h.ctx, job.ID)
+	why, err := h.c.ExplainJob(h.ctx, job.ID, 0)
 	if err != nil {
 		t.Fatalf("ExplainJob: %v", err)
 	}
@@ -290,7 +290,7 @@ func TestAPoolThatCannotStartARunnerSaysSoEverywhere(t *testing.T) {
 	}
 
 	// And the job's own page.
-	why, err := h.c.ExplainJob(h.ctx, job.ID)
+	why, err := h.c.ExplainJob(h.ctx, job.ID, 0)
 	if err != nil {
 		t.Fatalf("ExplainJob: %v", err)
 	}

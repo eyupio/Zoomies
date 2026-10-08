@@ -451,7 +451,7 @@ func (s *Server) handleJobFacets(w http.ResponseWriter, r *http.Request) {
 // than from the row -- so it would be wrong on every cached copy of a job the
 // event stream has already delivered.
 func (s *Server) handleJobExplanation(w http.ResponseWriter, r *http.Request) {
-	out, err := s.ctrl.ExplainJob(r.Context(), chiURLParam(r, "id"))
+	out, err := s.ctrl.ExplainJob(r.Context(), chiURLParam(r, "id"), 12)
 	if err != nil {
 		s.fail(w, r, "explaining the job", err)
 		return

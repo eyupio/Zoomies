@@ -308,7 +308,7 @@ func TestTheExplanationSaysHowAJobWasClassedAndWhereItWasSent(t *testing.T) {
 		t.Fatal(err)
 	}
 	job := h.jobByGitHubID(8201)
-	ex, err := h.c.ExplainJob(h.ctx, job.ID)
+	ex, err := h.c.ExplainJob(h.ctx, job.ID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +322,7 @@ func TestTheExplanationSaysHowAJobWasClassedAndWhereItWasSent(t *testing.T) {
 	// A job that names a class nothing answers is not waiting for another provider.
 	h.deliverJob(jobEvent{Action: "queued", JobID: 8202, Name: "huge", Workflow: "CI", Labels: []string{"self-hosted", "zoomies-small"}})
 	named := h.jobByGitHubID(8202)
-	ex, err = h.c.ExplainJob(h.ctx, named.ID)
+	ex, err = h.c.ExplainJob(h.ctx, named.ID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -357,7 +357,7 @@ func TestAJobThatNamesAClassWhosePoolIsAnotherInstallationsIsToldThatAndNotThatN
 		t.Fatal(err)
 	}
 	job := h.jobByGitHubID(8210)
-	ex, err := h.c.ExplainJob(h.ctx, job.ID)
+	ex, err := h.c.ExplainJob(h.ctx, job.ID, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
