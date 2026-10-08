@@ -2426,6 +2426,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/hosts/{id}/health-check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask a host's agent to check itself now
+         * @description Queues one request for the host's agent to run its read-only OS checks once and send the report back, instead of waiting for its next periodic report. Nothing on the host is changed, and the controller never dials the agent: the request goes out on the agent's own poll. The answer is the host straight away, carrying `health_check.state` of `asked`; the report arrives later as an ordinary `host.updated` event. Only a native Linux agent (a systemd or bare-process install, or the agent inside a natively installed controller) that advertises `host-check` can answer. An agent in a container, including the Compose deployment with the host-health service, a host that is not Linux and an agent older than this feature are refused with 409 and a sentence saying so, as is a host that is not connected. A host asked within the last 15 seconds answers 429 with `Retry-After`; asking again while a request is still waiting for its answer changes nothing and answers the host. Audited as `host.check_requested` only when a request was queued. Takes no body.
+         */
+        post: operations["checkHostHealth"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hosts/{id}/check-acceptances": {
         parameters: {
             query?: never;
@@ -13026,6 +13049,33 @@ export interface operations {
                     "application/json": components["schemas"]["Host"];
                 };
             };
+        };
+    };
+    checkHostHealth: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Accepted */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Host"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            429: components["responses"]["RateLimited"];
         };
     };
     acceptHostCheck: {

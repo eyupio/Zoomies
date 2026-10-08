@@ -3828,6 +3828,37 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Host" }
 
+  /hosts/{id}/health-check:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: checkHostHealth
+      tags: [hosts]
+      summary: Ask a host's agent to check itself now
+      description: >-
+        Queues one request for the host's agent to run its read-only OS checks once and send the
+        report back, instead of waiting for its next periodic report. Nothing on the host is
+        changed, and the controller never dials the agent: the request goes out on the agent's
+        own poll. The answer is the host straight away, carrying `health_check.state` of `asked`;
+        the report arrives later as an ordinary `host.updated` event. Only a native Linux agent
+        (a systemd or bare-process install, or the agent inside a natively installed controller)
+        that advertises `host-check` can answer. An agent in a container, including the Compose
+        deployment with the host-health service, a host that is not Linux and an agent older
+        than this feature are refused with 409 and a sentence saying so, as is a host that is not
+        connected. A host asked within the last 15 seconds answers 429 with `Retry-After`; asking
+        again while a request is still waiting for its answer changes nothing and answers the
+        host. Audited as `host.check_requested` only when a request was queued. Takes no body.
+      x-zoomies-role: operator
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Host" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
   /hosts/{id}/check-acceptances:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
     put:

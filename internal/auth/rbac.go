@@ -65,6 +65,11 @@ const (
 	// the decision back. It changes what Zoomies counts, never the host. Operator
 	// for both halves: revoking only ever makes Zoomies stricter.
 	ActionHostsAccept Action = "hosts.accept"
+	// ActionHostsCheck is asking a host's agent to run its read-only OS checks
+	// now. It changes nothing on the host, but it spends the host's CPU and forks
+	// a few dozen processes there, so a viewer never can, and it has a scope of
+	// its own so a token can be given this and nothing else about hosts.
+	ActionHostsCheck Action = "hosts.check"
 )
 
 // Installation actions. Verifying credentials is an operator action because it
@@ -254,6 +259,7 @@ var actionRoles = map[Action]store.Role{
 	ActionHostsCordon: store.RoleOperator,
 	ActionHostsDelete: store.RoleAdmin,
 	ActionHostsAccept: store.RoleOperator,
+	ActionHostsCheck:  store.RoleOperator,
 
 	ActionInstallationsRead:   store.RoleViewer,
 	ActionInstallationsWrite:  store.RoleAdmin,
