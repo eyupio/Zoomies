@@ -109,13 +109,17 @@ func TestParseRequestRefusesARequestedByThatCouldForgeALogLine(t *testing.T) {
 	for _, by := range []string{
 		strings.Repeat("a", 129), "user:alice\n", "user:alice\rforged", "user:\x00alice",
 		"user:\x1b[31malice", "user:alice\x7f", "user:\talice", "user:alice\u0085",
+		// Not control characters, and no better in a log: a right-to-left
+		// override reorders what the reader sees, and the separators end a line
+		// in some viewers.
+		"user:\u202eecila", "user:alice\u2028forged", "user:alice\u2029forged", "user:al\u200bice",
 	} {
 		doc := `{"v":1,"id":"upd_k3fqz2mx7abcd","tag":"v1.3.5","requested_by":` + quote(by) + `,"requested_at":"2026-10-08T09:00:00Z"}`
 		if _, err := ParseRequest([]byte(doc)); err == nil {
 			t.Errorf("requested_by %q was accepted", by)
 		}
 	}
-	for _, by := range []string{"", "user:alice", "user:zoë", strings.Repeat("a", 128)} {
+	for _, by := range []string{"", "user:alice", "user:zoë", "user:alice smith", strings.Repeat("a", 128)} {
 		doc := `{"v":1,"id":"upd_k3fqz2mx7abcd","tag":"v1.3.5","requested_by":` + quote(by) + `,"requested_at":"2026-10-08T09:00:00Z"}`
 		if _, err := ParseRequest([]byte(doc)); err != nil {
 			t.Errorf("requested_by %q was refused: %v", by, err)

@@ -54,8 +54,8 @@ const (
 )
 
 // helperEUID is the uid the helper's state must belong to. It is a variable so
-// that a test, which runs as root and can only make root's files, can stand for
-// a helper whose state somebody else owns.
+// that a test, whose files all belong to whoever runs it, can stand for a
+// helper whose state somebody else owns without chown.
 var helperEUID = os.Geteuid
 
 // fileUID is the ownerOf a real helper passes: the file's owning uid.
@@ -96,9 +96,15 @@ func readRequest(dir *os.Root, wantUID int, ownerOf func(os.FileInfo) (int, bool
 //
 // The checks run in the order that gives away least. The owner is checked
 // before the size and long before the content, so that nothing about a file
-// the service does not own -- a hard link to one only root can read -- ends up
+// the service does not own (a hard link to one only root can read, say) ends up
 // in an answer the service reads.
 func inspectRequest(dir *os.Root, wantUID int, ownerOf func(os.FileInfo) (int, bool)) (updates.Request, error) {
+	// The owner check is what keeps a hard link to a root-only file out, and it
+	// keeps nothing out if the service is root. A service that runs as root can
+	// upgrade itself and needs no helper.
+	if wantUID == 0 {
+		return updates.Request{}, fmt.Errorf("the update folder is recorded as belonging to uid 0, and the helper does not serve root, because every file root can read would then pass as a request; a service that runs as root needs no helper, and otherwise run \"sudo zoomies updates helper install\" again so it records the account zoomies runs as")
+	}
 	f, info, err := openPlainFile(dir, channel.RequestFile)
 	if err != nil {
 		return updates.Request{}, err
@@ -132,8 +138,8 @@ func inspectRequest(dir *os.Root, wantUID int, ownerOf func(os.FileInfo) (int, b
 // stays inside the root even when the open asks for O_NOFOLLOW, so the flag
 // alone refuses only a link out of the folder, and it is the look that refuses
 // the rest. The open does not block and the file opened must be the one looked
-// at, so a name swapped in between costs an error and not a hang or a read of
-// something else.
+// at, so a name swapped in between costs an error and not a hang, a terminal or
+// a read of something else.
 func openPlainFile(dir *os.Root, name string) (*os.File, os.FileInfo, error) {
 	named, err := dir.Lstat(name)
 	if err != nil {
@@ -143,7 +149,9 @@ func openPlainFile(dir *os.Root, name string) (*os.File, os.FileInfo, error) {
 		return nil, nil, fmt.Errorf("%s is a %s and not a plain file", name, fileKind(named.Mode()))
 	}
 	betweenLookAndOpen(name)
-	f, err := dir.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK, 0)
+	// O_NOCTTY because the helper is a session leader with no terminal, which a
+	// terminal opened without it would become the controlling terminal of.
+	f, err := dir.OpenFile(name, os.O_RDONLY|syscall.O_NOFOLLOW|syscall.O_NONBLOCK|syscall.O_NOCTTY, 0)
 	if err != nil {
 		return nil, nil, fmt.Errorf("cannot open %s: %v", name, err)
 	}
@@ -312,22 +320,25 @@ func (s *helperState) admit(r updates.Request, now time.Time) error {
 	if len(tried) >= helperMaxAttemptsPerTag {
 		return fmt.Errorf("%s has been tried %d times on this host already, which is as many as the helper allows; find out why it failed, then run \"sudo zoomies upgrade --version %s\" on the host", r.Tag, len(tried), r.Tag)
 	}
-	if last, ok := s.lastAttempt(); ok && now.Sub(last) < helperMinInterval {
+	if last, ok := s.lastAttempt(now); ok && now.Sub(last) < helperMinInterval {
 		return fmt.Errorf("the last update attempt on this host was at %s, and the helper starts at most one every %d minutes; ask again after %s", last.UTC().Format(time.RFC3339), int(helperMinInterval/time.Minute), last.Add(helperMinInterval).UTC().Format(time.RFC3339))
 	}
 	s.Attempts[r.Tag] = append(tried, now)
 	for len(s.Attempts) > helperSeenIDs {
-		delete(s.Attempts, s.stalestTag())
+		delete(s.Attempts, s.tagToForget())
 	}
 	return nil
 }
 
-// lastAttempt is the newest attempt at any tag.
-func (s *helperState) lastAttempt() (time.Time, bool) {
+// lastAttempt is the newest attempt at any tag, leaving out any more than the
+// interval ahead of now. One that far ahead was recorded before the clock was
+// set back, and waiting for the clock to catch up could lock the helper for as
+// long as the clock was wrong; it still counts against its own tag.
+func (s *helperState) lastAttempt(now time.Time) (time.Time, bool) {
 	var last time.Time
 	for _, times := range s.Attempts {
 		for _, at := range times {
-			if at.After(last) {
+			if at.After(last) && !at.After(now.Add(helperMinInterval)) {
 				last = at
 			}
 		}
@@ -335,12 +346,33 @@ func (s *helperState) lastAttempt() (time.Time, bool) {
 	return last, !last.IsZero()
 }
 
-// stalestTag is the tag whose newest attempt is the oldest, which is the one
-// to forget first.
-func (s *helperState) stalestTag() string {
+// tagToForget is the tag the state can most afford to lose: of the tags that
+// can still be tried, the one tried longest ago, and only when every tag has
+// reached its limit, the one that reached it longest ago.
+//
+// Forgetting a tag at its limit hands it two fresh attempts, so that happens
+// only once every remembered tag is at its limit too: a service that wants a
+// capped tag back has to spend two attempts on each of sixty-four others first,
+// which at one attempt in ten minutes is most of a day. That is the residue the
+// bound on the state leaves.
+func (s *helperState) tagToForget() string {
+	if tag, ok := s.stalestTag(func(times []time.Time) bool { return len(times) < helperMaxAttemptsPerTag }); ok {
+		return tag
+	}
+	tag, _ := s.stalestTag(func([]time.Time) bool { return true })
+	return tag
+}
+
+// stalestTag is the tag, among those include accepts, whose newest attempt is
+// the oldest.
+func (s *helperState) stalestTag(include func([]time.Time) bool) (string, bool) {
 	var stalest string
 	var stalestAt time.Time
+	found := false
 	for tag, times := range s.Attempts {
+		if !include(times) {
+			continue
+		}
 		// A tag with no times, which only a hand-edited file holds, counts as the
 		// oldest rather than as a reason to stop.
 		var newest time.Time
@@ -349,11 +381,11 @@ func (s *helperState) stalestTag() string {
 				newest = at
 			}
 		}
-		if stalest == "" || newest.Before(stalestAt) {
-			stalest, stalestAt = tag, newest
+		if !found || newest.Before(stalestAt) {
+			stalest, stalestAt, found = tag, newest, true
 		}
 	}
-	return stalest
+	return stalest, found
 }
 
 // save writes the state atomically, private to root. A helper that cannot save

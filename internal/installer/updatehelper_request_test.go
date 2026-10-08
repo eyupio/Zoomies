@@ -20,9 +20,9 @@ import (
 )
 
 // testServiceUID is the account the update folder belongs to in these tests.
-// The tests run as root, so every file they make is root's; the ownerOf seam
-// is what says a file is the service's, and a test that wants a stranger's
-// file says so through it rather than with chown.
+// Every file a test makes belongs to whoever runs the tests, root or not; the
+// ownerOf seam is what says a file is the service's, and a test that wants a
+// stranger's file says so through it rather than with chown.
 const testServiceUID = 65532
 
 func ownedByService(os.FileInfo) (int, bool) { return testServiceUID, true }
@@ -215,6 +215,47 @@ func TestTheHelperRefusesARequestSwappedAfterItWasLookedAt(t *testing.T) {
 	}
 }
 
+// A service that runs as root needs no helper, and serving one would make the
+// owner check meaningless: every file root can read, including one hard-linked
+// into the folder, is root's, so it would pass as a request.
+func TestTheHelperRefusesToServeAFolderThatBelongsToRoot(t *testing.T) {
+	dir, root := updateRoot(t)
+	plant(t, filepath.Join(dir, channel.RequestFile), wellFormedRequest)
+	ownedByRoot := func(os.FileInfo) (int, bool) { return 0, true }
+	r, err := readRequest(root, 0, ownedByRoot)
+	if err == nil {
+		t.Fatalf("a request for a root-owned folder was accepted: %+v", r)
+	}
+	if !strings.Contains(err.Error(), "uid 0") || !strings.Contains(err.Error(), "helper install") {
+		t.Errorf("the refusal should say the folder is root's and how to fix it, got: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, channel.RequestFile)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("the refused request is still in the folder: %v", err)
+	}
+}
+
+// A request that cannot be consumed would be read again on the next firing, so
+// it is not acted on once either. Root can remove from any folder, so this is
+// only seen as another account.
+func TestTheHelperRefusesARequestItCannotRemove(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root can remove a file from a read-only folder; run the tests as another account to see this")
+	}
+	dir, root := updateRoot(t)
+	plant(t, filepath.Join(dir, channel.RequestFile), wellFormedRequest)
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { os.Chmod(dir, 0o750) })
+	r, err := readRequest(root, testServiceUID, ownedByService)
+	if err == nil || !strings.Contains(err.Error(), "cannot remove") {
+		t.Fatalf("a request that could not be removed was not refused for it: %+v, %v", r, err)
+	}
+	if r != (updates.Request{}) {
+		t.Errorf("the refusal came back with a request to act on: %+v", r)
+	}
+}
+
 func TestTheHelperRefusesAnOversizedRequest(t *testing.T) {
 	dir, root := updateRoot(t)
 	// Leading spaces keep it a valid request, so its size is all that is wrong.
@@ -317,8 +358,8 @@ func loadState(t *testing.T, dir string) *helperState {
 
 var t0 = time.Date(2026, 10, 8, 9, 0, 0, 0, time.UTC)
 
-// A request is acted on once. A replayed one -- the service writing back a
-// request it saw before -- would otherwise start the same attempt again.
+// A request is acted on once. A replayed one (the service writing back a
+// request it saw before) would otherwise start the same attempt again.
 func TestTheHelperRefusesARepeatedRequestID(t *testing.T) {
 	s := loadState(t, stateDir(t))
 	if err := s.admit(testRequest("upd_aaaa", "v1.3.5"), t0); err != nil {
@@ -366,8 +407,8 @@ func TestTheHelperRefusesAnAttemptWithinTenMinutesOfTheLast(t *testing.T) {
 	}
 }
 
-// The limits are only limits if a restart of the helper -- which is every
-// request, since each run is a oneshot -- does not forget them.
+// The limits are only limits if a restart of the helper does not forget them,
+// and every request is a restart, since each run is a oneshot.
 func TestTheHelperStateSurvivesARestart(t *testing.T) {
 	dir := stateDir(t)
 	s := loadState(t, dir)
@@ -441,6 +482,62 @@ func TestTheHelperRemembersABoundedNumberOfRequests(t *testing.T) {
 	}
 }
 
+// Forgetting a tag to keep the state small must not hand a tag that has reached
+// its limit a fresh pair of attempts: the tags forgotten first are the ones
+// that can still be tried anyway.
+func TestTheHelperKeepsATagAtItsLimitWhenItForgetsOthers(t *testing.T) {
+	s := loadState(t, stateDir(t))
+	at := t0
+	for _, id := range []string{"upd_capa", "upd_capb"} {
+		if err := s.admit(testRequest(id, "v1.3.5"), at); err != nil {
+			t.Fatal(err)
+		}
+		at = at.Add(helperMinInterval)
+	}
+	for i := range helperSeenIDs {
+		id := "upd_" + strings.Repeat("b", i+1)
+		tag := "v2.0." + strings.Repeat("1", i+1)
+		if err := s.admit(testRequest(id, tag), at); err != nil {
+			t.Fatalf("attempt %d: %v", i, err)
+		}
+		at = at.Add(helperMinInterval)
+	}
+	if len(s.Attempts) != helperSeenIDs {
+		t.Fatalf("%d tags are remembered, want %d", len(s.Attempts), helperSeenIDs)
+	}
+	if _, ok := s.Attempts["v2.0.1"]; ok {
+		t.Error("the oldest tag with an attempt left was kept, so the tag at its limit must have been forgotten")
+	}
+	if err := s.admit(testRequest("upd_capc", "v1.3.5"), at); err == nil || !strings.Contains(err.Error(), "tried 2 times") {
+		t.Fatalf("the tag at its limit was let in again after 64 other tags: %v", err)
+	}
+}
+
+// A clock set back after an attempt leaves that attempt in the future. Waiting
+// for the clock to catch up could lock the helper for years, so an attempt
+// more than the interval ahead is taken as a clock fault: it no longer holds
+// up other attempts, and still counts against its own tag.
+func TestTheHelperIsNotLockedByAnAttemptFromTheFuture(t *testing.T) {
+	s := loadState(t, stateDir(t))
+	if err := s.admit(testRequest("upd_aaaa", "v1.3.5"), t0.Add(24*time.Hour)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.admit(testRequest("upd_bbbb", "v1.3.5"), t0); err != nil {
+		t.Fatalf("an attempt from a day ahead held up the helper: %v", err)
+	}
+	if err := s.admit(testRequest("upd_cccc", "v1.3.5"), t0.Add(time.Hour)); err == nil || !strings.Contains(err.Error(), "tried 2 times") {
+		t.Errorf("the attempt from the future did not count against its tag: %v", err)
+	}
+	// A little ahead is ordinary skew, and still holds the next attempt back.
+	near := loadState(t, stateDir(t))
+	if err := near.admit(testRequest("upd_dddd", "v1.3.5"), t0.Add(5*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if err := near.admit(testRequest("upd_eeee", "v1.3.6"), t0); err == nil || !strings.Contains(err.Error(), "at most one every") {
+		t.Errorf("an attempt five minutes ahead did not hold up the next: %v", err)
+	}
+}
+
 // The state is what stops a compromised service from asking root for update
 // after update, so anything that might let the service have written it is
 // refused and not used: an owner other than the helper's, a mode that lets a
@@ -459,8 +556,8 @@ func TestTheHelperRefusesStateItDoesNotControl(t *testing.T) {
 	}
 	t.Run("owned by another uid", func(t *testing.T) {
 		dir := saved(t)
-		// The files are root's; pretending the helper runs as someone else makes
-		// them another account's without chown.
+		// The files are whoever runs the tests'; pretending the helper runs as
+		// someone else makes them another account's without chown.
 		was := helperEUID
 		helperEUID = func() int { return 4242 }
 		t.Cleanup(func() { helperEUID = was })
@@ -613,7 +710,9 @@ func TestTheResultIsBoundedAndValidUTF8(t *testing.T) {
 	// Each invalid byte becomes a three-byte replacement once encoded, so they
 	// have to be counted after the replacement and not before; and the output is
 	// longer than the bound, so the cut has to keep the end.
-	tail := strings.Repeat("\xffa", 10<<10) + "the last line says why"
+	// The control character is the worst case for size, six bytes each once
+	// escaped, so the bound is tested where the encoded document is largest.
+	tail := strings.Repeat("\x01\xffa", 7<<10) + "the last line says why"
 	worst := strings.Repeat("\x01", 20<<10) // six bytes each once escaped
 	// The error's bound falls inside a three-byte character, which has to be
 	// dropped whole rather than cut.

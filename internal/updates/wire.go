@@ -109,8 +109,11 @@ func ParseRequest(body []byte) (Request, error) {
 	if len(r.RequestedBy) > maxRequestedByLength {
 		return Request{}, fmt.Errorf("requested_by is %d bytes, over the limit of %d", len(r.RequestedBy), maxRequestedByLength)
 	}
-	if strings.ContainsFunc(r.RequestedBy, unicode.IsControl) {
-		return Request{}, fmt.Errorf("requested_by %q has a control character in it, which a log line must not carry", r.RequestedBy)
+	// Printable characters only, not merely no control characters: a right-to-left
+	// override reorders what the reader sees, and a line or paragraph separator
+	// ends a line in some viewers, and neither is a control character.
+	if strings.ContainsFunc(r.RequestedBy, func(c rune) bool { return !unicode.IsGraphic(c) }) {
+		return Request{}, fmt.Errorf("requested_by %q has a character in it that is not printable, which a log line must not carry", r.RequestedBy)
 	}
 	// encoding/json leaves a missing or null time as the zero time without an
 	// error, and a request that cannot say when it was made cannot be placed in
