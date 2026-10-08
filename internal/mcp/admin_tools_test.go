@@ -126,3 +126,30 @@ func TestAnAgentCannotTurnOnAutomaticApplyOverMCP(t *testing.T) {
 		t.Errorf("a refused call sent %v", r.sent)
 	}
 }
+
+// An assistant is steered by text a workflow wrote, so it must not be able to
+// switch on a controller that replaces its own binary, or shorten the wait that
+// stands between a bad release and every host. The check interval stays
+// tunable: it only changes how often a question is put to github.com.
+func TestUpdateSettingsCannotWriteTheUpdatesMode(t *testing.T) {
+	if tunable("updates.mode") || tunable("updates.soak") {
+		t.Error("the update mode or its soak is on the tuning allowlist")
+	}
+	if !tunable("updates.check_interval") {
+		t.Error("updates.check_interval was taken off the tuning allowlist with the rest of the section")
+	}
+
+	r := &recorder{object: `{}`}
+	for key, value := range map[string]string{"updates.mode": `"auto"`, "updates.soak": `"0"`} {
+		_, err := call(t, "update_settings", r, `{"changes":{"`+key+`":`+value+`}}`)
+		if err == nil || !strings.Contains(err.Error(), key) {
+			t.Errorf("%s: error = %v, want a refusal naming it", key, err)
+		}
+	}
+	if len(r.sent) != 0 {
+		t.Errorf("a refused call sent %v", r.sent)
+	}
+	if _, err := call(t, "update_settings", r, `{"changes":{"updates.check_interval":"12h"}}`); err != nil {
+		t.Errorf("the check interval was refused: %v", err)
+	}
+}

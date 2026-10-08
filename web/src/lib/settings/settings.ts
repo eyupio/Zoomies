@@ -32,7 +32,8 @@ export const SECTION_BLURB: Record<string, string> = {
   backup:
     'Copies of this database the controller takes of its own accord. The Backups page is where they are configured, listed, restored and downloaded.',
   images: 'Keeping the images your pools run up to date.',
-  updates: 'Whether Zoomies asks github.com which release is current.',
+  updates:
+    'Whether Zoomies asks github.com which release is current, and what it does about a newer one: nothing, an Update button, or an update on its own after a wait.',
   capacity_demand: 'Publishing a signed request for more hosts to an external provisioner.',
   provider: 'Renting machines from a hypervisor, and when to give them back.',
   kennel:

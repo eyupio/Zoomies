@@ -340,6 +340,8 @@ images:
 
 updates:
   check_interval: 24h           # ZOOMIES_UPDATE_CHECK_INTERVAL   -- 0 never asks
+  mode: off                     # ZOOMIES_UPDATE_MODE             -- off | manual | auto; off says a release exists and nothing more
+  soak: 24h                     # ZOOMIES_UPDATE_SOAK             -- auto only: how long a release is public before it is taken
 
 provider:
   enabled: false                # ZOOMIES_PROVIDER_ENABLED                -- off: renting machines spends money
@@ -677,7 +679,7 @@ the validator says so with `limits.loopback`.
 | `security.encryption_key_file` | `ZOOMIES_ENCRYPTION_KEY_FILE` | file or environment only | Encryption key file — Where that key is read from, and written to on a first run. Back it up beside the database: without it the sealed rows cannot be read. |
 | `security.mcp_oauth` | `ZOOMIES_MCP_OAUTH` | live | Sign in to MCP with OAuth — Let an MCP client such as Claude be added by this controller's `/mcp` address alone and sign a person in through the browser, with this controller as its own OAuth authorisation server. The token it receives works on `/mcp` and nowhere else, at a role the person chooses and no higher than their own. Unset turns it on when authentication is on and the controller is reached over https. See [Connect Claude to Zoomies](connect-claude.md). |
 | `security.mcp_open_registration` | `ZOOMIES_MCP_OPEN_REGISTRATION` | live | Let MCP clients register themselves — Let an MCP client register itself — by dynamic client registration or a client ID metadata document — rather than only use a client an administrator created under Settings, MCP clients. A client that registers itself can do nothing until a person signs in and approves it. Off, only the clients an administrator created can ask. |
-| `security.mcp_admin_tools` | `ZOOMIES_MCP_ADMIN_TOOLS` | live | Offer administrator tools over MCP — Let an MCP token or connection whose role is administrator edit a host's name, labels and reserve, cordon it and lift its throttle, and read and change the tuning settings (scheduler, retention, runners, limits, logging, metrics, images, status, UI and updates — never security, sign-in, GitHub, providers or the database). Off, those tools are not offered and an agent that asks is told to turn this on. It changes nothing for a role below administrator. |
+| `security.mcp_admin_tools` | `ZOOMIES_MCP_ADMIN_TOOLS` | live | Offer administrator tools over MCP — Let an MCP token or connection whose role is administrator edit a host's name, labels and reserve, cordon it and lift its throttle, and read and change the tuning settings (scheduler, retention, runners, limits, logging, metrics, images, status, UI and the update check interval — never security, sign-in, GitHub, providers, the database, or the update mode and soak). Off, those tools are not offered and an agent that asks is told to turn this on. It changes nothing for a role below administrator. |
 | `security.auto_apply_remedies` | `ZOOMIES_AUTO_APPLY_REMEDIES` | live | Apply suggested changes automatically — Let the controller make the change a problem proposes -- a sidecar share, a smallest runner, a warm runner -- without anyone clicking it. A change is made only after the same proposal has stood unchanged for two hours, at most once a day for any one pool or host, and never one an administrator has undone. It runs as the pool's or host's own update, so every refusal that route makes still holds, and each change is recorded with what it replaced and can be undone from the problems page. Shadow, the default, works out what it would have changed and when, and records that without changing anything, so what turning it on would do can be read first (`would_apply` in `GET /problems/auto-applied`, and under Problems); off, the controller only proposes. `true` and `false` are still read as `on` and `off`. |
 | `security.rate_limit_logins` | `ZOOMIES_RATE_LIMIT_LOGINS` | next restart | Login attempts per minute — Password attempts allowed per source address per minute, and five times that per account. |
 | `security.require_two_step` | `ZOOMIES_REQUIRE_TWO_STEP` | next restart | Require two-step verification — Make every account that signs in with a password set up an authenticator app at its next sign-in. Accounts that use single sign-on are not asked — their identity provider owns their second factor — and API tokens are unaffected. See [Two-step verification](two-step.md). |
@@ -724,6 +726,8 @@ operator's browser sees.
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
 | `updates.check_interval` | `ZOOMIES_UPDATE_CHECK_INTERVAL` | at once | Update check interval — How often github.com is asked which release of Zoomies is current. 0 never asks, and is the one request that is not about your fleet. Nothing is ever downloaded by it. |
+| `updates.mode` | `ZOOMIES_UPDATE_MODE` | at once | Release update mode — What this controller does about a newer release of Zoomies. `off` (default) says that one exists and nothing more. `manual` adds Update buttons for the controller and its hosts, and nothing moves without a click. `auto` takes the newest release once it has been public for `updates.soak`, and the hosts that have opted in then follow it, one at a time. Only the `platform` role changes it, and an assistant connected over MCP cannot. A mode other than `off` beside `updates.check_interval: 0` raises the `updates.mode_without_check` warning, and `auto` raises the `updates.auto` notice so that unattended updating is never silent. |
+| `updates.soak` | `ZOOMIES_UPDATE_SOAK` | at once | Release update soak — How long a release must have been public before `auto` takes it, counted from when GitHub published it. A newer release restarts the wait, so one that is replaced quickly is never installed. `24h` is the default. `0` removes the wait, which raises the `updates.auto_without_soak` warning. `manual` ignores it, because a person pressing the button is the soak. |
 
 ## The settings that matter most
 
@@ -1122,11 +1126,10 @@ If that is not the release this controller was built from, the Overview's
 problems panel says so, at **info** severity, naming both versions and linking
 the release notes.
 
-It only ever tells you. **Nothing downloads and nothing restarts** — the
-controller does not update itself, and it never will: a controller that
-restarted itself would drop in-flight webhook deliveries and every agent's
-long poll, and would only work for some of the ways `zoomies init` can install
-it. The upgrade stays a decision you make.
+The check only ever tells you. **It downloads nothing and restarts nothing.**
+What is done about a release it finds is the business of `updates.mode`, below,
+which is `off` until a person who runs the process changes it. The upgrade stays
+a decision you make.
 
 The notice appears **only on a controller built from a release tag**. One built
 from `main` — which is what the `:dev` and `:main` images are — is normally
@@ -1139,6 +1142,45 @@ releases of this software live on github.com whichever GitHub your runners talk
 to. An air-gapped deployment, or a GitHub Enterprise Server one with no route
 out, wants `check_interval: 0` — which switches off the check and the notice
 together.
+
+### `updates.mode` — what is done about a newer release
+
+```yaml
+updates:
+  mode: manual
+  soak: 24h
+```
+
+Finding out that a release exists and installing it are separate decisions, and
+the second is not made for you. `updates.mode` makes it, and only the `platform`
+role can change it:
+
+| Mode | What it does |
+| --- | --- |
+| `off` (default) | The notice and the command to copy, as above. Nothing new is created and nothing is downloaded. |
+| `manual` | Update buttons appear, for the controller, for one host and for every host that is behind. Nothing moves without a click. |
+| `auto` | The controller takes the newest release once it has been public for `updates.soak`, and the hosts that have opted in then follow it, one at a time. The buttons stay, and mean "now, without the wait". |
+
+`updates.soak` is how long a release must have been public before `auto` takes
+it, counted from when GitHub published it. A newer release restarts the wait, so
+a release that is replaced within the soak is never installed: with the default
+of 24 hours, a `v1.3.2` that replaces `v1.3.1` the same afternoon means `v1.3.1`
+is skipped and `v1.3.2` is taken a day after its own publication. The cost is
+that a project publishing faster than the soak would never be updated by `auto`.
+`manual` ignores the soak, because a person pressing the button is the soak, and
+`0` removes the wait, which raises the `updates.auto_without_soak` warning.
+
+`auto` is never silent: it raises the `updates.auto` notice, which the startup
+output, `zoomies config check` and the Settings page all show.
+
+`updates.check_interval` is still the air-gap switch. At `0` the controller never
+learns that a release exists, so a mode other than `off` beside it has nothing to
+act on, and the `updates.mode_without_check` warning says so.
+
+An assistant connected over MCP cannot change either setting. `update_settings`
+accepts `updates.check_interval` from this section and refuses `updates.mode` and
+`updates.soak`, so no assistant, however it was prompted, can be the one that
+turns updating on.
 
 ### Deployment models
 

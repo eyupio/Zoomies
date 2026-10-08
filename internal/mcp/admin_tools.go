@@ -39,9 +39,17 @@ func IsAdminTool(name string) bool { return adminTools[name] }
 // github, provider, server, database, agent, backup -- is not here, so an
 // agent that has been talked into a bad change can at worst make the fleet
 // slower or tidier, and not locked open.
+//
+// updates is here by one key only. How often github.com is asked which release
+// is current is as harmless as the rest, but updates.mode decides whether this
+// controller replaces its own binary with nobody pressing anything, and
+// updates.soak is the wait that stands between a bad release and every host. An
+// agent steered by text a workflow wrote must not be able to switch either on
+// or shorten it, so a person makes those at the Settings page, and a new key in
+// the section is not tunable until it is named here.
 var tunableSettings = []string{
 	"scheduler.", "capacity_demand.", "retention.", "runners.", "limits.",
-	"log.", "metrics.", "images.", "status.", "ui.", "updates.",
+	"log.", "metrics.", "images.", "status.", "ui.", "updates.check_interval",
 }
 
 func tunable(key string) bool {
