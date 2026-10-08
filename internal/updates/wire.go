@@ -7,7 +7,9 @@ import (
 	"fmt"
 	"io"
 	"regexp"
+	"strings"
 	"time"
+	"unicode"
 )
 
 // The two documents the service and the helper exchange through the update
@@ -27,6 +29,9 @@ const (
 
 	// maxRequestIDLength bounds an id so that it stays a name and not a payload.
 	maxRequestIDLength = 64
+	// maxRequestedByLength bounds who asked, which the helper writes into a log
+	// root owns: room for any account name, and none for a payload.
+	maxRequestedByLength = 128
 )
 
 // Request asks the helper to take this host to one release. It names exactly one
@@ -96,6 +101,22 @@ func ParseRequest(body []byte) (Request, error) {
 	}
 	if !ValidTag(r.Tag) {
 		return Request{}, fmt.Errorf("the tag %q is not a release tag of the form vMAJOR.MINOR.PATCH", r.Tag)
+	}
+	// requested_by is only ever logged, but it is logged by root: a newline in it
+	// would let the less privileged side write a line of root's log, and an escape
+	// sequence would repaint the terminal of whoever reads it. The length is
+	// checked first so that the refusal below quotes at most this much.
+	if len(r.RequestedBy) > maxRequestedByLength {
+		return Request{}, fmt.Errorf("requested_by is %d bytes, over the limit of %d", len(r.RequestedBy), maxRequestedByLength)
+	}
+	if strings.ContainsFunc(r.RequestedBy, unicode.IsControl) {
+		return Request{}, fmt.Errorf("requested_by %q has a control character in it, which a log line must not carry", r.RequestedBy)
+	}
+	// encoding/json leaves a missing or null time as the zero time without an
+	// error, and a request that cannot say when it was made cannot be placed in
+	// the log against the attempt that made it.
+	if r.RequestedAt.IsZero() {
+		return Request{}, errors.New("the request has no requested_at, so it cannot say when it was made")
 	}
 	return r, nil
 }

@@ -102,6 +102,39 @@ func TestParseRequestRefusesAnEmptyOrOverlongID(t *testing.T) {
 	}
 }
 
+// requested_by is never acted on, but the helper writes it into a log root
+// owns. A newline in it would let the less privileged side write a line of
+// root's, and an escape sequence would let it repaint the terminal reading it.
+func TestParseRequestRefusesARequestedByThatCouldForgeALogLine(t *testing.T) {
+	for _, by := range []string{
+		strings.Repeat("a", 129), "user:alice\n", "user:alice\rforged", "user:\x00alice",
+		"user:\x1b[31malice", "user:alice\x7f", "user:\talice", "user:alice\u0085",
+	} {
+		doc := `{"v":1,"id":"upd_k3fqz2mx7abcd","tag":"v1.3.5","requested_by":` + quote(by) + `,"requested_at":"2026-10-08T09:00:00Z"}`
+		if _, err := ParseRequest([]byte(doc)); err == nil {
+			t.Errorf("requested_by %q was accepted", by)
+		}
+	}
+	for _, by := range []string{"", "user:alice", "user:zoë", strings.Repeat("a", 128)} {
+		doc := `{"v":1,"id":"upd_k3fqz2mx7abcd","tag":"v1.3.5","requested_by":` + quote(by) + `,"requested_at":"2026-10-08T09:00:00Z"}`
+		if _, err := ParseRequest([]byte(doc)); err != nil {
+			t.Errorf("requested_by %q was refused: %v", by, err)
+		}
+	}
+}
+
+// A request with no time cannot be placed in the helper's log or against the
+// attempt that made it, and encoding/json yields the zero time for a missing
+// field without complaint.
+func TestParseRequestRefusesARequestWithNoRequestedAt(t *testing.T) {
+	for _, at := range []string{``, `,"requested_at":"0001-01-01T00:00:00Z"`, `,"requested_at":null`} {
+		doc := `{"v":1,"id":"upd_k3fqz2mx7abcd","tag":"v1.3.5","requested_by":"user:alice"` + at + `}`
+		if _, err := ParseRequest([]byte(doc)); err == nil {
+			t.Errorf("requested_at %q was accepted", at)
+		}
+	}
+}
+
 func TestParseRequestRefusesWhatIsNotJSON(t *testing.T) {
 	for _, body := range []string{"", "null", "[]", `"v1.3.5"`, "{", "not json"} {
 		if _, err := ParseRequest([]byte(body)); err == nil {
@@ -113,6 +146,6 @@ func TestParseRequestRefusesWhatIsNotJSON(t *testing.T) {
 // quote writes s as a JSON string without the encoder, so a test table can hold
 // a newline or a quote and still say exactly what reached the parser.
 func quote(s string) string {
-	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`)
+	r := strings.NewReplacer(`\`, `\\`, `"`, `\"`, "\n", `\n`, "\r", `\r`, "\t", `\t`, "\x00", `\u0000`, "\x1b", `\u001b`)
 	return `"` + r.Replace(s) + `"`
 }
