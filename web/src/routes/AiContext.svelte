@@ -119,8 +119,9 @@
       <div>
         <h2>Powered by Repomix</h2>
         <p>
-          <a href={REPOMIX_URL} target="_blank" rel="noopener noreferrer">Repomix</a> packages and scans
-          eligible source. Zoomies manages setup, updates and access for your assistants.
+          <a href={REPOMIX_URL} target="_blank" rel="noopener noreferrer"
+            >Repomix<span class="sr-only"> (opens in a new tab)</span></a
+          > packages and scans eligible source. Zoomies manages setup, updates and access for your assistants.
         </p>
       </div>
     </div>
@@ -145,7 +146,8 @@
       <a
         href={AI_CONTEXT_URL + '#how-it-reduces-token-usage'}
         target="_blank"
-        rel="noopener noreferrer">Read the AI Context guide</a
+        rel="noopener noreferrer"
+        >Read the AI Context guide<span class="sr-only"> (opens in a new tab)</span></a
       >
     </details>
     <details class="context-explainer">
@@ -160,7 +162,7 @@
         need authorised GitHub access. MCP is optional; Zoomies-only output has no repository pack.
       </p>
       <a href={AI_CONTEXT_URL + '#use-without-mcp'} target="_blank" rel="noopener noreferrer"
-        >Read the repository context guide</a
+        >Read the repository context guide<span class="sr-only"> (opens in a new tab)</span></a
       >
     </details>
     <p class="access-note">
