@@ -1,4 +1,4 @@
-# ZF-229: updating Zoomies from the web UI
+# ZF-232: updating Zoomies from the web UI
 
 **Status**: proposed. The owner approved the shape on 8 October 2026 and chose
 the update path ([decision 0011](decisions/0011-an-operator-may-let-zoomies-update-itself.md));
@@ -94,14 +94,24 @@ them:
 
 `updates.check_interval` is unchanged and is still the air-gap switch. With `0`
 this feature has nothing to go on, so a mode other than `off` beside it is a
-warning (`updates.mode_without_check`). `auto` also raises an info finding that
-names the setting, so unattended updating is never silent (the rule in
-[internal/config/CLAUDE.md](../internal/config/CLAUDE.md)).
+warning (`updates.mode_without_check`). `off` also keeps today's single
+`releases/latest` request, byte for byte: the release list, which is larger, is
+fetched only when the mode is not `off`. `auto` raises an info finding that
+names the setting (`updates.auto`), so unattended updating is never silent (the
+rule in [internal/config/CLAUDE.md](../internal/config/CLAUDE.md)). An info
+finding reaches the startup banner, `zoomies config check` and the Settings
+page, though not the problems drawer. `auto` with a soak of `0` also raises a
+warning (`updates.auto_without_soak`), because that removes the only wait. A mode
+the registry does not know, or a negative soak, is an error that stops startup.
 
 **Who may press what.** `platform` changes the mode and updates the controller;
 `admin` updates hosts; `operator` and `viewer` read. With the mode `off` nobody
 can press anything: the platform decides whether the capability exists, and a
-fleet's administrators use it.
+fleet's administrators use it. Every action also refuses while the controller is
+fenced for recovery or has lost its lease, as other mutations do (`mayAct`). The
+mode and soak are registry rows, so the `platform` role sees them on the
+Configuration page; an administrator sees them through the Updates panel, which
+reads `GET /api/v1/updates`.
 
 **Which release.** A *complete* release is a tag of the form `vX.Y.Z` (so the
 stray `V1.1.0` is out), not a prerelease or draft, that carries `checksums.txt`
@@ -119,10 +129,15 @@ and the binary for the host's OS and architecture.
   updated by this feature. The existing development notice stays.
 
 **Hosts follow the controller.** A host's target is the controller's running
-release (`version.InstallTag`), never "latest", so an agent is never ahead of
-its controller (the skew policy in
-[upgrading](../docs/upgrading.md#version-skew)). A controller that is not a
-release build gives hosts no target, as the host command does today.
+release, never "latest", so an agent is never ahead of its controller (the skew
+policy in [upgrading](../docs/upgrading.md#version-skew)). It is `v` followed by
+`version.Release(version.Version)`, and only if that matches
+`^v[0-9]+\.[0-9]+\.[0-9]+$`. `version.InstallTag` is the wrong test: it answers
+`dev` for a build from `main`, which the helper would refuse. A controller on
+`dev`, `main-sha-…` or a local describe has no target, and its hosts keep the
+copyable command, which still names `dev` as it does today. Release binaries
+report `1.3.5` without the `v`, so every comparison of a host's version with a
+tag goes through `version.CompareBuilds`, never equality.
 
 ## 2. The helper
 
@@ -131,64 +146,98 @@ A pair of systemd units on a host that wants to be updatable:
 ```ini
 # zoomies-update.path
 [Path]
-PathExists=/var/lib/zoomies/shared/update/request.json
+PathExists=<update folder>/request.json
 Unit=zoomies-update.service
 
 # zoomies-update.service -- runs as root, one request at a time
 [Service]
 Type=oneshot
-ExecStart=/usr/local/bin/zoomies updates helper run
-TimeoutStartSec=45min
+ExecStart=<binary> updates helper run
+TimeoutStartSec=2h
 ```
 
-The paths are rendered from the host's real shared folder and binary. The
+The paths are rendered from the host's real update folder and binary. The
 service's hardening is as tight as an upgrade allows. It must write the binary,
-unit files and Compose files, so not `ProtectSystem=strict`, but
-`NoNewPrivileges`, `PrivateTmp`, `ProtectHome` and the kernel protections. It
-consumes the request — the file is removed once read — so the path unit fires
-once per request.
+unit files and Compose files, and pull images with the credentials root holds,
+so it cannot use `ProtectSystem=strict` and sets `ProtectHome=read-only`, but it
+keeps `NoNewPrivileges`, `PrivateTmp` and the kernel protections. The two hours
+are a backstop. The engine's own worst case is fifty minutes — twenty to stop
+the old service and thirty to wait for the controller to answer — and a limit
+shorter than that would kill the run midway and leave `upgrade.lock` behind. The
+helper consumes the request, removing the file once it has been read, so the path
+unit fires once per request.
 
-**The channel is a folder, not a socket.** The service account writes
-`<shared>/update/request.json`, and the helper writes `result.json` beside it.
-The shared folder (`config.SharedDir()`, `/var/lib/zoomies/shared`) is under the
-state directory, so the service can write it, and a container that runs runners
-already has it mounted at the same path. The upgrade's layout review adds the
-mount for those, and the helper's own offer adds it for any container that lacks
-it. A root-owned `helper.json` beside the two says the helper is installed,
+**The channel is a folder, not a socket, and its location is recorded rather
+than recomputed.** The service account writes `request.json` into the *update
+folder*, and the helper writes `result.json` beside it. On a native install the
+folder is `update` under the state directory, which the unit lets the service
+write. In a container it is `update` under the shared folder, which a container
+that runs runners already mounts at the same path on both sides.
+
+The two sides cannot be left to work the path out for themselves. A non-root
+service with no `ZOOMIES_STATE_DIR` resolves `config.SharedDir()` under its own
+`$HOME/.config`, because `StateDir()` never reads systemd's `STATE_DIRECTORY` and
+the unit templates set no environment, while the installer, running as root,
+resolves `/var/lib/zoomies/shared`. So on a native install the helper's installer
+writes `update-helper.json` into the configuration directory, naming the folder,
+the binary and the account, and the service reads it from beside its own
+`--config` file. It is root-written, and the unit's sandbox keeps `/etc`
+read-only for the service. A container has no such directory and uses
+`<shared>/update`.
+
+Nothing creates the folder until the helper is installed. It is deliberately not
+in `config.SharedLayout`, which every agent start creates: that would put a new
+folder on every host in mode `off`, and offer every existing host a layout change
+it never asked for. A `helper.json` in the folder says the helper is installed,
 which is how the controller knows to offer the button.
 
 **The request names one thing:**
 
 ```json
-{ "v": 1, "id": "upd_k3f9qz2m", "tag": "v1.3.5",
+{ "v": 1, "id": "upd_k3fqz2mx7abcd", "tag": "v1.3.5",
   "requested_by": "user:alice", "requested_at": "2026-10-08T09:00:00Z" }
 ```
 
-**The root side is the trust boundary, and it fails closed.** The service is the
-less privileged party, so the helper treats the file as hostile.
+The id is the attempt's, minted by `store.NewID`.
 
-* The shared folder is opened with `os.OpenRoot` and the request is read once
+**The root side is the trust boundary, and it fails closed.** The service is the
+less privileged party, so the helper treats everything in the folder as hostile.
+
+* The update folder is opened with `os.OpenRoot` and the request is read once
   through one descriptor. It must be a regular file, at most 4 KiB, owned by the
-  service account, with known fields only. What was read is validated, not the
-  path, so there is nothing to swap between the check and the use.
+  account recorded when the helper was installed — the state directory's owner on
+  a native install, uid 65532 in the images — with known fields only. What was
+  read is validated, not the path, so there is nothing to swap between the check
+  and the use. A rootless or user-namespace-remapped container host owns files
+  under another uid, so the check fails closed there and the helper does not
+  serve it.
 * `tag` must match `^v[0-9]+\.[0-9]+\.[0-9]+$`. The request carries no URL, path,
   command or flag, and the release source comes from the helper's own
   root-owned environment (`ZOOMIES_BASE_URL` and `ZOOMIES_REPO`, as
   `SelfUpdate` reads them), never from the request.
-* A tag older than or equal to what is installed is answered as already done,
-  by the existing no-downgrade guard.
+* Before anything runs it compares the installed version with the tag itself.
+  Equal or newer is answered as done. A build that is not from a release is
+  refused, because `CompareBuilds` cannot order a `main-sha-…` build against a
+  tag. `SelfUpdate`'s own downgrade guard is not enough: it only skips the
+  download, and `zoomies upgrade` would still restart the services and pull
+  images.
+* It looks for `upgrade.lock` and refuses while one exists, so a manual upgrade
+  in progress is not run over. It never takes the lock itself, because the
+  `zoomies upgrade` it starts does.
 * It keeps its own state — the ids it has seen and the attempts per tag — in a
-  root-owned directory outside the shared folder, as `zoomies-host-tune` does,
+  root-owned directory outside the update folder, as `zoomies-host-tune` does,
   so the service cannot reset it. At most two attempts per tag and one per ten
   minutes; a repeated id is refused.
 * It writes `result.json` through the same root handle, creating a new file and
   renaming it, and never follows a link the service might have planted. A
   request it refuses is answered too, with the reason.
 
-**Then it runs the existing engine, unattended:**
-`zoomies upgrade --version <tag> --non-interactive`, never `--yes`. Anything
-that needs consent stops and says so, and the result reads "needs an operator:
-run `sudo zoomies upgrade --yes`".
+**Then it runs the existing engine, unattended, as a child process:**
+`zoomies upgrade --version <tag> --non-interactive`, never `--yes`. It cannot run
+in-process, because the engine re-executes itself into the new binary. A
+*required* addition stops the run, and the engine's own sentence is the error:
+"the upgrade cannot go on without this: …; run `zoomies upgrade --yes`". Optional
+additions are skipped, as in any unattended upgrade, and the log tail lists them.
 
 **Two changes to the engine, which manual upgrades get as well:**
 
@@ -196,25 +245,37 @@ run `sudo zoomies upgrade --yes`".
   new release's own layout checks run second, so an unattended run can swap the
   binary and then stop on a change the new release needs. `SelfUpdate` is split
   into fetch (download and verify to a temporary file) and install (replace).
-  Between the two the candidate is run as `upgrade --check --non-interactive`
-  against the installed binary's deployment. A failed check leaves the old
-  binary in place and the service untouched.
+  Between the two the candidate is run as
+  `upgrade --check --non-interactive --installed-binary <installed>`, with the
+  flags that select the deployment passed through, so it applies its own
+  expectations. A failed check leaves the old binary in place and the service
+  untouched. `install.sh` already does this for its own path.
 * *The previous binary is kept* as `zoomies.previous` beside the installed one,
   so a manual rollback has something to go back to.
 
 **Consent lives on the host.** Nothing creates the helper while the mode is
-`off`, and the mode cannot create it. `zoomies init` and `zoomies agent join`
-offer it, as a question that defaults to no and a flag for unattended installs.
-The upgrade's layout review offers it on an existing host, exactly as it offers
-the host-health unit. `sudo zoomies updates helper install` does it
-directly, and `helper remove` and `zoomies uninstall` take it away. A host whose
-owner did not install it is never updated, whatever the controller's mode says.
-The helper is listed in
-[What the agent owns on a host](../docs/security.md#what-the-agent-owns-on-a-host).
+`off`, and the mode cannot create it. Offering it is a question of its own that
+defaults to no, not an item in the upgrade's batch of additions: that batch is
+approved by Enter or by `--yes`, and neither is consent to a root unit.
 
-**It outlives releases.** The unit calls a stable entry point, and the request
-and result carry `"v": 1`. A release that changes either bumps it, and the
-upgrade's layout review refreshes the unit.
+* `zoomies upgrade` asks it, and takes `--update-helper` for an unattended run.
+* `zoomies init` and `zoomies agent join` ask it at install, with the same flag,
+  and `init` takes an answers-file key.
+* `sudo zoomies updates helper install` does it directly.
+* `helper remove` and `zoomies uninstall` take it away, with `zoomies.previous`.
+
+A host whose owner did not install it is never updated, whatever the controller's
+mode says. The helper is listed in
+[What the agent owns on a host](../docs/security.md#what-the-agent-owns-on-a-host),
+and that section's lead-in changes with it, because the helper is root-owned and
+is not the agent. A container deployment must already mount the shared folder, as
+every host that runs runners does. A controller-only container does not, and is
+not offered the helper.
+
+**It outlives releases only if a release says so.** The unit calls a stable entry
+point, and the request and result carry `"v": 1`. A release that changes either
+has to refresh the unit. Nothing in this package does, any more than the
+host-health unit is refreshed today.
 
 ## 3. Orchestration
 
@@ -225,7 +286,7 @@ sequenceDiagram
     autonumber
     participant O as operator or planner
     participant C as controller
-    participant S as shared folder
+    participant S as update folder
     participant H as helper, root
     participant U as zoomies upgrade
 
@@ -246,7 +307,8 @@ sequenceDiagram
 The old process watches for `result.json` after writing the request, so a
 pre-flight failure shows in seconds rather than after a timeout. The new process
 reads it at start and closes the attempt. With no result and no change of
-version in 45 minutes the attempt is failed, loudly.
+version in 90 minutes the attempt is failed, loudly. The engine's own worst case
+is fifty minutes, so a shorter limit would fail an update that was still working.
 
 If the new controller never comes up, nothing in the UI can say so. The unit's
 journal, `result.json` and `zoomies updates helper status` can, and the previous
@@ -260,7 +322,7 @@ sequenceDiagram
     autonumber
     participant C as controller
     participant A as agent
-    participant S as shared folder on the host
+    participant S as update folder on the host
     participant H as helper, root
 
     C->>C: the planner picks the next host behind the controller
@@ -276,25 +338,37 @@ sequenceDiagram
 ```
 
 * The controller queues `update_agent` only to a host whose agent advertises a
-  new `self-update` feature, which an agent does only when its helper is ready.
+  new `self-update` feature, which an agent does only when its helper is ready,
+  and never while the controller is fenced. The task has a lease of its own: a
+  kind with none stays in flight, and the queue would refuse to queue it again.
   An older agent fails an unknown task kind harmlessly, and the host card says
   why it cannot update itself.
-* Success is the host heartbeating the target version, not a task result. A task
-  lost to a restart changes nothing: the next pass sees a host still behind and
-  asks again, within the attempt limits.
+* Success is the host heartbeating the target version, compared with
+  `version.CompareBuilds`, not a task result. A task lost to a restart changes
+  nothing, and neither does the controller's own restart, which empties the
+  in-memory queue: the next pass sees a host still behind and queues the task
+  again, within the attempt limits.
 * A failure reaches the controller on the agent's heartbeat, which carries the
-  last `result.json` until it is acknowledged.
+  last `result.json`. There is no acknowledgement field and none is needed: the
+  agent sends the report until a heartbeat succeeds, and again after a restart,
+  and the controller treats a repeat as a no-op.
+* A restarting host turns unhealthy after 90 seconds, and its runners are failed
+  after five minutes of silence. The restart itself takes seconds, because the
+  image pulls come before it, but the planner still counts only the attempt's own
+  timeout as failure and never reads short silence as one.
 
 ### The rollout
 
 * One host at a time, the one with the fewest active runners first, then by
-  name. No cordoning: a restart is
-  safe with jobs running, and the controller never touches an operator's cordon.
+  name. No cordoning: a restart is safe with jobs running, and the controller
+  never touches an operator's cordon.
 * The first failure or timeout *halts* the rollout and raises
   `host.update_failed` until an operator resumes or cancels it. A halted rollout
   starts nothing.
 * No host update starts while the controller's own attempt is open.
 * An embedded agent is updated with the controller, not as a host.
+* A host that is deleted mid-rollout has its open attempt closed as `cancelled`,
+  so the rollout never waits on a host that is gone.
 
 ### The planner
 
@@ -310,20 +384,26 @@ from, as in the scheduler.
 It is level-triggered. Each pass recomputes from rows, so a missed event costs
 one pass and a restart loses nothing. It runs on its own loop with a one-slot
 wake channel, outside `reconcileMu`, as the machine loop and the automatic pool
-reconciler do.
+reconciler do, and every action it takes first checks `mayAct`.
 
 ### What is stored
 
 Two small tables, written only by `internal/store`:
 
-* `update_attempts` — id, scope (`controller` or `host`), host, from, to,
-  trigger (`manual` or `auto`), requested_by, state (`requested`, `succeeded`,
-  `failed`, `timed_out`, `cancelled`), error, requested_at, finished_at.
-* `update_rollouts` — id, target, trigger, state (`running`, `halted`, `done`,
-  `cancelled`), started_by, halted_reason, started_at, finished_at.
+* `update_attempts` — id (`store.NewID` with the prefix `upd`), scope
+  (`controller` or `host`), host, from_version, to_version, trigger (`manual` or
+  `auto`), requested_by, state (`requested`, `succeeded`, `failed`, `timed_out`,
+  `cancelled`), error, requested_at, finished_at. A partial unique index allows
+  one `requested` row per target, so a button and the planner cannot both open
+  one. The host column has no foreign key: a re-join deletes and recreates the
+  host row, and a cascade would erase the history it belongs to.
+* `update_rollouts` — id (prefix `rol`), target, trigger, state (`running`,
+  `halted`, `done`, `cancelled`), started_by, halted_reason, started_at,
+  finished_at.
 
-They are pruned with the other retention keys. After a failure the planner waits
-30 minutes, and after two failures of one tag it waits for an operator.
+A new `retention.update_attempts` key, 90 days by default, prunes them, and
+spares every open row. After a failure the planner waits 30 minutes, and after
+two failures of one tag it waits for an operator.
 
 ## 4. Surfaces
 
@@ -331,7 +411,7 @@ They are pruned with the other retention keys. After a failure the planner waits
 
 | Route | Role | Does |
 | --- | --- | --- |
-| `GET /api/v1/updates` | viewer | The status: mode, soak, running and eligible release, the helper, the open attempt and rollout, and the planner's sentence. Machine paths are blanked below `platform`. |
+| `GET /api/v1/updates` | viewer | The status: mode, soak, running and eligible release, the helper, the open attempt and rollout, and the planner's sentence. Text a helper wrote is withheld below `platform`. |
 | `POST /api/v1/updates/check` | admin | Ask GitHub now; at most once a minute; refused when `check_interval` is `0`. |
 | `POST /api/v1/updates/controller` | platform | Update the controller to the newest eligible release, or to `tag`. |
 | `POST /api/v1/updates/hosts` | admin | Start a rollout of every host behind the controller, or of `host_ids`. |
@@ -341,16 +421,25 @@ They are pruned with the other retention keys. After a failure the planner waits
 
 Refusals carry a stable code: `update.mode_off`, `update.check_disabled`,
 `update.helper_missing`, `update.in_progress`, `update.not_a_release`,
-`update.nothing_newer`, `update.host_cannot_update`, `update.rollout_halted`.
+`update.nothing_newer`, `update.host_cannot_update`, `update.rollout_halted`. The
+envelope's `code` is a closed enum that the UI switches on, so these are added to
+it, as `limit_reached` was, rather than carried in another field.
 
-* **Events.** `updates.updated` carries the status in the `GET` shape. A host's
+* **Events.** `updates.updated` carries the status in the `GET` shape. Below
+  `platform` the text a helper wrote is withheld, in the `GET` and in the stream
+  alike, so the stream filters per subscriber, as it does for problems. A host's
   `update` block (state, whether it can update, the reason, the attempt) rides on
-  `host.updated`, beside the `upgrade_command` that stays as the fallback.
+  `host.updated`, beside the `upgrade_command` that stays as the fallback. It
+  holds nothing that changes with every heartbeat, or every card would repaint on
+  every beat.
 * **Problems**, each with its row in `docs/problem-codes.md`:
-  `controller.update_available` (exists; its fix names the button when one
-  works), `controller.update_helper_missing`, `controller.update_failed`,
-  `host.update_failed`, and an info `host.update_unavailable` for a host that is
-  behind and cannot update itself.
+  `controller.update_available` (exists), `controller.update_helper_missing` and
+  `controller.update_failed` for the `platform` audience, and
+  `host.update_failed` and an info `host.update_unavailable` for a host that is
+  behind and cannot update itself, for the fleet's. The host codes are exempt
+  from the public status page, or a failed host update would turn it degraded.
+  None of them carries a `Remedy`: the autopilot applies every remedy a problem
+  carries, and an update must never be one it applies.
 * **Audit.** A row for every request, resume and cancel. The planner's carry the
   system identity as `system:auto-update`.
 * **CLI.** `zoomies updates status | check | apply | resume | cancel` and
@@ -360,14 +449,18 @@ Refusals carry a stable code: `update.mode_off`, `update.check_disabled`,
 * **UI.** A **Settings → Updates** section: the mode with a sentence of
   consequence under each choice, the soak, the running and eligible release, the
   helper's state with the install command to copy, and the last result. The
-  Update button beside the existing notice. On **Hosts**, an Update button on
-  each card and one for every host that is behind, with the copied command kept
-  beneath as the fallback. An open tab already picks up the new build on its
+  existing notice links to it; a problem can carry no button, because the only
+  action a problem has is a remedy. On **Hosts**, an Update button on each card
+  and one for every host that is behind, with the copied command kept beneath as
+  the fallback. An open tab already picks up the new build on its
   next navigation (`web/src/lib/state/upgrade.svelte.ts`).
-* **MCP.** Status only, if at all. An assistant does not get a tool that
-  restarts the controller.
-* **Metrics.** Attempts by scope and result, and whether an eligible release is
-  waiting. Names follow `docs/metrics.md`.
+* **MCP.** Nothing in this package. An assistant does not get a tool that
+  restarts the controller, and `update_settings` may not set `updates.mode`: its
+  allowlist names the whole `updates.` section today, and narrows to
+  `updates.check_interval`.
+* **Metrics.** Attempts by `kind` (`controller` or `host`) and `result`, and
+  whether an eligible release is waiting. Names follow `docs/metrics.md`; the
+  metrics test allows a fixed set of labels, which has `kind` and not `scope`.
 
 ## 5. When it goes wrong
 
@@ -376,10 +469,12 @@ Refusals carry a stable code: `update.mode_off`, `update.check_disabled`,
 | No helper on the host | The button is disabled | The reason, and the install command |
 | The helper refuses the request | Nothing runs | `result.json` says why; the attempt fails |
 | The download or checksum fails | `zoomies upgrade` stops before replacing anything | The attempt fails with the message |
-| The candidate fails its pre-flight | The old binary stays and the service is not restarted | "Needs an operator", with the command |
-| Something else holds `upgrade.lock` | The run stops at once | The attempt fails; the planner retries after its wait |
+| The candidate fails its pre-flight, or needs a required addition | The old binary stays and the service is not restarted | "Needs an operator", with the command |
+| An optional addition is missing | The upgrade finishes without it | The log tail lists it |
+| Something else holds `upgrade.lock` | The helper refuses before anything runs | The attempt fails; the planner retries after its wait |
+| The controller is fenced or has lost its lease | Every action refuses | The existing fence message |
 | The new controller does not come up | The agents keep working | Only the host can say; see section 3 |
-| A host is not back at the target version in 45 minutes | The attempt times out | `host.update_failed`; the rollout halts |
+| A host is not back at the target version in 90 minutes | The attempt times out | `host.update_failed`; the rollout halts |
 | The controller restarts mid-rollout | The planner reads the rows and carries on | Nothing |
 | GitHub is unreachable | The check keeps its last answer | An update attempt fails at the download |
 
@@ -391,6 +486,8 @@ Refusals carry a stable code: `update.mode_off`, `update.check_disabled`,
 | A forged or compromised release | Trusted as far as `zoomies upgrade` is today: a sha256 from the same release, over TLS. Unattended, that is a larger bet. The soak and the completeness rule are this package's mitigations. Each release already carries a provenance attestation that nothing checks inside the product; verifying it, or a signature, is the recorded follow-up. |
 | A planted symlink, or an oversized or swapped file | `os.OpenRoot`, one descriptor, a size limit, an owner check, known fields only. `result.json` is created through the same handle. |
 | A replayed request | The ids seen are kept in state the service cannot write. |
+| A forged `helper.json` or `result.json` | The service can write the folder, so it can forge both. They decide only what the UI shows, and nothing the helper does depends on them. On a native install the pointer to the folder is root-written, in a directory the unit's sandbox keeps read-only. |
+| An assistant switching updating on | `update_settings` may not write `updates.mode`, so a connected assistant cannot enable unattended updating. |
 | A host that did not agree | The helper exists only where someone on the host installed it. |
 | A runaway loop | The helper's limits, the planner's wait, and a halted rollout. |
 
@@ -413,13 +510,16 @@ seen to fail (rule 14).
 * `internal/agent`: the task validated, the feature advertised only with a ready
   helper, the request written, the result carried on the heartbeat.
 * `internal/api`: the role matrix and every error code.
+* `internal/mcp`: `update_settings` refuses `updates.mode`.
 * `internal/docs`: the problem-code rows, the new fact in `agent_owns_test.go`,
   the settings table.
 * `test/drill`: an update with a job running keeps the job, and a controller
   restart mid-rollout carries on. `test/upgrade`: the helper driven with a fake
   `systemctl`.
 * `web/tests`: Playwright, desktop and mobile with the accessibility pass, for
-  Settings → Updates and the host button.
+  Settings → Updates and the host button. The binary under test is a `dev` build,
+  which no release comparison accepts, so a seed supplies a release list, a ready
+  helper and a running version.
 
 ## 8. Delivery
 
@@ -429,7 +529,7 @@ and its progress-row update. The last adds the drills and the narrative page.
 
 | # | Behaviour | Exit criterion |
 | --- | --- | --- |
-| 1 | The mode and soak are stored; the release list and the eligible release are computed and shown, with `internal/updates` starting as the pure eligibility rule; the status route and a read-only panel | A mode is stored and shown and nothing acts; the soak edge is a table test |
+| 1 | The mode and soak are stored; the release list and the eligible release are computed and shown, with `internal/updates` starting as the pure eligibility rule; the status route and a read-only panel; the MCP allowlist narrowed | A mode is stored and shown and nothing acts; the soak edge is a table test |
 | 2 | The helper: request and result, the units, install and remove, the layout offer, the pre-flight, `zoomies.previous` | A request makes an upgrade run against a fake `systemctl`; every refusal has a test |
 | 3 | Controller update from the button | An attempt is recorded and closed across a restart; the failure problem carries the helper's sentence |
 | 4 | Host update: the feature, the task, the heartbeat result, the route and the button | A host moves to the controller's release with a job running on it, and the job survives |
@@ -448,6 +548,9 @@ and its progress-row update. The last adds the drills and the narrative page.
 | Separate modes for the controller and the hosts | One selector is what was asked; `updates.hosts` would be additive | Someone wants hosts to follow a controller they update by hand |
 | macOS, Windows, PaaS | A launchd helper needs `WatchPaths`, `SelfUpdate` skips Windows, and a PaaS redeploys itself | A fleet runs one and asks. They show as manual, with the reason |
 | Dev builds | A build from `main` is tracked on purpose | Not planned |
+| Controller-only container deployments | They do not mount the shared folder, and every mount path is gated on running runners | Someone runs one and asks |
+| Rootless and user-namespace-remapped container hosts | The owner check would see another uid and fail closed | A fleet runs one and asks |
+| Refreshing an installed helper unit | The host-health unit is not refreshed either, and nothing in the request or result has changed | A release changes either |
 | Serving binaries to air-gapped hosts | Those fleets set `check_interval: 0` and stay manual | Someone with an air-gapped fleet asks |
 
 ## 10. Open points for the plan
@@ -455,10 +558,9 @@ and its progress-row update. The last adds the drills and the narrative page.
 * The CLI group name. `zoomies updates` sits next to the `update` alias for
   `upgrade`; `zoomies release` is the alternative. Recommend `updates`, for
   parity with the `/updates` routes, and a help text that says which is which.
-* The helper's exact hardening list, and where its own state lives
-  (`/var/lib/zoomies-update/`, mirroring `zoomies-host-tune`).
-* One `GET /releases` request or two, and its share of the unauthenticated rate
-  limit.
-* Table shapes, and the retention key for attempts.
+* The helper's exact hardening list. Its own state lives in
+  `/var/lib/zoomies-update/`, mirroring `zoomies-host-tune`.
+* How many releases to list. Ten covers the last month at the current cadence,
+  and one request a day is a small share of the unauthenticated rate limit.
 * The Settings → Updates layout, which wants its own pass against
   `docs/ui-guidelines.md`.

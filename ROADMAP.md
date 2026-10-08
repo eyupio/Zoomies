@@ -356,7 +356,7 @@ list is the only account of what was decided.
     platform upgrading or rebooting them is a liability, not a feature.
     Narrowed on 8 October 2026 by
     [decision 0011](roadmap/decisions/0011-an-operator-may-let-zoomies-update-itself.md):
-    updating the agent's own binary, on a host that opted in, is ZF-229; the
+    updating the agent's own binary, on a host that opted in, is ZF-232; the
     rest stays deferred.
 26. **Windows runners, and which kind.** *Taken on 12 September 2026* as
     processes on a Windows host, per
@@ -1403,7 +1403,7 @@ capped at their role (`tokens.own`); spent tokens can be deleted.
 
 Depends on ZF-225. Size M.
 
-### ZF-229: updating from the web UI
+### ZF-232: updating from the web UI
 
 **Classification: extension; L; proposed 8 October, design approved by the
 owner; nothing built.** The controller says a release exists and each host's
@@ -1475,7 +1475,7 @@ acceptance from the version that wrote it.
 * **ZF-404b**: deferred indefinitely under decision 25. Its controller-driven
   agent upgrades are narrowed by
   [decision 0011](roadmap/decisions/0011-an-operator-may-let-zoomies-update-itself.md):
-  updating the agent's own binary, on a host that opted in, is ZF-229.
+  updating the agent's own binary, on a host that opted in, is ZF-232.
 * **ZF-218**: complete, the repin having landed with ZF-005; a second
   provider or an official marketplace submission is not planned.
 * **Decision 28's spike**: a container per job on Proxmox from the published
@@ -1543,7 +1543,7 @@ results or user feedback; do not wait for them either.
 
 ## 13. Change record
 
-* **8 October 2026 — Version 3.5:** ZF-229 added to section 8, as proposed:
+* **8 October 2026 — Version 3.5:** ZF-232 added to section 8, as proposed:
   updating Zoomies from the web UI, off by default. The owner chose a
   root-owned helper on each host over a service that replaces its own binary
   and over a documentation-only recipe.

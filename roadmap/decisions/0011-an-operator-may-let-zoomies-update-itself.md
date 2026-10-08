@@ -82,6 +82,9 @@ reboots and retention-driven cleanup stay deferred.
   a sha256 taken from the same GitHub release. Unattended, that is a larger bet,
   so the first mitigation is a soak delay, and verifying the release's
   provenance attestation is recorded as follow-up rather than done.
+* An assistant connected over MCP cannot switch updating on. `update_settings`
+  may write any setting under `updates.` today, and that narrows to
+  `updates.check_interval`, so choosing a mode stays with a person.
 * Hosts that predate the feature need one last manual upgrade to get the helper.
 * A service that replaces its own binary, and a documentation-only recipe, were
   both considered and not taken. If the helper proves too heavy, a new record

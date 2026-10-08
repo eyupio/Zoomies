@@ -1,4 +1,4 @@
-# ZF-229: updating from the web UI — Implementation Plan
+# ZF-232: updating from the web UI — Implementation Plan
 
 **Status**: being written. This commit holds the header, the constraints and the
 review focus; the six parts, each one pull request, are added in the commits
