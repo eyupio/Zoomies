@@ -310,6 +310,7 @@ by trying again.
 | `internal/cryptox` | AES-256-GCM for secrets at rest; argon2id for passwords; SHA-256 for bearer tokens. |
 | `internal/backup` | One copy of the database: taking it with `VACUUM INTO`, the manifest that says what it is, listing, verifying, archiving and passphrase-encrypting it, copying it to the S3-compatible destinations `backup.remotes` names or an administrator stored — a hand-rolled client, for the reason the Docker one is, and one merge rule the controller, the API and the CLI all resolve through — and the restore that puts it back. Shared by `zoomies backup`, the controller's scheduled copies and the settings page, so all three write and read one layout. |
 | `internal/scheduler` | Pure scaling decisions, label matching and platform fit. No I/O. |
+| `internal/kennel` | Kennel Club's decisions: from the facts a snapshot holds, which of six checks fire and what standing the repository has. Pure like the scheduler, and held to it: the standard library only, no clock, no database, no network, and a test that fails if that changes. The controller collects the facts and stores the answer; see [Kennel Club](kennel-club.md). |
 | `internal/naming` | The `zoomies-*` naming grammar for pools and hosts, and the runner image catalogue. No I/O; see [Naming and platforms](naming.md). |
 | `internal/machine` | What host this process is running on: distribution, release, and how much machine the cgroup actually allows. |
 | `internal/github` | App auth, JIT configs, registration tokens, webhook validation, the fallback poller, and a fake GitHub for tests. |
@@ -325,6 +326,17 @@ by trying again.
 | `internal/events` | In-process pub/sub that the SSE endpoint fans out. |
 | `internal/mcp` | The fleet over the Model Context Protocol: the tools, and both transports — stdio for `zoomies mcp`, Streamable HTTP for the controller's `/mcp`. Every tool is a documented REST route called with the caller's own token, so it adds no authority. |
 | `internal/migrate` | Rewriting a workflow's `runs-on` line, and nothing else in the file. |
+
+Kennel Club follows the scheduler's rule: the decisions are pure and the wiring is
+not. `internal/kennel` takes a snapshot and returns findings and a standing. The
+loop in `internal/controller` builds snapshots from the fleet's own database and,
+for public repositories, from a handful of read-only GitHub requests it is held to
+a list of, and stores one evaluation for each repository. The loop is its own and
+not part of the reconcile pass, for the reason the machine loop is: a pass can wait
+on GitHub for minutes, and nothing about scaling should wait with it. It stands
+down from an installation GitHub is rate-limiting or failing, and spends a bounded
+share of what GitHub reports. It never writes to GitHub or changes a pool, a runner
+or a job.
 
 ## The runner state machine
 
