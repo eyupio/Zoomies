@@ -275,7 +275,7 @@
           <span class="step">{s.label}</span>
         {/if}
       {/each}
-      {#if failed && job.runner_id}
+      {#if failed && job.runner_id && !steps.some((s) => s.href === `/runners/${job.runner_id}`)}
         <a class="action" href="/runners/{job.runner_id}">Open the runner</a>
       {/if}
       {#if failed && !ours && step && job.html_url}

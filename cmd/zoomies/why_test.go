@@ -167,3 +167,15 @@ func TestWhyNoLogsAsksForNone(t *testing.T) {
 		t.Fatalf("an excerpt was printed without one being asked for:\n%s", out)
 	}
 }
+
+// A controller from before why answers without a class. Printing "Class:  ()"
+// and exiting 0 would read as a diagnosis; the honest answer is that this
+// controller cannot give one yet.
+func TestWhyRefusesAnExplanationWithoutAClass(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{"/api/v1/jobs/job_1/explanation": `{"job_id":"job_1","state":"completed","summary":"This job ran and failed.","waiting":false,"blocked":false}`})
+	e, _, errOut := newTestEnv(t)
+	code := dispatch(context.Background(), e, []string{"why", "job_1", "--url", srv.URL})
+	if code != 1 || !strings.Contains(errOut.String(), "upgrade") {
+		t.Fatalf("exit %d, stderr %q; want 1 and a sentence about upgrading the controller", code, errOut.String())
+	}
+}

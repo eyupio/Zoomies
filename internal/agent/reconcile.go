@@ -673,8 +673,10 @@ func tailOf(ctx context.Context, b backend.Backend, h backend.Handle) []string {
 		return nil
 	}
 	defer rc.Close()
-	// Forty lines of 400 runes is 16 KB of text; anything past 256 KB is a
-	// daemon that ignored Tail, and the end of it is still the end.
+	// Forty lines of 400 runes is 16 KB of text. The cap is a guard against
+	// a backend that ignores Tail; it keeps the start of such a stream, so a
+	// backend that cannot tail must do its own tailing before this reads it,
+	// as the process backend does.
 	data, err := io.ReadAll(io.LimitReader(rc, 256<<10))
 	if err != nil && len(data) == 0 {
 		return nil

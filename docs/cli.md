@@ -263,7 +263,8 @@ where jobs live.
 
 `<job>` is a job ID, a GitHub run or job URL (`…/actions/runs/1234` or
 `…/runs/1234/job/5678`, found through the jobs list by repository and run), or
-`--latest-failed`, narrowed by `--repo owner/name` or `--pool <pool-id>`.
+`--latest-failed`, the most recently queued of the failed jobs, narrowed by
+`--repo owner/name` or `--pool <pool-id>`.
 `--logs N` is how many lines to quote (12 by default, at most 40) and
 `--no-logs` quotes none. `--output json` is the explanation as the controller
 sent it, the same document the job drawer renders.

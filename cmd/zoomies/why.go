@@ -91,6 +91,11 @@ func runWhy(ctx context.Context, e *env, args []string) error {
 		}
 		return err
 	}
+	// A controller from before why answers without a class. Laying that
+	// out as "Class:  ()" would read as a diagnosis, and exit 0 as success.
+	if why.Class == "" {
+		return errors.New("this controller's explanation carries no class, so it predates zoomies why; upgrade the controller")
+	}
 	if p.structured() {
 		if err := p.emit(raw); err != nil {
 			return err

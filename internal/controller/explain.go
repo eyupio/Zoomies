@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -126,9 +127,12 @@ func (c *Controller) explainSentences(ctx context.Context, job *store.Job, out *
 func (c *Controller) explainWhy(ctx context.Context, job *store.Job, out *JobExplanation, logs int) {
 	s := whySnapshot{Job: job, Now: c.Now()}
 	if job.PoolID != "" {
+		// Only a pool that is not there is "gone": any other error leaves the
+		// snapshot without a pool, which the class table reads as not knowing,
+		// never as a pool somebody deleted.
 		if pool, err := c.st.GetPool(ctx, job.PoolID); err == nil {
 			s.Pool = pool
-		} else if job.State == store.JobQueued {
+		} else if errors.Is(err, store.ErrNotFound) && job.State == store.JobQueued {
 			s.PoolMissing = true
 		}
 	}

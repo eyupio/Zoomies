@@ -39,7 +39,7 @@ func whyCases(now time.Time) []whyCase {
 	oom.OOMKilled, oom.PeakMemoryMB, oom.GrantedMemoryMB = true, 7900, 8192
 	tolerated := completed("success")
 	tolerated.OOMKilled, tolerated.PeakMemoryMB = true, 7900
-	held := &store.Job{ID: "job_1", State: store.JobWaiting, HTMLURL: "https://github.com/acme/widgets/actions/runs/1"}
+	held := &store.Job{ID: "job_1", State: store.JobWaiting, QueuedAt: now.Add(-18 * time.Minute), HTMLURL: "https://github.com/acme/widgets/actions/runs/1"}
 	cancelling := queued()
 	t := now.Add(-time.Minute)
 	cancelling.CancelRequestedAt = &t
@@ -75,12 +75,14 @@ func whyCases(now time.Time) []whyCase {
 		{"a pool at its ceiling", whySnapshot{Job: queued(), Now: now, Pool: pool, PlanAt: now, Counts: &store.PoolCounts{Busy: 2}}, WhyQueuedCapacity, WhyHigh, "pool.no_capacity", "change"},
 		{"a runner starting", whySnapshot{Job: queued(), Now: now, Pool: pool, PlanAt: now, Counts: &store.PoolCounts{Provisioning: 1}}, WhyQueuedCapacity, WhyHigh, "", "read"},
 		{"a runner idle and waiting", whySnapshot{Job: queued(), Now: now, Pool: pool, PlanAt: now, Counts: &store.PoolCounts{Idle: 1}}, WhyQueued, WhyHigh, "", "read"},
+		{"a pool at its ceiling with a runner idle is not at capacity", whySnapshot{Job: queued(), Now: now, Pool: pool, PlanAt: now, Counts: &store.PoolCounts{Idle: 1, Busy: 1}}, WhyQueued, WhyHigh, "", "read"},
+		{"no scheduler pass yet is a gap, not a full answer", whySnapshot{Job: queued(), Now: now, Pool: pool, Counts: &store.PoolCounts{}}, WhyQueued, WhyMedium, "", "read"},
 	}
 }
 
 // Every class the explanation can give comes from facts the fleet records, and
 // each row here is one such set of facts: a reader who changes the table in
-// why.go changes a row here, and a class that two rows reach is a bug.
+// why.go changes a row here, and a set of facts no row covers is a gap.
 func TestEveryClassComesFromItsOwnFacts(t *testing.T) {
 	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
 	for _, tc := range whyCases(now) {
@@ -106,6 +108,11 @@ func TestEveryClassComesFromItsOwnFacts(t *testing.T) {
 			}
 			if tc.snap.Job.State == store.JobCompleted && !hasEvidence(v.Evidence, "conclusion") {
 				t.Fatalf("a completed job carries its conclusion as evidence: %+v", v.Evidence)
+			}
+			// A held job's time is GitHub's, not the queue's: the sentence
+			// says the wait has not started, so no figure may say it has.
+			if tc.snap.Job.State == store.JobWaiting && hasEvidence(v.Evidence, "queue_wait") {
+				t.Fatalf("a held job was charged a queue wait: %+v", v.Evidence)
 			}
 		})
 	}

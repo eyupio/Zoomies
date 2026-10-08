@@ -225,7 +225,7 @@ func classifyQueued(s whySnapshot, v *whyVerdict) {
 		v.Class = WhyQueuedUnmatched
 		v.ProblemCode = "jobs.unmatched"
 		if s.Unmatched != nil && s.Unmatched.Reason != "" {
-			v.Evidence = append(v.Evidence, Evidence{Kind: "plan_reason", Label: "scheduler", Value: s.Unmatched.Reason})
+			v.Evidence = append(v.Evidence, Evidence{Kind: "plan_reason", Label: "scheduler", Value: evidenceText(s.Unmatched.Reason)})
 		}
 		v.NextSteps = []NextStep{{Text: "Add these labels to a pool, or change the workflow's runs-on to labels a pool here carries.", Kind: "change", Link: "/pools"}}
 
@@ -241,7 +241,7 @@ func classifyQueued(s whySnapshot, v *whyVerdict) {
 		if s.PoolPlan.BlockedNoEligibleHost {
 			v.ProblemCode = "pool.no_eligible_host"
 		}
-		v.Evidence = append(v.Evidence, Evidence{Kind: "plan_reason", Label: "scheduler", Value: s.PoolPlan.Blocked})
+		v.Evidence = append(v.Evidence, Evidence{Kind: "plan_reason", Label: "scheduler", Value: evidenceText(s.PoolPlan.Blocked)})
 		if age := s.Now.Sub(s.PlanAt); age > stalePlan {
 			v.Confidence, v.ConfidenceReason = WhyMedium, fmt.Sprintf("the scheduler's last pass is %s old", formatAge(age))
 		}
@@ -254,13 +254,15 @@ func classifyQueued(s whySnapshot, v *whyVerdict) {
 	case s.PoolPlan != nil && s.PoolPlan.Failing != "":
 		v.Class = WhyRunnerStartupFailure
 		v.ProblemCode = "pool.runners_failing"
-		v.Evidence = append(v.Evidence, Evidence{Kind: "plan_reason", Label: "scheduler", Value: s.PoolPlan.Failing})
+		v.Evidence = append(v.Evidence, Evidence{Kind: "plan_reason", Label: "scheduler", Value: evidenceText(s.PoolPlan.Failing)})
 		if s.PoolPlan.FailingFault != "" {
 			v.Evidence = append(v.Evidence, Evidence{Kind: "fault_kind", Label: "fault", Value: string(s.PoolPlan.FailingFault)})
 		}
 		v.NextSteps = []NextStep{{Text: capitalise(startFailureFix(s.PoolPlan.FailingFault)), Kind: "change", Link: poolLink}}
 
-	case s.Counts != nil && s.Pool != nil && s.Pool.MaxRunners > 0 && s.Counts.Live() >= s.Pool.MaxRunners:
+	// A pool at its ceiling is only full when nothing in it is idle: an idle
+	// runner at the ceiling is the job's, and GitHub is about to hand it over.
+	case s.Counts != nil && s.Pool != nil && s.Pool.MaxRunners > 0 && s.Counts.Idle == 0 && s.Counts.Live() >= s.Pool.MaxRunners:
 		v.Class = WhyQueuedCapacity
 		v.ProblemCode = "pool.no_capacity"
 		v.Evidence = append(v.Evidence, Evidence{Kind: "plan_reason", Label: "pool", Value: fmt.Sprintf("at its ceiling of %s, all busy", plural(s.Pool.MaxRunners, "runner"))})
@@ -275,6 +277,19 @@ func classifyQueued(s whySnapshot, v *whyVerdict) {
 		v.Class = WhyQueued
 		v.NextSteps = []NextStep{{Text: "Open the pool: a runner is idle or on its way, and GitHub chooses which takes the job.", Kind: "read", Link: poolLink}}
 	}
+	// The queue's answers below the scheduler's own rest on a pass having
+	// happened. A controller that has not made one yet has nothing to be
+	// sure from, and says so rather than calling the job merely next.
+	if s.PoolPlan == nil && s.PlanAt.IsZero() && (v.Class == WhyQueued || v.Class == WhyQueuedCapacity) {
+		v.Confidence, v.ConfidenceReason = WhyMedium, "the scheduler has not run a pass yet"
+	}
+}
+
+// evidenceText scrubs text a workflow wrote before it is quoted as evidence:
+// labels, and the scheduler's reasons that repeat them. The terminal and the
+// browser scrub again on their own; the trusted MCP block does not.
+func evidenceText(s string) string {
+	return workflowTextN(s, store.OutputTailRunes)
 }
 
 // baseEvidence is what every class carries: the conclusion, the fault and
@@ -302,7 +317,9 @@ func baseEvidence(s whySnapshot) []Evidence {
 			out = append(out, Evidence{Kind: "memory_limit", Label: "memory limit", Value: strconv.FormatInt(job.GrantedMemoryMB, 10), Unit: "MB"})
 		}
 	}
-	if !job.QueuedAt.IsZero() {
+	// A held job's time is GitHub's: the wait for a runner has not started,
+	// and the sentence says so, so no figure here may say otherwise.
+	if !job.QueuedAt.IsZero() && job.State != store.JobWaiting {
 		end := s.Now
 		if job.StartedAt != nil {
 			end = *job.StartedAt
@@ -319,7 +336,7 @@ func baseEvidence(s whySnapshot) []Evidence {
 		out = append(out, Evidence{Kind: "host_state", Label: "host", Value: state, Ref: hostLink(s.Host.ID)})
 	}
 	if !job.Matched && job.State == store.JobQueued {
-		out = append(out, Evidence{Kind: "labels", Label: "runs-on", Value: joinLabels(job.Labels)})
+		out = append(out, Evidence{Kind: "labels", Label: "runs-on", Value: evidenceText(joinLabels(job.Labels))})
 	}
 	return out
 }

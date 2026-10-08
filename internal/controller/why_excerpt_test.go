@@ -5,6 +5,10 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/eyupio/zoomies/internal/scheduler"
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 func oomTail() []string {
@@ -84,5 +88,19 @@ func TestNoTailMeansANoteNotAnEmptyExcerpt(t *testing.T) {
 	}
 	if excerptFrom(oomTail(), WhyOOM, 0) != nil {
 		t.Fatal("asking for no lines is null, not a note")
+	}
+}
+
+// Labels and the scheduler's reasons quote what a workflow asked for, which
+// is text a stranger wrote; as evidence they are scrubbed the way a problem's
+// sentence is before they reach a channel that trusts the fleet's own words.
+func TestWorkflowWrittenEvidenceIsScrubbed(t *testing.T) {
+	now := time.Date(2026, 10, 8, 12, 0, 0, 0, time.UTC)
+	job := &store.Job{ID: "job_1", State: store.JobQueued, QueuedAt: now.Add(-time.Minute), Labels: store.StringSlice{"self-hosted", "gpu\x1b[2J\u202eevil"}}
+	v := classify(whySnapshot{Job: job, Now: now, Unmatched: &scheduler.UnmatchedJob{Job: job, Reason: "no pool carries gpu\x1b[2J"}})
+	for _, kind := range []string{"labels", "plan_reason"} {
+		if e := findEvidence(v.Evidence, kind); e.Value == "" || terminalControl.MatchString(e.Value) {
+			t.Errorf("%s evidence still carries a control character: %q", kind, e.Value)
+		}
 	}
 }
