@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -39,6 +40,17 @@ func TestProxmoxGatewayUpgradePreservesIdentityAndPreviews(t *testing.T) {
 		}
 		return "", nil
 	}}}
+	if runtime.GOOS != "linux" {
+		// A gateway is a systemd unit, so off Linux the upgrade promises to leave
+		// everything alone rather than to replace a binary it cannot restart.
+		if err := p.upgradeProxmoxGateways(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+		if b, _ := os.ReadFile(target); string(b) != "old" || len(calls) != 0 {
+			t.Fatalf("an upgrade off Linux touched a gateway: binary %q, commands %v", b, calls)
+		}
+		return
+	}
 	p.opts.Check = true
 	if err := p.upgradeProxmoxGateways(context.Background()); err != nil {
 		t.Fatal(err)
