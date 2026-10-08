@@ -118,6 +118,23 @@ func ReadPointer(path string) (Pointer, error) {
 	if err := readDocument(path, maxDocumentBytes, &p); err != nil {
 		return Pointer{}, err
 	}
+	return checkPointer(path, p)
+}
+
+// DecodePointer is ReadPointer for a pointer already read, by a caller that
+// opened and checked the file itself. name is what the refusals call it.
+func DecodePointer(name string, body []byte) (Pointer, error) {
+	if len(body) > maxDocumentBytes {
+		return Pointer{}, fmt.Errorf("%s is %d bytes, over the limit of %d", name, len(body), maxDocumentBytes)
+	}
+	var p Pointer
+	if err := decodeDocument(name, body, &p); err != nil {
+		return Pointer{}, err
+	}
+	return checkPointer(name, p)
+}
+
+func checkPointer(path string, p Pointer) (Pointer, error) {
 	if p.V != updates.WireVersion {
 		return Pointer{}, fmt.Errorf("%s is version %d and this release reads version %d", path, p.V, updates.WireVersion)
 	}
@@ -331,6 +348,12 @@ func readDocument(path string, limit int64, into any) error {
 	if int64(len(body)) > limit {
 		return fmt.Errorf("%s is over the limit of %d bytes", path, limit)
 	}
+	return decodeDocument(path, body, into)
+}
+
+// decodeDocument decodes one document strictly: no unknown field, nothing
+// after it.
+func decodeDocument(path string, body []byte, into any) error {
 	dec := json.NewDecoder(bytes.NewReader(body))
 	dec.DisallowUnknownFields()
 	if err := dec.Decode(into); err != nil {

@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -91,8 +92,14 @@ func TestHelperRunRefusesToRunAsAnUnprivilegedUser(t *testing.T) {
 	if code := dispatch(context.Background(), e, []string{"updates", "helper", "run"}); code != exitError {
 		t.Fatalf("exit code = %d, want %d\n%s", code, exitError, errOut)
 	}
-	if !strings.Contains(errOut.String(), "root") {
-		t.Errorf("the refusal should say the helper runs as root:\n%s", errOut)
+	// Where the helper cannot run at all, that is the sentence worth reading,
+	// and not one about which account asked.
+	want := "runs as root"
+	if runtime.GOOS == "windows" {
+		want = "not on this platform"
+	}
+	if !strings.Contains(errOut.String(), want) {
+		t.Errorf("the refusal should say %q:\n%s", want, errOut)
 	}
 	if _, err := os.Lstat(stateDir); !errors.Is(err, fs.ErrNotExist) {
 		t.Errorf("the helper touched its state directory before refusing: %v", err)

@@ -25,6 +25,10 @@ type HelperOptions struct {
 // errNoUpdateHelper is the answer on a platform the helper does not run on.
 var errNoUpdateHelper = errors.New(`the update helper runs where systemd can start it, and not on this platform; update this host by hand with "zoomies upgrade"`)
 
+// CheckUpdateHelperPlatform says the helper cannot run here, before anything
+// else is said about the account that asked.
+func CheckUpdateHelperPlatform() error { return errNoUpdateHelper }
+
 func HelperOptionsFromPointer(string) (HelperOptions, error) {
 	return HelperOptions{}, errNoUpdateHelper
 }

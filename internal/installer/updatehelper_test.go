@@ -93,18 +93,30 @@ func (h *helperHost) ranNothing(t *testing.T) {
 }
 
 // fakeZoomies writes a shell script that answers `version --short` and
-// `upgrade` the way the real binary does, recording the upgrade's argv.
+// `upgrade` the way the real binary does, recording the upgrade's argv and
+// printing upgradeOutput.
 func fakeZoomies(t *testing.T, path, upgradeOutput string) {
+	t.Helper()
+	fakeZoomiesScript(t, path, fakeVersion, `printf '`+upgradeOutput+`'`)
+}
+
+// fakeVersion is what the fake binary answers to `version --short`: the
+// release before the tag until an upgrade has run, the tag after.
+const fakeVersion = `if [ -f "$here/upgraded" ]; then echo "1.3.5 (abc1234)"; else echo "1.3.4 (abc1234)"; fi`
+
+// fakeZoomiesScript is fakeZoomies with the shell each command runs, for an
+// engine that has to behave in a particular way.
+func fakeZoomiesScript(t *testing.T, path, version, upgrade string) {
 	t.Helper()
 	script := `#!/bin/sh
 here=$(dirname "$0")
 case "$1" in
 version)
-	if [ -f "$here/upgraded" ]; then echo "1.3.5 (abc1234)"; else echo "1.3.4 (abc1234)"; fi ;;
+	` + version + ` ;;
 upgrade)
 	printf '%s\n' "$@" > "$here/argv"
 	touch "$here/upgraded"
-	printf '` + upgradeOutput + `' ;;
+	` + upgrade + ` ;;
 *)
 	exit 2 ;;
 esac
@@ -112,6 +124,14 @@ esac
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// shorten sets a duration variable for one test.
+func shorten(t *testing.T, v *time.Duration, to time.Duration) {
+	t.Helper()
+	was := *v
+	*v = to
+	t.Cleanup(func() { *v = was })
 }
 
 // The engine re-executes itself into the new binary, so it cannot run inside
@@ -141,7 +161,8 @@ func TestTheHelperRunsTheUpgradeForTheRequestedTagAsAChildProcess(t *testing.T) 
 			t.Fatalf("the engine never ran: %v\nlog:\n%s", err, h.log)
 		}
 		got := strings.Split(strings.TrimSuffix(string(argv), "\n"), "\n")
-		if want := []string{"upgrade", "--version", "v1.3.5", "--non-interactive"}; !slices.Equal(got, want) {
+		want := []string{"upgrade", "--version", "v1.3.5", "--non-interactive", "--config-dir", filepath.Dir(h.opts.LockPath)}
+		if !slices.Equal(got, want) {
 			t.Errorf("argv = %q, want %q", got, want)
 		}
 		if slices.Contains(got, "--yes") {
@@ -296,8 +317,10 @@ func TestTheHelperLogsTheEnginesOutputWithoutControlCharacters(t *testing.T) {
 	h.ask(t, wellFormedRequest)
 	h.answer(t)
 	log := h.log.String()
-	if !strings.Contains(log, "step one") || !strings.Contains(log, "step two") {
-		t.Fatalf("the engine's output is not in the log:\n%s", log)
+	// Prefixed, so a line the engine printed cannot pass for one of the
+	// helper's, or begin with the <N> a journal reads as a priority.
+	if !strings.Contains(log, "\nengine: step one") || !strings.Contains(log, "step two") {
+		t.Fatalf("the engine's output is not in the log as the engine's:\n%s", log)
 	}
 	for _, c := range log {
 		if c != '\n' && c != '\t' && unicode.IsControl(c) {
@@ -429,6 +452,10 @@ func TestTheHelperRefusesAnUpdateFolderThatIsNotTheServices(t *testing.T) {
 			t.Fatalf("the folder was used, or refused for another reason (want %q): %v", want, err)
 		}
 		h.ranNothing(t)
+		// The error is the caller's to print, and it goes to the same journal.
+		if strings.Contains(h.log.String(), want) {
+			t.Errorf("the refusal was logged as well as returned, so the journal has it twice:\n%s", h.log)
+		}
 	}
 	t.Run("a link to a folder of the service's", func(t *testing.T) {
 		h := newHelperHost(t, "1.3.4")
@@ -556,9 +583,156 @@ func TestTheHelperRefusesAnUpdateFolderInAFolderOthersCanWrite(t *testing.T) {
 	})
 }
 
+// A grandchild of the engine can hold its output open after the engine has
+// exited 0. Go reports that as ErrWaitDelay, which is not a failed upgrade;
+// what the binary reports afterwards is what decides.
+func TestAnEngineWhoseChildKeepsItsOutputOpenIsJudgedByTheReleaseItLeft(t *testing.T) {
+	shorten(t, &helperStopGrace, 200*time.Millisecond)
+	h := newHelperHost(t, "")
+	h.opts.installedVersion, h.opts.upgrade = nil, nil
+	fakeZoomiesScript(t, h.opts.BinaryPath, fakeVersion, `echo upgraded; sleep 5 &`)
+	h.ask(t, wellFormedRequest)
+	r := h.answer(t)
+	if !r.OK || r.To != "1.3.5" {
+		t.Errorf("result = %+v", r)
+	}
+}
+
+// Stopped by systemd, the engine is asked to stop first, so that it can remove
+// upgrade.lock; killed outright, it would leave the lock and every later
+// request refused over it. One that will not stop is killed after the grace.
+func TestTheEngineIsAskedToStopBeforeItIsKilled(t *testing.T) {
+	stopWhenStarted := func(t *testing.T, h *helperHost) context.Context {
+		t.Helper()
+		ctx, cancel := context.WithCancel(context.Background())
+		t.Cleanup(cancel)
+		started := filepath.Join(filepath.Dir(h.opts.BinaryPath), "started")
+		go func() {
+			for range 1000 {
+				if _, err := os.Stat(started); err == nil {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			cancel()
+		}()
+		return ctx
+	}
+	t.Run("it is sent SIGTERM", func(t *testing.T) {
+		shorten(t, &helperStopGrace, 10*time.Second)
+		h := newHelperHost(t, "")
+		h.opts.installedVersion, h.opts.upgrade = nil, nil
+		lock := filepath.Join(filepath.Dir(h.opts.BinaryPath), "engine.lock")
+		fakeZoomiesScript(t, h.opts.BinaryPath, fakeVersion,
+			`trap 'rm -f "$here/engine.lock"; exit 1' TERM; touch "$here/engine.lock" "$here/started"; sleep 30 >/dev/null 2>&1 & wait`)
+		h.ask(t, wellFormedRequest)
+		if err := RunUpdateHelper(stopWhenStarted(t, h), h.opts); err != nil {
+			t.Fatalf("RunUpdateHelper: %v", err)
+		}
+		if _, err := os.Stat(lock); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("the engine never ran its handler for SIGTERM, so it was killed outright: %v", err)
+		}
+		r, _, _ := channel.ReadResult(h.dir)
+		if r.OK || !strings.Contains(r.Error, "stopped") {
+			t.Errorf("result = %+v", r)
+		}
+	})
+	t.Run("one that ignores it is killed after the grace", func(t *testing.T) {
+		shorten(t, &helperStopGrace, 300*time.Millisecond)
+		h := newHelperHost(t, "")
+		h.opts.installedVersion, h.opts.upgrade = nil, nil
+		fakeZoomiesScript(t, h.opts.BinaryPath, fakeVersion,
+			`trap '' TERM; touch "$here/started"; sleep 20 >/dev/null 2>&1`)
+		h.ask(t, wellFormedRequest)
+		began := time.Now()
+		if err := RunUpdateHelper(stopWhenStarted(t, h), h.opts); err != nil {
+			t.Fatalf("RunUpdateHelper: %v", err)
+		}
+		if took := time.Since(began); took > 10*time.Second {
+			t.Errorf("an engine that ignored SIGTERM held the helper for %s", took)
+		}
+	})
+}
+
+// The version is asked of the installed binary, which answers at once or is
+// broken; a broken one must not hold the helper, and an answer no release
+// could give is not compared with anything.
+func TestTheHelperBoundsWhatItAsksTheInstalledBinary(t *testing.T) {
+	t.Run("a binary that does not answer", func(t *testing.T) {
+		shorten(t, &helperVersionTimeout, 200*time.Millisecond)
+		h := newHelperHost(t, "")
+		h.opts.installedVersion, h.opts.upgrade = nil, nil
+		fakeZoomiesScript(t, h.opts.BinaryPath, `exec sleep 30`, `true`)
+		h.ask(t, wellFormedRequest)
+		began := time.Now()
+		r := h.answer(t)
+		if took := time.Since(began); took > 10*time.Second {
+			t.Errorf("a binary that never answered held the helper for %s", took)
+		}
+		if r.OK || !strings.Contains(r.Error, "cannot tell which release") {
+			t.Errorf("result = %+v", r)
+		}
+	})
+	t.Run("a version longer than any release's", func(t *testing.T) {
+		h := newHelperHost(t, "1."+strings.Repeat("9", 130))
+		h.ask(t, wellFormedRequest)
+		r := h.answer(t)
+		h.ranNothing(t)
+		if r.OK || !strings.Contains(r.Error, "longer than any release") {
+			t.Errorf("result = %+v", r)
+		}
+	})
+}
+
+// The lock the helper looks for and the deployment the engine upgrades have
+// to be the same one, and both come from root's pointer: an engine left to
+// find its own configuration directory could upgrade a deployment whose lock
+// the helper never looked at.
+func TestTheEngineUpgradesTheDeploymentThePointerNames(t *testing.T) {
+	p := newPointerHost(t)
+	p.pointer.ConfigDir = filepath.Join(p.base, "srv", "zoomies-config")
+	p.pointer.UID = testServiceUID
+	for _, d := range []string{filepath.Join(p.base, "srv"), p.pointer.ConfigDir, filepath.Join(p.base, "var")} {
+		mustDo(t, os.Mkdir(d, 0o700))
+	}
+	mustDo(t, os.Mkdir(p.pointer.Dir, 0o750))
+	fakeZoomies(t, p.pointer.Binary, `Upgraded to v1.3.5\n`)
+	p.write(t)
+	opts, err := helperOptionsFromPointer(p.stateDir, fileOwner, p.base)
+	if err != nil {
+		t.Fatalf("helperOptionsFromPointer: %v", err)
+	}
+	opts.ownerOf, opts.Now = ownedByService, func() time.Time { return t0 }
+	plant(t, filepath.Join(p.pointer.Dir, channel.RequestFile), wellFormedRequest)
+	if err := RunUpdateHelper(context.Background(), opts); err != nil {
+		t.Fatalf("RunUpdateHelper: %v", err)
+	}
+	argv, err := os.ReadFile(filepath.Join(filepath.Dir(p.pointer.Binary), "argv"))
+	if err != nil {
+		t.Fatalf("the engine never ran: %v", err)
+	}
+	got := strings.Split(strings.TrimSuffix(string(argv), "\n"), "\n")
+	if i := slices.Index(got, "--config-dir"); i < 0 || i+1 >= len(got) || got[i+1] != p.pointer.ConfigDir {
+		t.Errorf("the engine was not pointed at %s: argv %q", p.pointer.ConfigDir, got)
+	}
+	if opts.LockPath != filepath.Join(p.pointer.ConfigDir, "upgrade.lock") {
+		t.Errorf("the lock is looked for at %s", opts.LockPath)
+	}
+}
+
+func mustDo(t *testing.T, err error) {
+	t.Helper()
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 // pointerHost is root's state directory holding a copy of the pointer, and the
-// binary and configuration directory it names.
+// binary and configuration directory it names. The binary is two folders down,
+// in opt/bin, so that a grandparent can be made to fail on its own; the walk
+// up from it stops at base, which stands for / in these tests.
 type pointerHost struct {
+	base     string
 	stateDir string
 	pointer  channel.Pointer
 }
@@ -566,16 +740,12 @@ type pointerHost struct {
 func newPointerHost(t *testing.T) *pointerHost {
 	t.Helper()
 	base := t.TempDir()
-	p := &pointerHost{stateDir: filepath.Join(base, "zoomies-update")}
-	for _, d := range []string{p.stateDir, filepath.Join(base, "bin"), filepath.Join(base, "etc")} {
-		if err := os.Mkdir(d, 0o700); err != nil {
-			t.Fatal(err)
-		}
+	p := &pointerHost{base: base, stateDir: filepath.Join(base, "zoomies-update")}
+	for _, d := range []string{p.stateDir, filepath.Join(base, "opt"), filepath.Join(base, "opt", "bin"), filepath.Join(base, "etc")} {
+		mustDo(t, os.Mkdir(d, 0o700))
 	}
-	binary := filepath.Join(base, "bin", "zoomies")
-	if err := os.WriteFile(binary, []byte("#!/bin/sh\n"), 0o755); err != nil {
-		t.Fatal(err)
-	}
+	binary := filepath.Join(base, "opt", "bin", "zoomies")
+	mustDo(t, os.WriteFile(binary, []byte("#!/bin/sh\n"), 0o755))
 	p.pointer = channel.Pointer{V: 1, Dir: filepath.Join(base, "var", "update"), Binary: binary, Account: "zoomies", UID: 999, ConfigDir: filepath.Join(base, "etc")}
 	return p
 }
@@ -587,9 +757,7 @@ func (p *pointerHost) write(t *testing.T) string {
 		t.Fatal(err)
 	}
 	path := filepath.Join(p.stateDir, channel.PointerFile)
-	if err := os.WriteFile(path, body, 0o600); err != nil {
-		t.Fatal(err)
-	}
+	mustDo(t, os.WriteFile(path, body, 0o600))
 	return path
 }
 
@@ -599,7 +767,7 @@ func (p *pointerHost) write(t *testing.T) string {
 func TestTheHelperTakesItsSettingsFromRootsCopyOfThePointer(t *testing.T) {
 	p := newPointerHost(t)
 	p.write(t)
-	opts, err := helperOptionsFromPointer(p.stateDir, fileUID)
+	opts, err := helperOptionsFromPointer(p.stateDir, fileOwner, p.base)
 	if err != nil {
 		t.Fatalf("helperOptionsFromPointer: %v", err)
 	}
@@ -609,47 +777,66 @@ func TestTheHelperTakesItsSettingsFromRootsCopyOfThePointer(t *testing.T) {
 	}
 }
 
+// ownedBy says the file or folder called name belongs to uid and gid, and
+// leaves everything else to its real owner.
+func ownedBy(name string, uid, gid int) func(os.FileInfo) (int, int, bool) {
+	return func(fi os.FileInfo) (int, int, bool) {
+		if fi.Name() == name {
+			return uid, gid, true
+		}
+		return fileOwner(fi)
+	}
+}
+
 // Everything in the pointer decides what root does, so each field the helper
 // uses is checked by the helper, and a pointer anyone but root could have
 // written is not read at all.
 func TestTheHelperRefusesAPointerItCannotTrust(t *testing.T) {
-	strangerOwns := func(name string) func(os.FileInfo) (int, bool) {
-		return func(fi os.FileInfo) (int, bool) {
-			if fi.Name() == name {
-				return 4242, true
-			}
-			return fileUID(fi)
-		}
-	}
 	for _, c := range []struct {
-		name    string
-		change  func(t *testing.T, p *pointerHost, path string)
-		ownerOf func(os.FileInfo) (int, bool)
-		want    string
+		name   string
+		change func(t *testing.T, p *pointerHost, path string)
+		owner  func(os.FileInfo) (int, int, bool)
+		want   string
 	}{
-		{name: "missing", change: func(t *testing.T, p *pointerHost, path string) { os.Remove(path) }, want: "updates helper install"},
-		{name: "owned by another account", ownerOf: strangerOwns(channel.PointerFile), want: "owned by uid 4242"},
-		{name: "writable by its group", change: func(t *testing.T, p *pointerHost, path string) { os.Chmod(path, 0o620) }, want: "writable by its group or the world"},
+		{name: "missing", change: func(t *testing.T, p *pointerHost, path string) { mustDo(t, os.Remove(path)) }, want: "updates helper install"},
+		{name: "owned by another account", owner: ownedBy(channel.PointerFile, 4242, 0), want: "owned by uid 4242"},
+		{name: "writable by its group", change: func(t *testing.T, p *pointerHost, path string) { mustDo(t, os.Chmod(path, 0o620)) }, want: "writable by its group or the world"},
 		{name: "a link", change: func(t *testing.T, p *pointerHost, path string) {
-			os.Rename(path, path+".real")
-			os.Symlink(path+".real", path)
+			mustDo(t, os.Rename(path, path+".real"))
+			mustDo(t, os.Symlink(path+".real", path))
 		}, want: "link"},
 		{name: "uid 0", change: func(t *testing.T, p *pointerHost, path string) { p.pointer.UID = 0; p.write(t) }, want: "uid 0"},
 		{name: "an account that is not a name", change: func(t *testing.T, p *pointerHost, path string) { p.pointer.Account = "zoomies\nroot"; p.write(t) }, want: "account"},
 		{name: "a relative binary", change: func(t *testing.T, p *pointerHost, path string) { p.pointer.Binary = "zoomies"; p.write(t) }, want: "absolute"},
 		{name: "a binary that is a link", change: func(t *testing.T, p *pointerHost, path string) {
-			os.Rename(p.pointer.Binary, p.pointer.Binary+"-real")
-			os.Symlink(p.pointer.Binary+"-real", p.pointer.Binary)
+			mustDo(t, os.Rename(p.pointer.Binary, p.pointer.Binary+"-real"))
+			mustDo(t, os.Symlink(p.pointer.Binary+"-real", p.pointer.Binary))
 		}, want: "link"},
-		{name: "a binary root does not own", ownerOf: strangerOwns("zoomies"), want: "owned by uid 4242"},
-		{name: "a binary its group can write", change: func(t *testing.T, p *pointerHost, path string) { os.Chmod(p.pointer.Binary, 0o775) }, want: "writable by its group or the world"},
-		{name: "a binary in a folder root does not own", ownerOf: strangerOwns("bin"), want: "owned by uid 4242"},
-		{name: "a binary that cannot run", change: func(t *testing.T, p *pointerHost, path string) { os.Chmod(p.pointer.Binary, 0o644) }, want: "not executable"},
+		{name: "a binary root does not own", owner: ownedBy("zoomies", 4242, 0), want: "owned by uid 4242"},
+		{name: "a binary its group can write", change: func(t *testing.T, p *pointerHost, path string) { mustDo(t, os.Chmod(p.pointer.Binary, 0o775)) }, want: "writable by its group or the world"},
+		{name: "a binary in a folder root does not own", owner: ownedBy("bin", 4242, 0), want: "owned by uid 4242"},
+		{name: "a binary under a folder the service owns", owner: ownedBy("opt", 999, 999), want: "opt is owned by uid 999"},
+		{name: "a binary under a folder staff can write", change: func(t *testing.T, p *pointerHost, path string) {
+			mustDo(t, os.Chmod(filepath.Join(p.base, "opt"), 0o775))
+		}, owner: ownedBy("opt", os.Geteuid(), 50), want: "opt is writable by its group (gid 50)"},
+		{name: "a binary under a link", change: func(t *testing.T, p *pointerHost, path string) {
+			opt := filepath.Join(p.base, "opt")
+			mustDo(t, os.Rename(opt, opt+"-real"))
+			mustDo(t, os.Symlink(opt+"-real", opt))
+		}, want: "opt is a link"},
+		{name: "a binary under a folder anyone can write", change: func(t *testing.T, p *pointerHost, path string) {
+			mustDo(t, os.Chmod(filepath.Join(p.base, "opt"), 0o777|os.ModeSticky))
+		}, want: "opt is writable by the world"},
+		{name: "a binary that cannot run", change: func(t *testing.T, p *pointerHost, path string) { mustDo(t, os.Chmod(p.pointer.Binary, 0o644)) }, want: "not executable"},
 		{name: "a relative configuration directory", change: func(t *testing.T, p *pointerHost, path string) { p.pointer.ConfigDir = "etc"; p.write(t) }, want: "absolute"},
 		{name: "a configuration directory that is not there", change: func(t *testing.T, p *pointerHost, path string) {
 			p.pointer.ConfigDir = filepath.Join(p.pointer.ConfigDir, "missing")
 			p.write(t)
 		}, want: "configuration directory"},
+		{name: "a configuration directory that is a file", change: func(t *testing.T, p *pointerHost, path string) {
+			p.pointer.ConfigDir = p.pointer.Binary
+			p.write(t)
+		}, want: "is a file and not a folder"},
 		{name: "a relative update folder", change: func(t *testing.T, p *pointerHost, path string) { p.pointer.Dir = "update"; p.write(t) }, want: "absolute"},
 	} {
 		t.Run(c.name, func(t *testing.T) {
@@ -658,14 +845,29 @@ func TestTheHelperRefusesAPointerItCannotTrust(t *testing.T) {
 			if c.change != nil {
 				c.change(t, p, path)
 			}
-			ownerOf := c.ownerOf
-			if ownerOf == nil {
-				ownerOf = fileUID
+			owner := c.owner
+			if owner == nil {
+				owner = fileOwner
 			}
-			_, err := helperOptionsFromPointer(p.stateDir, ownerOf)
+			_, err := helperOptionsFromPointer(p.stateDir, owner, p.base)
 			if err == nil || !strings.Contains(err.Error(), c.want) {
 				t.Errorf("want a refusal saying %q, got: %v", c.want, err)
 			}
+			if err != nil && strings.Contains(err.Error(), "<nil>") {
+				t.Errorf("the refusal prints a nil error: %v", err)
+			}
 		})
+	}
+}
+
+// A group-write bit on a folder above the binary is tolerated only for the
+// root group, which on a host is root's anyway; staff on an older Debian is
+// not, and the refusal says so at install rather than as a timeout later.
+func TestTheHelperAcceptsAFolderAboveTheBinaryThatOnlyTheRootGroupCanWrite(t *testing.T) {
+	p := newPointerHost(t)
+	p.write(t)
+	mustDo(t, os.Chmod(filepath.Join(p.base, "opt"), 0o775))
+	if _, err := helperOptionsFromPointer(p.stateDir, ownedBy("opt", os.Geteuid(), 0), p.base); err != nil {
+		t.Errorf("a folder only the root group can write was refused: %v", err)
 	}
 }

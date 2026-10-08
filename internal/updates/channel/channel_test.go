@@ -1,6 +1,7 @@
 package channel
 
 import (
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -369,8 +370,20 @@ func TestReadPointerRefusesWhatItCannotTrust(t *testing.T) {
 			if got, err := ReadPointer(path); err == nil {
 				t.Errorf("ReadPointer accepted %q as %+v", body, got)
 			}
+			// The helper decodes root's copy from a descriptor it has checked, and
+			// has to refuse exactly what ReadPointer refuses.
+			if got, err := DecodePointer(PointerFile, []byte(body)); err == nil {
+				t.Errorf("DecodePointer accepted %q as %+v", body, got)
+			}
 		})
 	}
+	t.Run("decoded from bytes already read", func(t *testing.T) {
+		dir := t.TempDir()
+		body, _ := json.Marshal(Pointer{V: 1, Dir: dir, Binary: "/usr/local/bin/zoomies", Account: "zoomies", UID: 999})
+		if got, err := DecodePointer(PointerFile, body); err != nil || got.Dir != dir || got.UID != 999 {
+			t.Errorf("DecodePointer = %+v, %v", got, err)
+		}
+	})
 
 	t.Run("a folder in its place", func(t *testing.T) {
 		dir := t.TempDir()

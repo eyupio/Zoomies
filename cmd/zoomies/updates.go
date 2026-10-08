@@ -49,6 +49,9 @@ func updatesHelperRun(ctx context.Context, e *env, args []string) error {
 	if err := flags.noMoreArgs(); err != nil {
 		return err
 	}
+	if err := installer.CheckUpdateHelperPlatform(); err != nil {
+		return err
+	}
 	if uid := updatesEUID(); uid != 0 {
 		return fmt.Errorf(`the update helper runs as root, started by the zoomies-update unit when the service asks for an update, and this is uid %d; to update this host by hand, run "sudo zoomies upgrade"`, uid)
 	}

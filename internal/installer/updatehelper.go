@@ -29,20 +29,25 @@ import (
 // root does must not be anything the service can change.
 const UpdateHelperStateDir = "/var/lib/zoomies-update"
 
+// helperVersionTimeout bounds asking the installed binary its version, which
+// answers at once or is broken. It is a variable so a test can shorten it.
+var helperVersionTimeout = time.Minute
+
+// helperStopGrace is how long the engine is given to remove upgrade.lock and
+// stop once the helper is told to stop. Killed at once, it would leave the lock
+// behind and every later request refused over it. It is a variable so a test
+// can shorten it.
+var helperStopGrace = 30 * time.Second
+
 const (
-	// helperVersionTimeout bounds asking the installed binary its version, which
-	// answers at once or is broken.
-	helperVersionTimeout = time.Minute
 	// helperOutputKept is how much of the engine's output the helper holds; the
 	// result's log tail is cut from the end of it.
 	helperOutputKept = 64 << 10
 	// helperLogLineBytes bounds one line of the helper's log, so one line of the
 	// engine's output with no end cannot be a log of its own.
 	helperLogLineBytes = 4096
-	// helperStopGrace is how long the engine is given to remove upgrade.lock and
-	// stop once the helper is told to stop. Killed at once, it would leave the
-	// lock behind and every later request refused over it.
-	helperStopGrace = 30 * time.Second
+	// maxPointerBytes bounds the pointer, which holds a few paths and a name.
+	maxPointerBytes = 4096
 	// maxVersionBytes bounds the version the installed binary reports, which is a
 	// few characters for any real build.
 	maxVersionBytes = 128
@@ -75,6 +80,10 @@ type HelperOptions struct {
 	upgrade          func(ctx context.Context, tag string) (output string, err error)
 }
 
+// CheckUpdateHelperPlatform says whether the helper can run here at all. It
+// can on every unix; see updatehelper_other.go for the rest.
+func CheckUpdateHelperPlatform() error { return nil }
+
 // pointerHint is the end of every refusal of root's pointer: reinstalling the
 // helper writes it afresh.
 const pointerHint = `run "sudo zoomies updates helper install" again to write it afresh`
@@ -82,13 +91,14 @@ const pointerHint = `run "sudo zoomies updates helper install" again to write it
 // HelperOptionsFromPointer reads root's copy of the pointer in stateDir and
 // checks every field the helper uses.
 func HelperOptionsFromPointer(stateDir string) (HelperOptions, error) {
-	return helperOptionsFromPointer(stateDir, fileUID)
+	return helperOptionsFromPointer(stateDir, fileOwner, "/")
 }
 
-func helperOptionsFromPointer(stateDir string, ownerOf func(os.FileInfo) (int, bool)) (HelperOptions, error) {
-	// The directory is root's and writable by root alone, which openStateDir
-	// checks, so nobody else can swap the pointer between the look below and the
-	// read after it.
+// helperOptionsFromPointer is HelperOptionsFromPointer with the owner of a file
+// and the top of the binary's walk as seams: a test's files are all whoever
+// runs it, under a temporary folder.
+func helperOptionsFromPointer(stateDir string, owner func(os.FileInfo) (uid, gid int, ok bool), top string) (HelperOptions, error) {
+	ownerOf := func(fi os.FileInfo) (int, bool) { uid, _, ok := owner(fi); return uid, ok }
 	root, err := openStateDir(stateDir)
 	if err != nil {
 		return HelperOptions{}, err
@@ -102,15 +112,22 @@ func helperOptionsFromPointer(stateDir string, ownerOf func(os.FileInfo) (int, b
 	if err != nil {
 		return HelperOptions{}, fmt.Errorf("the update helper's pointer %s cannot be used: %w; %s", path, err, pointerHint)
 	}
-	f.Close()
+	defer f.Close()
 	if err := checkRootOwns("the update helper's pointer", path, info, ownerOf); err != nil {
 		return HelperOptions{}, err
 	}
-	p, err := channel.ReadPointer(path)
+	// Decoded from the descriptor just checked, so what is read is the file
+	// whose owner and mode were looked at. One byte over the limit, so that a
+	// file grown since the look is still refused.
+	body, err := io.ReadAll(io.LimitReader(f, maxPointerBytes+1))
+	if err != nil {
+		return HelperOptions{}, fmt.Errorf("cannot read the update helper's pointer %s: %w", path, err)
+	}
+	p, err := channel.DecodePointer(path, body)
 	if err != nil {
 		return HelperOptions{}, fmt.Errorf("the update helper's pointer cannot be used: %w; %s", err, pointerHint)
 	}
-	if err := checkPointer(path, p, ownerOf); err != nil {
+	if err := checkPointer(path, p, owner, top); err != nil {
 		return HelperOptions{}, err
 	}
 	return HelperOptions{
@@ -128,7 +145,7 @@ var accountName = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.-]{0,31}\$?$`)
 
 // checkPointer checks the fields ReadPointer leaves alone. ReadPointer only
 // knows the document; what the paths are on this host is the helper's to ask.
-func checkPointer(path string, p channel.Pointer, ownerOf func(os.FileInfo) (int, bool)) error {
+func checkPointer(path string, p channel.Pointer, owner func(os.FileInfo) (uid, gid int, ok bool), top string) error {
 	switch {
 	case p.UID <= 0:
 		return fmt.Errorf("%s records uid %d as the account zoomies runs as, and the helper serves only an unprivileged account; a service that runs as root needs no helper, and otherwise %s", path, p.UID, pointerHint)
@@ -141,14 +158,19 @@ func checkPointer(path string, p channel.Pointer, ownerOf func(os.FileInfo) (int
 	case !cleanAbs(p.ConfigDir):
 		return fmt.Errorf("%s names the configuration directory %q, which is not a clean absolute path; %s", path, p.ConfigDir, pointerHint)
 	}
-	if err := checkHelperBinary(p.Binary, ownerOf); err != nil {
+	if err := checkHelperBinary(p.Binary, owner, top); err != nil {
 		return err
 	}
-	// The configuration directory is only where the helper looks for the lock.
-	// A lock planted there stops updates and nothing else, which the service
-	// could do anyway by not asking, so it needs to be a folder and no more.
-	if info, err := os.Stat(p.ConfigDir); err != nil || !info.IsDir() {
-		return fmt.Errorf("%s names the configuration directory %s, which is not a folder on this host (%v); the helper looks there for upgrade.lock, so %s", path, p.ConfigDir, err, pointerHint)
+	// The configuration directory is where the helper looks for the lock and
+	// where it tells the engine the deployment is. A lock planted there stops
+	// updates and nothing else, which the service could do anyway by not
+	// asking, so it needs to be a folder and no more.
+	info, err := os.Stat(p.ConfigDir)
+	if err != nil {
+		return fmt.Errorf("%s names the configuration directory %s, which cannot be used on this host: %w; the helper looks there for upgrade.lock, so %s", path, p.ConfigDir, err, pointerHint)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s names the configuration directory %s, which is a file and not a folder; the helper looks there for upgrade.lock, so %s", path, p.ConfigDir, pointerHint)
 	}
 	return nil
 }
@@ -157,9 +179,12 @@ func cleanAbs(p string) bool { return filepath.IsAbs(p) && filepath.Clean(p) == 
 
 // checkHelperBinary refuses a binary that anybody but root could change: root
 // runs it on the service's say, so a binary the service could replace would be
-// the service running as root. The folder it is in counts as well, since
-// whoever can write that can put another file under the name.
-func checkHelperBinary(binary string, ownerOf func(os.FileInfo) (int, bool)) error {
+// the service running as root. Every folder above it counts as well, up to
+// top (/ on a host), since whoever can write any of them can put another file
+// under the name: by renaming a folder they own out of the way, if nothing
+// else.
+func checkHelperBinary(binary string, owner func(os.FileInfo) (uid, gid int, ok bool), top string) error {
+	ownerOf := func(fi os.FileInfo) (int, bool) { uid, _, ok := owner(fi); return uid, ok }
 	info, err := os.Lstat(binary)
 	if err != nil {
 		return fmt.Errorf("cannot look at the zoomies binary %s: %w; %s", binary, err, pointerHint)
@@ -173,12 +198,43 @@ func checkHelperBinary(binary string, ownerOf func(os.FileInfo) (int, bool)) err
 	if info.Mode().Perm()&0o111 == 0 {
 		return fmt.Errorf("the zoomies binary %s is not executable (mode %o); %s", binary, info.Mode().Perm(), pointerHint)
 	}
-	dir := filepath.Dir(binary)
-	dirInfo, err := os.Stat(dir)
-	if err != nil {
-		return fmt.Errorf("cannot look at %s, the folder the zoomies binary is in: %w", dir, err)
+	for dir := filepath.Dir(binary); ; dir = filepath.Dir(dir) {
+		if err := checkFolderAboveBinary(dir, owner); err != nil {
+			return err
+		}
+		if dir == top || dir == filepath.Dir(dir) {
+			return nil
+		}
 	}
-	return checkRootOwns("the zoomies binary's folder", dir, dirInfo, ownerOf)
+}
+
+// checkFolderAboveBinary is the rule for each folder above the binary: root's,
+// a real folder and not a link (which whoever owns the folder it is in could
+// repoint), and writable by root alone. The one exception is a group-write bit
+// for the root group, whose members are root's already; a sticky bit does not
+// make a folder anyone can write acceptable, because anyone can then make
+// their own file of a name before root does.
+func checkFolderAboveBinary(dir string, owner func(os.FileInfo) (uid, gid int, ok bool)) error {
+	const why = "the helper runs the zoomies binary as root, so every folder above it must be one only root can change"
+	info, err := os.Lstat(dir)
+	if err != nil {
+		return fmt.Errorf("cannot look at %s, a folder above the zoomies binary: %w", dir, err)
+	}
+	if !info.IsDir() {
+		return fmt.Errorf("%s is a %s, above the zoomies binary; %s, so record the binary by its real path and %s", dir, fileKind(info.Mode()), why, pointerHint)
+	}
+	uid, gid, ok := owner(info)
+	switch {
+	case !ok:
+		return fmt.Errorf("cannot tell who owns %s, a folder above the zoomies binary, so the helper does not run it", dir)
+	case uid != helperEUID():
+		return fmt.Errorf("%s is owned by uid %d and not by root; %s: give it to root (chown root %s)", dir, uid, why, dir)
+	case info.Mode().Perm()&0o002 != 0:
+		return fmt.Errorf("%s is writable by the world (mode %o), above the zoomies binary; %s: chmod o-w %s, or install the binary somewhere else", dir, info.Mode().Perm(), why, dir)
+	case info.Mode().Perm()&0o020 != 0 && gid != 0:
+		return fmt.Errorf("%s is writable by its group (gid %d), above the zoomies binary; %s: chmod g-w %s, or install the binary somewhere else", dir, gid, why, dir)
+	}
+	return nil
 }
 
 // checkRootOwns refuses something root relies on that root does not own, or
@@ -204,12 +260,14 @@ func checkRootOwns(what, path string, info os.FileInfo, ownerOf func(os.FileInfo
 //
 // The error is nil whenever a result was written, whatever it says: the answer
 // is result.json and the log. An error means the helper could not answer at
-// all, because the folder is not one it will write in, or the write failed.
+// all, because the folder is not one it will write in, or the write failed;
+// it is not logged here, because the caller prints it.
 func RunUpdateHelper(ctx context.Context, opts HelperOptions) error {
 	h := newUpdateHelper(opts)
+	// An error is returned and not logged as well: the caller prints it, to the
+	// same journal.
 	dir, err := openUpdateFolder(h.opts.Dir, h.opts.ServiceUID, h.opts.ownerOf)
 	if err != nil {
-		h.logf("cannot answer: %v", err)
 		return err
 	}
 	defer dir.Close()
@@ -297,7 +355,7 @@ func (h *updateHelper) act(ctx context.Context, r updates.Request, started time.
 		return refuse(fmt.Errorf("the helper cannot tell whether %s is newer than %s, which this host runs; update it by hand with \"sudo zoomies upgrade --version %s\"", r.Tag, installed, r.Tag))
 	}
 
-	h.logf("running %s %s", h.opts.BinaryPath, strings.Join(upgradeArgs(r.Tag), " "))
+	h.logf("running %s %s", h.opts.BinaryPath, strings.Join(upgradeArgs(r.Tag, h.configDir()), " "))
 	output, err := h.opts.upgrade(ctx, r.Tag)
 	result.LogTail = output
 	if err != nil {
@@ -339,16 +397,23 @@ func (h *updateHelper) installedRelease(ctx context.Context, tag string) (string
 
 // upgradeArgs is the whole of what the helper asks of the engine. Never --yes:
 // that approves deployment additions, and only an operator at the host may.
-func upgradeArgs(tag string) []string {
-	return []string{"upgrade", "--version", tag, "--non-interactive"}
+// --config-dir is the deployment root's pointer names, the one whose lock the
+// helper has just looked for; left to itself the engine would find its own,
+// and the two could differ.
+func upgradeArgs(tag, configDir string) []string {
+	return []string{"upgrade", "--version", tag, "--non-interactive", "--config-dir", configDir}
 }
+
+// configDir is the deployment's configuration directory: the folder the lock
+// is in, by construction.
+func (h *updateHelper) configDir() string { return filepath.Dir(h.opts.LockPath) }
 
 // runEngine runs the installed binary's upgrade as a child process. It cannot
 // run in this one, because the engine re-executes itself into the new binary.
 // The environment is the helper's own, root's, which is where the release
 // source (ZOOMIES_BASE_URL, ZOOMIES_REPO) comes from, and never the request.
 func (h *updateHelper) runEngine(ctx context.Context, tag string) (string, error) {
-	cmd := exec.CommandContext(ctx, h.opts.BinaryPath, upgradeArgs(tag)...)
+	cmd := exec.CommandContext(ctx, h.opts.BinaryPath, upgradeArgs(tag, h.configDir())...)
 	cmd.Env = os.Environ()
 	cmd.Cancel = func() error { return cmd.Process.Signal(syscall.SIGTERM) }
 	cmd.WaitDelay = helperStopGrace
@@ -359,6 +424,12 @@ func (h *updateHelper) runEngine(ctx context.Context, tag string) (string, error
 	cmd.Stdout, cmd.Stderr = both, both
 	err := cmd.Run()
 	log.flush()
+	// The engine exited 0 and something it started still holds the output.
+	// That is not a failed upgrade; the version the binary reports afterwards
+	// says whether it was one.
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil
+	}
 	return kept.String(), err
 }
 
@@ -407,7 +478,6 @@ func engineSentence(ctx context.Context, output string, err error, tag string) s
 func (h *updateHelper) answer(dir *os.Root, r updates.Result) error {
 	r.FinishedAt = h.opts.Now()
 	if err := writeResult(dir, r); err != nil {
-		h.logf("cannot answer in %s: %v", h.opts.Dir, err)
 		return fmt.Errorf("the update helper cannot write its answer in %s: %w", h.opts.Dir, err)
 	}
 	switch {
@@ -467,7 +537,9 @@ func (t *outputTail) Write(p []byte) (int, error) {
 func (t *outputTail) String() string { return string(t.b) }
 
 // logLines passes the engine's output to the helper's log a line at a time,
-// each made printable and bounded.
+// each made printable and bounded, and marked as the engine's: unmarked, a
+// line could pass for one of the helper's own, or begin with the <N> the
+// journal reads as a priority.
 type logLines struct {
 	out     io.Writer
 	pending []byte
@@ -497,7 +569,7 @@ func (l *logLines) flush() {
 }
 
 func (l *logLines) emit(line []byte) {
-	fmt.Fprintln(l.out, headOf(printable(string(line), false), helperLogLineBytes))
+	fmt.Fprintln(l.out, "engine: "+headOf(printable(string(line), false), helperLogLineBytes))
 }
 
 // openUpdateFolder opens the update folder for the helper, and refuses any
