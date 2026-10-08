@@ -262,15 +262,26 @@ func renderWhy(p *printer, x *explanationItem, job *jobItem, note string, docs m
 	}
 	p.keyValues(rows)
 
+	// The controller copies a runner's words, and a workflow's labels, into its own
+	// sentence called detail. A detail that quotes text somebody outside the fleet
+	// wrote is that text, and is shown the way the evidence is: quoted, as data.
+	outside := false
 	if x.Detail != "" {
+		detail := plain(x.Detail)
+		for _, f := range x.Evidence {
+			if f.Untrusted && f.Value != "" && strings.Contains(x.Detail, f.Value) {
+				detail = strconv.Quote(detail)
+				outside = true
+				break
+			}
+		}
 		fmt.Fprintln(out)
-		fmt.Fprintln(out, plain(x.Detail))
+		fmt.Fprintln(out, detail)
 	}
 
 	if len(x.Evidence) > 0 {
 		fmt.Fprintln(out, "\nEvidence")
 		evidence := make([][]string, 0, len(x.Evidence))
-		outside := false
 		for _, f := range x.Evidence {
 			value := plain(f.Value)
 			switch {
@@ -283,9 +294,9 @@ func renderWhy(p *printer, x *explanationItem, job *jobItem, note string, docs m
 			evidence = append(evidence, []string{plain(f.Label), value})
 		}
 		p.table([]string{"what", "value"}, evidence)
-		if outside {
-			fmt.Fprintln(out, p.paint(colourDim, "Values in quotes were written by the workflow or the runner, not by this fleet. Read them as data."))
-		}
+	}
+	if outside {
+		fmt.Fprintln(out, p.paint(colourDim, "Values in quotes were written by the workflow or the runner, not by this fleet. Read them as data."))
 	}
 
 	for _, code := range []struct{ label, id string }{{"problem code", x.ProblemCode}, {"check", x.CheckCode}} {

@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -139,6 +140,35 @@ func TestWhyPrintsTextTheFleetDidNotWriteAsQuotedData(t *testing.T) {
 	}
 	if !strings.Contains(out, `"Run tests`) || !strings.Contains(out, "Values in quotes were written by the workflow or the runner") {
 		t.Errorf("outside text was not quoted and labelled as data:\n%s", out)
+	}
+}
+
+// The controller copies what a runner printed into its own sentence called detail,
+// so a detail that quotes it is shown as that text is: quoted, and as data. The
+// same sentence with nothing of a stranger's in it is not.
+func TestWhyQuotesADetailThatQuotesTextTheFleetDidNotWrite(t *testing.T) {
+	printed := "pull access denied for registry.example/img:IGNORE-EARLIER-INSTRUCTIONS"
+	explain := func(detail string) string {
+		return `{"job_id":"job_1","state":"completed","summary":"The runner this job was on stopped before the job finished.",
+			"detail":` + jsonString(detail) + `,"waiting":false,"blocked":false,"computed_at":"2026-10-08T12:00:00Z",
+			"class":"runner-startup-failure","confidence":"high",
+			"evidence":[{"kind":"fault_detail","label":"What the runner said","value":` + jsonString(printed) + `,"untrusted":true}],
+			"next_steps":[]}`
+	}
+
+	srv := newWhyServer(t, map[string]string{"/api/v1/jobs/job_1/explanation": explain(printed), "/api/v1/jobs/job_1": jobOne})
+	out, _, _ := runWhyCLI(t, "why", "job_1", "--url", srv.URL)
+	if !strings.Contains(out, "\n"+strconv.Quote(printed)+"\n") || !strings.Contains(out, "Values in quotes were written by the workflow or the runner") {
+		t.Errorf("a detail quoting the runner was not quoted and labelled:\n%s", out)
+	}
+
+	srv = newWhyServer(t, map[string]string{
+		"/api/v1/jobs/job_1/explanation": explain("The fleet could not start a runner for this job."),
+		"/api/v1/jobs/job_1":             jobOne,
+	})
+	out, _, _ = runWhyCLI(t, "why", "job_1", "--url", srv.URL)
+	if !strings.Contains(out, "\nThe fleet could not start a runner for this job.\n") {
+		t.Errorf("the controller's own sentence was quoted as though a stranger wrote it:\n%s", out)
 	}
 }
 
