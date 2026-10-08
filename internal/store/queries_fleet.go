@@ -626,21 +626,30 @@ const hostCols = `id, name, address, embedded, capacity, backends, backend_info,
 	agent_session_alternations, agent_session_alt_at,
 	disk_total_mb, disk_free_mb, reserve_cpus, reserve_memory_mb, reserve_disk_mb,
 	protocol_version, incompatible, connection, usage, throttle, features, incidents, doctor,
-	runner_profile, size_class`
+	runner_profile, size_class, doctor_checked_at`
 
 func scanHost(sc interface{ Scan(...any) error }) (*Host, error) {
 	var h Host
 	var embedded, cordoned, incompatible int
-	var heartbeat, created int64
+	var heartbeat, created, doctorAt int64
 	var altAt sql.NullInt64
 	err := sc.Scan(&h.ID, &h.Name, &h.Address, &embedded, &h.Capacity, &h.Backends,
 		&h.BackendInfo, &h.Labels, &h.OS, &h.Distro, &h.OSVersion, &h.Arch, &h.CPUs,
 		&h.MemoryMB, &h.Version, &cordoned, &h.TokenHash, &heartbeat, &created,
 		&h.AgentSessionID, &h.AgentSessionPrev, &h.AgentSessionAlternations, &altAt,
 		&h.DiskTotalMB, &h.DiskFreeMB, &h.ReserveCPUs, &h.ReserveMemoryMB, &h.ReserveDiskMB,
-		&h.ProtocolVersion, &incompatible, &h.Connection, &h.Usage, &h.Throttle, &h.Features, &h.Incidents, &h.Doctor, &h.RunnerProfile, &h.SizeClass)
+		&h.ProtocolVersion, &incompatible, &h.Connection, &h.Usage, &h.Throttle, &h.Features, &h.Incidents, &h.Doctor, &h.RunnerProfile, &h.SizeClass, &doctorAt)
 	if err != nil {
 		return nil, err
+	}
+	if h.Doctor.Report != nil {
+		// The report is freshly unmarshalled for this scan, so it is ours to
+		// adjust. The stored body keeps the time it was written; a later report
+		// that said nothing new has moved only the column.
+		h.DoctorBodyAt = h.Doctor.CheckedAt
+		if doctorAt > 0 && at(doctorAt).After(h.Doctor.CheckedAt) {
+			h.Doctor.CheckedAt = at(doctorAt)
+		}
 	}
 	h.Embedded, h.Cordoned, h.Incompatible = embedded == 1, cordoned == 1, incompatible == 1
 	h.LastHeartbeat, h.CreatedAt = at(heartbeat), at(created)
@@ -661,13 +670,13 @@ func (s *Store) CreateHost(ctx context.Context, h *Host) error {
 		h.LastHeartbeat = h.CreatedAt
 	}
 	_, err := s.exec(ctx, `INSERT INTO hosts (`+hostCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		h.ID, h.Name, h.Address, boolInt(h.Embedded), h.Capacity, h.Backends, h.BackendInfo,
 		h.Labels, h.OS, h.Distro, h.OSVersion, h.Arch, h.CPUs, h.MemoryMB, h.Version,
 		boolInt(h.Cordoned), h.TokenHash, ms(h.LastHeartbeat), ms(h.CreatedAt),
 		h.AgentSessionID, h.AgentSessionPrev, h.AgentSessionAlternations, msp(h.AgentSessionAltAt),
 		h.DiskTotalMB, h.DiskFreeMB, h.ReserveCPUs, h.ReserveMemoryMB, h.ReserveDiskMB,
-		h.ProtocolVersion, boolInt(h.Incompatible), h.Connection, h.Usage, h.Throttle, h.Features, h.Incidents, h.Doctor, h.RunnerProfile, h.SizeClass)
+		h.ProtocolVersion, boolInt(h.Incompatible), h.Connection, h.Usage, h.Throttle, h.Features, h.Incidents, h.Doctor, h.RunnerProfile, h.SizeClass, int64(0))
 	return wrapWrite(err)
 }
 
@@ -895,6 +904,18 @@ func (s *Store) SetHostReserve(ctx context.Context, id string, cpus int, memoryM
 // Heartbeat records that an agent is alive and refreshes its live capacity.
 func (s *Store) Heartbeat(ctx context.Context, id string, now time.Time) error {
 	res, err := s.exec(ctx, `UPDATE hosts SET last_heartbeat=? WHERE id=?`, ms(now), id)
+	if err != nil {
+		return err
+	}
+	return affected(res, "host", id)
+}
+
+// HeartbeatWithReport is Heartbeat for a beat that carried a host report which
+// said nothing new: it records that the report arrived without rewriting its
+// body. MAX stops a beat that overtook a newer one moving freshness backwards.
+func (s *Store) HeartbeatWithReport(ctx context.Context, id string, now, reportAt time.Time) error {
+	res, err := s.exec(ctx, `UPDATE hosts SET last_heartbeat=?, doctor_checked_at=MAX(doctor_checked_at, ?) WHERE id=?`,
+		ms(now), ms(reportAt), id)
 	if err != nil {
 		return err
 	}
