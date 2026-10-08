@@ -63,6 +63,11 @@ export interface KennelListFilter {
    * it opens on fewer rows than the number it came from.
    */
   everything?: boolean;
+  /**
+   * List the repositories Kennel Club has been told not to look at. The list leaves
+   * them out unless told, because the cards count the ones it is looking at.
+   */
+  notTracked?: boolean;
 }
 
 /**
@@ -76,6 +81,7 @@ export function kennelListHref(filter: KennelListFilter = {}): string {
   const query = new URLSearchParams();
   if (filter.state) query.set('state', filter.state);
   if (filter.severity) query.set('severity', filter.severity);
+  if (filter.notTracked) query.set('tracked', 'false');
   if (filter.incomplete) query.set('incomplete', 'true');
   if (filter.waived) query.set('waived', 'true');
   if (filter.everything) query.set('active', 'all');

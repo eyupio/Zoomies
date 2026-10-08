@@ -907,6 +907,8 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "PUT", path: "/api/v1/kennel/repositories/kcr_x/waivers", role: store.RoleOperator, action: auth.ActionKennelWaive,
 			body: map[string]any{"code": "exposure.public_repo_on_fleet", "reason": "isolated hosts that are rebuilt for every job", "expires_at": "2099-01-01T00:00:00Z"}},
 		{method: "DELETE", path: "/api/v1/kennel/repositories/kcr_x/waivers/kcw_x", role: store.RoleOperator, action: auth.ActionKennelWaive},
+		{method: "PUT", path: "/api/v1/kennel/repositories/kcr_x/tracking", role: store.RoleOperator, action: auth.ActionKennelTrack,
+			body: map[string]any{"tracked": true}},
 
 		{method: "GET", path: "/api/v1/join-tokens", role: store.RoleAdmin, action: auth.ActionJoinsRead},
 		{method: "GET", path: "/api/v1/join-tokens/missing", role: store.RoleAdmin, action: auth.ActionJoinsRead},
@@ -1148,6 +1150,10 @@ func TestEveryActionIsReachableThroughARoute(t *testing.T) {
 	// knows the finding is one, because the route is the operator's and this
 	// widens it. TestAnOperatorCannotWaiveAnErrorFindingAndAnAdminCan walks it.
 	claimed[auth.ActionKennelWaiveError] = true
+	// And stopping tracking, for the same reason: the route is the operator's, who
+	// may start again, and the handler asks for this one when the body says to stop.
+	// The tracking tests in kennel_test.go walk it.
+	claimed[auth.ActionKennelUntrack] = true
 	for _, a := range auth.AllActions() {
 		if !claimed[a] {
 			t.Errorf("%s is a permission no route in the table checks", a)

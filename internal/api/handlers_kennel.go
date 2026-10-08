@@ -56,6 +56,11 @@ func (s *Server) failKennel(w http.ResponseWriter, r *http.Request, doing string
 		// is the sentence a 403 on this route should end with.
 		forbidden(w, fmt.Sprintf("%s is an error finding, and waiving one is an administrator's decision: %s",
 			needs.Code, auth.Explain(Identity(r.Context()), auth.ActionKennelWaiveError)))
+	case errors.Is(err, controller.ErrKennelNotTracked):
+		conflict(w, "This repository is not tracked, so Kennel Club has no findings for it and nothing to recheck or waive. Start tracking it first.")
+	case errors.Is(err, controller.ErrKennelUntrackNeedsAdmin):
+		forbidden(w, "Stopping Kennel Club looking at a repository silences its errors, which is an administrator's decision: "+
+			auth.Explain(Identity(r.Context()), auth.ActionKennelUntrack))
 	case errors.Is(err, controller.ErrKennelWaiverLimit):
 		conflict(w, fmt.Sprintf("this repository already has %d waivers, which is as many as it may; end one that is no longer needed first", controller.KennelMaxWaivers))
 	default:
@@ -102,6 +107,14 @@ func (s *Server) handleListKennelRepositories(w http.ResponseWriter, r *http.Req
 			return
 		}
 		filter.Active = &active
+	}
+	if raw := strings.TrimSpace(q.Get("tracked")); raw != "" {
+		tracked, err := strconv.ParseBool(raw)
+		if err != nil {
+			badRequestField(w, "tracked", "is not true or false")
+			return
+		}
+		filter.Tracked = &tracked
 	}
 	for _, flag := range []struct {
 		name string
@@ -211,6 +224,63 @@ func (s *Server) handleWaiveKennelFinding(w http.ResponseWriter, r *http.Request
 		return
 	}
 	_ = s.auth.Auditor().Record(r.Context(), ident, "kennel.waive", "kennel_repository", id, nil, waiverAudit(waiver))
+	writeJSON(w, http.StatusOK, v)
+}
+
+// kennelTrackingRequest is the body of PUT /kennel/repositories/{id}/tracking.
+// Tracked is a pointer because false is an answer and absent is not.
+type kennelTrackingRequest struct {
+	Tracked *bool  `json:"tracked"`
+	Reason  string `json:"reason"`
+}
+
+// kennelTrackingAudit is the decision an audit row records, which is what stopping
+// was and not just that it happened: the reason is the part somebody reading the
+// log in a year will want.
+type kennelTrackingAudit struct {
+	Name   string     `json:"name,omitempty"`
+	Reason string     `json:"reason,omitempty"`
+	By     string     `json:"by,omitempty"`
+	Since  *time.Time `json:"since,omitempty"`
+}
+
+// handleSetKennelTracking answers PUT /api/v1/kennel/repositories/{id}/tracking.
+//
+// A PUT because it sets a state: asking for the one a repository is already in is
+// answered with it and changes, and audits, nothing. Stopping needs the
+// administrator role and a reason; starting again needs an operator. The answer is
+// the repository as it now stands.
+func (s *Server) handleSetKennelTracking(w http.ResponseWriter, r *http.Request) {
+	var in kennelTrackingRequest
+	if !decode(w, r, &in) {
+		return
+	}
+	if in.Tracked == nil {
+		unprocessable(w, "", []fieldError{{Field: "tracked", Message: "is required: true to start looking at this repository, false to stop"}})
+		return
+	}
+	ident := Identity(r.Context())
+	id := chiURLParam(r, "id")
+	v, was, changed, err := s.ctrl.SetKennelTracking(r.Context(), id, controller.KennelTrackingInput{
+		Tracked: *in.Tracked, Reason: in.Reason,
+	}, controller.KennelActor{
+		ID: ident.ID, Name: ident.Name,
+		CanUntrack: auth.Allowed(ident, auth.ActionKennelUntrack),
+	})
+	if err != nil {
+		s.failKennel(w, r, "changing whether Kennel Club tracks a repository", err)
+		return
+	}
+	if changed {
+		if *in.Tracked {
+			// What was undone: who stopped it, when, and why.
+			_ = s.auth.Auditor().Record(r.Context(), ident, "kennel.track", "kennel_repository", id,
+				kennelTrackingAudit{Reason: was.Reason, By: was.ByName, Since: &was.At}, kennelTrackingAudit{Name: v.Name})
+		} else {
+			_ = s.auth.Auditor().Record(r.Context(), ident, "kennel.untrack", "kennel_repository", id, nil,
+				kennelTrackingAudit{Name: v.Name, Reason: v.Tracking.Reason, By: v.Tracking.By})
+		}
+	}
 	writeJSON(w, http.StatusOK, v)
 }
 
