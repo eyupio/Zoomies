@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/backend"
@@ -179,6 +181,13 @@ func (a *Agent) observe(ctx context.Context, b backend.Backend, r tracked, w bac
 		}
 		state, msg, fault := terminalOutcome(r, w.Status)
 		a.markTerminal(r.runnerID, state, w.Status.Phase, w.Status.ExitCode, msg, fault, now)
+		var tail []string
+		if fault != "" || w.Status.ExitCode != 0 {
+			// The one moment the evidence exists: the container is still on
+			// the host, and its output says what the exit code only hints at.
+			tail = tailOf(ctx, b, w.Handle)
+			a.keepTail(r.runnerID, tail)
+		}
 		a.log.Info("runner reached the end of its life",
 			"runner", r.runnerID, "handle", w.Handle, "state", state, "exit_code", w.Status.ExitCode, "detail", msg)
 		return RunnerReport{
@@ -189,6 +198,7 @@ func (a *Agent) observe(ctx context.Context, b backend.Backend, r tracked, w bac
 			ExitCode:   w.Status.ExitCode,
 			Fault:      fault,
 			Message:    msg,
+			OutputTail: tail,
 			ObservedAt: now,
 		}, true
 
@@ -638,6 +648,48 @@ func (a *Agent) markTerminal(runnerID string, state store.RunnerState, phase bac
 		r.terminalAt = now
 	}
 	r.terminal = true
+}
+
+// keepTail stores a workload's last lines with its tracked state, so a report
+// the controller did not accept carries them again on the next try.
+func (a *Agent) keepTail(runnerID string, tail []string) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if r, ok := a.runners[runnerID]; ok {
+		r.outputTail = tail
+	}
+}
+
+// outputTailLines is how many of a workload's last lines go with a faulted
+// exit: the store keeps no more, and a kill is rarely further up than that.
+const outputTailLines = store.OutputTailLines
+
+// tailOf reads a workload's last lines. Errors give nothing: the exit is
+// already reported, and a log the daemon cannot serve is not worth failing
+// the report over.
+func tailOf(ctx context.Context, b backend.Backend, h backend.Handle) []string {
+	rc, err := b.Logs(ctx, h, backend.LogOptions{Tail: outputTailLines})
+	if err != nil {
+		return nil
+	}
+	defer rc.Close()
+	// Forty lines of 400 runes is 16 KB of text; anything past 256 KB is a
+	// daemon that ignored Tail, and the end of it is still the end.
+	data, err := io.ReadAll(io.LimitReader(rc, 256<<10))
+	if err != nil && len(data) == 0 {
+		return nil
+	}
+	lines := strings.Split(strings.TrimRight(string(data), "\n"), "\n")
+	if len(lines) == 1 && lines[0] == "" {
+		return nil
+	}
+	if len(lines) > outputTailLines {
+		lines = lines[len(lines)-outputTailLines:]
+	}
+	for i, l := range lines {
+		lines[i] = strings.TrimRight(l, "\r")
+	}
+	return lines
 }
 
 // markOrphan records when an unclaimed workload was first seen and returns that

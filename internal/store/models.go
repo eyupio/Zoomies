@@ -1648,6 +1648,10 @@ type Job struct {
 	// it, for its memory limit while this job ran. A killed job's peak is the
 	// limit it hit rather than what it needed, which the profile allows for.
 	OOMKilled bool `json:"oom_killed,omitempty"`
+	// OutputTail is the last lines the runner wrote before a faulted exit, at
+	// most OutputTailLines of them. It is never serialised raw: the explanation
+	// quotes a scrubbed excerpt, and nothing else shows it.
+	OutputTail StringSlice `json:"-"`
 	// GrantedCPUs, GrantedMemoryMB and GrantedSource are the size of the runner
 	// that took the job -- its guaranteed share, not CPU lent to it later --
 	// and where that size came from (the Allocation* constants). They are

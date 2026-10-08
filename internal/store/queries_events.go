@@ -26,7 +26,7 @@ const jobInsertCols = `id, github_job_id, github_run_id, repo, workflow, job_nam
 const jobCols = jobInsertCols + `, peak_cpus, peak_memory_mb, oom_killed,
 	granted_cpus, granted_memory_mb, granted_source,
 	size_class, size_reason, size_basis, size_floor_mb, routed_class, routed_note, ran_class,
-	cpu_periods, cpu_throttled_periods`
+	cpu_periods, cpu_throttled_periods, output_tail`
 
 func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 	var j Job
@@ -42,7 +42,7 @@ func scanJob(sc interface{ Scan(...any) error }) (*Job, error) {
 		&j.PeakCPUs, &j.PeakMemoryMB, &oomKilled,
 		&j.GrantedCPUs, &j.GrantedMemoryMB, &j.GrantedSource,
 		&j.SizeClass, &j.SizeReason, &j.SizeBasis, &j.SizeFloorMB, &j.RoutedClass, &j.RoutedNote, &j.RanClass,
-		&j.CPUPeriods, &j.CPUThrottledPeriods)
+		&j.CPUPeriods, &j.CPUThrottledPeriods, &j.OutputTail)
 	if err != nil {
 		return nil, err
 	}

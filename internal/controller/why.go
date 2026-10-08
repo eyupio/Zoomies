@@ -366,8 +366,46 @@ func catalogDocsFor(code string) string {
 	return catalogDocs[code]
 }
 
-// excerptFrom picks the lines of a kept tail that decided the class. It is
-// filled in with the tail itself; until then there is never a tail to show.
+// decisiveLine is, per class, what the line that decided it looks like. A
+// class with no pattern, or a tail with no match, decides on its last line:
+// the end of the output is where a runner says why it stopped.
+var decisiveLine = map[WhyClass]*regexp.Regexp{
+	WhyOOM:  regexp.MustCompile(`(?i)killed process|out of memory|oom|exit code 137|memory limit`),
+	WhyDisk: regexp.MustCompile(`(?i)no space left|enospc|disk full`),
+}
+
+// excerptFrom picks the n lines of a kept tail that lead up to the one that
+// decided the class, numbered from the first line kept, each scrubbed the
+// way a problem's sentence is: a workflow wrote them, and whoever can open a
+// pull request writes workflows. n of 0 is no excerpt at all, which a
+// caller that did not ask for one gets as null; a tail of nothing is an
+// excerpt with a note, because "there is none" is itself an answer.
 func excerptFrom(tail []string, class WhyClass, n int) *LogExcerpt {
-	return nil
+	if n <= 0 {
+		return nil
+	}
+	if len(tail) == 0 {
+		return &LogExcerpt{Lines: []LogLine{}, Note: "The runner's output was not kept: it ran on an agent older than this release, or it ended before this fault was recorded."}
+	}
+	if n > store.OutputTailLines {
+		n = store.OutputTailLines
+	}
+	decisive := len(tail) - 1
+	if re := decisiveLine[class]; re != nil {
+		for i := len(tail) - 1; i >= 0; i-- {
+			if re.MatchString(tail[i]) {
+				decisive = i
+				break
+			}
+		}
+	}
+	start := decisive - n + 1
+	if start < 0 {
+		start = 0
+	}
+	out := &LogExcerpt{Lines: make([]LogLine, 0, decisive-start+1)}
+	for i := start; i <= decisive; i++ {
+		out.Lines = append(out.Lines, LogLine{N: i + 1, Text: workflowTextN(tail[i], store.OutputTailRunes), Decisive: i == decisive})
+	}
+	return out
 }

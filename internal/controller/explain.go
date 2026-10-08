@@ -173,7 +173,7 @@ func (c *Controller) explainWhy(ctx context.Context, job *store.Job, out *JobExp
 		out.NextSteps = append(out.NextSteps, NextStep{Text: "Read what " + out.ProblemCode + " means and how to see a fix worked.", Kind: "read", Link: docs})
 	}
 	if logs > 0 {
-		out.LogExcerpt = excerptFrom(nil, out.Class, logs)
+		out.LogExcerpt = excerptFrom(job.OutputTail, out.Class, logs)
 	}
 }
 

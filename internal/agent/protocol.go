@@ -321,6 +321,11 @@ type RunnerReport struct {
 	// and exactly what it knew before.
 	Fault store.FaultKind `json:"fault,omitempty"`
 	Stats backend.Stats   `json:"stats,omitempty"`
+	// OutputTail is the runner's last lines when it ended in a fault or with
+	// a non-zero code, sent with that one report. The container is removed
+	// soon after, and these lines are the only evidence of what it said that
+	// outlives it; the controller keeps them on the job.
+	OutputTail []string `json:"output_tail,omitempty"`
 	// GitHubRunnerID is filled in once the runner has registered.
 	GitHubRunnerID int64     `json:"github_runner_id,omitempty"`
 	ObservedAt     time.Time `json:"observed_at"`

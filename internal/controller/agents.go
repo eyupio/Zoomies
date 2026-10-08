@@ -1549,6 +1549,13 @@ func (c *Controller) applyReports(ctx context.Context, hostID string, reports []
 			errs = append(errs, err)
 			continue
 		}
+		if len(rep.OutputTail) > 0 {
+			// The runner's last lines, kept on the job it was running: the
+			// container goes next, and the explanation quotes from here.
+			if _, err := c.st.SetJobOutputTail(ctx, r.ID, rep.OutputTail); err != nil {
+				c.log.Warn("could not keep a runner's last lines on its job", "runner", r.ID, "error", err)
+			}
+		}
 		if rep.Fault == store.FaultOutOfMemory {
 			// Whatever the lifecycle says -- a runner killed outright, or one
 			// that finished its job after a step was killed -- the job it ran

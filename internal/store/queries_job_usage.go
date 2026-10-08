@@ -162,3 +162,45 @@ func (s *Store) jobUsageHistory(ctx context.Context, repo, workflow, job string,
 	}
 	return rows.Err()
 }
+
+// OutputTailLines and OutputTailRunes bound what a job keeps of its runner's
+// last output: enough to show what killed it, little enough to keep for every
+// failed job, and never one enormous line.
+const (
+	OutputTailLines = 40
+	OutputTailRunes = 400
+)
+
+// SetJobOutputTail keeps a runner's last lines on the job it was running,
+// found the way MarkJobOOMKilled finds it: the runner's newest job, because
+// the runner row loses its job when the runner ends and the job may already
+// be over. It returns the job's ID, or "" with no error when the runner had
+// no job, which is a runner that died before it took one.
+func (s *Store) SetJobOutputTail(ctx context.Context, runnerID string, lines []string) (string, error) {
+	if runnerID == "" || len(lines) == 0 {
+		return "", nil
+	}
+	if len(lines) > OutputTailLines {
+		lines = lines[len(lines)-OutputTailLines:]
+	}
+	kept := make(StringSlice, 0, len(lines))
+	for _, l := range lines {
+		if r := []rune(l); len(r) > OutputTailRunes {
+			l = string(r[:OutputTailRunes])
+		}
+		kept = append(kept, l)
+	}
+	var jobID string
+	err := s.tx(ctx, func(tx *sql.Tx) error {
+		err := tx.QueryRowContext(ctx, `SELECT id FROM jobs WHERE runner_id = ? ORDER BY queued_at DESC LIMIT 1`, runnerID).Scan(&jobID)
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		_, err = tx.ExecContext(ctx, `UPDATE jobs SET output_tail = ? WHERE id = ?`, kept, jobID)
+		return err
+	})
+	return jobID, err
+}
