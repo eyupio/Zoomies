@@ -187,3 +187,25 @@ func TestCompletedCommandReusesUpgradedBinaryWithoutDownloading(t *testing.T) {
 		t.Fatalf("completed replay downloaded or failed: %v %s", err, out)
 	}
 }
+
+func TestDiscoverTemplatesFiltersGuestsAndSortsIDs(t *testing.T) {
+	h := Host{Run: func(_ context.Context, name string, args ...string) ([]byte, error) {
+		if name != "pvesh" || strings.Join(args, " ") != "get /cluster/resources --type vm --output-format json" {
+			t.Fatalf("unexpected inventory command: %s %v", name, args)
+		}
+		return []byte(`[{"vmid":9001,"name":"second","node":"pve-2","type":"qemu","template":1},{"vmid":101,"name":"running","node":"pve-1","type":"qemu"},{"vmid":9000,"name":"runner","node":"pve-1","type":"qemu","template":1},{"vmid":200,"node":"pve-1","type":"lxc","template":1}]`), nil
+	}}
+	templates, err := DiscoverTemplates(context.Background(), h)
+	if err != nil || len(templates) != 2 || templates[0].VMID != 9000 || templates[0].Node != "pve-1" || templates[1].VMID != 9001 {
+		t.Fatalf("templates: %+v, %v", templates, err)
+	}
+	h.Run = func(context.Context, string, ...string) ([]byte, error) { return []byte(`[]`), nil }
+	templates, err = DiscoverTemplates(context.Background(), h)
+	if err != nil || len(templates) != 0 {
+		t.Fatalf("empty inventory: %v %v", templates, err)
+	}
+	h.Run = func(context.Context, string, ...string) ([]byte, error) { return []byte(`not json`), nil }
+	if _, err := DiscoverTemplates(context.Background(), h); err == nil {
+		t.Fatal("malformed inventory accepted")
+	}
+}

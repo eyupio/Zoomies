@@ -18,12 +18,13 @@ import (
 )
 
 type providerSetupView struct {
-	ID        string    `json:"id"`
-	ExpiresAt time.Time `json:"expires_at"`
-	Ready     bool      `json:"ready"`
-	Name      string    `json:"name,omitempty"`
-	Endpoint  string    `json:"endpoint,omitempty"`
-	Command   string    `json:"command,omitempty"`
+	Templates []proxmoxsetup.Template `json:"templates,omitempty"`
+	ID        string                  `json:"id"`
+	ExpiresAt time.Time               `json:"expires_at"`
+	Ready     bool                    `json:"ready"`
+	Name      string                  `json:"name,omitempty"`
+	Endpoint  string                  `json:"endpoint,omitempty"`
+	Command   string                  `json:"command,omitempty"`
 }
 
 func (s *Server) handleCreateProviderSetup(w http.ResponseWriter, r *http.Request) {
@@ -169,6 +170,7 @@ func (s *Server) handleGetProviderSetup(w http.ResponseWriter, r *http.Request) 
 	out := providerSetupView{ID: p.ID, ExpiresAt: p.ExpiresAt, Ready: conn != nil}
 	if conn != nil {
 		out.Name, out.Endpoint = conn.Name, conn.Endpoint
+		out.Templates = conn.Templates
 	}
 	writeJSON(w, http.StatusOK, out)
 }

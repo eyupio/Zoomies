@@ -135,6 +135,7 @@
     setupID = '';
     setupCommand = '';
     setupReady = false;
+    setupTemplates = [];
     setupError = '';
     if (draft.setup_id) {
       delete draft.setup_id;
@@ -150,6 +151,7 @@
   let setupError = $state('');
   let creatingSetup = $state(false);
   let setupReady = $state(false);
+  let setupTemplates = $state<ProviderChoice[]>([]);
 
   async function startSetup(): Promise<void> {
     creatingSetup = true;
@@ -185,6 +187,19 @@
           draft.endpoint = result.endpoint ?? '';
           draft.connection = 'tailcat';
           draft.tailcat_configured = true;
+          setupTemplates = (result.templates ?? []).map((template) => ({
+            value: String(template.vmid),
+            label: template.name || String(template.vmid),
+            consequence: `VMID ${template.vmid} on ${template.node}`,
+          }));
+          const template = result.templates?.[0];
+          if (template && result.templates?.length === 1) {
+            draft.settings = {
+              ...draft.settings,
+              template_id: String(template.vmid),
+              template_node: template.node,
+            };
+          }
           setupCommand = '';
           setupReady = true;
           return;
@@ -210,6 +225,7 @@
     setupID = '';
     setupCommand = '';
     setupReady = false;
+    setupTemplates = [];
     setupError = '';
     delete draft.setup_id;
     draft.name = '';
@@ -568,9 +584,14 @@
   }
 
   /** What picking the current answer means, in the driver's words. */
+  function settingChoices(spec: ProviderSetting): ProviderChoice[] {
+    const found = choicesFor(spec, discovery);
+    return spec.key === 'template_id' && found.length === 0 ? setupTemplates : found;
+  }
+
   function chosenConsequence(spec: ProviderSetting): string {
     const value = settingValue(spec.key);
-    return choicesFor(spec, discovery).find((c) => c.value === value)?.consequence ?? '';
+    return settingChoices(spec).find((c) => c.value === value)?.consequence ?? '';
   }
 
   const OS_OPTIONS = [
@@ -607,7 +628,7 @@
 </script>
 
 {#snippet setting(spec: ProviderSetting)}
-  {@const choices = choicesFor(spec, discovery)}
+  {@const choices = settingChoices(spec)}
   <Field
     label={spec.label || spec.key}
     hint={spec.help}

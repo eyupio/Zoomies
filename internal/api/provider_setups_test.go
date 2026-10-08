@@ -59,7 +59,7 @@ func TestProviderSetupSealsConnectionAndDoesNotReenrolRunner(t *testing.T) {
 	}
 	token := match[1]
 	path := "/api/v1/provider-setups/" + setup.ID
-	conn := proxmoxsetup.Connection{Name: "proxmox-pve-1", Endpoint: "https://pve.example:8006", Credential: "zoomies@pve!provider=secret", CAPEM: setupCertificate(t), TailcatAddress: address}
+	conn := proxmoxsetup.Connection{Name: "proxmox-pve-1", Endpoint: "https://pve.example:8006", Credential: "zoomies@pve!provider=secret", CAPEM: setupCertificate(t), TailcatAddress: address, Templates: []proxmoxsetup.Template{{VMID: 9000, Name: "runner", Node: "pve-1"}}}
 	h.do(request{method: "POST", path: path + "/complete", cookie: cookie, body: conn}).mustStatus(t, 401, "session is not a setup token")
 	h.do(request{method: "POST", path: path + "/complete", token: "wrong", body: conn}).mustStatus(t, 401, "wrong capability")
 	h.do(request{method: "POST", path: path + "/complete", token: token, body: conn}).mustStatus(t, 204, "complete setup")
@@ -72,7 +72,7 @@ func TestProviderSetupSealsConnectionAndDoesNotReenrolRunner(t *testing.T) {
 	got.mustStatus(t, 200, "ready setup")
 	var ready providerSetupView
 	got.into(t, &ready)
-	if !ready.Ready || ready.Name != conn.Name || ready.Endpoint != conn.Endpoint || ready.Command != "" {
+	if !ready.Ready || ready.Name != conn.Name || ready.Endpoint != conn.Endpoint || ready.Command != "" || len(ready.Templates) != 1 || ready.Templates[0].VMID != 9000 {
 		t.Fatalf("ready response: %+v", ready)
 	}
 	for _, secret := range []string{token, conn.Credential, address} {
