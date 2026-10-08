@@ -98,7 +98,7 @@ func (c *Controller) pollInterval() time.Duration {
 //
 // Queue discovery skips installations with recent webhooks. Known unfinished
 // jobs are checked separately in bounded pages so a missing completion cannot
-// be hidden by unrelated deliveries.
+// be hidden by unrelated deliveries, including jobs hosted elsewhere.
 func (c *Controller) pollOnce(ctx context.Context) {
 	c.reconcileKnownJobs(ctx, c.Now())
 	c.discoverJobs(ctx)
@@ -398,13 +398,16 @@ func (c *Controller) owningInstallation(ctx context.Context, repo string, fallba
 
 // A healthy stream of unrelated webhooks does not prove every completion was
 // delivered. Check a rotating, bounded page of older unfinished jobs even when
-// queue discovery stands down. A 404 or API failure is not a cancellation.
+// queue discovery stands down. Include work hosted elsewhere: the Jobs page
+// still reports it, so restricting recovery to managed jobs leaves those rows
+// running for ever when their completion delivery is missed.
+// A 404 or API failure is not a cancellation.
 func (c *Controller) reconcileKnownJobs(ctx context.Context, now time.Time) {
 	const batch = 10
 	cutoff := now.Add(-2 * time.Minute)
 	offset := int(c.jobPollOffset.Load())
 	jobs, total, err := c.st.ListJobs(ctx, store.JobFilter{
-		States: []store.JobState{store.JobQueued, store.JobInProgress}, Until: &cutoff, ManagedOnly: true,
+		States: []store.JobState{store.JobQueued, store.JobInProgress}, Until: &cutoff,
 	}, store.Page{Limit: batch, Offset: offset})
 	if err != nil {
 		c.log.Warn("could not list jobs to reconcile", "error", err)
