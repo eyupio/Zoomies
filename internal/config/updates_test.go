@@ -296,3 +296,125 @@ func TestTheSoakHasNoFloorAndZeroIsAnAnswer(t *testing.T) {
 		t.Error("a soak that is not a duration was accepted")
 	}
 }
+
+// Parts of the update work that install something have not shipped, so every
+// place that describes the modes says so in the same words. The sentence is one
+// constant so that removing it, when the installing arrives, is one search; the
+// docs quote it and are held to the same text here.
+func TestEveryPlaceThatPromisesAnUpdateSaysThisReleaseOnlyShowsOne(t *testing.T) {
+	mode, ok := LookupSetting("updates.mode")
+	if !ok {
+		t.Fatal("updates.mode is not a setting")
+	}
+	c := Default()
+	c.Updates.Mode = "auto"
+	auto := find(c.Validate(), "updates.auto")
+	c.Updates.Mode = "weekly"
+	invalid := find(c.Validate(), "updates.mode")
+
+	for _, tc := range []struct{ where, text string }{
+		{"the updates.mode summary", mode.Summary},
+		{"the updates.auto detail", auto.Detail},
+		{"the updates.mode fix", invalid.Fix},
+	} {
+		if !strings.Contains(tc.text, updatesNotInstalledYet) {
+			t.Errorf("%s = %q, want it to say %q", tc.where, tc.text, updatesNotInstalledYet)
+		}
+	}
+	// The title is printed at start-up on its own, so it must not promise what
+	// a release that installs nothing does not do, now or after it does.
+	if auto.Title != "the update mode is auto" || strings.Contains(strings.ToLower(auto.Title), "install") {
+		t.Errorf("the updates.auto title = %q, want it to state the mode and promise no installing", auto.Title)
+	}
+	if strings.Contains(auto.Title, updatesNotInstalledYet) {
+		t.Errorf("the updates.auto title carries the clause; a title is short, so it belongs in the detail")
+	}
+
+	// Each place is pinned, not the page: a clause that survives in one row
+	// would let the others drop it unnoticed.
+	configuration := docLines(t, "configuration.md")
+	problems := docLines(t, "problem-codes.md")
+	for _, tc := range []struct {
+		where string
+		line  string
+	}{
+		{"the updates.mode row of docs/configuration.md", lineStarting(t, configuration, "| `updates.mode` |")},
+		{"the paragraph under the mode table of docs/configuration.md", lineAfter(t, configuration, "### `updates.mode`", "In this release")},
+		{"the updates.mode row of docs/problem-codes.md", lineStarting(t, problems, "| `updates.mode` |")},
+		{"the updates.auto row of docs/problem-codes.md", lineStarting(t, problems, "| `updates.auto` |")},
+	} {
+		if !strings.Contains(tc.line, updatesNotInstalledYet) {
+			t.Errorf("%s never says %q: %s", tc.where, updatesNotInstalledYet, tc.line)
+		}
+	}
+}
+
+func docLines(t *testing.T, page string) []string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "..", "docs", page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(string(body), "\n")
+}
+
+func lineStarting(t *testing.T, lines []string, prefix string) string {
+	t.Helper()
+	for _, l := range lines {
+		if strings.HasPrefix(l, prefix) {
+			return l
+		}
+	}
+	t.Fatalf("no line starts %q", prefix)
+	return ""
+}
+
+// lineAfter is the first line at or after the heading that starts with prefix.
+// The paragraph under the mode table is found by where it sits, so a version
+// of it that lost the clause is reported rather than not found.
+func lineAfter(t *testing.T, lines []string, heading, prefix string) string {
+	t.Helper()
+	seen := false
+	for _, l := range lines {
+		if strings.HasPrefix(l, heading) {
+			seen = true
+		}
+		if seen && strings.HasPrefix(l, prefix) {
+			return l
+		}
+	}
+	t.Fatalf("no line starting %q after %q", prefix, heading)
+	return ""
+}
+
+// A soak of nothing is warned about because it takes a release before anyone
+// can look at it. The words must not claim the release is installed, which this
+// release does not do, in the finding or on the page that explains it.
+func TestTheNoSoakWarningDoesNotSayAReleaseIsInstalled(t *testing.T) {
+	c := Default()
+	c.Updates.Mode, c.Updates.Soak = "auto", 0
+	const want = "would be taken before anyone has had the chance to notice"
+	if got := find(c.Validate(), "updates.auto_without_soak").Detail; !strings.Contains(got, want) || strings.Contains(got, "is installed") {
+		t.Errorf("detail = %q, want %q and no claim of an install", got, want)
+	}
+	row := lineStarting(t, docLines(t, "problem-codes.md"), "| `updates.auto_without_soak` |")
+	if !strings.Contains(row, want) || strings.Contains(row, "is installed") {
+		t.Errorf("docs/problem-codes.md row = %q, want %q and no claim of an install", row, want)
+	}
+}
+
+// "Once it has been public for 0s" reads as a wait, when the whole point of a
+// soak of nothing is that there is none.
+func TestTheAutoNoticeDoesNotCallNoSoakAWait(t *testing.T) {
+	c := Default()
+	c.Updates.Mode, c.Updates.Soak = "auto", 0
+	got := find(c.Validate(), "updates.auto").Detail
+	if strings.Contains(got, "0s") || !strings.Contains(got, "as soon as it is seen") {
+		t.Errorf("detail = %q, want the release taken as soon as it is seen and no 0s", got)
+	}
+
+	c.Updates.Soak = 36 * time.Hour
+	if got := find(c.Validate(), "updates.auto").Detail; !strings.Contains(got, "once it has been public for 36h") {
+		t.Errorf("detail = %q, want the wait named when there is one", got)
+	}
+}

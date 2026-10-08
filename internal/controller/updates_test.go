@@ -566,6 +566,46 @@ func TestTheNoticeAndTheStatusNameTheSameRelease(t *testing.T) {
 	}
 }
 
+// A controller can be ahead of the newest release that can be taken: its own
+// release is public before checksums.txt is uploaded, so the list's newest
+// complete entry is the one before it. Telling that controller "the current
+// release is v1.3.9" while the status and the gauge say it is ahead sent an
+// operator to downgrade. Only a controller behind the release is told of one.
+// With the mode off the one request made today is read as it always was, and
+// that path stays a plain comparison of the two words.
+func TestTheNoticeIsOnlyRaisedForABuildBehindTheRelease(t *testing.T) {
+	assets := completeAssets(t)
+	published := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name, mode, running, body string
+		want                      bool
+	}{
+		{"the build is ahead of the newest complete release", "manual", "1.4.0",
+			releaseList(releaseEntry("v1.4.0", published.Add(time.Hour), assets[1]), releaseEntry("v1.3.9", published, assets...)), false},
+		{"the build is the release", "manual", "1.3.9",
+			releaseList(releaseEntry("v1.3.9", published, assets...)), false},
+		{"the build is behind the release", "auto", "1.3.3",
+			releaseList(releaseEntry("v1.3.9", published, assets...)), true},
+		{"the mode is off and the words differ", "off", "1.4.0",
+			`{"tag_name":"v1.3.9","html_url":"https://example.invalid/r"}`, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			withVersion(t, tc.running)
+			h.inMode(tc.mode)
+			h.stubGitHub(http.StatusOK, tc.body)
+			if err := h.c.checkForRelease(h.ctx); err != nil {
+				t.Fatalf("checkForRelease: %v", err)
+			}
+
+			problems := h.c.updateProblems()
+			if got := len(problems) == 1; got != tc.want {
+				t.Errorf("problems = %+v, want a notice: %v", problems, tc.want)
+			}
+		})
+	}
+}
+
 // A list in which nothing can be taken is an answer and not the absence of one:
 // the release that used to be there is gone from it, and naming it would send an
 // operator to something GitHub no longer offers. The list is kept all the same,

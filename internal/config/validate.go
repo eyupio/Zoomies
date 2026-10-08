@@ -1811,7 +1811,7 @@ func (c *Config) validateUpdates(add func(Finding)) {
 			Code: "updates.mode", Severity: SeverityError, Setting: "updates.mode",
 			Title: fmt.Sprintf("%q is not a release update mode", u.Mode),
 			Fix: "choose off, which says that a release exists and nothing more; manual, which adds the Update buttons and moves nothing " +
-				"without a click; or auto, which takes a release once it has been public for updates.soak.",
+				"without a click; or auto, which takes a release once it has been public for updates.soak. " + updatesNotInstalledYet,
 		})
 	}
 	if u.Soak < 0 {
@@ -1833,12 +1833,18 @@ func (c *Config) validateUpdates(add func(Finding)) {
 	if u.Mode != "auto" {
 		return
 	}
+	// A soak of nothing would read "once it has been public for 0s", which is a
+	// wait that is not one; the warning beside it says what it means.
+	taken := "as soon as it is seen"
+	if u.Soak > 0 {
+		taken = "once it has been public for " + TidyDuration(u.Soak)
+	}
 	add(Finding{
 		Code: "updates.auto", Severity: SeverityInfo, Setting: "updates.mode",
-		Title: "new releases are installed without anyone asking",
-		Detail: fmt.Sprintf("the controller takes the newest release once it has been public for %s, and the hosts that have opted in then follow it, "+
-			"one at a time. Nobody is asked first, updating the controller restarts it, and there is no automatic rollback: a migration is one way.",
-			TidyDuration(u.Soak)),
+		Title: "the update mode is auto",
+		Detail: "the controller takes the newest release " + taken + ", and the hosts that have opted in then follow it, " +
+			"one at a time. Nobody is asked first, updating the controller restarts it, and there is no automatic rollback: a migration is one way. " +
+			updatesNotInstalledYet,
 		Fix: "nothing to change if that is what you want. Set updates.mode to manual to take each update yourself, or to off to be told that a release exists and nothing more.",
 	})
 	if u.Soak == 0 {
@@ -1846,7 +1852,7 @@ func (c *Config) validateUpdates(add func(Finding)) {
 			Code: "updates.auto_without_soak", Severity: SeverityWarning, Setting: "updates.soak",
 			Title: "updates.soak is 0, so a release is taken as soon as it is seen",
 			Detail: "the soak is the only wait between a release being published and every host running it. Without one, a release that turns out to be " +
-				"broken, or is replaced by a fix within hours, is installed before anyone has had the chance to notice.",
+				"broken, or is replaced by a fix within hours, would be taken before anyone has had the chance to notice.",
 			Fix: `set updates.soak to "24h", which is the default, or to however long a release should have been public first; or set updates.mode to manual to take each update yourself.`,
 		})
 	}

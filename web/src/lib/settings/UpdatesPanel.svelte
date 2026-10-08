@@ -20,6 +20,7 @@
     buildText,
     describeMode,
     modeLabel,
+    modeSettingHref,
     releaseHref,
     soakNote,
     soakText,
@@ -40,7 +41,7 @@
   const badge = $derived(status ? updateState(status) : null);
   const line = $derived(status ? targetLine(status) : '');
   const href = $derived(releaseHref(status?.latest?.url));
-  const canAdmin = $derived(session.can('admin'));
+  const settingHref = $derived(modeSettingHref((role) => session.can(role)));
 
   $effect(() => updates.follow());
 </script>
@@ -125,8 +126,8 @@
         </dl>
         <p class="note">
           The platform role changes both, as the settings <code>updates.mode</code> and
-          <code>updates.soak</code>{#if canAdmin}, on
-            <a href="/settings/configuration?setting=updates.mode">the Configuration page</a>{/if}.
+          <code>updates.soak</code>{#if settingHref}, on
+            <a href={settingHref}>the Configuration page</a>{/if}.
         </p>
       </Panel>
 

@@ -8,7 +8,7 @@
  * these are the lines around it, kept out of the components so that they are
  * tested once and read the same wherever they appear.
  */
-import type { UpdatesStatus } from '../api/types';
+import type { Role, UpdatesStatus } from '../api/types';
 import { describeWindow, parseGoDuration, pluralise, toMillis } from '../format';
 
 export type UpdateMode = UpdatesStatus['mode'];
@@ -129,4 +129,15 @@ export function buildText(release: boolean): string {
  */
 export function releaseHref(url: string | null | undefined): string | null {
   return typeof url === 'string' && url.startsWith('https://') ? url : null;
+}
+
+/**
+ * Where the mode is changed, for a reader who can see it there, or null.
+ *
+ * `updates.mode` and `updates.soak` are platform-scoped, and the settings list
+ * leaves out a platform row for anyone below that role, so a link offered to an
+ * administrator lands on a Configuration page that does not show the setting.
+ */
+export function modeSettingHref(can: (needed: Role) => boolean): string | null {
+  return can('platform') ? '/settings/configuration?setting=updates.mode' : null;
 }

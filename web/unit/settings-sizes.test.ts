@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { Setting } from '../src/lib/api/types.ts';
-import { displayValue, settingQuantity } from '../src/lib/settings/settings.ts';
+import { SECTION_BLURB, displayValue, settingQuantity } from '../src/lib/settings/settings.ts';
 
 function setting(key: string, kind: Setting['kind'], value: unknown): Setting {
   return { key, kind, value, label: key, section: key.split('.')[0] } as Setting;
@@ -30,4 +30,16 @@ test('a duration setting is shown in the largest units that say it exactly', () 
   assert.equal(displayValue(setting('retention.jobs', 'duration', '720h')), '30d');
   assert.equal(displayValue(setting('scheduler.interval', 'duration', '10s')), '10s');
   assert.equal(displayValue(setting('scheduler.provision_timeout', 'duration', '1h30m')), '1h 30m');
+});
+
+// The blurb sits above updates.mode on the Configuration page, and a release
+// that only shows what a mode would take must not tell an operator the mode
+// does it. The Go side carries the one sentence saying so; this one stays in
+// the conditional so it is true before and after the installing arrives.
+test('the Updates group describes what the mode would do and promises nothing', () => {
+  const blurb = SECTION_BLURB.updates;
+  assert.match(blurb, /what it would do about a newer one/);
+  assert.match(blurb, /offer an Update button/);
+  assert.doesNotMatch(blurb, /what it does about/);
+  assert.doesNotMatch(blurb, /an update on its own/);
 });

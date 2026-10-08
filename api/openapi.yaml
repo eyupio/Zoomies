@@ -11327,7 +11327,9 @@ components:
         tag: { type: string, examples: [v1.3.5] }
         url:
           type: string
-          description: The release's page, where its notes are.
+          description: >-
+            The release's page, where its notes are. Empty when GitHub's address is not an
+            absolute https URL.
         published_at:
           type: string
           format: date-time
