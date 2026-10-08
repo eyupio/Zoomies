@@ -129,10 +129,9 @@
   }
 
   // A card opens the repositories it counts, and only when it counts some: a link
-  // to an empty list is a click that finds nothing. The number on the card and the
-  // rows behind it agree, which is why two cards have no link at all -- "Partly
-  // checked" adds two standings and the list filters by one, and the list has no
-  // waiver filter to open "Waived" on.
+  // to an empty list is a click that finds nothing. "Partly checked" adds two
+  // standings, which the list filters by as one; "Waived" counts findings, and opens
+  // the repositories that have them, as "Errors" does for errors.
   const opens = (count: number, filter?: KennelListFilter) =>
     count > 0 ? { href: kennelListHref({ ...filter, everything: true }) } : {};
 
@@ -165,6 +164,7 @@
         label: 'Partly checked',
         value: formatNumber(states.partial + states.pending),
         detail: 'Something could not be read, or not looked at yet',
+        ...opens(states.partial + states.pending, { incomplete: true }),
       },
       {
         label: 'Errors',
@@ -184,6 +184,7 @@
         label: 'Waived',
         value: formatNumber(counts.waived),
         detail: 'Somebody decided these are acceptable',
+        ...opens(counts.waived, { waived: true }),
       },
     ];
   });

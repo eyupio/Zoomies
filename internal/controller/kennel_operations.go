@@ -89,6 +89,12 @@ type KennelListFilter struct {
 	// the one every sentence on the Overview names: thirty days, or as long as the
 	// fleet keeps its jobs if that is shorter.
 	Active *bool
+	// Incomplete keeps the repositories that are only partly checked: something could
+	// not be read (partial) or has not been looked at yet (pending). It is what the
+	// Overview's "Partly checked" card adds up, and State can name only one of the two.
+	Incomplete bool
+	// Waived keeps the repositories with a waived finding (true) or none (false).
+	Waived *bool
 }
 
 // KennelRepositories lists what Kennel Club has concluded, in the shape of GET
@@ -113,6 +119,13 @@ func (c *Controller) KennelRepositories(ctx context.Context, f KennelListFilter,
 			return nil, 0, &KennelInvalidError{Fields: []KennelFieldError{{"code", "is not a check Kennel Club has; GET /kennel/checks lists them"}}}
 		}
 		filter.Code = f.Code
+	}
+	filter.Waived = f.Waived
+	if f.Incomplete {
+		if f.State != "" {
+			return nil, 0, &KennelInvalidError{Fields: []KennelFieldError{{"incomplete", "cannot be combined with state, which already names a standing"}}}
+		}
+		filter.States = []string{string(kennel.StatePartial), string(kennel.StatePending)}
 	}
 	if f.State != "" {
 		switch kennel.State(f.State) {
