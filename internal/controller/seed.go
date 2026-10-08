@@ -964,6 +964,10 @@ var demoBacklogJobNames = []string{"build", "test", "lint"}
 // the fixture writes by hand.
 const seedBacklogFirstJob = 52
 
+// demoTimedOutJob is the position, among the fifty, of the job GitHub stopped at
+// its time limit. It is one that would otherwise have failed.
+const demoTimedOutJob = 28
+
 // seedJobs writes fifty jobs with queue waits and outcomes that look like a
 // real morning: mostly quick and successful, a long tail that makes the p95
 // worth showing, and a couple nothing claims.
@@ -1022,6 +1026,18 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			completed := started.Add(time.Duration(40+rng.IntN(600)) * time.Second)
 			j.State = store.JobCompleted
 			j.Conclusion = conclusions[i%len(conclusions)]
+			// One of the failures is a job GitHub stopped at its time limit, the
+			// conclusion the explanation's timeout class is for and the only one of
+			// its kinds the fixture lacked. It is one of the jobs that already
+			// failed, so no total moves, and the draw above has already been made,
+			// so no other job's duration does either. It ran for the half hour a
+			// workflow's own timeout-minutes might say and not GitHub's six, because
+			// the default-limit finding is true of a job nobody gave a limit, and
+			// this one was given one.
+			if i == demoTimedOutJob {
+				j.Conclusion = "timed_out"
+				completed = started.Add(30 * time.Minute)
+			}
 			// One failure the fleet owns: the runner died under the job, which
 			// is what the "runner lost" badge, the timeline entry and the
 			// problems drawer entry all have as their fixture. It is the most
@@ -1211,8 +1227,8 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 
 // demoSteps renders the steps a job of this name would have, concluded the way
 // the job was: a failure fails on the step that does the work and skips the
-// rest, a cancellation stops there, and a job still running is part-way through
-// it.
+// rest, a cancellation or a time limit stops there, and a job still running is
+// part-way through it.
 func demoSteps(jobName, conclusion string, started, completed time.Time) store.JobSteps {
 	work := map[string]string{"build": "Build", "test": "Run tests", "lint": "Lint", "package": "Package artefacts"}[jobName]
 	if work == "" {
@@ -1235,9 +1251,9 @@ func demoSteps(jobName, conclusion string, started, completed time.Time) store.J
 			step.Status, step.Conclusion, step.CompletedAt = "in_progress", "", nil
 		case conclusion == "" && i > 3:
 			step.Status, step.Conclusion, step.StartedAt, step.CompletedAt = "queued", "", nil, nil
-		case (conclusion == "failure" || conclusion == "cancelled") && i == 3:
+		case (conclusion == "failure" || conclusion == "cancelled" || conclusion == "timed_out") && i == 3:
 			step.Conclusion = conclusion
-		case (conclusion == "failure" || conclusion == "cancelled") && i == 4:
+		case (conclusion == "failure" || conclusion == "cancelled" || conclusion == "timed_out") && i == 4:
 			step.Conclusion = "skipped"
 		}
 		steps = append(steps, step)

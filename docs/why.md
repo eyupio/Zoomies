@@ -26,6 +26,21 @@ The class and the structured fields below are on the route, in the command and i
 `get_job` tool. A Why section in the job drawer is not built yet; this page is updated
 as it lands.
 
+## Try it without a fleet
+
+[`zoomies demo`](cli.md) starts a throwaway controller with a fleet already in it. While
+it runs, ask it about its newest failure, using the address it printed:
+
+```sh
+zoomies why --latest-failed --url http://127.0.0.1:8080
+```
+
+That failure is a runner the kernel killed for memory, so the answer is class `oom` at
+high confidence, with the fault the fleet recorded and the page of the catalog that
+says more. `zoomies jobs list --failed --url ...` lists the rest, among them a job
+GitHub stopped at its time limit, which is class `timeout`. A test holds each of these
+to the demo, so they stay there.
+
 There is no log excerpt. The controller keeps no job logs: a runner's output is
 relayed from its host while the runner exists, and an ephemeral runner is removed
 when its job ends. A class that points at a step says which step, and the run on

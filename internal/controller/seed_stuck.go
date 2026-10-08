@@ -36,6 +36,8 @@ const (
 	stuckPoolID    = "pool_demostuckblocked"
 	stuckPoolName  = "zoomies-demo-stuck-blocked"
 	stuckHeldJobID = "job_demostuckheldjob"
+	// stuckBlockedJobID is the job that pool claimed and nothing can start.
+	stuckBlockedJobID = "job_demostuckblockedjob"
 	// StuckThrottledHostName is the fixture's throttled host, named here so
 	// a browser test can find its card.
 	StuckThrottledHostName = "demo-throttled-1"
@@ -53,8 +55,8 @@ func stuckSeedRequested() bool {
 }
 
 // SeedStuck ages the demo's starting runners into the two stuck shapes and adds
-// the two fixtures the demo has no room for: a pool nothing can place, and a
-// job GitHub is holding.
+// the fixtures the demo has no room for: a pool nothing can place and the job
+// waiting on it, and a job GitHub is holding.
 //
 // It runs after SeedDemo and depends on it, because a fleet in trouble is only
 // legible against one that is working: the point of the problems drawer is that
@@ -102,6 +104,9 @@ func (c *Controller) SeedStuck(ctx context.Context) error {
 	if err := c.seedBlockedPool(ctx); err != nil {
 		return err
 	}
+	if err := c.seedBlockedJob(ctx, now); err != nil {
+		return err
+	}
 	if err := c.seedHeldJob(ctx, now); err != nil {
 		return err
 	}
@@ -143,6 +148,45 @@ func (c *Controller) seedBlockedPool(ctx context.Context) error {
 		return fmt.Errorf("seeding the blocked pool: %w", err)
 	}
 	return nil
+}
+
+// seedBlockedJob writes the job that pool is blocked for, so the question "why
+// is this job still queued" has the answer it is most often asked for: not that
+// the fleet is busy, which clears, but that no host can take the runner, which
+// never will.
+//
+// It is claimed by the pool, as GitHub's delivery would have left it, and is
+// young enough to be nowhere near the day after which the controller stops
+// believing GitHub still has it. The reason it gives is the scheduler's, read on
+// the next pass, so the fixture carries no sentence of its own to drift from it.
+func (c *Controller) seedBlockedJob(ctx context.Context, now time.Time) error {
+	if _, err := c.st.GetJob(ctx, stuckBlockedJobID); err == nil {
+		return nil
+	}
+	blocked := &store.Job{
+		ID:             stuckBlockedJobID,
+		GitHubJobID:    80098,
+		GitHubRunID:    40098,
+		RunNumber:      398,
+		Repo:           demoRepos[1],
+		Workflow:       "CI",
+		JobName:        "build",
+		Labels:         store.StringSlice(store.BrandLabels([]string{"linux", "x64", stuckPoolName})),
+		InstallationID: demoInstallationID,
+		PoolID:         stuckPoolID,
+		Matched:        true,
+		State:          store.JobQueued,
+		QueuedAt:       now.Add(-9 * time.Minute),
+		HTMLURL:        fmt.Sprintf("https://github.com/%s/actions/runs/%d", demoRepos[1], 40098),
+		HeadBranch:     "main",
+		HeadSHA:        fmt.Sprintf("%040x", 0xB10C4ED),
+		RunAttempt:     1,
+	}
+	saved, change, err := c.st.ApplyJob(ctx, blocked)
+	if err != nil {
+		return fmt.Errorf("seeding the blocked job: %w", err)
+	}
+	return c.seedJobTimeline(ctx, saved, change)
 }
 
 // seedHeldJob writes a job GitHub is holding for a deployment review.
