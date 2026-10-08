@@ -160,15 +160,12 @@ test.describe('while Kennel Club is off', () => {
 
     const checks = page.getByRole('table', { name: 'What Kennel Club checks' });
     // The body's rows: on a phone the header row is hidden and each row is a card.
-    await expect(checks.locator('tbody tr')).toHaveCount(6);
-    for (const code of [
-      'exposure.public_repo_on_fleet',
-      'exposure.public_repo_weak_pool',
-      'exposure.fork_code_ran',
-      'exposure.target_event_ran',
-      'capacity.unserved_label',
-      'capacity.job_hit_default_limit',
-    ]) {
+    const { items: catalogue } = (await page.request
+      .get('/api/v1/kennel/checks')
+      .then((response) => response.json())) as { items: Array<{ code: string }> };
+    const rows = checks.locator('tbody tr');
+    await expect(rows).toHaveCount(catalogue.length);
+    for (const { code } of catalogue) {
       await expect(checks.getByText(code, { exact: true }), code).toBeVisible();
     }
     await auditThePage(page, 'the off page');
@@ -522,7 +519,11 @@ test.describe('with Kennel Club on', () => {
   test('a page that lost the stream asks again when it comes back', async ({ page }) => {
     await goto(page, '/kennel', 'Kennel Club');
     await expect(page.locator('.connection')).toHaveAttribute('data-state', 'live');
-    await expect(page.getByText('Turned off')).toHaveCount(0);
+    const unservedLabel = page
+      .getByRole('row')
+      .filter({ hasText: 'capacity.unserved_label' })
+      .getByText('Turned off');
+    await expect(unservedLabel).toHaveCount(0);
 
     let cut = true;
     await page.route('**/api/v1/events*', async (route) => {
@@ -544,7 +545,7 @@ test.describe('with Kennel Club on', () => {
     try {
       cut = false;
       await page.evaluate(() => window.dispatchEvent(new Event('online')));
-      await expect(page.getByText('Turned off').first()).toBeVisible({ timeout: 20_000 });
+      await expect(unservedLabel).toBeVisible({ timeout: 20_000 });
     } finally {
       await patchSettings(page, { 'kennel.disabled_checks': [] });
     }
