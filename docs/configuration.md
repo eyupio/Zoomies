@@ -514,9 +514,11 @@ if you set `keep: 0` and never expect the page to say what is there.
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
 | `kennel.api_budget_percent` | `ZOOMIES_KENNEL_API_BUDGET_PERCENT` | at once | GitHub request budget — The share, from 5 to 50, of an installation's hourly GitHub request limit that Kennel Club may spend. Scaling, registration and polling come first, and Kennel Club stops altogether when less than half the limit is left. |
-| `kennel.disabled_checks` | `ZOOMIES_KENNEL_DISABLED_CHECKS` | at once | Checks turned off — Checks to turn off, by code (exposure.fork_code_ran) or by area (exposure, capacity). A check that is turned off is listed as turned off in Settings, not hidden, and a repository with none left to run is not given the badge. |
+| `kennel.disabled_checks` | `ZOOMIES_KENNEL_DISABLED_CHECKS` | at once | Checks turned off — Checks to turn off, by code (exposure.fork_code_ran) or by area (exposure, capacity, setup, ci, token). A check that is turned off is listed as turned off in Settings, not hidden, and a repository with none left to run is not given the badge. |
 | `kennel.enabled` | `ZOOMIES_KENNEL_ENABLED` | at once | Check repository standards — Whether Kennel Club runs. Off by default, and off means off: no request to GitHub, nothing stored, and AI Context carries on as it was. On, it reads facts about the repositories this fleet serves and keeps what it concludes. |
 | `kennel.refresh_interval` | `ZOOMIES_KENNEL_REFRESH_INTERVAL` | at once | Refresh interval — How stale what Kennel Club reads from GitHub may get before it is read again. What the fleet observed for itself is re-checked as the fleet changes, whatever this says. The smallest useful value is 1h. |
+| `kennel.repository_setup` | `ZOOMIES_KENNEL_REPOSITORY_SETUP` | at once | Check repository setup — Whether Kennel Club reads the default-branch file inventory for advisory setup checks. Off by default. Needs Contents read for private repositories; reads no file contents and changes no App permissions. |
+| `kennel.workflow_checks` | `ZOOMIES_KENNEL_WORKFLOW_CHECKS` | at once | Check workflow best practices — Whether Kennel Club reads default-branch workflow contents for timeouts, concurrency, action pins and token permission declarations. Off by default. Needs Contents read for private repositories; changes no files or App permissions. |
 | `kennel.scope` | `ZOOMIES_KENNEL_SCOPE` | at once | Repositories to check — served checks the repositories this fleet has run a job for; installation checks every repository the GitHub App can see, up to 500. installation multiplies the requests Kennel Club makes, so it is a choice and not the default. |
 
 ### `limits`
@@ -1975,6 +1977,97 @@ running the check you meant to turn off. A check that is turned off is shown as
 turned off, not hidden, so nobody reads its silence as a clean bill of health.
 A repository with every check turned off is never given the "Best in show"
 badge.
+
+### Repository setup advice
+
+Set `kennel.repository_setup: true` to add a default-branch file inventory to
+Kennel Club. It is off by default, including for installations already using
+Kennel Club. It does not grant or request App permissions. Private repositories
+need **Contents: read**; a denied, hidden or unavailable tree is a coverage gap,
+never a claim that a file is missing.
+
+| Check | What its absence makes harder |
+| --- | --- |
+| `setup.readme` | Understanding the project and finding build, test and run instructions. |
+| `setup.licence` | Understanding permitted use and redistribution of a public project. |
+| `setup.security` | Finding a private vulnerability-reporting route and supported versions. |
+| `setup.contributing` | Preparing and validating a contribution to a public project. |
+| `setup.code_of_conduct` | Finding participation expectations and an enforcement contact for a public project. |
+| `setup.issue_template` | Collecting useful reproduction details for a public project. |
+| `setup.pull_request_template` | Recording the purpose and validation of a proposed change. |
+| `setup.codeowners` | Routing review requests to the maintainers of workflows and other files. |
+| `setup.dependency_updates` | Maintaining dependencies where a recognised root manifest or Actions workflow exists. |
+| `setup.workflows` | Running repository-local GitHub Actions validation. |
+
+These are informational findings: they do not lower a repository's standing.
+Turn off individual checks, or the whole `setup` area, with
+`kennel.disabled_checks`. Turning off every setup check stops its inventory
+reads. Licence, contribution, conduct and issue-template advice applies only to
+public repositories.
+
+This is a presence check, not a content audit. It recognises non-empty regular
+files in documented locations; it does not validate their contents, ownership
+rules, licences, workflow triggers or branch enforcement. Community-file
+findings explicitly say **repository-local**: account defaults may provide the
+guidance, and external services may provide CI or dependency updates. Confirm
+those arrangements before adding duplicate files. Empty files and symlinks do
+not satisfy these checks.
+
+Each refresh takes one conditional Git tree request per repository, behind the
+same budget and rate-limit holds as other Kennel Club reads. No file contents
+are fetched or stored. Inspection stops at 10,000 entries; a truncated or capped
+tree produces incomplete coverage and no missing-file findings. The retained
+facts are recognised presence flags, not repository paths or text.
+
+[GitHub's tree API](https://docs.github.com/en/rest/git/trees#get-a-tree) describes
+the Contents permission and truncation behaviour.
+[Account community defaults](https://docs.github.com/en/communities/setting-up-your-project-for-healthy-contributions/creating-a-default-community-health-file)
+explain why a local file's absence is advice rather than proof of missing setup.
+
+### Workflow best-practice checks
+
+Set `kennel.workflow_checks: true` to inspect the contents of default-branch
+workflow files. This is a separate opt-in from the setup inventory, off by
+default, and does not grant App permissions or edit any repository files.
+Private repositories need **Contents: read**.
+
+| Check | What it detects | Severity |
+| --- | --- | --- |
+| `ci.no_timeout` | Executable job declarations without `timeout-minutes`. Reusable-workflow callers are excluded; a declared expression is not treated as missing. | Warning |
+| `ci.no_concurrency` | Workflows triggered only by pull-request events without cancelling concurrency at workflow level or on every job. Mixed push/PR, release and deployment triggers are excluded. | Info |
+| `ci.action_not_pinned` | External action or reusable-workflow references without full commit pins, and Docker actions without image digests. Local actions are excluded. | Warning; info if only `actions/*` or `github/*` references are affected |
+| `token.permissions_unset` | Job declarations that inherit permissions without a declaration at workflow or job level. An explicit empty permissions map is a declaration. | Warning for public repositories; info otherwise |
+
+These findings report counts across the files successfully inspected, not
+runtime or matrix-expanded job counts. They use fixed advice and retain no job
+names, file paths, expressions or workflow contents in the stored evaluation.
+Token advice does not claim the inherited default is writable, because that
+setting has not been read. A declaration also does not prove least privilege.
+
+Reads are pinned to immutable Git blobs selected from the default-branch tree.
+Every tree and blob request passes through the installation budget and holds.
+A refresh inspects at most 50 workflow files, each at most 256 KiB; the tree
+inventory is capped at 10,000 entries. YAML inspection is limited to 20,000
+nodes and 50 levels, and rejects aliases, anchors, merge keys, duplicate keys,
+multiple documents and unsupported job shapes. A malformed, oversized,
+truncated or unreadable file leaves incomplete coverage. Findings from other
+successfully read files remain visible, but an incomplete inspection cannot
+earn an all-clear. The raw YAML is never executed or persisted.
+
+Turn individual checks off with `kennel.disabled_checks`, or disable both `ci`
+and `token` to stop workflow reads. Changing the switch takes effect on the
+next pass; enabling it starts its first read without waiting for the ordinary
+refresh interval.
+
+[GitHub workflow syntax](https://docs.github.com/en/actions/reference/workflows-and-actions/workflow-syntax)
+defines timeout, concurrency and permission declarations.
+[Secure use of Actions](https://docs.github.com/en/actions/reference/security/secure-use)
+explains commit pinning. These checks advise rather than edit: a safe timeout,
+cancellation policy and permission grant depend on the project.
+
+Enforced reviews, required status checks and repository token defaults still
+need a separate repository-settings reader. File or workflow declarations
+alone cannot establish those properties.
 
 ## Pool settings
 

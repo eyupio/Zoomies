@@ -4502,7 +4502,7 @@ export interface components {
          */
         KennelCoverageState: "ok" | "partial" | "denied" | "unavailable" | "held" | "error" | "not_read";
         /** @enum {string} */
-        KennelSource: "fleet" | "metadata" | "runs";
+        KennelSource: "fleet" | "metadata" | "runs" | "setup" | "workflows";
         KennelCounts: {
             error: number;
             warning: number;
@@ -4651,7 +4651,7 @@ export interface components {
         KennelCatalogueEntry: {
             code: string;
             /** @enum {string} */
-            area: "exposure" | "capacity";
+            area: "exposure" | "capacity" | "setup" | "ci" | "token";
             severity: components["schemas"]["KennelSeverity"];
             detects: string;
             needs: components["schemas"]["KennelNeed"][];

@@ -144,7 +144,7 @@ func Evaluate(s Snapshot, p Policy) Evaluation {
 		}
 		ev.Ran = append(ev.Ran, c.Code)
 		open = append(open, r.findings...)
-		if len(r.findings) == 0 && (anyPartial(s.Coverage, c.Needs) || anyPartial(s.Coverage, r.extra)) {
+		if r.incomplete || (len(r.findings) == 0 && (anyPartial(s.Coverage, c.Needs) || anyPartial(s.Coverage, r.extra))) {
 			ev.Incomplete = append(ev.Incomplete, c.Code)
 		}
 	}

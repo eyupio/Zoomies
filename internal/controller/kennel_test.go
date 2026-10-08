@@ -857,13 +857,16 @@ func TestWhatTheFleetDidWaitsTenMinutesAndWhatTheOperatorDecidedDoesNot(t *testi
 		t.Error("the facts moved and ten minutes passed, and it was not evaluated")
 	}
 
+	// Give the persisted evaluation timestamp a distinct instant while staying
+	// well inside the ten-minute throttle being tested.
+	f.advance(time.Second)
 	f.c.UpdateConfig(func(c *config.Config) { c.Kennel.DisabledChecks = []string{"exposure"} })
 	f.pass()
 	row := f.row("acme/widgets")
 	if !row.EvaluatedAt.After(second) {
 		t.Error("an area was turned off and the repository was not evaluated at once")
 	}
-	if v := newKennelRepositoryView(row); len(v.Findings) != 0 || len(v.Disabled) != 4 {
+	if v := newKennelRepositoryView(row); len(v.Findings) != 0 || len(v.Disabled) != len(kennel.Checks())-2 {
 		t.Errorf("findings %v, disabled %v: turning exposure off should remove its four checks", findingCodes(v), v.Disabled)
 	}
 	// With one area off the rest still run, and the badge is about those: what is
@@ -871,7 +874,7 @@ func TestWhatTheFleetDidWaitsTenMinutesAndWhatTheOperatorDecidedDoesNot(t *testi
 	// turning off every check withholds it.
 	f.c.UpdateConfig(func(c *config.Config) { c.Kennel.DisabledChecks = []string{"exposure", "capacity"} })
 	f.pass()
-	if v := f.view("acme/widgets"); v.State == kennel.StateBestInShow || len(v.Disabled) != 6 {
+	if v := f.view("acme/widgets"); v.State == kennel.StateBestInShow || len(v.Disabled) != len(kennel.Checks()) {
 		t.Errorf("state %s with %d checks off: a repository with nothing left to check is not best in show", v.State, len(v.Disabled))
 	}
 }

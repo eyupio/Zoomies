@@ -13,6 +13,9 @@ const (
 	// SourceRuns is the trigger and head repository of runs the fleet ran, read
 	// for public repositories only.
 	SourceRuns Source = "runs"
+	// SourceSetup is a default-branch file inventory, with no file contents.
+	SourceSetup     Source = "setup"
+	SourceWorkflows Source = "workflows"
 )
 
 // CoverageState is how far a source could be read.
@@ -70,6 +73,8 @@ func (s Source) Permission() string {
 		return "Repository permissions: Metadata: Read-only"
 	case SourceRuns:
 		return "Repository permissions: Actions: Read-only"
+	case SourceSetup, SourceWorkflows:
+		return "Repository permissions: Contents: Read-only"
 	}
 	return ""
 }
@@ -83,6 +88,10 @@ func (s Source) Label() string {
 		return "Repository details"
 	case SourceRuns:
 		return "Workflow runs"
+	case SourceSetup:
+		return "Repository setup files"
+	case SourceWorkflows:
+		return "Workflow best practices"
 	}
 	return "Something else"
 }

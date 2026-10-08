@@ -141,7 +141,7 @@ func (c *Controller) KickKennel() {
 // kennelSettingsChanged is whether a change of configuration is one the loop
 // should act on at once.
 func kennelSettingsChanged(a, b config.Kennel) bool {
-	return a.Enabled != b.Enabled || a.Scope != b.Scope || a.RefreshInterval != b.RefreshInterval ||
+	return a.Enabled != b.Enabled || a.RepositorySetup != b.RepositorySetup || a.WorkflowChecks != b.WorkflowChecks || a.Scope != b.Scope || a.RefreshInterval != b.RefreshInterval ||
 		a.APIBudgetPercent != b.APIBudgetPercent || !slices.Equal(a.DisabledChecks, b.DisabledChecks)
 }
 
@@ -268,7 +268,7 @@ func (c *Controller) kennelInstallation(ctx context.Context, inst *store.Install
 		known[strings.ToLower(r.FullName)] = r
 		if r.Untracked == nil {
 			anyTracked = true
-			if kennelDue(r, in.now) {
+			if kennelDue(r, in.now) || kennelSetupDue(r, in) || kennelWorkflowsDue(r, in) {
 				anyDue = true
 			}
 		}
@@ -520,7 +520,7 @@ func (c *Controller) kennelTouch(ctx context.Context, inst *store.Installation, 
 // read ended in.
 func (c *Controller) kennelRefresh(ctx context.Context, inst *store.Installation, row *store.KennelRepository, l *kennelListing, in kennelPassInput) kennel.CoverageState {
 	wm := parseKennelWatermark(row.Watermark)
-	due := kennelDue(row, in.now)
+	due := kennelDue(row, in.now) || kennelSetupDue(row, in) || kennelWorkflowsDue(row, in)
 	var retry time.Duration
 	outcome := kennel.CoverageOK
 
@@ -541,6 +541,33 @@ func (c *Controller) kennelRefresh(ctx context.Context, inst *store.Installation
 		case row.Visibility == string(kennel.VisibilityPublic):
 			outcome, retry = c.kennelReadRuns(ctx, inst, row, &wm, l, in)
 		}
+	}
+	if due && kennelSetupEnabled(in.policy) {
+		state := c.kennelReadSetup(ctx, inst, row, &wm, l, in)
+		if state != kennel.CoverageOK {
+			if state == kennel.CoverageError || outcome == kennel.CoverageOK {
+				outcome = state
+			}
+			retry = max(retry, kennelRetryAfter(state))
+		}
+	}
+
+	if due && kennelWorkflowsEnabled(in.policy) {
+		state := c.kennelReadWorkflows(ctx, inst, row, &wm, l, in)
+		if state != kennel.CoverageOK {
+			if state == kennel.CoverageError || outcome == kennel.CoverageOK {
+				outcome = state
+			}
+			retry = max(retry, kennelRetryAfter(state))
+		}
+	}
+	if !kennelWorkflowsEnabled(in.policy) {
+		wm.Workflows = nil
+		wm.WorkflowState = ""
+	}
+	if !kennelSetupEnabled(in.policy) {
+		wm.Setup = nil
+		wm.SetupState = ""
 	}
 	if err := c.kennelEvaluate(ctx, inst, row, wm, l, due, retry, in); err != nil {
 		c.log.Warn("Kennel Club could not evaluate a repository", "repository", row.FullName, "error", err)
@@ -765,6 +792,14 @@ func (c *Controller) kennelSnapshot(ctx context.Context, inst *store.Installatio
 			RunnerGroupAllowsPublic: c.kennelRunnerGroupAllowsPublic(inst.ID, used),
 		},
 		Coverage: cov,
+	}
+	if kennelSetupEnabled(in.policy) {
+		snap.Setup = wm.Setup
+		cov[kennel.SourceSetup] = kennel.SourceState{State: wm.SetupState}
+	}
+	if kennelWorkflowsEnabled(in.policy) {
+		snap.Workflows = wm.Workflows
+		cov[kennel.SourceWorkflows] = kennel.SourceState{State: wm.WorkflowState}
 	}
 	// A private repository's runs are not read, so they are not in its coverage
 	// either: a source nothing needs is not a gap.
