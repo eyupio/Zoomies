@@ -611,7 +611,7 @@ for the threat model and each individual toggle.
 
 [Private hosts with Tailcat](private-hosts.md) preserve the outbound agent
 protocol. The controller accepts an additional userspace listener restricted
-to the agent API. `internal/api/tailcat.go` seals and resumes its identity through
+to the agent API and the single-use provider setup completion route. `internal/api/tailcat.go` seals and resumes its identity through
 the existing settings store; `internal/agent/tailcat.go` dials it using the same
 HTTP protocol, without proxies or redirects. No OS listener, SSH service,
 subnet route or Docker endpoint is created. The server-observed `connection`
@@ -646,3 +646,11 @@ before and after live verification. Encoded response budgets account for JSON
 escaping; continuation requests pin the returned source commit. Polling is recovery and status reconciliation, not an
 independent source authorisation boundary. Repository-only live retrieval,
 Zoomies-only uploads and generated-branch push enqueueing remain follow-on work.
+
+Proxmox onboarding stages a sealed connection behind a short-lived capability in
+`provider_setups`. A root command on the hypervisor detects the endpoint and
+certificate, creates a dedicated privilege-separated API token, and installs a
+separate gateway service. The browser polls only the name, endpoint and readiness;
+validation, discovery and creation resolve the staged credentials on the server
+and bind them to their enrolled endpoint and CA. Saving the provider removes its
+staged connection. Setup never invokes agent join or changes runner host state.

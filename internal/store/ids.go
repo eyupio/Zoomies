@@ -24,6 +24,8 @@ const (
 	PrefixJobEvent     = "jev"
 	PrefixController   = "ctl"
 	PrefixProvider     = "prv"
+	// PrefixProviderSetup names a short-lived Proxmox connection enrolment.
+	PrefixProviderSetup = "pvs"
 	// PrefixBackupRemote names an offsite backup destination kept in the
 	// database, so a row id in a log line says what it is without a lookup.
 	PrefixBackupRemote = "bkr"

@@ -43,6 +43,8 @@ const next = (page: Page) => page.getByRole('button', { name: 'Next' });
  */
 async function connectStep(page: Page, name: string): Promise<void> {
   await expect(page.getByLabel('Kind')).toHaveValue('proxmox');
+  const manual = page.getByRole('button', { name: 'Configure connection manually' });
+  if (await manual.isVisible()) await manual.click();
   await page.getByLabel('Name').fill(name);
   // By role: the connection choice below it describes itself with the word
   // too, and a radio is not where a URL goes.
@@ -119,6 +121,7 @@ test("the wizard is rendered from the driver's schema, with the driver's own def
   await goto(page, '/providers/new', 'Add a provider');
   // The step list by class, for the reason the pool wizard's test gives: it is
   // an ordered list in main and so is the breadcrumb above it.
+  await page.getByRole('button', { name: 'Configure connection manually' }).click();
   const steps = page.locator('ol.steps');
   for (const step of ['Connect', 'Placement', 'Machine', 'Limits', 'Review']) {
     await expect(steps).toContainText(step);
@@ -551,6 +554,7 @@ test('a private connection is offered only where the controller can make one, an
   // The e2e binary runs with authentication off, where private connections
   // are unavailable: the choice is there, disabled, with the reason beside it.
   await goto(page, '/providers/new', 'Add a provider');
+  await page.getByRole('button', { name: 'Configure connection manually' }).click();
   await expect(page.getByRole('radio', { name: /Private connection/ })).toBeDisabled();
   await expect(page.getByRole('radio', { name: 'Direct' })).toBeChecked();
   await expect(page.getByText(/Private connections need authentication/)).toBeVisible();
@@ -563,6 +567,7 @@ test('a private connection is offered only where the controller can make one, an
     });
   });
   await goto(page, '/providers/new', 'Add a provider');
+  await page.getByRole('button', { name: 'Configure connection manually' }).click();
   await page.getByRole('textbox', { name: /^Address/ }).fill('https://pve.e2e.example:8006');
   await expect(page.getByLabel('Private connection address')).toHaveCount(0);
   await page.getByRole('radio', { name: /Private connection/ }).check();
@@ -627,4 +632,72 @@ test('the review step writes a ceiling of one machine in the singular', async ({
   const ceiling = page.locator('div', { has: page.locator('dt', { hasText: 'Ceiling' }) }).last();
   await expect(ceiling).toContainText('1 machine');
   await expect(ceiling).not.toContainText('1 machines');
+});
+
+test('Proxmox onboarding waits for one command and fills the connection without manual credentials', async ({
+  page,
+}) => {
+  let hostConnected = false;
+  let discoveryBody: Record<string, unknown> | undefined;
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    const meta = await response.json();
+    await route.fulfill({ response, json: { ...meta, tailcat_available: true } });
+  });
+  await page.route('**/api/v1/provider-setups', (route) =>
+    route.fulfill({
+      status: 201,
+      json: {
+        id: 'pvs_test',
+        expires_at: new Date(Date.now() + 3600000).toISOString(),
+        ready: false,
+        command: 'sudo zoomies providers connect-proxmox --token test-capability',
+      },
+    }),
+  );
+  await page.route('**/api/v1/provider-setups/pvs_test', (route) =>
+    route.fulfill({
+      json: {
+        id: 'pvs_test',
+        expires_at: new Date(Date.now() + 3600000).toISOString(),
+        ready: hostConnected,
+        ...(hostConnected ? { name: 'proxmox-pve-1', endpoint: 'https://pve.example:8006' } : {}),
+      },
+    }),
+  );
+  await page.route('**/api/v1/providers/discover', (route) => {
+    discoveryBody = route.request().postDataJSON() as Record<string, unknown>;
+    return route.fulfill({
+      json: {
+        nodes: [{ value: 'pve-1', label: 'pve-1' }],
+        storages: [{ value: 'local-lvm', label: 'local-lvm' }],
+        bridges: [{ value: 'vmbr0', label: 'vmbr0' }],
+        templates: [{ value: '9000', label: 'Runner template' }],
+      },
+    });
+  });
+  await goto(page, '/providers/new', 'Add a provider');
+  await expect(page.getByLabel('Kind')).toHaveValue('proxmox');
+  for (const field of [
+    'Name',
+    'Credential',
+    'Certificate authority',
+    'Private connection address',
+  ]) {
+    await expect(page.getByLabel(field, { exact: true })).toHaveCount(0);
+  }
+  await expect(next(page)).toBeDisabled();
+  await page.getByRole('button', { name: 'Generate setup command' }).click();
+  await expect(page.getByText(/Waiting for your Proxmox host/)).toBeVisible();
+  hostConnected = true;
+  await expect(page.getByText(/Connected to proxmox-pve-1/)).toBeVisible();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Placement' })).toBeVisible();
+  await expect.poll(() => discoveryBody?.setup_id).toBe('pvs_test');
+  expect(discoveryBody).not.toHaveProperty('credential');
+  expect(discoveryBody).not.toHaveProperty('tailcat_address');
+  await expect(next(page)).toBeEnabled();
+  await next(page).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Capacity' })).toBeVisible();
+  await expect(page.getByText('Advanced machine settings', { exact: true })).toBeVisible();
 });

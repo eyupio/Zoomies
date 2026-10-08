@@ -27,6 +27,8 @@
   import {
     ApiError,
     createProvider,
+    createProviderSetup,
+    getProviderSetup,
     discoverProviderDraft,
     getProviderDiscovery,
     listProviderKinds,
@@ -124,6 +126,81 @@
   let draft = $state<ProviderDraft>(
     untrack(() => (provider ? draftFromProvider(provider) : emptyDraft())),
   );
+  let manualConnection = $state(false);
+  const automaticProxmox = $derived(!editing && draft.kind === 'proxmox' && !manualConnection);
+  let setupID = $state('');
+  let setupCommand = $state('');
+  let setupError = $state('');
+  let creatingSetup = $state(false);
+  let setupReady = $state(false);
+
+  async function startSetup(): Promise<void> {
+    creatingSetup = true;
+    setupError = '';
+    setupReady = false;
+    setupID = '';
+    setupCommand = '';
+    delete draft.setup_id;
+    try {
+      const setup = await createProviderSetup();
+      setupID = setup.id;
+      setupCommand = setup.command ?? '';
+    } catch (cause: unknown) {
+      setupError =
+        cause instanceof Error ? cause.message : 'The setup command could not be generated.';
+    } finally {
+      creatingSetup = false;
+    }
+  }
+
+  $effect(() => {
+    const id = setupID;
+    if (!id || !automaticProxmox || setupReady) return;
+    const controller = new AbortController();
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const poll = async (): Promise<void> => {
+      try {
+        const result = await getProviderSetup(id, controller.signal);
+        if (controller.signal.aborted) return;
+        if (result.ready) {
+          draft.setup_id = id;
+          draft.name = result.name ?? '';
+          draft.endpoint = result.endpoint ?? '';
+          draft.connection = 'tailcat';
+          draft.tailcat_configured = true;
+          setupCommand = '';
+          setupReady = true;
+          return;
+        }
+        timer = setTimeout(() => {
+          void poll();
+        }, 2000);
+      } catch (cause: unknown) {
+        if (controller.signal.aborted) return;
+        setupError =
+          cause instanceof Error ? cause.message : 'The connection could not be checked.';
+      }
+    };
+    void poll();
+    return () => {
+      controller.abort();
+      if (timer) clearTimeout(timer);
+    };
+  });
+
+  $effect(() => {
+    if (draft.kind === 'proxmox' || !setupID) return;
+    setupID = '';
+    setupCommand = '';
+    setupReady = false;
+    setupError = '';
+    delete draft.setup_id;
+    draft.name = '';
+    draft.endpoint = '';
+    draft.connection = 'direct';
+    draft.tailcat_configured = false;
+  });
+
   let current = $state(0);
   let touched = $state<Record<string, boolean>>({});
   let serverErrors = $state<Record<string, string>>({});
@@ -145,7 +222,31 @@
   let discovering = $state(false);
   let discoveryAttempt = $state(0);
 
-  const reviewStep = WIZARD_STEPS.length - 1;
+  const wizardSteps = $derived(
+    automaticProxmox
+      ? WIZARD_STEPS.filter((step) => step.id !== 'machine').map((step) =>
+          step.id === 'limits'
+            ? {
+                ...step,
+                title: 'Capacity',
+                description: 'Choose how many runner VMs Zoomies may create.',
+              }
+            : step,
+        )
+      : WIZARD_STEPS,
+  );
+  const reviewStep = $derived(wizardSteps.length - 1);
+  function fieldsForStep(index: number): readonly string[] {
+    const id = wizardSteps[index]?.id;
+    const fields = STEP_FIELDS[WIZARD_STEPS.findIndex((step) => step.id === id)] ?? [];
+    return automaticProxmox && id === 'limits' ? [...fields, ...(STEP_FIELDS[2] ?? [])] : fields;
+  }
+  function stepForDraftField(field: string): number {
+    const id = WIZARD_STEPS[stepForField(field)]?.id;
+    return wizardSteps.findIndex(
+      (step) => step.id === (automaticProxmox && id === 'machine' ? 'limits' : id),
+    );
+  }
   const placementStep = WIZARD_STEPS.findIndex((step) => step.id === 'placement');
 
   const kind = $derived(kinds.find((k) => k.kind === draft.kind) ?? null);
@@ -174,6 +275,7 @@
   const connectKey = $derived(
     JSON.stringify([
       draft.kind,
+      draft.setup_id,
       draft.endpoint,
       draft.credential,
       draft.ca_pem,
@@ -196,8 +298,7 @@
   });
 
   const blocking = $derived.by(() => {
-    const fields =
-      current === reviewStep ? Object.keys(clientErrors) : (STEP_FIELDS[current] ?? []);
+    const fields = current === reviewStep ? Object.keys(clientErrors) : fieldsForStep(current);
     return Object.entries(clientErrors)
       .filter(([field]) => fields.includes(field) || fields.includes(settingGroup(field)))
       .map(([, message]) => message);
@@ -219,7 +320,7 @@
   }
 
   function touchStep(step: number): void {
-    const fields = STEP_FIELDS[step] ?? [];
+    const fields = fieldsForStep(step);
     const next = { ...touched };
     for (const field of Object.keys(clientErrors)) {
       if (fields.includes(settingGroup(field))) next[field] = true;
@@ -360,7 +461,7 @@
     const fields = cause.fieldErrors();
     serverErrors = fields;
     const first = Object.keys(fields)[0];
-    if (first !== undefined) goTo(stepForField(first));
+    if (first !== undefined) goTo(stepForDraftField(first));
   }
 
   async function finish(): Promise<void> {
@@ -371,7 +472,7 @@
       const next = { ...touched };
       for (const field of outstanding) next[field] = true;
       touched = next;
-      goTo(stepForField(outstanding[0] ?? 'name'));
+      goTo(stepForDraftField(outstanding[0] ?? 'name'));
       return;
     }
     submitting = true;
@@ -552,9 +653,136 @@
   </Field>
 {/snippet}
 
+{#snippet machineShape()}
+  <p class="prose">
+    One shape, and every machine this provider buys is it. A second shape is a second provider,
+    which is also how two ceilings and two credentials are kept apart.
+  </p>
+
+  <Field
+    label="Runner slots per machine"
+    hint="How many runners one of these may carry at once."
+    error={errors.machine_capacity}
+    required
+  >
+    {#snippet children({ id, describedBy, invalid })}
+      <Input
+        bind:value={draft.machine_capacity}
+        {id}
+        {describedBy}
+        {invalid}
+        type="number"
+        min={1}
+        onblur={() => touch('machine_capacity')}
+      />
+    {/snippet}
+  </Field>
+
+  <Field label="Backend" hint="How runners are made on the machine once it is a host.">
+    {#snippet children({ id, describedBy })}
+      <Select bind:value={draft.machine_backend} {id} {describedBy} options={BACKEND_OPTIONS} />
+    {/snippet}
+  </Field>
+
+  <!--
+          The machine's size is three sliders, each with a field that reads
+          what a person writes -- 8g, 32768 MB, 100 GB -- because a hypervisor
+          template is sized in whichever unit its author thought in. Nothing
+          on the slider, and an empty field, is the template's own size.
+        -->
+  <Field label="vCPUs" hint="Empty means the template decides." error={errors.machine_cpus}>
+    {#snippet children({ id, describedBy, invalid })}
+      <QuantityField
+        {id}
+        quantity="cpus"
+        whole
+        values={withValue(MACHINE_CPU_NOTCHES, Number(draft.machine_cpus) || 0)}
+        value={Number(draft.machine_cpus) || 0}
+        label="vCPUs"
+        valuetext={(v) => (v === 0 ? 'the template decides' : cpuLabel(v))}
+        marks={[{ value: 0, label: 'the template' }]}
+        empty={{ value: 0, placeholder: 'the template decides' }}
+        {describedBy}
+        {invalid}
+        onchange={(v) => {
+          draft.machine_cpus = v ? String(v) : '';
+          touch('machine_cpus');
+        }}
+      />
+    {/snippet}
+  </Field>
+  <Field label="Memory" error={errors.machine_memory_mb}>
+    {#snippet children({ id, describedBy, invalid })}
+      <QuantityField
+        {id}
+        quantity="mb"
+        values={withValue(MACHINE_MEMORY_NOTCHES, Number(draft.machine_memory_mb) || 0)}
+        value={Number(draft.machine_memory_mb) || 0}
+        label="Memory"
+        valuetext={(v) => (v === 0 ? 'the template decides' : memoryLabel(v))}
+        marks={[{ value: 0, label: 'the template' }]}
+        empty={{ value: 0, placeholder: 'the template decides' }}
+        {describedBy}
+        {invalid}
+        onchange={(v) => {
+          draft.machine_memory_mb = v ? String(v) : '';
+          touch('machine_memory_mb');
+        }}
+      />
+    {/snippet}
+  </Field>
+  <Field label="Disk" error={errors.machine_disk_mb}>
+    {#snippet children({ id, describedBy, invalid })}
+      <QuantityField
+        {id}
+        quantity="mb"
+        values={withValue(MACHINE_DISK_NOTCHES, Number(draft.machine_disk_mb) || 0)}
+        value={Number(draft.machine_disk_mb) || 0}
+        label="Disk"
+        valuetext={(v) => (v === 0 ? 'the template decides' : memoryLabel(v))}
+        marks={[{ value: 0, label: 'the template' }]}
+        empty={{ value: 0, placeholder: 'the template decides' }}
+        {describedBy}
+        {invalid}
+        onchange={(v) => {
+          draft.machine_disk_mb = v ? String(v) : '';
+          touch('machine_disk_mb');
+        }}
+      />
+    {/snippet}
+  </Field>
+
+  <div class="row">
+    <Field label="Operating system" hint="What a pool's platform will match against.">
+      {#snippet children({ id, describedBy })}
+        <Select bind:value={draft.machine_os} {id} {describedBy} options={OS_OPTIONS} />
+      {/snippet}
+    </Field>
+    <Field label="Version">
+      {#snippet children({ id, describedBy })}
+        <Input bind:value={draft.machine_os_version} {id} {describedBy} placeholder="24.04" />
+      {/snippet}
+    </Field>
+    <Field label="Architecture">
+      {#snippet children({ id, describedBy })}
+        <Select bind:value={draft.machine_arch} {id} {describedBy} options={ARCH_OPTIONS} />
+      {/snippet}
+    </Field>
+  </div>
+
+  <Field
+    label="Machine labels"
+    hint="What a host made from this machine answers to. Pools select hosts by these."
+  >
+    {#snippet children({ describedBy })}
+      <LabelMapEditor bind:rows={labelRows} {describedBy} />
+    {/snippet}
+  </Field>
+{/snippet}
+
 <Wizard
   class={className}
-  steps={WIZARD_STEPS}
+  steps={wizardSteps}
   bind:current
   {canAdvance}
   busy={submitting}
@@ -575,7 +803,7 @@
             onretry={() => (kindsAttempt += 1)}
           />
         {/if}
-        {#if kind && (kind.guide?.length ?? 0) > 0}
+        {#if kind && (kind.guide?.length ?? 0) > 0 && !automaticProxmox}
           <!-- Before the first question: every one of these is done somewhere
                other than this form, and asking for the result without saying
                how to get it is how a wizard gets abandoned. Open for a new
@@ -624,132 +852,179 @@
           {/snippet}
         </Field>
 
-        <Field
-          label="Name"
-          hint="What you will call it on this page and in a log line."
-          error={errors.name}
-          required
-        >
-          {#snippet children({ id, describedBy, invalid })}
-            <Input
-              bind:value={draft.name}
-              {id}
-              {describedBy}
-              {invalid}
-              placeholder="proxmox-lab"
-              onblur={() => touch('name')}
-            />
-          {/snippet}
-        </Field>
-
-        <Field
-          label="Address"
-          hint="Where Zoomies reaches it. A bare host name gets the scheme and the port filled in."
-          help={kind?.endpoint_source}
-          error={errors.endpoint}
-          required
-        >
-          {#snippet children({ id, describedBy, invalid })}
-            <Input
-              bind:value={draft.endpoint}
-              {id}
-              {describedBy}
-              {invalid}
-              type="url"
-              mono
-              placeholder={kind?.endpoint_example || 'https://provider.example.com'}
-              onblur={leaveEndpoint}
-            />
-          {/snippet}
-        </Field>
-
-        <RadioGroup
-          bind:value={draft.connection}
-          name="provider-connection"
-          legend="Connection"
-          options={connectionOptions}
-          onchange={() => touch('connection')}
-        />
-        {#if errors.connection}
-          <p class="note bad" role="alert">{errors.connection}</p>
-        {/if}
-
-        {#if draft.connection === 'tailcat'}
+        {#if automaticProxmox}
+          <p class="prose">
+            Run one command as root on your Proxmox host. Zoomies detects its name, creates an API
+            token, trusts its certificate and keeps a private Tailcat connection running. An
+            existing Zoomies runner host can stay connected while you add the provider.
+          </p>
+          {#if !tailcatAvailable}
+            <p class="note">
+              Private connections need to be enabled on this controller before setup.
+            </p>
+          {:else if setupReady}
+            <p class="note ok" role="status">
+              Connected to {draft.name}. Continue to choose the VM template.
+            </p>
+            <Button variant="ghost" onclick={startSetup}>Reconnect Proxmox host</Button>
+          {:else}
+            <Button variant="secondary" disabled={creatingSetup} onclick={startSetup}>
+              {creatingSetup
+                ? 'Generating command…'
+                : setupID
+                  ? 'Generate a new command'
+                  : 'Generate setup command'}
+            </Button>
+            {#if setupCommand}
+              <div class="command small">
+                <pre class="mono"><code>{setupCommand}</code></pre>
+                <div class="command-actions">
+                  <CopyButton value={setupCommand} label="Copy Proxmox setup command" showLabel />
+                </div>
+              </div>
+              <p class="note" role="status">
+                Waiting for your Proxmox host… This command expires in one hour. Return here after
+                running it; the connection details appear automatically.
+              </p>
+            {/if}
+          {/if}
+          {#if setupError}<p class="note bad" role="alert">{setupError}</p>{/if}
+          {#if !setupID}
+            <Button
+              variant="ghost"
+              onclick={() => {
+                manualConnection = true;
+              }}>Configure connection manually</Button
+            >
+          {/if}
+        {:else}
           <Field
-            label="Private connection address"
-            hint={draft.tailcat_configured
-              ? 'Stored, sealed with the instance key. Leave this empty to keep it, or paste a new one if the gateway was started with a new identity.'
-              : 'What zoomies gateway printed. Sealed like the credential: anyone holding it can open connections to the hypervisor, so it is never shown again.'}
-            error={errors.tailcat_address}
-            required={!draft.tailcat_configured}
+            label="Name"
+            hint="What you will call it on this page and in a log line."
+            error={errors.name}
+            required
           >
             {#snippet children({ id, describedBy, invalid })}
               <Input
-                bind:value={draft.tailcat_address}
+                bind:value={draft.name}
+                {id}
+                {describedBy}
+                {invalid}
+                placeholder="proxmox-lab"
+                onblur={() => touch('name')}
+              />
+            {/snippet}
+          </Field>
+
+          <Field
+            label="Address"
+            hint="Where Zoomies reaches it. A bare host name gets the scheme and the port filled in."
+            help={kind?.endpoint_source}
+            error={errors.endpoint}
+            required
+          >
+            {#snippet children({ id, describedBy, invalid })}
+              <Input
+                bind:value={draft.endpoint}
+                {id}
+                {describedBy}
+                {invalid}
+                type="url"
+                mono
+                placeholder={kind?.endpoint_example || 'https://provider.example.com'}
+                onblur={leaveEndpoint}
+              />
+            {/snippet}
+          </Field>
+
+          <RadioGroup
+            bind:value={draft.connection}
+            name="provider-connection"
+            legend="Connection"
+            options={connectionOptions}
+            onchange={() => touch('connection')}
+          />
+          {#if errors.connection}
+            <p class="note bad" role="alert">{errors.connection}</p>
+          {/if}
+
+          {#if draft.connection === 'tailcat'}
+            <Field
+              label="Private connection address"
+              hint={draft.tailcat_configured
+                ? 'Stored, sealed with the instance key. Leave this empty to keep it, or paste a new one if the gateway was started with a new identity.'
+                : 'What zoomies gateway printed. Sealed like the credential: anyone holding it can open connections to the hypervisor, so it is never shown again.'}
+              error={errors.tailcat_address}
+              required={!draft.tailcat_configured}
+            >
+              {#snippet children({ id, describedBy, invalid })}
+                <Input
+                  bind:value={draft.tailcat_address}
+                  {id}
+                  {describedBy}
+                  {invalid}
+                  type="password"
+                  mono
+                  autocomplete="off"
+                  placeholder={draft.tailcat_configured ? 'Unchanged' : 'tc…'}
+                  onblur={() => touch('tailcat_address')}
+                />
+              {/snippet}
+            </Field>
+            <p class="prose">
+              The address above stays what the certificate is checked against; the gateway forwards
+              the connection to it and reads nothing. Run
+              <code>zoomies gateway --target &lt;hypervisor-ip&gt;:8006</code> on a machine that can reach
+              the hypervisor, and keep it running.
+            </p>
+          {/if}
+
+          <Field
+            label="Credential"
+            hint={editing
+              ? 'Sealed in the database and never shown again. Leave this empty to keep the stored one.'
+              : 'Sealed with the instance key. It is never returned, never logged, and never reaches a guest.'}
+            help={kind?.credential_source}
+            error={errors.credential}
+            required={!editing}
+          >
+            {#snippet children({ id, describedBy, invalid })}
+              <Input
+                bind:value={draft.credential}
                 {id}
                 {describedBy}
                 {invalid}
                 type="password"
                 mono
                 autocomplete="off"
-                placeholder={draft.tailcat_configured ? 'Unchanged' : 'tc…'}
-                onblur={() => touch('tailcat_address')}
+                placeholder={editing ? 'Unchanged' : 'user@pve!token=uuid'}
+                onblur={() => touch('credential')}
               />
             {/snippet}
           </Field>
-          <p class="prose">
-            The address above stays what the certificate is checked against; the gateway forwards
-            the connection to it and reads nothing. Run
-            <code>zoomies gateway --target &lt;hypervisor-ip&gt;:8006</code> on a machine that can reach
-            the hypervisor, and keep it running.
-          </p>
+
+          <Field
+            label="Certificate authority"
+            hint="The certificate to trust for this address. Leave empty to use the system trust store."
+            help={kind?.ca_source}
+          >
+            {#snippet children({ id, describedBy })}
+              <Textarea
+                bind:value={draft.ca_pem}
+                {id}
+                {describedBy}
+                rows={3}
+                placeholder="-----BEGIN CERTIFICATE-----"
+              />
+            {/snippet}
+          </Field>
+
+          <Switch
+            bind:checked={draft.insecure_skip_verify}
+            label="Do not verify the certificate"
+            description="The credential then travels to whatever answers at that address. A homelab hypervisor's certificate is usually its own, which is why this exists rather than being refused — but pasting the certificate above is better."
+          />
         {/if}
-
-        <Field
-          label="Credential"
-          hint={editing
-            ? 'Sealed in the database and never shown again. Leave this empty to keep the stored one.'
-            : 'Sealed with the instance key. It is never returned, never logged, and never reaches a guest.'}
-          help={kind?.credential_source}
-          error={errors.credential}
-          required={!editing}
-        >
-          {#snippet children({ id, describedBy, invalid })}
-            <Input
-              bind:value={draft.credential}
-              {id}
-              {describedBy}
-              {invalid}
-              type="password"
-              mono
-              autocomplete="off"
-              placeholder={editing ? 'Unchanged' : 'user@pve!token=uuid'}
-              onblur={() => touch('credential')}
-            />
-          {/snippet}
-        </Field>
-
-        <Field
-          label="Certificate authority"
-          hint="The certificate to trust for this address. Leave empty to use the system trust store."
-          help={kind?.ca_source}
-        >
-          {#snippet children({ id, describedBy })}
-            <Textarea
-              bind:value={draft.ca_pem}
-              {id}
-              {describedBy}
-              rows={3}
-              placeholder="-----BEGIN CERTIFICATE-----"
-            />
-          {/snippet}
-        </Field>
-
-        <Switch
-          bind:checked={draft.insecure_skip_verify}
-          label="Do not verify the certificate"
-          description="The credential then travels to whatever answers at that address. A homelab hypervisor's certificate is usually its own, which is why this exists rather than being refused — but pasting the certificate above is better."
-        />
       {:else if step.id === 'placement'}
         {#if kind?.can_discover}
           <div class="discovery" aria-live="polite">
@@ -797,136 +1072,13 @@
           {/if}
         {/if}
       {:else if step.id === 'machine'}
-        <p class="prose">
-          One shape, and every machine this provider buys is it. A second shape is a second
-          provider, which is also how two ceilings and two credentials are kept apart.
-        </p>
-
-        <Field
-          label="Runner slots per machine"
-          hint="How many runners one of these may carry at once."
-          error={errors.machine_capacity}
-          required
-        >
-          {#snippet children({ id, describedBy, invalid })}
-            <Input
-              bind:value={draft.machine_capacity}
-              {id}
-              {describedBy}
-              {invalid}
-              type="number"
-              min={1}
-              onblur={() => touch('machine_capacity')}
-            />
-          {/snippet}
-        </Field>
-
-        <Field label="Backend" hint="How runners are made on the machine once it is a host.">
-          {#snippet children({ id, describedBy })}
-            <Select
-              bind:value={draft.machine_backend}
-              {id}
-              {describedBy}
-              options={BACKEND_OPTIONS}
-            />
-          {/snippet}
-        </Field>
-
-        <!--
-          The machine's size is three sliders, each with a field that reads
-          what a person writes -- 8g, 32768 MB, 100 GB -- because a hypervisor
-          template is sized in whichever unit its author thought in. Nothing
-          on the slider, and an empty field, is the template's own size.
-        -->
-        <Field label="vCPUs" hint="Empty means the template decides." error={errors.machine_cpus}>
-          {#snippet children({ id, describedBy, invalid })}
-            <QuantityField
-              {id}
-              quantity="cpus"
-              whole
-              values={withValue(MACHINE_CPU_NOTCHES, Number(draft.machine_cpus) || 0)}
-              value={Number(draft.machine_cpus) || 0}
-              label="vCPUs"
-              valuetext={(v) => (v === 0 ? 'the template decides' : cpuLabel(v))}
-              marks={[{ value: 0, label: 'the template' }]}
-              empty={{ value: 0, placeholder: 'the template decides' }}
-              {describedBy}
-              {invalid}
-              onchange={(v) => {
-                draft.machine_cpus = v ? String(v) : '';
-                touch('machine_cpus');
-              }}
-            />
-          {/snippet}
-        </Field>
-        <Field label="Memory" error={errors.machine_memory_mb}>
-          {#snippet children({ id, describedBy, invalid })}
-            <QuantityField
-              {id}
-              quantity="mb"
-              values={withValue(MACHINE_MEMORY_NOTCHES, Number(draft.machine_memory_mb) || 0)}
-              value={Number(draft.machine_memory_mb) || 0}
-              label="Memory"
-              valuetext={(v) => (v === 0 ? 'the template decides' : memoryLabel(v))}
-              marks={[{ value: 0, label: 'the template' }]}
-              empty={{ value: 0, placeholder: 'the template decides' }}
-              {describedBy}
-              {invalid}
-              onchange={(v) => {
-                draft.machine_memory_mb = v ? String(v) : '';
-                touch('machine_memory_mb');
-              }}
-            />
-          {/snippet}
-        </Field>
-        <Field label="Disk" error={errors.machine_disk_mb}>
-          {#snippet children({ id, describedBy, invalid })}
-            <QuantityField
-              {id}
-              quantity="mb"
-              values={withValue(MACHINE_DISK_NOTCHES, Number(draft.machine_disk_mb) || 0)}
-              value={Number(draft.machine_disk_mb) || 0}
-              label="Disk"
-              valuetext={(v) => (v === 0 ? 'the template decides' : memoryLabel(v))}
-              marks={[{ value: 0, label: 'the template' }]}
-              empty={{ value: 0, placeholder: 'the template decides' }}
-              {describedBy}
-              {invalid}
-              onchange={(v) => {
-                draft.machine_disk_mb = v ? String(v) : '';
-                touch('machine_disk_mb');
-              }}
-            />
-          {/snippet}
-        </Field>
-
-        <div class="row">
-          <Field label="Operating system" hint="What a pool's platform will match against.">
-            {#snippet children({ id, describedBy })}
-              <Select bind:value={draft.machine_os} {id} {describedBy} options={OS_OPTIONS} />
-            {/snippet}
-          </Field>
-          <Field label="Version">
-            {#snippet children({ id, describedBy })}
-              <Input bind:value={draft.machine_os_version} {id} {describedBy} placeholder="24.04" />
-            {/snippet}
-          </Field>
-          <Field label="Architecture">
-            {#snippet children({ id, describedBy })}
-              <Select bind:value={draft.machine_arch} {id} {describedBy} options={ARCH_OPTIONS} />
-            {/snippet}
-          </Field>
-        </div>
-
-        <Field
-          label="Machine labels"
-          hint="What a host made from this machine answers to. Pools select hosts by these."
-        >
-          {#snippet children({ describedBy })}
-            <LabelMapEditor bind:rows={labelRows} {describedBy} />
-          {/snippet}
-        </Field>
+        {@render machineShape()}
       {:else if step.id === 'limits'}
+        {#if automaticProxmox}
+          <details class="advanced">
+            <summary>Advanced machine settings</summary>{@render machineShape()}
+          </details>
+        {/if}
         <Field
           label="Maximum machines"
           hint="The ceiling. Zero rents nothing, which is what a provider starts at."
@@ -1038,20 +1190,21 @@
           </div>
         </dl>
 
-        <section class="terminal" aria-label="The same thing from a terminal">
-          <p class="prose">
-            {editing ? 'The same change' : 'The same provider'}, as one command for a shell that can
-            reach Zoomies — for a setup you would rather keep in a script. It asks for the
-            credential itself, so nothing secret is in the line.
-          </p>
-          <div class="command">
-            <pre class="mono"><code>{command}</code></pre>
-            <div class="command-actions">
-              <CopyButton value={command} label="Copy the command" size="md" showLabel />
+        {#if !draft.setup_id}
+          <section class="terminal" aria-label="The same thing from a terminal">
+            <p class="prose">
+              {editing ? 'The same change' : 'The same provider'}, as one command for a shell that
+              can reach Zoomies — for a setup you would rather keep in a script. It asks for the
+              credential itself, so nothing secret is in the line.
+            </p>
+            <div class="command">
+              <pre class="mono"><code>{command}</code></pre>
+              <div class="command-actions">
+                <CopyButton value={command} label="Copy the command" size="md" showLabel />
+              </div>
             </div>
-          </div>
-        </section>
-
+          </section>
+        {/if}
         <section class="verdict" aria-live="polite" aria-label="What the controller makes of it">
           {#if validating && !verdict}
             <p class="note">Asking the controller…</p>

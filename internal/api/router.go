@@ -45,6 +45,7 @@ func (s *Server) routes() http.Handler {
 
 	// Health. Unauthenticated on purpose: a load balancer cannot sign in, and
 	// neither of these says anything a stranger could use.
+	r.With(noStore, limitBody).Post("/api/v1/provider-setups/{id}/complete", s.handleCompleteProviderSetup)
 	r.Get("/healthz", s.handleHealthz)
 	r.Get("/readyz", s.handleReadyz)
 
@@ -345,6 +346,8 @@ func (s *Server) apiRoutes() chi.Router {
 		// Providers and the machines they rent. Both blocks register their
 		// static sub-paths before /{id}, or chi would route /providers/kinds
 		// to the provider whose id is "kinds".
+		r.With(s.require(auth.ActionProvidersWrite)).Post("/provider-setups", s.handleCreateProviderSetup)
+		r.With(s.require(auth.ActionProvidersWrite)).Get("/provider-setups/{id}", s.handleGetProviderSetup)
 		r.Route("/providers", func(r chi.Router) {
 			r.With(s.require(auth.ActionProvidersRead)).Get("/", s.handleListProviders)
 			r.With(s.require(auth.ActionProvidersWrite)).Post("/", s.handleCreateProvider)
