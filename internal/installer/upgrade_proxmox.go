@@ -2,13 +2,13 @@ package installer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
-	"syscall"
 )
 
 var proxmoxKey = regexp.MustCompile(`^[0-9a-f]{12}$`)
@@ -48,15 +48,14 @@ func (p *upgradePlan) upgradeProxmoxGateways(ctx context.Context) error {
 			PaletteFor(p.opts.Out).Hint(p.opts.Out, "Will update %s", unit)
 			continue
 		}
-		lock, err := os.OpenFile(filepath.Join(root, entry.Name(), "setup.lock"), os.O_CREATE|os.O_RDWR, 0600)
+		unlock, err := LockSetup(filepath.Join(root, entry.Name(), "setup.lock"))
 		if err != nil {
+			if errors.Is(err, ErrSetupLocked) {
+				return fmt.Errorf("installer: %s is being configured; retry the upgrade when setup finishes", unit)
+			}
 			return err
 		}
-		defer lock.Close()
-		if err := syscall.Flock(int(lock.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
-			return fmt.Errorf("installer: %s is being configured; retry the upgrade when setup finishes", unit)
-		}
-		defer syscall.Flock(int(lock.Fd()), syscall.LOCK_UN)
+		defer unlock()
 		binary, err := os.ReadFile(p.opts.BinaryPath)
 		if err != nil {
 			return err
