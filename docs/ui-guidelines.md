@@ -890,6 +890,13 @@ what failed and why. Draining a runner flips its badge immediately; if the API
 returns 409 the badge flips back and the toast explains. Background outcomes
 (the runner actually reaching `removed`) arrive over SSE and need no toast.
 
+The same holds for an answer a person is waiting on after they asked for it: a
+refresh, or a check they asked a host to run, shows its result by the page
+changing — a fresher time, a finding that cleared — and is announced once in a
+polite live region for people who cannot see the change. A toast is for the
+failure of the request itself, which the person's own press caused, never for
+what arrived afterwards.
+
 The controller's own words are what a failure says — a 403 names the role
 required, and paraphrasing it would lose that. They are shown as they are, but
 run through `sentence()` in `lib/errors.ts` first, in the failure toast and the

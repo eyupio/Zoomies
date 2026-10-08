@@ -14,7 +14,7 @@ Scoped guidance for the UI, loaded in addition to the root [CLAUDE.md](../CLAUDE
   value that appears twice belongs in the token file. Media query widths, a
   one-off measure in a component's own layout, and the log viewer's xterm
   bridge are the documented exceptions.
-  [docs/ui-guidelines.md](docs/ui-guidelines.md) is the contract, and UI
+  [docs/ui-guidelines.md](../docs/ui-guidelines.md) is the contract, and UI
   changes should keep it true.
 - Status colours are a fixed mapping (idle, busy, pending, draining, danger,
   neutral). Operators learn them; do not reuse them for anything else.
