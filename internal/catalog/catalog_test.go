@@ -132,7 +132,8 @@ func TestChecksAreEntriesWithTheRegistrysWords(t *testing.T) {
 		if e.Fix != k.Fix || e.Verify == nil || *e.Verify != k.Verify {
 			t.Errorf("%s: fix/verify not the registry's: %q %v", k.Code, e.Fix, e.Verify)
 		}
-		if !strings.HasSuffix(e.DocsHTML, "kennel-club/#checks") || !strings.HasSuffix(e.DocsMD, "kennel-club.md#checks") {
+		anchor := strings.ReplaceAll(string(k.Code), ".", "-")
+		if !strings.HasSuffix(e.DocsHTML, "kennel-club/#"+anchor) || !strings.HasSuffix(e.DocsMD, "kennel-club.md#"+anchor) {
 			t.Errorf("%s: docs = %q %q", k.Code, e.DocsHTML, e.DocsMD)
 		}
 		wantDetection := "runtime"

@@ -169,6 +169,7 @@ nav:
       - Private hosts with Tailcat: private-hosts.md
       - Proxmox VE: proxmox.md
       - Migrating repositories: migration.md
+      - Kennel Club: kennel-club.md
       - Backup and restore: backup-and-restore.md
       - Two-step verification: two-step.md
       - Upgrading: upgrading.md

@@ -133,8 +133,8 @@ func checkEntry(k kennel.Check) Entry {
 		Fix:       k.Fix,
 		Verify:    nonEmpty(k.Verify),
 		Area:      string(k.Area),
-		DocsHTML:  siteBase + "/kennel-club/#checks",
-		DocsMD:    repoBase + "/kennel-club.md#checks",
+		DocsHTML:  siteBase + "/kennel-club/#" + strings.ReplaceAll(string(k.Code), ".", "-"),
+		DocsMD:    repoBase + "/" + k.Docs,
 	}
 }
 

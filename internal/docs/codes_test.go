@@ -468,3 +468,32 @@ func TestEveryConfigurationKeyIsDocumented(t *testing.T) {
 			strings.Join(missingEnv, "\n  "))
 	}
 }
+
+// A code documented twice is two answers to one question, and the catalog
+// built from this page refuses to choose between them. The status-page table
+// repeats codes on purpose and is the one place a second row is allowed.
+func TestTheReferenceDocumentsEachCodeOnce(t *testing.T) {
+	raw, err := os.ReadFile(reference)
+	if err != nil {
+		t.Fatal(err)
+	}
+	seen := map[string]int{}
+	line := 0
+	for _, l := range strings.Split(string(raw), "\n") {
+		line++
+		if strings.HasPrefix(l, "## What the status page says") {
+			break
+		}
+		m := codeRow.FindStringSubmatch(l)
+		if m == nil {
+			continue
+		}
+		if first, dup := seen[m[1]]; dup {
+			t.Errorf("%s is documented on line %d and again on line %d", m[1], first, line)
+			continue
+		}
+		seen[m[1]] = line
+	}
+}
+
+var codeRow = regexp.MustCompile("^\\| `([a-z0-9_.]+)`")

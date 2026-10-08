@@ -332,8 +332,9 @@ openapi: ## Regenerate the TypeScript client from api/openapi.yaml
 	cd $(UI_DIR) && $(NPM) run generate:api
 
 .PHONY: generate
-generate: ## Rewrite everything generated from internal/naming's image catalogue
+generate: ## Rewrite everything generated from a table in Go: the image catalogue, the problem and check catalog, the command reference
 	go run internal/naming/gen_catalogue.go
+	go run internal/catalog/gen_catalog.go
 
 .PHONY: marketplace-lock
 marketplace-lock: ## Re-resolve deploy/marketplace/images.lock against the registry (needs network)
