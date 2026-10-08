@@ -1,0 +1,571 @@
+//go:build unix
+
+package installer
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"io/fs"
+	"os"
+	"os/user"
+	"path/filepath"
+	"slices"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/eyupio/zoomies/internal/updates/channel"
+)
+
+// installUID is the account these tests install the helper for. Run as root,
+// that is an account other than root's, which root may give a folder to; run as
+// anybody else, it is that account, the only one it may give a folder to.
+func installUID() int {
+	if uid := os.Geteuid(); uid != 0 {
+		return uid
+	}
+	return 4242
+}
+
+// installHost is a host as the installer sees it, under one temporary folder
+// that stands for /: a binary two folders down, a state directory, a
+// configuration directory, a unit directory and root's folder for the helper,
+// with systemctl recorded instead of run.
+type installHost struct {
+	base, binary, stateDir, configDir string
+	runner                            *recordingRunner
+	out                               *bytes.Buffer
+	opts                              InstallHelperOptions
+}
+
+func newInstallHost(t *testing.T, deployment Deployment) *installHost {
+	t.Helper()
+	base, err := filepath.EvalSymlinks(t.TempDir())
+	mustDo(t, err)
+	h := &installHost{
+		base:      base,
+		binary:    filepath.Join(base, "opt", "bin", "zoomies"),
+		stateDir:  filepath.Join(base, "var", "lib", "zoomies"),
+		configDir: filepath.Join(base, "etc", "zoomies"),
+		runner:    &recordingRunner{},
+		out:       &bytes.Buffer{},
+	}
+	if deployment.Containerised() {
+		h.stateDir = filepath.Join(base, "var", "lib", "zoomies", "shared")
+	}
+	mustDo(t, os.MkdirAll(filepath.Dir(h.binary), 0o755))
+	mustDo(t, os.WriteFile(h.binary, []byte("#!/bin/sh\n"), 0o755))
+	mustDo(t, os.MkdirAll(h.stateDir, 0o750))
+	mustDo(t, os.MkdirAll(h.configDir, 0o755))
+	h.opts = InstallHelperOptions{
+		Deployment: deployment, StateDir: h.stateDir, ConfigDir: h.configDir, BinaryPath: h.binary,
+		ServiceUID: installUID(), Account: "zoomies", Out: h.out,
+		unitDir:        filepath.Join(base, "etc", "systemd", "system"),
+		helperStateDir: filepath.Join(base, "var", "lib", "zoomies-update"),
+		binaryTop:      base,
+		run:            h.runner.run,
+		now:            func() time.Time { return t0 },
+	}
+	return h
+}
+
+func (h *installHost) folder() string { return filepath.Join(h.stateDir, "update") }
+
+func (h *installHost) install(t *testing.T) {
+	t.Helper()
+	if err := InstallUpdateHelper(context.Background(), h.opts); err != nil {
+		t.Fatalf("InstallUpdateHelper: %v\n%s", err, h.out)
+	}
+}
+
+// installedNothing fails the test if an install that was refused left anything
+// behind: a refusal is only worth its sentence if nothing is half-installed.
+func (h *installHost) installedNothing(t *testing.T) {
+	t.Helper()
+	for _, path := range []string{
+		h.folder(), h.opts.helperStateDir, filepath.Join(h.configDir, channel.PointerFile),
+		filepath.Join(h.opts.unitDir, UpdatePathUnit),
+	} {
+		if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("a refused install left %s behind (%v)", path, err)
+		}
+	}
+	if slices.ContainsFunc(h.runner.lines(), func(l string) bool { return strings.Contains(l, "enable") }) {
+		t.Errorf("a refused install enabled a unit: %v", h.runner.lines())
+	}
+}
+
+// The units are the whole of what root runs on the service's say, so what they
+// watch and what they start are pinned, and so is every limit the service could
+// otherwise exploit. A % in a path is a systemd specifier unless doubled.
+func TestTheRenderedUnitsWatchTheRealFolderAndCallTheRealBinary(t *testing.T) {
+	pathUnit, serviceUnit := RenderUpdateUnits("/opt/zoo%mies/bin/zoomies", "/var/lib/zoo%mies/update")
+	for _, want := range []string{
+		"\nPathExists=/var/lib/zoo%%mies/update/request.json\n",
+		"\nUnit=zoomies-update.service\n",
+	} {
+		if !strings.Contains(pathUnit, want) {
+			t.Errorf("the path unit should have %q:\n%s", want, pathUnit)
+		}
+	}
+	for _, want := range []string{
+		"\nType=oneshot\n",
+		"\nUser=root\n",
+		"\nExecStart=/opt/zoo%%mies/bin/zoomies updates helper run\n",
+		"\nTimeoutStartSec=2h\n",
+		"\nTimeoutStopSec=2min\n",
+		"\nStartLimitIntervalSec=10min\n",
+		"\nStartLimitBurst=5\n",
+		"\nProtectHome=read-only\n",
+		"\nNoNewPrivileges=yes\n",
+		"\nPrivateTmp=yes\n",
+	} {
+		if !strings.Contains(serviceUnit, want) {
+			t.Errorf("the service unit should have %q:\n%s", want, serviceUnit)
+		}
+	}
+	for _, unit := range []string{pathUnit, serviceUnit} {
+		if strings.Contains(unit, "zoo%m") {
+			t.Errorf("a %% in a path was left single:\n%s", unit)
+		}
+		for _, line := range strings.Split(unit, "\n") {
+			// The engine inherits the unit's environment, so a file the service
+			// can write must never become it; and the upgrade has to write
+			// outside a home directory, which ProtectSystem would forbid.
+			if strings.HasPrefix(line, "EnvironmentFile=") || strings.HasPrefix(line, "ProtectSystem=") {
+				t.Errorf("the units must not have %q", line)
+			}
+		}
+	}
+}
+
+func TestInstallingTheHelperWritesTheUnitsThePointerAndTheMarker(t *testing.T) {
+	h := newInstallHost(t, DeploymentNative)
+	h.install(t)
+
+	info, err := os.Lstat(h.folder())
+	mustDo(t, err)
+	if uid, _, _ := fileOwner(info); !info.IsDir() || uid != installUID() || info.Mode().Perm() != 0o750 {
+		t.Errorf("the update folder is %v owned by uid %d, want a folder 0750 owned by uid %d", info.Mode(), uid, installUID())
+	}
+
+	want := channel.Pointer{V: 1, Dir: h.folder(), Binary: h.binary, Account: "zoomies", UID: installUID(), ConfigDir: h.configDir}
+	for path, mode := range map[string]os.FileMode{
+		filepath.Join(h.configDir, channel.PointerFile):           0o644,
+		filepath.Join(h.opts.helperStateDir, channel.PointerFile): 0o600,
+	} {
+		p, err := channel.ReadPointer(path)
+		if err != nil {
+			t.Errorf("the pointer %s: %v", path, err)
+			continue
+		}
+		if p != want {
+			t.Errorf("%s = %+v, want %+v", path, p, want)
+		}
+		if info, err := os.Stat(path); err != nil || info.Mode().Perm() != mode {
+			t.Errorf("%s has mode %v, want %v (%v)", path, info.Mode().Perm(), mode, err)
+		}
+	}
+
+	if m, found, err := channel.ReadMarker(h.folder()); err != nil || !found || m.Binary != h.binary || !m.InstalledAt.Equal(t0) {
+		t.Errorf("the marker = %+v, found %v, err %v", m, found, err)
+	}
+
+	pathUnit, serviceUnit := RenderUpdateUnits(h.binary, h.folder())
+	for name, body := range map[string]string{UpdatePathUnit: pathUnit, UpdateServiceUnit: serviceUnit} {
+		if got, err := os.ReadFile(filepath.Join(h.opts.unitDir, name)); err != nil || string(got) != body {
+			t.Errorf("%s was not written as rendered (%v)", name, err)
+		}
+	}
+
+	lines := h.runner.lines()
+	reload, enable := slices.Index(lines, "systemctl daemon-reload"), slices.Index(lines, "systemctl enable --now zoomies-update.path")
+	if reload < 0 || enable < 0 || reload > enable {
+		t.Errorf("systemctl should be reloaded and then the path unit enabled and started: %v", lines)
+	}
+
+	// What the installer wrote is what the helper accepts, read the way the
+	// helper reads it.
+	opts, err := helperOptionsFromPointer(h.opts.helperStateDir, fileOwner, h.base)
+	if err != nil {
+		t.Fatalf("the helper refuses the pointer the installer wrote: %v", err)
+	}
+	folder, err := openUpdateFolder(opts.Dir, opts.ServiceUID, fileUID)
+	if err != nil {
+		t.Fatalf("the helper refuses the folder the installer made: %v", err)
+	}
+	folder.Close()
+}
+
+// The binary is recorded where it really is: the helper refuses a link above
+// it, and on a host whose /bin is a link to /usr/bin that is every path through
+// /bin.
+func TestTheHelperIsInstalledForTheBinaryByItsRealPath(t *testing.T) {
+	h := newInstallHost(t, DeploymentNative)
+	link := filepath.Join(h.base, "bin")
+	mustDo(t, os.Symlink(filepath.Join("opt", "bin"), link))
+	h.opts.BinaryPath = filepath.Join(link, "zoomies")
+	h.install(t)
+	p, err := channel.ReadPointer(filepath.Join(h.opts.helperStateDir, channel.PointerFile))
+	mustDo(t, err)
+	if p.Binary != h.binary {
+		t.Errorf("the pointer names %s, want the real path %s", p.Binary, h.binary)
+	}
+}
+
+// Installing is how a refused folder is put right, so it runs again over an
+// installed helper; it must then change nothing, the marker's time included.
+func TestInstallingAgainChangesNothing(t *testing.T) {
+	h := newInstallHost(t, DeploymentNative)
+	h.install(t)
+	before := snapshot(t, h.base)
+	h.opts.now = func() time.Time { return t0.Add(time.Hour) }
+	h.install(t)
+	after := snapshot(t, h.base)
+	if !slices.Equal(before, after) {
+		t.Errorf("installing again changed the host:\nbefore %v\nafter  %v", before, after)
+	}
+}
+
+// A folder already there, from an earlier install or made by hand, is given
+// the owner and mode the helper expects rather than refused later.
+func TestInstallingPutsRightAFolderAlreadyThere(t *testing.T) {
+	h := newInstallHost(t, DeploymentNative)
+	mustDo(t, os.Mkdir(h.folder(), 0o700))
+	mustDo(t, os.Chmod(h.folder(), 0o777))
+	h.install(t)
+	if info, err := os.Stat(h.folder()); err != nil || info.Mode().Perm() != 0o750 {
+		t.Errorf("the update folder has mode %v, want 0750 (%v)", info.Mode().Perm(), err)
+	}
+}
+
+// snapshot is every file and folder under base, with its mode and contents.
+func snapshot(t *testing.T, base string) []string {
+	t.Helper()
+	var out []string
+	mustDo(t, filepath.WalkDir(base, func(path string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		info, err := d.Info()
+		if err != nil {
+			return err
+		}
+		line := path + " " + info.Mode().String()
+		if info.Mode().IsRegular() {
+			body, err := os.ReadFile(path)
+			if err != nil {
+				return err
+			}
+			line += " " + string(body)
+		}
+		out = append(out, line)
+		return nil
+	}))
+	return out
+}
+
+// A unit of that name the installer did not write, or one written for another
+// binary, is the operator's to look at before anything replaces it.
+func TestInstallRefusesToReplaceAUnitWithDifferentContents(t *testing.T) {
+	h := newInstallHost(t, DeploymentNative)
+	mustDo(t, os.MkdirAll(h.opts.unitDir, 0o755))
+	unit := filepath.Join(h.opts.unitDir, UpdateServiceUnit)
+	mustDo(t, os.WriteFile(unit, []byte("[Service]\nExecStart=/bin/true\n"), 0o644))
+	err := InstallUpdateHelper(context.Background(), h.opts)
+	if err == nil || !strings.Contains(err.Error(), "already exists with different contents") {
+		t.Fatalf("want a refusal naming the unit, got: %v", err)
+	}
+	if body, _ := os.ReadFile(unit); string(body) != "[Service]\nExecStart=/bin/true\n" {
+		t.Errorf("the unit was replaced: %q", body)
+	}
+	h.installedNothing(t)
+}
+
+// A refusal the helper would make later, as a request nobody answers and a
+// timeout ninety minutes after, is made at install instead, in the helper's
+// words, and nothing is left half-installed.
+func TestInstallRefusesWhatTheHelperWouldRefuse(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		change func(t *testing.T, h *installHost)
+		want   string
+	}{
+		{"a service that runs as root", func(t *testing.T, h *installHost) { h.opts.ServiceUID = 0 }, "zoomies runs as uid 0 here"},
+		{"an account that is not a name", func(t *testing.T, h *installHost) { h.opts.Account = "zoomies\nroot" }, "not an account name"},
+		{"a binary under a folder anyone can write", func(t *testing.T, h *installHost) {
+			mustDo(t, os.Chmod(filepath.Join(h.base, "opt"), 0o777|os.ModeSticky))
+		}, "opt is writable by the world"},
+		{"a binary its group can write", func(t *testing.T, h *installHost) { mustDo(t, os.Chmod(h.binary, 0o775)) }, "writable by its group or the world"},
+		{"a configuration directory that is not there", func(t *testing.T, h *installHost) {
+			h.opts.ConfigDir = filepath.Join(h.base, "etc", "missing")
+		}, "configuration directory"},
+		{"a state directory others can write", func(t *testing.T, h *installHost) { mustDo(t, os.Chmod(h.stateDir, 0o770)) }, "writable by its group or the world"},
+		{"a state directory with spaces", func(t *testing.T, h *installHost) {
+			spaced := filepath.Join(h.base, "var", "lib", "zoo mies")
+			mustDo(t, os.Mkdir(spaced, 0o750))
+			h.opts.StateDir = spaced
+		}, "systemd reads as something other than part of a path"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			h := newInstallHost(t, DeploymentNative)
+			c.change(t, h)
+			err := InstallUpdateHelper(context.Background(), h.opts)
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("want a refusal saying %q, got: %v", c.want, err)
+			}
+			h.installedNothing(t)
+		})
+	}
+}
+
+// A folder made by somebody else, or something else in the folder's place, is
+// not the folder the helper would serve; the installer does not take it over.
+func TestInstallRefusesSomethingElseWhereTheUpdateFolderGoes(t *testing.T) {
+	h := newInstallHost(t, DeploymentNative)
+	mustDo(t, os.Symlink(h.opts.unitDir, h.folder()))
+	err := InstallUpdateHelper(context.Background(), h.opts)
+	if err == nil || !strings.Contains(err.Error(), "is a link and not a folder") {
+		t.Fatalf("want a refusal of the link, got: %v", err)
+	}
+	if slices.ContainsFunc(h.runner.lines(), func(l string) bool { return strings.Contains(l, "enable") }) {
+		t.Errorf("a refused install enabled a unit: %v", h.runner.lines())
+	}
+}
+
+// The upgrade the helper runs cannot write a home directory under the unit's
+// ProtectHome, and systemd reads some characters in a path as something else,
+// so either is refused at install with what to do.
+func TestTheHelperIsRefusedPathsItsUnitCouldNotUse(t *testing.T) {
+	for path, want := range map[string]string{
+		"/home/ada/zoomies/update":  "/home, which the helper's unit keeps read-only",
+		"/root/zoomies":             "/root, which the helper's unit keeps read-only",
+		"/run/user/1000/zoomies":    "/run/user, which the helper's unit keeps read-only",
+		"/var/lib/zoo mies/update":  "has ' '",
+		"/opt/$HOME/zoomies":        "has '$'",
+		`/opt/zoo"mies/zoomies`:     `has '"'`,
+		"/opt/zoo\x1bmies/zoomies":  "has '\\x1b'",
+		"/var/lib/homework/zoomies": "",
+		"/homework/zoomies":         "",
+		"/var/lib/zoo%mies/update":  "",
+	} {
+		err := checkUnitPath(path)
+		switch {
+		case want == "" && err != nil:
+			t.Errorf("%s was refused: %v", path, err)
+		case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
+			t.Errorf("%s: want a refusal saying %q, got: %v", path, want, err)
+		}
+	}
+}
+
+func writeContainerRecord(t *testing.T, h *installHost) {
+	t.Helper()
+	if _, err := WriteDeploymentRecord(h.configDir, DeploymentRecord{Deployment: DeploymentCompose, Container: "zoomies", Directory: h.configDir}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A container's controller finds <shared>/update by itself, so the folder is
+// made there and no pointer is written beside the configuration; root's copy
+// is still the helper's only source.
+func TestAContainerInstallUsesTheSharedFolderAndWritesNoPointer(t *testing.T) {
+	h := newInstallHost(t, DeploymentCompose)
+	writeContainerRecord(t, h)
+	h.runner.answer = func(args []string) (string, error) {
+		if len(args) > 0 && args[0] == "inspect" {
+			return h.stateDir + "\n", nil
+		}
+		return "", nil
+	}
+	h.install(t)
+	if info, err := os.Stat(h.folder()); err != nil || !info.IsDir() {
+		t.Fatalf("the update folder was not made under the shared folder: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(h.configDir, channel.PointerFile)); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("a container install wrote a pointer beside the configuration (%v)", err)
+	}
+	p, err := channel.ReadPointer(filepath.Join(h.opts.helperStateDir, channel.PointerFile))
+	if err != nil || p.Dir != h.folder() {
+		t.Errorf("root's pointer = %+v (%v), want the folder %s", p, err, h.folder())
+	}
+	if !slices.ContainsFunc(h.runner.lines(), func(l string) bool {
+		return strings.HasPrefix(l, "docker inspect") && strings.Contains(l, SharedHostDir) && strings.HasSuffix(l, " zoomies")
+	}) {
+		t.Errorf("the container was not asked what it mounts at %s: %v", SharedHostDir, h.runner.lines())
+	}
+}
+
+// A controller-only container does not mount the shared folder, so a request
+// written in it would never reach the host; it is refused with the reason
+// before anything is made.
+func TestAControllerOnlyContainerIsRefusedWithTheReason(t *testing.T) {
+	h := newInstallHost(t, DeploymentCompose)
+	writeContainerRecord(t, h)
+	err := InstallUpdateHelper(context.Background(), h.opts)
+	if err == nil || !strings.Contains(err.Error(), "does not mount the shared folder") || !strings.Contains(err.Error(), "controller-only") {
+		t.Fatalf("want a refusal giving the reason, got: %v", err)
+	}
+	h.installedNothing(t)
+}
+
+func TestRemovingTheHelperStopsDisablesAndDeletesItsUnitsAndFiles(t *testing.T) {
+	h := newInstallHost(t, DeploymentNative)
+	h.install(t)
+	plant(t, filepath.Join(h.folder(), channel.ResultFile), `{"v":1}`)
+	h.runner.calls = nil
+	if err := RemoveUpdateHelper(context.Background(), h.opts); err != nil {
+		t.Fatalf("RemoveUpdateHelper: %v", err)
+	}
+	for _, argv := range [][]string{
+		{"systemctl", "disable", "--now", UpdatePathUnit},
+		{"systemctl", "stop", UpdateServiceUnit},
+		{"systemctl", "daemon-reload"},
+	} {
+		if !h.runner.ran(argv...) {
+			t.Errorf("remove did not run %v: %v", argv, h.runner.lines())
+		}
+	}
+	for _, path := range []string{
+		filepath.Join(h.opts.unitDir, UpdatePathUnit), filepath.Join(h.opts.unitDir, UpdateServiceUnit),
+		h.opts.helperStateDir, filepath.Join(h.configDir, channel.PointerFile), h.folder(),
+	} {
+		if _, err := os.Lstat(path); !errors.Is(err, fs.ErrNotExist) {
+			t.Errorf("remove left %s (%v)", path, err)
+		}
+	}
+	if !exists(h.stateDir) || !exists(h.binary) {
+		t.Error("remove took the state directory or the binary, which are not the helper's")
+	}
+}
+
+// Anything in the update folder that is not the helper's is not the helper's
+// to delete, so the folder stays and the operator is told what is in it.
+func TestRemovingTheHelperLeavesAFolderWithSomethingElseInItAndSaysSo(t *testing.T) {
+	h := newInstallHost(t, DeploymentNative)
+	h.install(t)
+	plant(t, filepath.Join(h.folder(), "notes.txt"), "mine")
+	if err := RemoveUpdateHelper(context.Background(), h.opts); err != nil {
+		t.Fatalf("RemoveUpdateHelper: %v", err)
+	}
+	if !exists(filepath.Join(h.folder(), "notes.txt")) || exists(filepath.Join(h.folder(), channel.MarkerFile)) {
+		t.Error("remove should take the marker and leave the folder with what else is in it")
+	}
+	if !strings.Contains(h.out.String(), "still holds notes.txt") {
+		t.Errorf("remove should say what it left:\n%s", h.out)
+	}
+}
+
+// Root's folder for the helper is removed only when it is the folder the
+// helper made; a link in its place is left, and said to be.
+func TestRemovingTheHelperLeavesAStateFolderThatIsNotItsOwn(t *testing.T) {
+	h := newInstallHost(t, DeploymentNative)
+	h.install(t)
+	moved := h.opts.helperStateDir + "-real"
+	mustDo(t, os.Rename(h.opts.helperStateDir, moved))
+	mustDo(t, os.Symlink(moved, h.opts.helperStateDir))
+	if err := RemoveUpdateHelper(context.Background(), h.opts); err != nil {
+		t.Fatalf("RemoveUpdateHelper: %v", err)
+	}
+	if _, err := os.Lstat(h.opts.helperStateDir); err != nil {
+		t.Errorf("the link in place of root's folder was removed: %v", err)
+	}
+	if !strings.Contains(h.out.String(), "is a link and not the helper's folder") {
+		t.Errorf("remove should say what it left:\n%s", h.out)
+	}
+}
+
+// Stopping the helper mid-run would kill the upgrade it is running and leave
+// upgrade.lock behind, so an update in flight is let finish.
+func TestRemovingTheHelperWaitsForAnUpdateItIsRunning(t *testing.T) {
+	h := newInstallHost(t, DeploymentNative)
+	h.install(t)
+	h.runner.answer = func(args []string) (string, error) {
+		if slices.Equal(args, []string{"is-active", UpdateServiceUnit}) {
+			return "activating", errors.New("exit status 3")
+		}
+		return "", nil
+	}
+	err := RemoveUpdateHelper(context.Background(), h.opts)
+	if err == nil || !strings.Contains(err.Error(), "running an update now") {
+		t.Fatalf("want a refusal while an update runs, got: %v", err)
+	}
+	if !exists(filepath.Join(h.opts.unitDir, UpdatePathUnit)) || !exists(filepath.Join(h.folder(), channel.MarkerFile)) {
+		t.Error("a refused remove removed something")
+	}
+}
+
+func fakeLookup(name string) (*user.User, error) {
+	switch name {
+	case "zoomies":
+		return &user.User{Username: name, Uid: "999"}, nil
+	case "toor":
+		return &user.User{Username: name, Uid: "0"}, nil
+	}
+	return nil, user.UnknownUserError(name)
+}
+
+// The account, the state directory and the binary are the installed unit's,
+// which is what the service really runs as and from; a container's are the
+// image's. Root, and a unit pointing its --config elsewhere, are refused.
+func TestTheHelperIsInstalledForWhatTheInstalledUnitRuns(t *testing.T) {
+	const unit = "[Service]\nUser=%s\nWorkingDirectory=/var/lib/zoomies\nExecStart=/usr/local/bin/zoomies %s --config %s\n"
+	write := func(t *testing.T, dir, name, user, command, config string) {
+		t.Helper()
+		body := unit
+		for _, v := range []string{user, command, config} {
+			body = strings.Replace(body, "%s", v, 1)
+		}
+		mustDo(t, os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644))
+	}
+
+	t.Run("a native controller", func(t *testing.T) {
+		units := t.TempDir()
+		write(t, units, "zoomies.service", "zoomies", "controller", "/etc/zoomies/zoomies.yaml")
+		got, err := resolveHelperInstall("/etc/zoomies", units, fakeLookup, "/tmp/elsewhere/zoomies")
+		want := InstallHelperOptions{Deployment: DeploymentNative, StateDir: "/var/lib/zoomies", ConfigDir: "/etc/zoomies", BinaryPath: "/usr/local/bin/zoomies", ServiceUID: 999, Account: "zoomies"}
+		if err != nil || got.Deployment != want.Deployment || got.StateDir != want.StateDir || got.ConfigDir != want.ConfigDir ||
+			got.BinaryPath != want.BinaryPath || got.ServiceUID != want.ServiceUID || got.Account != want.Account {
+			t.Errorf("got %+v (%v), want %+v", got, err, want)
+		}
+	})
+	t.Run("a native agent", func(t *testing.T) {
+		units := t.TempDir()
+		write(t, units, "zoomies-agent.service", "zoomies", "agent", "/etc/zoomies/agent.yaml")
+		got, err := resolveHelperInstall("/etc/zoomies", units, fakeLookup, "/tmp/elsewhere/zoomies")
+		if err != nil || got.ServiceUID != 999 || got.BinaryPath != "/usr/local/bin/zoomies" {
+			t.Errorf("got %+v (%v)", got, err)
+		}
+	})
+	t.Run("a container", func(t *testing.T) {
+		config := t.TempDir()
+		_, err := WriteDeploymentRecord(config, DeploymentRecord{Deployment: DeploymentDocker})
+		mustDo(t, err)
+		got, err := resolveHelperInstall(config, t.TempDir(), fakeLookup, "/usr/local/bin/zoomies")
+		if err != nil || got.StateDir != SharedHostDir || got.ServiceUID != ImageUID || got.BinaryPath != "/usr/local/bin/zoomies" || got.Deployment != DeploymentDocker {
+			t.Errorf("got %+v (%v)", got, err)
+		}
+	})
+	for _, c := range []struct{ name, user, config, want string }{
+		{"a service that runs as root", "root", "/etc/zoomies/zoomies.yaml", "needs no helper"},
+		{"an account that is uid 0", "toor", "/etc/zoomies/zoomies.yaml", "needs no helper"},
+		{"an account that is not there", "ada", "/etc/zoomies/zoomies.yaml", "cannot be found"},
+		{"a configuration elsewhere", "zoomies", "/srv/zoomies/zoomies.yaml", "pass --config-dir /srv/zoomies"},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			units := t.TempDir()
+			write(t, units, "zoomies.service", c.user, "controller", c.config)
+			_, err := resolveHelperInstall("/etc/zoomies", units, fakeLookup, "/usr/local/bin/zoomies")
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Errorf("want a refusal saying %q, got: %v", c.want, err)
+			}
+		})
+	}
+	t.Run("no service at all", func(t *testing.T) {
+		_, err := resolveHelperInstall(t.TempDir(), t.TempDir(), fakeLookup, "/usr/local/bin/zoomies")
+		if err == nil || !strings.Contains(err.Error(), "no Zoomies service") {
+			t.Errorf("want a refusal, got: %v", err)
+		}
+	})
+}

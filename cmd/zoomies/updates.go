@@ -29,20 +29,75 @@ const helperStatusTailLines = 20
 
 func runUpdates(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "updates", `Release updates, and the helper that applies them. To upgrade this host by hand, use "zoomies upgrade".`, []*subcommand{
-		{"helper", "<run|status>", "The root-owned helper on this host that applies an update", runUpdatesHelper},
+		{"helper", "<subcommand>", "The root-owned helper on this host that applies an update", runUpdatesHelper},
 	}, args)
 }
 
 func runUpdatesHelper(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "updates helper", "The update helper on this host. It is local: it never talks to a controller.", []*subcommand{
+		{"install", "[--config-dir path]", "Let this host be updated from the controller: install the helper, as root", updatesHelperInstall},
+		{"remove", "[--config-dir path]", "Stop the helper and remove it, its units and its files", updatesHelperRemove},
 		{"run", "", "Answer the request in the update folder; the helper's unit runs it, as root", updatesHelperRun},
 		{"status", "", "Where the update folder is, whether the helper is installed, and its last result", updatesHelperStatus},
 	}, args)
 }
 
+func updatesHelperInstall(ctx context.Context, e *env, args []string) error {
+	flags := newFlagSet(e, "zoomies updates helper install [--config-dir path]",
+		`Install the update helper, so that the controller can update this host when an administrator asks or the update mode says so. It makes the update folder, owned by the account zoomies runs as, writes root's pointer to it in `+installer.UpdateHelperStateDir+`, and installs and starts the zoomies-update units, which run "zoomies updates helper run" as root when the service writes a request. Everything the helper would refuse is refused here first. Nothing installs the helper but its owner: the controller's update mode cannot.`)
+	configDir := flags.String("config-dir", "", "the deployment's configuration directory, where zoomies.yaml and deployment.json are (default: "+config.ConfigDir()+")")
+	flags.example("sudo zoomies updates helper install")
+	if err := flags.parse(args); err != nil {
+		return err
+	}
+	if err := flags.noMoreArgs(); err != nil {
+		return err
+	}
+	if err := installer.CheckUpdateHelperPlatform(); err != nil {
+		return err
+	}
+	if uid := updatesEUID(); uid != 0 {
+		return fmt.Errorf(`installing the update helper writes systemd units and a folder only root may, and this is uid %d; run "sudo zoomies updates helper install"`, uid)
+	}
+	opts, err := installer.ResolveHelperInstall(orConfigDir(*configDir))
+	if err != nil {
+		return err
+	}
+	opts.Out = e.out
+	return installer.InstallUpdateHelper(ctx, opts)
+}
+
+func updatesHelperRemove(ctx context.Context, e *env, args []string) error {
+	flags := newFlagSet(e, "zoomies updates helper remove [--config-dir path]",
+		`Stop the update helper and remove it: its units, root's state and pointer in `+installer.UpdateHelperStateDir+`, the pointer beside the configuration, and the files it and the installer put in the update folder. The folder goes too when nothing else is in it. An update the helper is running is let finish: remove refuses until it has. The controller stops offering updates for this host once the helper is gone.`)
+	configDir := flags.String("config-dir", "", "the deployment's configuration directory (default: "+config.ConfigDir()+")")
+	flags.example("sudo zoomies updates helper remove")
+	if err := flags.parse(args); err != nil {
+		return err
+	}
+	if err := flags.noMoreArgs(); err != nil {
+		return err
+	}
+	if err := installer.CheckUpdateHelperPlatform(); err != nil {
+		return err
+	}
+	if uid := updatesEUID(); uid != 0 {
+		return fmt.Errorf(`removing the update helper changes systemd units and folders only root may, and this is uid %d; run "sudo zoomies updates helper remove"`, uid)
+	}
+	return installer.RemoveUpdateHelper(ctx, installer.InstallHelperOptions{ConfigDir: orConfigDir(*configDir), Out: e.out})
+}
+
+// orConfigDir is the configuration directory a flag names, or the default.
+func orConfigDir(dir string) string {
+	if dir != "" {
+		return dir
+	}
+	return config.ConfigDir()
+}
+
 func updatesHelperRun(ctx context.Context, e *env, args []string) error {
 	flags := newFlagSet(e, "zoomies updates helper run",
-		`Answer the request in the update folder: check it against the helper's limits, run "zoomies upgrade --version <tag> --non-interactive" for it, and write result.json saying how it went. The zoomies-update unit runs it as root when a request arrives. It takes no flags: where the folder is, whose it is and which binary to run come from root's copy of the pointer in `+installer.UpdateHelperStateDir+`, which only root can write.`)
+		`Answer the request in the update folder: check it against the helper's limits, run "zoomies upgrade --version <tag> --non-interactive --config-dir <dir>" for it, with the deployment's configuration directory, and write result.json saying how it went. The zoomies-update unit runs it as root when a request arrives. It takes no flags: where the folder is, whose it is and which binary to run come from root's copy of the pointer in `+installer.UpdateHelperStateDir+`, which only root can write.`)
 	if err := flags.parse(args); err != nil {
 		return err
 	}

@@ -586,31 +586,18 @@ func (l *logLines) emit(line []byte) {
 // The folder is looked at without following a link and must be the folder
 // that was opened, so a swap between the two costs an error.
 func openUpdateFolder(dir string, serviceUID int, ownerOf func(os.FileInfo) (int, bool)) (*os.Root, error) {
-	const hint = `run "sudo zoomies updates helper install" again, which makes the folder as the helper expects it`
-	parent := filepath.Dir(dir)
-	parentInfo, err := os.Stat(parent)
-	if err != nil {
-		return nil, fmt.Errorf("cannot look at %s, the folder the update folder is in: %w", parent, err)
-	}
-	uid, ok := ownerOf(parentInfo)
-	if !ok {
-		return nil, fmt.Errorf("cannot tell who owns %s, the folder the update folder is in, so the helper does not use it", parent)
-	}
-	if uid != helperEUID() && uid != serviceUID {
-		return nil, fmt.Errorf("%s, which holds the update folder, is owned by uid %d, which is neither root nor the account zoomies runs as (uid %d), and that account could have its folder replaced; %s", parent, uid, serviceUID, hint)
-	}
-	if parentInfo.Mode().Perm()&0o022 != 0 {
-		return nil, fmt.Errorf("%s, which holds the update folder, is writable by its group or the world (mode %o), so somebody else could put another folder in its place; make it writable by its owner alone", parent, parentInfo.Mode().Perm())
+	if err := checkUpdateFolderParent(filepath.Dir(dir), serviceUID, ownerOf); err != nil {
+		return nil, err
 	}
 	named, err := os.Lstat(dir)
 	if errors.Is(err, fs.ErrNotExist) {
-		return nil, fmt.Errorf("the update folder %s does not exist; %s", dir, hint)
+		return nil, fmt.Errorf("the update folder %s does not exist; %s", dir, updateFolderHint)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("cannot look at the update folder %s: %w", dir, err)
 	}
 	if !named.IsDir() {
-		return nil, fmt.Errorf("the update folder %s is a %s and not a folder, and the helper does not follow one, because a link could point it at a folder of root's; %s", dir, fileKind(named.Mode()), hint)
+		return nil, fmt.Errorf("the update folder %s is a %s and not a folder, and the helper does not follow one, because a link could point it at a folder of root's; %s", dir, fileKind(named.Mode()), updateFolderHint)
 	}
 	betweenLookAndOpen(dir)
 	root, err := os.OpenRoot(dir)
@@ -627,7 +614,7 @@ func openUpdateFolder(dir string, serviceUID int, ownerOf func(os.FileInfo) (int
 		if uid, ok := ownerOf(opened); !ok {
 			err = fmt.Errorf("cannot tell who owns the update folder %s, so the helper does not use it", dir)
 		} else if uid != serviceUID {
-			err = fmt.Errorf("the update folder %s is owned by uid %d and not by uid %d, the account the helper was installed for; %s", dir, uid, serviceUID, hint)
+			err = fmt.Errorf("the update folder %s is owned by uid %d and not by uid %d, the account the helper was installed for; %s", dir, uid, serviceUID, updateFolderHint)
 		} else if opened.Mode().Perm()&0o022 != 0 {
 			err = fmt.Errorf("the update folder %s is writable by its group or the world (mode %o), and only the account zoomies runs as may write it; make it writable by its owner alone", dir, opened.Mode().Perm())
 		}
@@ -637,4 +624,30 @@ func openUpdateFolder(dir string, serviceUID int, ownerOf func(os.FileInfo) (int
 		return nil, err
 	}
 	return root, nil
+}
+
+// updateFolderHint ends every refusal of the update folder the installer can
+// put right.
+const updateFolderHint = `run "sudo zoomies updates helper install" again, which makes the folder as the helper expects it`
+
+// checkUpdateFolderParent is openUpdateFolder's rule for the folder the update
+// folder is in. The installer asks it before making the folder, so a parent the
+// helper would refuse is refused there and not discovered later as a request
+// nobody answers.
+func checkUpdateFolderParent(parent string, serviceUID int, ownerOf func(os.FileInfo) (int, bool)) error {
+	parentInfo, err := os.Stat(parent)
+	if err != nil {
+		return fmt.Errorf("cannot look at %s, the folder the update folder is in: %w", parent, err)
+	}
+	uid, ok := ownerOf(parentInfo)
+	if !ok {
+		return fmt.Errorf("cannot tell who owns %s, the folder the update folder is in, so the helper does not use it", parent)
+	}
+	if uid != helperEUID() && uid != serviceUID {
+		return fmt.Errorf("%s, which holds the update folder, is owned by uid %d, which is neither root nor the account zoomies runs as (uid %d), and that account could have its folder replaced; %s", parent, uid, serviceUID, updateFolderHint)
+	}
+	if parentInfo.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("%s, which holds the update folder, is writable by its group or the world (mode %o), so somebody else could put another folder in its place; make it writable by its owner alone", parent, parentInfo.Mode().Perm())
+	}
+	return nil
 }

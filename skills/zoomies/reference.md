@@ -1098,7 +1098,7 @@ Usage:
   zoomies updates <subcommand> [flags]
 
 Subcommands:
-  helper <run|status>                The root-owned helper on this host that applies an update
+  helper <subcommand>                The root-owned helper on this host that applies an update
 
 Run "zoomies updates <subcommand> --help" for the flags each one takes.
 ```
@@ -1114,6 +1114,8 @@ Usage:
   zoomies updates helper <subcommand> [flags]
 
 Subcommands:
+  install [--config-dir path]        Let this host be updated from the controller: install the helper, as root
+  remove [--config-dir path]         Stop the helper and remove it, its units and its files
   run                                Answer the request in the update folder; the helper's unit runs it, as root
   status                             Where the update folder is, whether the helper is installed, and its last result
 

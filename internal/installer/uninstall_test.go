@@ -7,6 +7,7 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 	"testing"
@@ -14,11 +15,16 @@ import (
 
 func uninstallOpts(t *testing.T) UninstallOptions {
 	t.Helper()
+	// The update helper's units and root's folder for it are the test's own,
+	// so that no test reaches the host's, and systemctl is recorded.
 	return UninstallOptions{
-		ConfigDir: t.TempDir(),
-		StateDir:  t.TempDir(),
-		Out:       &bytes.Buffer{},
-		In:        strings.NewReader(""),
+		ConfigDir:      t.TempDir(),
+		StateDir:       t.TempDir(),
+		Out:            &bytes.Buffer{},
+		In:             strings.NewReader(""),
+		helperUnitDir:  t.TempDir(),
+		helperStateDir: filepath.Join(t.TempDir(), "zoomies-update"),
+		run:            (&recordingRunner{}).run,
 	}
 }
 
@@ -201,6 +207,54 @@ func TestUninstallLeavesWhatIsNotItsAndSaysSo(t *testing.T) {
 	report := out.String()
 	if !strings.Contains(report, "left in place") || !strings.Contains(report, "fullchain.pem") {
 		t.Fatalf("the report must name what was left behind:\n%s", report)
+	}
+}
+
+// The helper is root's, so leaving it behind would leave a root unit waiting
+// on a folder nobody writes; and the previous binary is a whole release kept
+// beside the one being removed.
+func TestUninstallRemovesTheHelperAndThePreviousBinary(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("the update helper is a pair of systemd units")
+	}
+	opts := uninstallOpts(t)
+	runner := &recordingRunner{}
+	opts.run = runner.run
+	opts.Yes, opts.NonInteractive = true, true
+	writeFile(t, opts.ConfigDir, "zoomies.yaml", "")
+	binDir := t.TempDir()
+	opts.BinaryPath = writeFile(t, binDir, "zoomies", "#!/bin/sh\n")
+	previous := writeFile(t, binDir, "zoomies"+PreviousSuffix, "#!/bin/sh\n")
+	units := []string{writeFile(t, opts.helperUnitDir, UpdatePathUnit, "[Path]\n"), writeFile(t, opts.helperUnitDir, UpdateServiceUnit, "[Service]\n")}
+	if err := os.Mkdir(opts.helperStateDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	writeFile(t, opts.helperStateDir, "state.json", "{}")
+	configPointer := writeFile(t, opts.ConfigDir, "update-helper.json", "{}")
+
+	listed := map[string]RemovalItem{}
+	for _, it := range UninstallItems(opts) {
+		listed[it.What] = it
+	}
+	if it := listed["update helper"]; !it.Present || it.Path != units[0] {
+		t.Errorf("the helper is not listed as there: %+v", it)
+	}
+	if it := listed["previous binary"]; !it.Present || it.Path != previous {
+		t.Errorf("the previous binary is not listed as there: %+v", it)
+	}
+
+	var out bytes.Buffer
+	opts.Out = &out
+	if err := Uninstall(context.Background(), opts); err != nil {
+		t.Fatalf("Uninstall: %v\n%s", err, out.String())
+	}
+	if !runner.ran("systemctl", "disable", "--now", UpdatePathUnit) {
+		t.Errorf("the helper's path unit was not stopped and disabled: %v", runner.lines())
+	}
+	for _, path := range append(units, opts.helperStateDir, configPointer, previous, opts.BinaryPath) {
+		if exists(path) {
+			t.Errorf("%s should be gone:\n%s", path, out.String())
+		}
 	}
 }
 

@@ -195,7 +195,10 @@ and keep the passphrase somewhere else.
 Running the enrolment command on a machine hands Zoomies a small, fixed part
 of it, and nothing else. The agent does not upgrade packages, change a
 firewall, reboot, open a port or accept a connection; it only ever dials out
-to the controller. This is the whole list, as the code does it:
+to the controller. The one thing on this list that can change the host's
+Zoomies is the update helper, and that is root's and is not the agent: it is
+there only where the host's owner installed it, by hand, and all the service
+can do is ask it for a release. This is the whole list, as the code does it:
 
 | What | Where | What the agent does with it |
 | --- | --- | --- |
@@ -205,6 +208,8 @@ to the controller. This is the whole list, as the code does it:
 | Its per-pool cache | A named volume `zoomies-cache-<identity>`, or a directory `<source>/<identity>` when a pool's cache source is an absolute path, with scope, immutable pool ID and repository hashed into the versioned identity | A cache directory with a size limit is trimmed back under it, oldest entries first, before a runner starts. A named cache volume is never deleted. |
 | Its kept tool cache | A directory `cache/tools/<identity>/image-<digest>` in the host's shared folder, `/var/lib/zoomies/shared` (separated by cache scope and resolved runner image) when the pool sets `cache.tools` | Never trimmed or deleted by Zoomies; it is a cache, so emptying it costs the next job its downloads and nothing else. Created writable by every account, under a shared folder only Zoomies' own account can enter. After a toolchain scan Zoomies fills it too, in a container of the pool's image as its runner user, from each toolchain's publisher (nodejs.org, go.dev, Adoptium and GitHub's `actions/python-versions`) with the publisher's checksum checked where it lists one. Runners get it read-only, beside a folder of their own in `cache/tool-runs/<runner>` that is removed with the runner, so a job cannot change what the next job runs. |
 | The Docker builder cache | The Docker daemon the agent uses | See below. |
+| The update helper, only where its owner installed it | `zoomies-update.path` and `zoomies-update.service`, systemd units that run as root, and root's own folder `/var/lib/zoomies-update` for the helper's limits and its record of where the update folder is | Not the agent, and not installed by it: only `sudo zoomies updates helper install` puts it there, and `sudo zoomies updates helper remove` or `zoomies uninstall` takes it away. For a request it runs `zoomies upgrade --version <tag> --non-interactive` for the release named, never with `--yes`, at most twice for one release and once in ten minutes. Its unit loads no environment file the service could write, and keeps home directories read-only. |
+| The update folder, only with the helper | `update/` under the state directory (`/var/lib/zoomies/update` for a root install), or under the shared folder for a container deployment, owned by the account Zoomies runs as | Made by the helper's install and by nothing else. The service writes `request.json` there, naming one release and nothing more; the helper reads it as untrusted input, removes it, and answers in `result.json`. `helper.json` says the helper is installed. |
 
 It never removes an image, a volume it did not create with a container, or a
 container without its label, and a test in the agent's own suite fails if

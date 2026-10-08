@@ -16,6 +16,7 @@ import (
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/updates/channel"
 )
 
 // UninstallOptions configures `zoomies uninstall`.
@@ -49,6 +50,12 @@ type UninstallOptions struct {
 	Out    io.Writer
 	In     io.Reader
 	Logger *slog.Logger
+
+	// helperUnitDir and helperStateDir are where the update helper's units and
+	// root's folder for it are; empty is the real ones. run stands in for
+	// systemctl when the helper is stopped.
+	helperUnitDir, helperStateDir string
+	run                           commandRunner
 }
 
 func (o UninstallOptions) configDir() string {
@@ -63,6 +70,26 @@ func (o UninstallOptions) stateDir() string {
 		return o.StateDir
 	}
 	return config.StateDir()
+}
+
+// updateHelper is what removing the update helper needs. The update folder
+// and its account come from the helper's own pointer.
+func (o UninstallOptions) updateHelper() InstallHelperOptions {
+	h := InstallHelperOptions{ConfigDir: o.configDir(), unitDir: o.helperUnitDir, helperStateDir: o.helperStateDir, run: o.run}
+	if h.unitDir == "" {
+		h.unitDir = systemdUnitDir
+	}
+	if h.helperStateDir == "" {
+		h.helperStateDir = UpdateHelperStateDir
+	}
+	return h
+}
+
+// helperInstalled is whether any part of the update helper is on this host.
+func (o UninstallOptions) helperInstalled() bool {
+	h := o.updateHelper()
+	return exists(filepath.Join(h.unitDir, UpdatePathUnit)) || exists(filepath.Join(h.unitDir, UpdateServiceUnit)) ||
+		exists(h.helperStateDir) || exists(filepath.Join(h.ConfigDir, channel.PointerFile))
 }
 
 // sameDir reports whether two paths are the same directory.
@@ -114,6 +141,8 @@ func UninstallItems(opts UninstallOptions) []RemovalItem {
 		{What: "service", Path: SystemdUnitPath(UnitController), Present: exists(SystemdUnitPath(UnitController)),
 			Note: "stopped and disabled first"},
 		{What: "agent service", Path: SystemdUnitPath(UnitAgent), Present: exists(SystemdUnitPath(UnitAgent))},
+		{What: "update helper", Path: filepath.Join(opts.updateHelper().unitDir, UpdatePathUnit), Present: opts.helperInstalled(),
+			Note: "with " + UpdateServiceUnit + ", root's " + opts.updateHelper().helperStateDir + " and the pointers to the update folder; stopped first, unless it is running an update"},
 		{What: "database", Path: filepath.Join(stateDir, "zoomies.db"), Present: exists(filepath.Join(stateDir, "zoomies.db")),
 			Note: "pools, runners, job history and the audit log"},
 		{What: "state directory", Path: stateDir, Present: exists(stateDir)},
@@ -128,6 +157,9 @@ func UninstallItems(opts UninstallOptions) []RemovalItem {
 		items = append(items, RemovalItem{What: "configuration", Path: cfgFile, Present: exists(cfgFile)})
 	}
 	if opts.BinaryPath != "" {
+		previous := opts.BinaryPath + PreviousSuffix
+		items = append(items, RemovalItem{What: "previous binary", Path: previous, Present: exists(previous),
+			Note: "the release the last upgrade replaced, kept for a rollback"})
 		items = append(items, RemovalItem{What: "binary", Path: opts.BinaryPath, Present: exists(opts.BinaryPath),
 			Note: "removed last"})
 	}
@@ -253,6 +285,21 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 			} else {
 				record("stopped and removed the %s service", UnitAgent)
 			}
+		}
+	}
+	// The update helper first: a request the controller wrote while it stops
+	// would otherwise start an upgrade in the middle of the uninstall. One that
+	// is running an update is left to finish, and says so.
+	if opts.helperInstalled() {
+		removed, left, err := removeUpdateHelper(ctx, opts.updateHelper())
+		for _, line := range removed {
+			record("removed %s", line)
+		}
+		for _, line := range left {
+			keep("%s", line)
+		}
+		if err != nil {
+			u.warn("could not remove the update helper: " + err.Error())
 		}
 	}
 	for _, unit := range []string{UnitController, UnitAgent, "zoomies-host-health"} {
@@ -453,6 +500,13 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 	}
 
 	// --- The binary, last -------------------------------------------------
+	if previous := opts.BinaryPath + PreviousSuffix; opts.BinaryPath != "" && exists(previous) {
+		if err := os.Remove(previous); err != nil {
+			u.warn("could not remove " + previous + ": " + err.Error())
+		} else {
+			record("removed %s", previous)
+		}
+	}
 	if opts.BinaryPath != "" && exists(opts.BinaryPath) {
 		if err := os.Remove(opts.BinaryPath); err != nil {
 			u.warn("could not remove " + opts.BinaryPath + ": " + err.Error())

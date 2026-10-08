@@ -110,3 +110,24 @@ func TestHelperRunRefusesToRunAsAnUnprivilegedUser(t *testing.T) {
 		t.Errorf("helper run took a flag: exit code = %d\n%s", code, errOut)
 	}
 }
+
+// Installing and removing the helper write root's units and folders, so both
+// refuse anybody else, before reading anything, and say how to run them.
+func TestHelperInstallAndRemoveRefuseAnUnprivilegedUser(t *testing.T) {
+	was := updatesEUID
+	updatesEUID = func() int { return 1000 }
+	t.Cleanup(func() { updatesEUID = was })
+	for _, verb := range []string{"install", "remove"} {
+		e, _, errOut := newTestEnv(t)
+		if code := dispatch(context.Background(), e, []string{"updates", "helper", verb, "--config-dir", t.TempDir()}); code != exitError {
+			t.Fatalf("helper %s: exit code = %d, want %d\n%s", verb, code, exitError, errOut)
+		}
+		want := `run "sudo zoomies updates helper ` + verb + `"`
+		if runtime.GOOS == "windows" {
+			want = "not on this platform"
+		}
+		if !strings.Contains(errOut.String(), want) {
+			t.Errorf("helper %s should say %q:\n%s", verb, want, errOut)
+		}
+	}
+}

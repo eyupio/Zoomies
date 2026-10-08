@@ -70,6 +70,19 @@ func TestPrepareSharedDirCreatesTheLayoutOnce(t *testing.T) {
 	}
 }
 
+// The update folder is made only by the helper's install. In the layout, every
+// agent start would make it, on every host and in mode off, and a host would
+// look ready for a helper its owner never installed.
+func TestTheSharedLayoutDoesNotMakeTheUpdateFolder(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "shared")
+	if _, err := PrepareSharedDir(dir, -1, -1); err != nil {
+		t.Fatalf("PrepareSharedDir: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(dir, "update")); !os.IsNotExist(err) {
+		t.Errorf("preparing the shared folder made the update folder (%v)", err)
+	}
+}
+
 // What is missing is named folder by folder, so an upgrade can say exactly
 // what it would add.
 func TestSharedDirProblemsNamesWhatIsMissing(t *testing.T) {

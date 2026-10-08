@@ -318,12 +318,16 @@ of this group.
 
 | Command | What it does |
 | --- | --- |
-| `updates helper run` | Answer the request in the update folder: check it against the helper's limits, run `zoomies upgrade --version <tag> --non-interactive` for it (never `--yes`), and write `result.json` saying how it went. The `zoomies-update` unit runs it when a request arrives. It takes no flags: where the folder is, which account owns it, which binary to run and where `upgrade.lock` lives all come from root's copy of the pointer in `/var/lib/zoomies-update`, which only root can write. A release already installed, or a newer one, is answered as done and nothing runs. |
+| `updates helper install` | Let the controller update this host. It makes the update folder (`update` under the state directory, or under the shared folder for a container), owned by the account Zoomies runs as, writes root's pointer to it in `/var/lib/zoomies-update` and, on a native install, the copy beside the configuration file that the service reads, then installs and starts `zoomies-update.path` and `zoomies-update.service`. The account, the state directory and the binary are the installed unit's (or the image's, for a container), and the binary is recorded by its real path. Everything `helper run` would refuse, such as a binary in a folder anyone but root can write, a service that runs as root, or a container that does not mount the shared folder, is refused here with the same sentence and nothing is installed. Running it again changes nothing; a unit of the same name with other contents is refused rather than replaced. `--config-dir` names the deployment's configuration directory. |
+| `updates helper remove` | Stop the helper and remove its units, root's state and pointer in `/var/lib/zoomies-update`, the pointer beside the configuration, and `helper.json`, `result.json` and any waiting `request.json` from the update folder. The folder goes too when that leaves it empty; anything else in it is left and named. It refuses while the helper is running an update, which would otherwise be stopped midway. `zoomies uninstall` does the same, and removes `zoomies.previous` with the binary. |
+| `updates helper run` | Answer the request in the update folder: check it against the helper's limits, run `zoomies upgrade --version <tag> --non-interactive --config-dir <dir>` for it with the deployment's configuration directory (never `--yes`), and write `result.json` saying how it went. The `zoomies-update` unit runs it when a request arrives. It takes no flags: where the folder is, which account owns it, which binary to run and where `upgrade.lock` lives all come from root's copy of the pointer in `/var/lib/zoomies-update`, which only root can write. A release already installed, or a newer one, is answered as done and nothing runs. |
 | `updates helper status` | Where the update folder is, whether the helper is installed, and the last result it wrote with the end of its log. When the new controller does not come back, this is where to look. |
 
 `helper` is local and root-only: it acts on this host and never talks to a
-controller, `helper run` refuses to start as any account but root, and
-`helper status` reads what it can without root and says when it needs `sudo`.
+controller, `helper install`, `helper remove` and `helper run` refuse to start
+as any account but root, and `helper status` reads what it can without root and
+says when it needs `sudo`. The controller's update mode never installs the
+helper; only the host's owner does.
 
 ### `zoomies providers`
 

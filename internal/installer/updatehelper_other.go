@@ -34,3 +34,37 @@ func HelperOptionsFromPointer(string) (HelperOptions, error) {
 }
 
 func RunUpdateHelper(context.Context, HelperOptions) error { return errNoUpdateHelper }
+
+// The helper's units, named everywhere so that uninstall builds; nothing here
+// writes them.
+const (
+	UpdatePathUnit    = "zoomies-update.path"
+	UpdateServiceUnit = "zoomies-update.service"
+	systemdUnitDir    = "/etc/systemd/system"
+)
+
+// InstallHelperOptions is the unix installer's options, so that the command
+// line and uninstall build everywhere; see updatehelper_units.go.
+type InstallHelperOptions struct {
+	Deployment                      Deployment
+	StateDir, ConfigDir, BinaryPath string
+	ServiceUID                      int
+	Account                         string
+	Out                             io.Writer
+	unitDir, helperStateDir         string
+	run                             commandRunner
+}
+
+func ResolveHelperInstall(string) (InstallHelperOptions, error) {
+	return InstallHelperOptions{}, errNoUpdateHelper
+}
+
+func InstallUpdateHelper(context.Context, InstallHelperOptions) error { return errNoUpdateHelper }
+
+func RemoveUpdateHelper(context.Context, InstallHelperOptions) error { return errNoUpdateHelper }
+
+// removeUpdateHelper has nothing to remove where the helper cannot be
+// installed.
+func removeUpdateHelper(context.Context, InstallHelperOptions) (removed, left []string, err error) {
+	return nil, nil, nil
+}
