@@ -23,7 +23,9 @@ invoked wrongly) plus one of the controller's own: `3` when it stopped because
 the settings page asked it to restart, which is how a [staged
 restore](backup-and-restore.md#from-the-settings-page) is applied.
 Non-zero on purpose, so a service manager set to restart on failure starts it
-again.
+again. [`zoomies why`](#zoomies-why) adds two of its own, `2` for a job this
+fleet never saw and `3` for a job it could not class; it is never the
+controller process, so its `3` and the controller's cannot meet.
 
 ## Talking to a controller
 
@@ -245,6 +247,36 @@ the last job of the page before it, so a job queued while you are reading
 cannot repeat or hide a row, which `--offset` cannot promise. `--output json`
 returns every job with its steps; `--include-steps=false` returns one short
 summary per job, small enough to read a hundred of.
+
+### `zoomies why`
+
+`why <job>` is the one question "why did this job fail, stall or run slow",
+answered from the controller's explanation: the sentence, then the **class**
+from a closed set (`oom`, `timeout`, `cancelled`, `queued-unmatched`,
+`queued-blocked`, `queued-capacity`, `queued`, `runner-startup-failure`,
+`host-lost`, `disk`, `workflow-failure`, `held-by-github`, `running`,
+`succeeded` or `unknown`) with how sure the fleet is and, when it is not sure,
+what was missing; the **evidence** the class rests on, each a fact you can
+check; the runner's last lines up to the one that decided it; the catalog code
+to read on; and the next steps in order. `jobs why` is the same command, found
+where jobs live.
+
+`<job>` is a job ID, a GitHub run or job URL (`…/actions/runs/1234` or
+`…/runs/1234/job/5678`, found through the jobs list by repository and run), or
+`--latest-failed`, narrowed by `--repo owner/name` or `--pool <pool-id>`.
+`--logs N` is how many lines to quote (12 by default, at most 40) and
+`--no-logs` quotes none. `--output json` is the explanation as the controller
+sent it, the same document the job drawer renders.
+
+```sh
+zoomies why job_01abc
+zoomies why https://github.com/acme/widgets/actions/runs/1234/job/5678
+zoomies why --latest-failed --repo acme/widgets
+```
+
+Exit codes: `0` diagnosed, `1` another error, `2` no such job, `3` not enough
+data (the class is `unknown`; the explanation is still printed, with what was
+missing). A script can tell "the fleet broke it" from "the fleet could not say".
 
 ### Size classes
 

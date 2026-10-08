@@ -384,11 +384,43 @@ type jobEventItem struct {
 // worked out on the controller. The CLI renders it rather than reasoning for
 // itself, so it and the web UI cannot give an operator two different answers.
 type explanationItem struct {
-	Summary string `json:"summary"`
-	Detail  string `json:"detail"`
-	Fix     string `json:"fix"`
-	Waiting bool   `json:"waiting"`
-	Blocked bool   `json:"blocked"`
+	Summary          string          `json:"summary"`
+	Detail           string          `json:"detail"`
+	Fix              string          `json:"fix"`
+	Waiting          bool            `json:"waiting"`
+	Blocked          bool            `json:"blocked"`
+	Class            string          `json:"class"`
+	Confidence       string          `json:"confidence"`
+	ConfidenceReason string          `json:"confidence_reason"`
+	Evidence         []evidenceItem  `json:"evidence"`
+	LogExcerpt       *logExcerptItem `json:"log_excerpt"`
+	ProblemCode      string          `json:"problem_code"`
+	NextSteps        []nextStepItem  `json:"next_steps"`
+}
+
+type evidenceItem struct {
+	Kind  string `json:"kind"`
+	Label string `json:"label"`
+	Value string `json:"value"`
+	Unit  string `json:"unit"`
+	Ref   string `json:"ref"`
+}
+
+type logExcerptItem struct {
+	Lines []logLineItem `json:"lines"`
+	Note  string        `json:"note"`
+}
+
+type logLineItem struct {
+	N        int    `json:"n"`
+	Text     string `json:"text"`
+	Decisive bool   `json:"decisive"`
+}
+
+type nextStepItem struct {
+	Text string `json:"text"`
+	Kind string `json:"kind"`
+	Link string `json:"link"`
 }
 
 type backendInfo struct {

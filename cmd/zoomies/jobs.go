@@ -15,6 +15,7 @@ func runJobs(ctx context.Context, e *env, args []string) error {
 		{"list", "", "Recent jobs, with filters", jobsList},
 		{"stats", "", "Counts and percentiles over a period, grouped by release, day, host, pool or job", jobsStats},
 		{"get", "<job-id>", "One job in full", jobsGet},
+		{"why", "<job>", "Why this job failed, stalled or is waiting", runWhy},
 		{"advice", "", "What a workflow's runs-on could say better, from what its jobs used", jobsAdvice},
 		{"rerun", "<job-id>", "Ask GitHub to run this run's failed jobs again", jobsRerun},
 	}, args)

@@ -154,3 +154,19 @@ func TestPlainReplacesEveryBidirectionalMark(t *testing.T) {
 		t.Errorf("an ordinary name changed: %q", got)
 	}
 }
+
+// The excerpt is the runner's own output, which a workflow wrote. It reaches
+// the terminal as text: numbered lines that cannot move the cursor, with the
+// hostile content still there to be read as evidence.
+func TestWhyPrintsAHostileExcerptWithoutControlCharacters(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{
+		"/api/v1/jobs/job_1/explanation": `{"job_id":"job_1","state":"completed","summary":"` + hostileJSON + `",
+			"detail":"` + hostileJSON + `","fix":"` + hostileJSON + `","waiting":false,"blocked":false,
+			"computed_at":"2026-10-08T12:00:00Z","class":"oom","confidence":"high",
+			"evidence":[{"kind":"plan_reason","label":"` + hostileJSON + `","value":"` + hostileJSON + `"}],
+			"log_excerpt":{"lines":[{"n":1,"text":"` + hostileJSON + `"},{"n":2,"text":"` + hostileJSON + `","decisive":true}]},
+			"next_steps":[{"text":"` + hostileJSON + `","kind":"read","link":"` + hostileJSON + `"}]}`,
+	})
+	out, _ := runCLI(t, "why", "job_1", "--url", srv.URL)
+	assertNoTerminalControl(t, "why", out, strings.Count(out, "\n"))
+}
