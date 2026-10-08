@@ -162,9 +162,9 @@ func unreadReason(interval time.Duration) string {
 // to, and blank when it is not.
 //
 // The address arrives as GitHub's html_url and the UI puts it in a link. GitHub
-// is trusted to be GitHub, but a proxy in between, or a mirror somebody pointed
-// github.api_base_url at, is not, and a javascript: address in an href runs in
-// the operator's session. Only an absolute https address with a host and no
+// is trusted to be GitHub, but a proxy in between, or a response that has been
+// tampered with, is not, and a javascript: address in an href runs in the
+// operator's session. Only an absolute https address with a host and no
 // control characters passes; the page then simply has no link.
 func releasePageURL(raw string) string {
 	for _, r := range raw {
