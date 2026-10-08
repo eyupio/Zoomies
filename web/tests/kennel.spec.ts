@@ -2441,10 +2441,10 @@ test.describe('the AI Context tab on a repository', () => {
     });
     await goto(page, here(), PUBLIC_REPO);
     await expect(tab(page).getByText('AI Context is not set up for this repository')).toBeVisible();
-    // Setup opens on this repository's installation, where the repository is chosen.
+    // Setup opens on this repository's installation, with the repository selected.
     await expect(tab(page).getByRole('link', { name: 'Set up AI Context' })).toHaveAttribute(
       'href',
-      `/kennel/ai-context/setup?installation_id=${encodeURIComponent(target.installation_id)}`,
+      `/kennel/ai-context/setup?installation_id=${encodeURIComponent(target.installation_id)}&repository_id=${target.repository_id}`,
     );
   });
 

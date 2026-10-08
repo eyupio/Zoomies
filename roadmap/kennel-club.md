@@ -910,9 +910,11 @@ the feature off:
    ([0007](decisions/0007-the-repository-page-hosts-ai-context-and-adds-no-switch.md)).
    Built as the card in `lib/aicontext/AiContextCard.svelte`, rendered by the AI
    Context page and by the tab, with `ai-context.spec.ts` passing unchanged. The
-   tab's setup button opens the wizard on the repository's installation and not on
-   the repository, because the wizard takes an installation and not a repository to
-   preselect; that is a change to the wizard, not to the tab.
+   tab's setup button first opened the wizard on the repository's installation and
+   not on the repository, because the wizard took an installation and not a
+   repository to preselect. That was a change to the wizard, not to the tab, and
+   it was made on 8 October: the link now carries `repository_id` and the wizard
+   ticks that repository once, after the installation's list has loaded.
    **(i)** A switch on the list, **Active on Zoomies**, asked for on 7 October, that
    leaves out the repositories the fleet is not serving. Taken with the owner by
    question: active is a job the fleet had a hand in within Kennel Club's window
