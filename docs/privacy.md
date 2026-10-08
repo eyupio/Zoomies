@@ -2,10 +2,9 @@
 icon: material/shield-account-outline
 title: Privacy
 description: >-
-  What the Zoomies website and the Zoomies software do and do not collect.
-  There is no telemetry, no analytics and no account; the one request the
-  software makes that is not about your fleet is a daily release check you can
-  turn off.
+  What the Zoomies website and software collect: nothing. No telemetry,
+  analytics or account; the only non-fleet request is a daily release check you
+  can stop.
 ---
 
 # Privacy

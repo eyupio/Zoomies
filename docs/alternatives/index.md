@@ -1,10 +1,9 @@
 ---
 icon: material/compare-horizontal
-title: Alternatives to Zoomies for self-hosted GitHub Actions runners
+title: Alternatives to Zoomies for GitHub Actions runners
 description: >-
-  The ways to run GitHub Actions on machines you control, side by side: ARC,
-  GARM, the AWS Terraform module, TestFlows' Hetzner runners, Cirun and the
-  hosted runner services, with when each is the better choice.
+  Ways to run GitHub Actions on machines you control, side by side: ARC, GARM,
+  the AWS Terraform module, TestFlows, Cirun and hosted runner services.
 ---
 
 # Alternatives to Zoomies
