@@ -222,8 +222,11 @@ are made only when one of the opt-in switches is on.
 
 * **`served`** (the default) checks the repositories this fleet has run a job
   for. A repository nobody has used you for has nothing to say about your fleet.
-* **`installation`** checks every repository the GitHub App can see, which also
-  finds the ones that *could* send you a job but have not yet.
+* **`installation`** checks the repositories the GitHub App can see, which also
+  finds the ones that *could* send you a job but have not yet. It reads **at most
+  500** repositories for each installation, so on a larger one the rest are never
+  discovered, and Kennel Club says nothing about them. It also multiplies the
+  requests Kennel Club makes, which is why it is a choice and not the default.
 
 `kennel.refresh_interval` is how stale what Kennel Club read from GitHub may get
 before it is read again. What your own fleet observed is not subject to it: that
@@ -327,8 +330,8 @@ open it widened, so that a number and the rows behind it agree:
   `kennel.unavailable`, which says Kennel Club has been unable to read an
   installation for six hours. A warning on its own raises nothing: it appears in
   Kennel Club and nowhere else. See [problem codes](problem-codes.md).
-* **The API.** `GET /api/v1/kennel` and the routes beneath it, and two event
-  kinds on the stream. See [the API](api-surface.md#kennel-club).
+* **The API.** `GET /api/v1/kennel` and the routes beneath it, and three event
+  kinds on the stream: `kennel.updated`, `kennel.deleted` and `kennel.summary`. See [the API](api-surface.md#kennel-club).
 * **Assistants.** The `kennel_overview`, `kennel_repository` and `kennel_findings`
   tools, which read the same API and can do nothing the caller's token could
   not. See [Connect Claude](connect-claude.md).
