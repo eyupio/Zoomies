@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/eyupio/zoomies/internal/hosttune"
+	"time"
 )
 
 type HostDoctor struct{ *hosttune.Report }
@@ -46,4 +47,16 @@ func (s *Store) SetHostDoctor(ctx context.Context, id string, r *hosttune.Report
 	}
 	_, err := s.exec(ctx, `UPDATE hosts SET doctor=?, doctor_checked_at=? WHERE id=?`, HostDoctor{r}, at, id)
 	return wrapWrite(err)
+}
+
+// SetHostDoctorChecked records that a host's agent looked at `at`, without
+// touching the stored body or last_heartbeat. A task result is not a heartbeat
+// and must not make a wedged heartbeat loop look alive. MAX stops a result that
+// overtook a newer report moving freshness backwards.
+func (s *Store) SetHostDoctorChecked(ctx context.Context, id string, at time.Time) error {
+	res, err := s.exec(ctx, `UPDATE hosts SET doctor_checked_at=MAX(doctor_checked_at, ?) WHERE id=?`, ms(at), id)
+	if err != nil {
+		return wrapWrite(err)
+	}
+	return affected(res, "host", id)
 }
