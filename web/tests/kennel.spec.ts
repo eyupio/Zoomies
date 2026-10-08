@@ -159,8 +159,22 @@ test.describe('while Kennel Club is off', () => {
     await expect(page.getByRole('button', { name: 'Turn on Kennel Club' })).toBeVisible();
 
     const checks = page.getByRole('table', { name: 'What Kennel Club checks' });
+    // The page says what is checked from the registry the evaluator runs, and this
+    // route serves that same registry while Kennel Club is off. So the table is held
+    // to the route, one row and one code for each entry, and not to a number that
+    // every check added to the registry would have to remember to change: a count
+    // written here is what failed the first time the registry grew.
+    const registry = (await page.request.get('/api/v1/kennel/checks').then((r) => r.json())) as {
+      items: { code: string }[];
+    };
     // The body's rows: on a phone the header row is hidden and each row is a card.
-    await expect(checks.locator('tbody tr')).toHaveCount(6);
+    await expect(checks.locator('tbody tr')).toHaveCount(registry.items.length);
+    for (const { code } of registry.items) {
+      await expect(checks.getByText(code, { exact: true }), code).toBeVisible();
+    }
+    // The route cannot make this pass by serving less. These are the checks the
+    // documentation and the screenshots name, and they stay in the registry.
+    const codes = registry.items.map((entry) => entry.code);
     for (const code of [
       'exposure.public_repo_on_fleet',
       'exposure.public_repo_weak_pool',
@@ -169,7 +183,7 @@ test.describe('while Kennel Club is off', () => {
       'capacity.unserved_label',
       'capacity.job_hit_default_limit',
     ]) {
-      await expect(checks.getByText(code, { exact: true }), code).toBeVisible();
+      expect(codes, code).toContain(code);
     }
     await auditThePage(page, 'the off page');
   });
@@ -522,7 +536,14 @@ test.describe('with Kennel Club on', () => {
   test('a page that lost the stream asks again when it comes back', async ({ page }) => {
     await goto(page, '/kennel', 'Kennel Club');
     await expect(page.locator('.connection')).toHaveAttribute('data-state', 'live');
-    await expect(page.getByText('Turned off')).toHaveCount(0);
+    // The setup and workflow checks are opt-in, so some rows say "Turned off" before
+    // anything is changed here. The test is about one row, the one it turns off.
+    const unserved = page
+      .getByRole('table', { name: 'Checks and the repositories that have each open' })
+      .getByRole('row')
+      .filter({ hasText: 'capacity.unserved_label' });
+    await expect(unserved).toBeVisible();
+    await expect(unserved).not.toContainText('Turned off');
 
     let cut = true;
     await page.route('**/api/v1/events*', async (route) => {
@@ -544,7 +565,7 @@ test.describe('with Kennel Club on', () => {
     try {
       cut = false;
       await page.evaluate(() => window.dispatchEvent(new Event('online')));
-      await expect(page.getByText('Turned off').first()).toBeVisible({ timeout: 20_000 });
+      await expect(unserved).toContainText('Turned off', { timeout: 20_000 });
     } finally {
       await patchSettings(page, { 'kennel.disabled_checks': [] });
     }
