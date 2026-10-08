@@ -53,6 +53,14 @@ change, the pools and runs involved, and where to look. The sentences come from
 Kennel Club and never from the repository, so a pull request title or a branch
 name cannot put words into an operator's page.
 
+**One finding can be worse than its usual severity.** On its own,
+`exposure.public_repo_on_fleet` is a warning: a public repository using your
+fleet is a fact to know, and often a deliberate one. When
+`exposure.public_repo_weak_pool` or `exposure.fork_code_ran` is open beside it,
+it is raised to an **error**, because a stranger can already reach something
+that matters. The raising happens before waivers are applied, so a waiver of the
+milder finding does not quietly cover the worse one.
+
 The same table is served by `GET /api/v1/kennel/checks`, so a script can read
 what is checked without scraping this page.
 
