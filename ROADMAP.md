@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 3.3 · 27 September 2026 · derived from the owner's
+Version 3.5 · 8 October 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md),
 reconciled against `main` at `6d12a72` on 6 September and again at `9a80b31`
 on 19 September, when the owner set a new primary target, withdrew the
@@ -354,6 +354,10 @@ list is the only account of what was decided.
     (ZF-404). ZF-404b, the opt-in dedicated-host maintenance slice, is
     deferred indefinitely: the hosts are the fleet's machines, and a
     platform upgrading or rebooting them is a liability, not a feature.
+    Narrowed on 8 October 2026 by
+    [decision 0011](roadmap/decisions/0011-an-operator-may-let-zoomies-update-itself.md):
+    updating the agent's own binary, on a host that opted in, is ZF-229; the
+    rest stays deferred.
 26. **Windows runners, and which kind.** *Taken on 12 September 2026* as
     processes on a Windows host, per
     [decision 0003](roadmap/decisions/0003-windows-runners-are-processes-on-a-host.md).
@@ -468,7 +472,9 @@ and `README.md`'s must name every top-level directory. Read it,
     output cannot be recognised and `docs/security.md` says so; the bundle
     therefore never carries log bodies.
 12. Never auto-upgrade a host, remove a customer-owned machine or weaken a
-    trust check as a recovery shortcut.
+    trust check as a recovery shortcut. An update an operator has switched on
+    is not a recovery shortcut; see
+    [decision 0011](roadmap/decisions/0011-an-operator-may-let-zoomies-update-itself.md).
 13. A skipped test is not a pass. A harness that cannot run reports "not
     run" or "blocked", and a gate that counts it as passed is lying.
 14. A behavioural test is kept only once it has been run against the code
@@ -1397,6 +1403,30 @@ capped at their role (`tokens.own`); spent tokens can be deleted.
 
 Depends on ZF-225. Size M.
 
+### ZF-229: updating from the web UI
+
+**Classification: extension; L; proposed 8 October, design approved by the
+owner; nothing built.** The controller says a release exists and each host's
+card prints a command, but every update is still somebody running
+`sudo zoomies upgrade`, on the controller and then on each agent host.
+
+**Implement:** `updates.mode` (`off`, `manual` or `auto`; off by default) and
+`updates.soak`; a root-owned helper on each host, installed with that host's
+consent, that runs the existing `zoomies upgrade` for one validated release
+tag; the controller and each host updated as recorded attempts; and a pure
+planner that rolls hosts to the controller's release one at a time and halts
+at the first failure. The design is
+[roadmap/in-product-updates.md](roadmap/in-product-updates.md). The decision,
+which narrows decision 25, is
+[decision 0011](roadmap/decisions/0011-an-operator-may-let-zoomies-update-itself.md).
+
+**Accepted because:** a request can only name a published release; the mode is
+off by default and creates nothing; a host is updated only if someone on it
+installed the helper; the planner is a table test; and every refusal and
+failure has a test that fails with its rule removed.
+
+Depends on ZF-207 and ZF-404. Size L.
+
 ## 9. Kept for the day somebody asks
 
 Nothing here is authorised by planning alone. Each starts when a fleet
@@ -1442,7 +1472,10 @@ acceptance from the version that wrote it.
 * **ZF-217**, the scale-set assessment: a time-boxed decision record with a
   disposable prototype, never a second scheduler. Not before a measured
   reason.
-* **ZF-404b**: deferred indefinitely under decision 25.
+* **ZF-404b**: deferred indefinitely under decision 25. Its controller-driven
+  agent upgrades are narrowed by
+  [decision 0011](roadmap/decisions/0011-an-operator-may-let-zoomies-update-itself.md):
+  updating the agent's own binary, on a host that opted in, is ZF-229.
 * **ZF-218**: complete, the repin having landed with ZF-005; a second
   provider or an official marketplace submission is not planned.
 * **Decision 28's spike**: a container per job on Proxmox from the published
@@ -1509,6 +1542,18 @@ remaining dependency. Do not invent live runs, elapsed observation, benchmark
 results or user feedback; do not wait for them either.
 
 ## 13. Change record
+
+* **8 October 2026 — Version 3.5:** ZF-229 added to section 8, as proposed:
+  updating Zoomies from the web UI, off by default. The owner chose a
+  root-owned helper on each host over a service that replaces its own binary
+  and over a documentation-only recipe.
+  [Decision 0011](roadmap/decisions/0011-an-operator-may-let-zoomies-update-itself.md)
+  records it, reads rule 12 as binding recovery logic and not an operator's own
+  policy, and narrows decision 25's deferral of controller-driven agent
+  upgrades to the one thing it allows: updating the agent's own binary, on a
+  host that opted in. Rule 12, decision 25 and section 9 point to it. The header
+  was still at 3.3, behind the 3.4 entry below, and now matches. Design only; no
+  code.
 
 * **4 October 2026 — Version 3.4:** the record caught up with the week.
   ZF-226 (placement from job history), ZF-227 (AI Context) and ZF-228
