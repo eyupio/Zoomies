@@ -74,11 +74,10 @@ func TestTheCommandReferenceMatchesTheBinary(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Not newTestEnv, and with the package's own ZOOMIES_CONFIG_DIR override
-	// lifted: both move the configuration path to a temporary directory, and
-	// one help text prints that path's default. The file is generated under
-	// the real environment, so it is compared under the real environment.
-	t.Setenv("ZOOMIES_CONFIG_DIR", "")
+	// The command pins its own environment while it collects the help, so no
+	// harness is needed here; a Windows checkout turns the file's line endings
+	// into CRLF, which is not a difference in what the binary says.
+	want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
 	var out, errOut bytes.Buffer
 	e := &env{out: &out, err: &errOut, in: strings.NewReader("")}
 	if code := dispatch(context.Background(), e, []string{"commands", "--output", "markdown"}); code != exitOK {
