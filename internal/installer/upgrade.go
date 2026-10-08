@@ -348,6 +348,31 @@ func (p *upgradePlan) runningImageID(ctx context.Context) string {
 	return strings.TrimSpace(out)
 }
 
+// Compare the pulled image with the container, not the tag before pulling:
+// an earlier pull may already have advanced the tag without updating the
+// service. Only a running container can make this upgrade a no-op.
+func (p *upgradePlan) keepCurrentContainer(ctx context.Context) (bool, error) {
+	image := p.localImageID(ctx)
+	if image == "" || image != p.runningImageID(ctx) {
+		return false, nil
+	}
+	running, err := p.docker(ctx, "inspect", "--format", "{{.State.Running}}", containerOr(p.record))
+	if err != nil || strings.TrimSpace(running) != "true" {
+		return false, nil
+	}
+	// An explicit image reference can change while resolving to the same
+	// build. Remember it for subsequent upgrades without disrupting service.
+	if _, _, err := replaceEnvImage(p.record.EnvFile, p.image); err != nil {
+		return true, err
+	}
+	p.record.Image = p.image
+	if _, err := WriteDeploymentRecord(p.opts.ConfigDir, p.record); err != nil {
+		return true, err
+	}
+	PaletteFor(p.opts.Out).Done(p.opts.Out, "Service image unchanged; keeping the running container")
+	return true, nil
+}
+
 // reportImage says what the upgrade did to the image the service runs, and
 // separately whether the channel it follows moved, because those differ
 // whenever the tag was pulled before the service was recreated from it.
@@ -653,6 +678,9 @@ func (p *upgradePlan) upgradeCompose(ctx context.Context) error {
 	if _, err := p.compose(ctx, "pull", "zoomies"); err != nil {
 		return err
 	}
+	if kept, err := p.keepCurrentContainer(ctx); kept || err != nil {
+		return err
+	}
 	previous, err := ParseEnvFile(p.record.EnvFile)
 	if err != nil {
 		return err
@@ -702,6 +730,9 @@ func (p *upgradePlan) upgradeCompose(ctx context.Context) error {
 func (p *upgradePlan) upgradeDocker(ctx context.Context) error {
 	PaletteFor(p.opts.Out).Doing(p.opts.Out, "Updating service image %s", p.image)
 	if _, err := p.docker(ctx, "pull", p.image); err != nil {
+		return err
+	}
+	if kept, err := p.keepCurrentContainer(ctx); kept || err != nil {
 		return err
 	}
 	old := p.replacement
