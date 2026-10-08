@@ -1611,3 +1611,51 @@ func TestARepositoryThatIsDueNowHasNoDueDateOnItsView(t *testing.T) {
 		t.Errorf("due date = %v for a repository that is due now", v.NextDueAt)
 	}
 }
+
+// The Overview's "Partly checked" card adds partial and pending, so the list it
+// opens has to hold both and nothing else, or the number and the rows disagree.
+// Naming a standing as well is refused: it would be a second answer to the same
+// question, and one of the two would be silently ignored.
+func TestPartlyCheckedListsPartialAndPendingRepositoriesAndNoOthers(t *testing.T) {
+	f := newKennelFixture(t)
+	save := func(name string, id int64, state string) {
+		t.Helper()
+		row, err := f.st.TouchKennelRepository(f.ctx, store.KennelRepositoryRef{
+			GitHubHost: "github.com", RepositoryID: id, InstallationID: f.inst.ID, FullName: name, Visibility: "public",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state == string(kennel.StatePending) {
+			return
+		}
+		if err := f.st.SaveKennelEvaluation(f.ctx, row.ID, store.KennelEvaluationRecord{
+			State: state, EvaluatorVersion: 1, EvaluatedAt: f.c.Now(), NextDueAt: f.c.Now().Add(time.Hour),
+			InputsDigest: "d", Coverage: json.RawMessage(`{}`), Evaluation: json.RawMessage(`{"findings":[]}`), Watermark: json.RawMessage(`{}`),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save("acme/partial", 1, string(kennel.StatePartial))
+	save("acme/pending", 2, string(kennel.StatePending))
+	save("acme/attention", 3, string(kennel.StateAttention))
+	save("acme/best", 4, string(kennel.StateBestInShow))
+
+	rows, total, err := f.c.KennelRepositories(f.ctx, KennelListFilter{Incomplete: true}, store.Page{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, r := range rows {
+		got[r.Name] = true
+	}
+	if total != 2 || !got["acme/partial"] || !got["acme/pending"] {
+		t.Errorf("listed %v (total %d), want exactly acme/partial and acme/pending", got, total)
+	}
+
+	_, _, err = f.c.KennelRepositories(f.ctx, KennelListFilter{Incomplete: true, State: "attention"}, store.Page{Limit: 50})
+	var invalid *KennelInvalidError
+	if !errors.As(err, &invalid) || invalid.Fields[0].Field != "incomplete" {
+		t.Errorf("incomplete with a state = %v, want a refusal naming incomplete", err)
+	}
+}
