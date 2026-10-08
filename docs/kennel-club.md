@@ -16,6 +16,11 @@ So it is not a linter, and it has no opinion about your code. It says that a
 public repository's jobs run on a pool a stranger's pull request could damage,
 and that jobs have been waiting ten minutes for a label no pool serves.
 
+One optional area bends that rule, and says so: the **setup** checks report what
+a repository lacks that makes it harder to maintain, such as a README or a
+security policy. They are off until you turn them on, and informational when they
+are on. See [the optional checks](#the-optional-checks).
+
 It is **off by default**, and off means off: nothing is read from GitHub,
 nothing is stored, and [AI Context](ai-context.md) carries on exactly as it was.
 Turn it on with the **Check repository standards** setting
@@ -27,9 +32,11 @@ UI under **Kennel Club**. This is its Overview for the demo fleet:
 
 ## What it checks
 
-There are six checks, in two areas. Each has a stable code, so a waiver, a
-metric or a `disabled_checks` entry keeps meaning the same thing from one
-release to the next.
+There are twenty checks, in five areas. Six of them, in **exposure** and
+**capacity**, run whenever Kennel Club is on, and are the ones below. The other
+fourteen are opt-in, and are described after them. Each has a stable code, so a
+waiver, a metric or a `disabled_checks` entry keeps meaning the same thing from
+one release to the next.
 
 | Code | Usual severity | Detects |
 | --- | --- | --- |
@@ -56,8 +63,8 @@ change, the pools and runs involved, and where to look. The sentences come from
 Kennel Club and never from the repository, so a pull request title or a branch
 name cannot put words into an operator's page.
 
-The same table is served by `GET /api/v1/kennel/checks`, so a script can read
-what is checked without scraping this page.
+The whole registry, all twenty, is served by `GET /api/v1/kennel/checks`, so a
+script can read what is checked without scraping this page.
 
 **One finding can be worse than its usual severity.** On its own,
 `exposure.public_repo_on_fleet` is a warning: a public repository using your
@@ -71,6 +78,30 @@ what to change:
 
 ![The CI tab of acme/site: two open errors, a public repository running jobs on this fleet and a public repository's jobs run on a pool with weak isolation, each with what to change and a Waive button](screenshots/kennel-repository-dark.webp#only-dark){ .zoomies-shot }
 ![The CI tab of acme/site: two open errors, a public repository running jobs on this fleet and a public repository's jobs run on a pool with weak isolation, each with what to change and a Waive button](screenshots/kennel-repository-light.webp#only-light){ .zoomies-shot }
+
+### The optional checks
+
+Fourteen checks read what is in a repository. Each group has a switch of its own
+and is **off by default**. Until a switch is on, its checks are shown as **Turned
+off** on the Overview, and nothing is read for them.
+
+| Area | Checks | Turned on by | What it reads | What a finding is |
+| --- | --- | --- | --- | --- |
+| `setup` | 10: a README, a licence, a security policy, a contribution guide, a code of conduct, issue and pull request templates, `CODEOWNERS`, dependency updates and a CI workflow | `kennel.repository_setup` (**Check repository setup**) | The default branch's file names, as one Git tree request for each repository. No file contents. | Informational. It never lowers a repository's standing. |
+| `ci` | 3: `ci.no_timeout`, `ci.no_concurrency`, `ci.action_not_pinned` | `kennel.workflow_checks` (**Check workflow best practices**) | The default branch's workflow files. | A warning, except `ci.no_concurrency`, which is a note, as is `ci.action_not_pinned` when only GitHub's own actions are affected. |
+| `token` | 1: `token.permissions_unset` | the same switch | The same files. | A warning for a public repository, a note for a private one. |
+
+A setup finding says **repository-local**, because an account's default guidance
+may stand in for a file the repository does not have, and a missing file is
+advice, not proof. Empty files and symlinks do not count as present. A tree
+GitHub truncates leaves the repository **partly checked** and produces no
+"missing" finding, and so does a workflow file that is too large or too odd to
+read: findings from the files that were read stay, but the repository cannot earn
+an all clear.
+[Configuration](configuration.md#repository-setup-advice) lists each setup check
+and what its absence makes harder, and
+[the workflow checks](configuration.md#workflow-best-practice-checks) say what
+each detects and what is excluded.
 
 ## How to read a repository's standing
 
@@ -120,6 +151,8 @@ Every check names the facts it needs, and a check whose facts cannot be read is
 | **What this fleet observed** | Which pool ran a job, which label nothing served, how long a job ran. Already in Zoomies' database. | None. It costs no GitHub request and is always readable. |
 | **Repository details** | The repository's own record, above all whether it is public. | *Repository permissions: Metadata: Read-only* |
 | **Workflow runs** | What triggered the runs this fleet ran, and which repository they came from. Read for **public repositories only**. | *Repository permissions: Actions: Read-only* |
+| **Repository setup files** | The default branch's file names. Read only when `kennel.repository_setup` is on. | *Repository permissions: Contents: Read-only*, needed for private repositories |
+| **Workflow best practices** | The default branch's workflow files, read for timeouts, concurrency, action pins and token permissions. Read only when `kennel.workflow_checks` is on. | *Repository permissions: Contents: Read-only*, needed for private repositories |
 
 A source can be in one of these states, and the Kennel Club page shows it beside
 the repository it affects:
@@ -140,12 +173,15 @@ the repository it affects:
 
 A private repository costs no read beyond the repository listing Zoomies already
 makes, because the checks that need run history are about public repositories.
+The two opt-in sources are the exception: with either on, a private repository's
+tree is read too, which is why they ask for *Contents*.
 
 ### Every GitHub request it may make
 
 The reader is held to a list, and a test runs it against a fake GitHub and fails
 on any request that is not on the list, so a new call is a visible change in
-review and not something found in a log. All of them are `GET`s.
+review and not something found in a log. All of them are `GET`s, and the last two
+are made only when one of the opt-in switches is on.
 
 | Request | What for |
 | --- | --- |
@@ -154,21 +190,27 @@ review and not something found in a log. All of them are `GET`s.
 | `GET /repos/{owner}/{repo}/actions/runs/{run}` | One workflow run the fleet ran in a public repository. **Four fields are read**: the event that triggered it (held to a short allow-list before anything sees it), the repository it ran in, and the repository its head commit is in, which differ for a pull request from a fork, and the run's ID. Who triggered it, its branch, its title and its workflow's path are written by whoever opened the pull request, and are never read. |
 | `GET /orgs/{org}/actions/runner-groups` | Whether the organisation runner group a pool joins allows public repositories, so a finding can say so. |
 | `GET /rate_limit` | The limit the installation reports, which the budget is a share of. GitHub does not count this request against the limit. |
+| `GET /repos/{owner}/{repo}/git/trees/{tree}` | The default branch's file names, one conditional request for each repository on each refresh, for the setup checks and to find the workflow files. Inspection stops at 10,000 entries, and a truncated tree produces no "missing" findings. |
+| `GET /repos/{owner}/{repo}/git/blobs/{blob}` | One workflow file, pinned to the immutable blob the tree named. At most 50 files a refresh, each at most 256 KiB. The file is parsed and never executed, and what is kept is counts: no path, job name, expression or text. |
 
 ## What it never does
 
 * **It reads and does not write.** In this release Kennel Club makes no change
   to GitHub, to a pool, to a runner or to a job. A finding is advice.
 * **It reads no source code.** It looks at who ran what, where, and how long a
-  job took. AI Context is the part of Zoomies that reads source, and Kennel Club
-  does not touch it, which is also why turning one off leaves the other alone.
+  job took. The only files it can read are the default branch's file names and
+  its workflow files, and only if you turned on `kennel.repository_setup` or
+  `kennel.workflow_checks`. AI Context is the part of Zoomies that reads source
+  for assistants, and Kennel Club does not touch it, which is also why turning
+  one off leaves the other alone.
 * **It does not repeat a stranger's words.** The text of a finding is written by
   the check, from a fixed set of sentences. Anything in a repository that a
   stranger could write, such as a branch name, a pull request title or a
   workflow name, is kept out of the sentences, and a test fails if one gets in.
 * **It does not starve scaling of GitHub requests.** Registering runners and
   scaling use the same rate limit. Kennel Club never starts a read for an
-  installation GitHub has rate-limited, it spends at most
+  installation GitHub has rate-limited (the tree and file reads included), it
+  spends at most
   `kennel.api_budget_percent` (5 to 50 per cent, 20 by default) of the limit
   that installation last reported, and it stops altogether when less than half
   of the limit is left. A read GitHub answers with "not modified" costs
@@ -190,7 +232,9 @@ is re-checked as the fleet changes, and costs GitHub nothing.
 ### Turning a check or an area off
 
 `kennel.disabled_checks` takes check codes (`exposure.fork_code_ran`) or whole
-areas (`exposure`, `capacity`). A misspelt name is refused when you save it,
+areas (`exposure`, `capacity`, `setup`, `ci`, `token`). Turning off every setup
+check stops its file-name reads, and turning off both `ci` and `token` stops the
+workflow reads. A misspelt name is refused when you save it,
 because a name that matches nothing would leave running the check you meant to
 turn off.
 
