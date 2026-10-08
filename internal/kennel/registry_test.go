@@ -119,7 +119,7 @@ var american = regexp.MustCompile(`(?i)\b(organization|behavior|recognize|author
 func TestEverySentenceSaysWhatHappenedAndWhatToDoInHouseStyle(t *testing.T) {
 	for _, c := range Checks() {
 		f, _ := finding(Evaluate(positives[c.Code](), Policy{}), c.Code)
-		for name, text := range map[string]string{"title": f.Title, "detail": f.Detail, "fix": f.Fix, "detects": c.Detects} {
+		for name, text := range map[string]string{"title": f.Title, "detail": f.Detail, "fix": f.Fix, "detects": c.Detects, "catalogue fix": c.Fix, "verify": c.Verify} {
 			if strings.TrimSpace(text) == "" {
 				t.Errorf("%s has no %s", c.Code, name)
 			}
@@ -207,6 +207,30 @@ func TestOnlyExposureChecksCanBeErrors(t *testing.T) {
 	for _, c := range Checks() {
 		if c.Code == CodePublicRepoOnFleet && c.Area != AreaExposure {
 			t.Errorf("%s is raised to an error by escalate and is not in the exposure area", c.Code)
+		}
+	}
+}
+
+// A check's catalogue entry has to tell somebody what to change and how to see
+// that it worked, because the catalog an agent fetches is built from exactly
+// these sentences and an agent that reads "detects" alone will invent the rest.
+func TestEveryCheckSaysHowToFixAndVerifyIt(t *testing.T) {
+	for _, c := range Checks() {
+		for name, text := range map[string]string{"fix": c.Fix, "verify": c.Verify} {
+			if strings.TrimSpace(text) == "" {
+				t.Errorf("%s: %s is empty", c.Code, name)
+				continue
+			}
+			if !strings.HasSuffix(text, ".") {
+				t.Errorf("%s: %s does not end a sentence: %q", c.Code, name, text)
+			}
+			if len(text) > 240 {
+				t.Errorf("%s: %s is %d characters; keep it under 240", c.Code, name, len(text))
+			}
+		}
+		want := "kennel-club.md#" + strings.ReplaceAll(string(c.Code), ".", "-")
+		if c.Docs != want {
+			t.Errorf("%s: docs = %q, want %q", c.Code, c.Docs, want)
 		}
 	}
 }

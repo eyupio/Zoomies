@@ -130,13 +130,11 @@ func checkEntry(k kennel.Check) Entry {
 		Severity:  string(k.Severity),
 		Detection: detection,
 		Detects:   k.Detects,
-		// Until the registry carries its own fix and verify sentences, the
-		// detects sentence is the most honest fix text there is.
-		Fix:      k.Detects,
-		Verify:   nil,
-		Area:     string(k.Area),
-		DocsHTML: siteBase + "/kennel-club/#checks",
-		DocsMD:   repoBase + "/kennel-club.md#checks",
+		Fix:       k.Fix,
+		Verify:    nonEmpty(k.Verify),
+		Area:      string(k.Area),
+		DocsHTML:  siteBase + "/kennel-club/#checks",
+		DocsMD:    repoBase + "/kennel-club.md#checks",
 	}
 }
 

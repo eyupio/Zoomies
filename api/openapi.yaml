@@ -6714,12 +6714,15 @@ components:
         conditional: { type: boolean, description: Read only for the repositories the check applies to. }
     KennelCatalogueEntry:
       type: object
-      required: [code, area, severity, detects, needs, disabled]
+      required: [code, area, severity, detects, fix, verify, docs, needs, disabled]
       properties:
         code: { type: string }
         area: { type: string, enum: [exposure, capacity, setup, ci, token] }
         severity: { $ref: "#/components/schemas/KennelSeverity" }
         detects: { type: string }
+        fix: { type: string, description: What to change, written once for the check; a finding's own fix carries the numbers. }
+        verify: { type: string, description: How to see that the change worked. }
+        docs: { type: string, description: The anchor on the Kennel Club documentation page, as a path relative to the docs site. }
         needs:
           type: array
           items: { $ref: "#/components/schemas/KennelNeed" }

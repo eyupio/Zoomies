@@ -129,6 +129,9 @@ func TestChecksAreEntriesWithTheRegistrysWords(t *testing.T) {
 		if e.Kind != "check" || e.Area != string(k.Area) || e.Detects != k.Detects || e.Severity != string(k.Severity) {
 			t.Errorf("%s: %+v", k.Code, e)
 		}
+		if e.Fix != k.Fix || e.Verify == nil || *e.Verify != k.Verify {
+			t.Errorf("%s: fix/verify not the registry's: %q %v", k.Code, e.Fix, e.Verify)
+		}
 		if !strings.HasSuffix(e.DocsHTML, "kennel-club/#checks") || !strings.HasSuffix(e.DocsMD, "kennel-club.md#checks") {
 			t.Errorf("%s: docs = %q %q", k.Code, e.DocsHTML, e.DocsMD)
 		}

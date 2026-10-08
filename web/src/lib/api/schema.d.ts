@@ -4654,6 +4654,12 @@ export interface components {
             area: "exposure" | "capacity" | "setup" | "ci" | "token";
             severity: components["schemas"]["KennelSeverity"];
             detects: string;
+            /** @description What to change */
+            fix: string;
+            /** @description How to see that the change worked. */
+            verify: string;
+            /** @description The anchor on the Kennel Club documentation page */
+            docs: string;
             needs: components["schemas"]["KennelNeed"][];
             /** @description The operator turned it off */
             disabled: boolean;
