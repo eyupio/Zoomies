@@ -1,6 +1,8 @@
 ---
 icon: material/book-open-page-variant-outline
-description: Reduce AI input token usage with relevant repository excerpts. Zoomies automates Repomix generation, verifies source against Git, and lets assistants use fresh context through GitHub access or MCP.
+description: >-
+  Cut AI input tokens with relevant repository excerpts. Zoomies automates
+  Repomix, verifies it against Git, and serves fresh context via GitHub or MCP.
 ---
 
 # AI Context
@@ -20,7 +22,7 @@ clients can also connect to Zoomies for bounded search and source reads.
 <div markdown>
 :material-text-search:{ .icon }
 
-### Less context overhead
+## Less context overhead
 Search for the relevant code, then read selected files or excerpts. A focused
 task can use significantly fewer input tokens than loading a whole repository,
 leaving more of the context window for instructions, reasoning and changes.
@@ -29,7 +31,7 @@ leaving more of the context window for instructions, reasoning and changes.
 <div markdown>
 :material-sync:{ .icon }
 
-### Prepared after every push
+## Prepared after every push
 A managed GitHub Actions workflow regenerates context when the source branch
 changes. Zoomies verifies it against Git before serving it, so every reply names
 the commit being investigated.
@@ -38,7 +40,7 @@ the commit being investigated.
 <div markdown>
 :material-package-variant-closed:{ .icon }
 
-### Repomix, managed for you
+## Repomix, managed for you
 Repomix packages eligible source and scans it for secrets. Zoomies adds setup
 pull requests, regeneration, verified storage and permissioned access for each
 person and assistant connection.
@@ -201,7 +203,7 @@ instead; see [Use without MCP](#use-without-mcp).
 1. **The repository is set up.** Its setup pull request was merged, the
    generating workflow succeeded, and Zoomies verified the output.
 2. **The person is a source reader** of that repository. Nobody is one by
-   default — not the administrator who set it up and not the installation
+   default, not the administrator who set it up and not the installation
    owner.
 3. **The connection was given that repository** by the person who owns it.
    Connecting Claude to Zoomies gives it the fleet. It does not give it any
@@ -235,10 +237,10 @@ sends it with the snapshot.
 Zoomies accepts the upload only if all of this holds:
 
 * The token is signed by GitHub, unexpired, and minted for this controller's
-  address — a token for another Zoomies is useless here.
+  address; a token for another Zoomies is useless here.
 * It comes from the repository's own `zoomies-ai-context.yml`, on the trusted
-  branch, from a push or a manual run. A pull request — including one from a
-  fork — cannot upload.
+  branch, from a push or a manual run. A pull request, including one from a
+  fork, cannot upload.
 * Its commit is still the head of the trusted branch, and the token has not
   been used before.
 * The setup pull request is merged and the managed workflow is unchanged, as
@@ -275,12 +277,12 @@ they are scoped. An agent cannot enable repositories on its owner's behalf.
 ## Before you start
 
 * **GitHub.com or GitHub Enterprise Server.** On Enterprise Server the
-  workflow is shaped for it — see [Enterprise Server](#enterprise-server).
+  workflow is shaped for it, see [Enterprise Server](#enterprise-server).
   GHE.com, GitHub's data-residency cloud, is not supported yet: setup refuses
   rather than open a pull request whose workflow would only fail once merged.
 * **A connected installation** with **Contents: read**, so Zoomies can find
   your repositories and read them back. To open setup pull requests it also
-  needs **Contents**, **Workflows** and **Pull requests: write** — the same
+  needs **Contents**, **Workflows** and **Pull requests: write**; the same
   permissions [Migrate](migration.md) uses. The wizard's *Readiness* step tells
   you which are missing before anything is written.
 * **GitHub Actions enabled** in the repository, because generation is an
@@ -311,25 +313,25 @@ someone takes effect on their next request.
 Choose **Enable repositories**. The wizard has six steps, and nothing is
 written to GitHub until the last one:
 
-1. **Repositories** — an installation, then one or more repositories. Archived
+1. **Repositories**: an installation, then one or more repositories. Archived
    repositories cannot be chosen. Nothing is chosen for you, except when you
    arrive from a repository's own page: its **AI Context** tab links here with
    the repository's GitHub ID, and the wizard ticks that repository once the
    installation's list has loaded, and says so. It is yours from then on:
    untick it and it stays unticked. If the installation does not list it, or it
    is archived, nothing is ticked and the step says why.
-2. **Readiness** — whether the installation can read the repository and open a
+2. **Readiness**: whether the installation can read the repository and open a
    setup pull request, and which permission is missing if not.
-3. **Output** — *Repository and Zoomies* or *Repository*; see
+3. **Output**: *Repository and Zoomies* or *Repository*; see
    [where the context lives](#where-the-context-lives).
-4. **Context** — the source branch (the repository's default branch),
+4. **Context**: the source branch (the repository's default branch),
    exclusions, and how many verified snapshots Zoomies keeps. The default
    exclusions leave out `.env` files, keys, certificates, databases,
    `node_modules`, `vendor`, build output, and the bulky files that most often
    break generation: minified bundles, source maps, diagram exports, logs and
    backups. Credential paths are excluded whatever you write here.
-5. **Access** — the source readers. Nobody is preselected.
-6. **Review** — what will be saved, and every path setup will touch.
+5. **Access**: the source readers. Nobody is preselected.
+6. **Review**: what will be saved, and every path setup will touch.
 
 ![The Enable repositories wizard's review step: two repositories, Repository and Zoomies output, three retained snapshots, no readers yet, and the workflow, configuration, generated branch and badge paths the setup will touch](screenshots/ai-context-wizard-dark.webp#only-dark){ .zoomies-shot }
 ![The Enable repositories wizard's review step: two repositories, Repository and Zoomies output, three retained snapshots, no readers yet, and the workflow, configuration, generated branch and badge paths the setup will touch](screenshots/ai-context-wizard-light.webp#only-light){ .zoomies-shot }
@@ -343,17 +345,17 @@ saving one writes nothing to GitHub.
 **Review setup changes** shows every file the setup pull request would add or
 change, in full:
 
-* `.github/workflows/zoomies-ai-context.yml` — the generating workflow, with
+* `.github/workflows/zoomies-ai-context.yml`: the generating workflow, with
   every action pinned to a commit and the [Repomix](https://repomix.com)
   generator pinned to an exact, integrity-locked version.
-* `zoomies-ai-context.config.json` — the settings you chose.
+* `zoomies-ai-context.config.json`: the settings you chose.
 * A marked section in `CLAUDE.md` and `AGENTS.md` telling assistants where the
   context is and how to read it.
 * The AI Context badge near the top of the README.
 
 Your own text in those files is kept as it is; only the marked sections are
-Zoomies'. If a file has been changed in a way Zoomies cannot safely merge — a
-marker edited by hand, a symlink, a file it does not recognise — setup stops
+Zoomies'. If a file has been changed in a way Zoomies cannot safely merge (a
+marker edited by hand, a symlink, a file it does not recognise) setup stops
 and tells you rather than overwriting it.
 
 Choose **Create setup PRs**. Each repository gets one pull request with every
@@ -368,7 +370,7 @@ that push runs the workflow. It has two jobs:
 
 * **Generate** reads the source at that exact commit, applies the exclusions,
   runs Repomix with its secret scanning, and fails if anything is too large,
-  empty or altered — before anything is published.
+  empty or altered, before anything is published.
 * **Publish** checks the generated files once more and moves the
   `zoomies-ai-context` branch forward without a force push. If it fails, the
   previous good output stays where it was. With *Zoomies only*, an **upload**
@@ -409,7 +411,7 @@ route; each source reader does them for themselves:
 
 A connection starts with no repositories, and choosing them is never automatic.
 If you are removed as a reader and added back later, your connections do not get
-their old repositories back — you choose again.
+their old repositories back; you choose again.
 
 ## Use without MCP
 
@@ -508,8 +510,8 @@ The same reads are available over REST for scripts; see the
 ### Assistant notes
 
 An assistant can also write something down. A **note** is a Markdown report,
-plan or note about one repository — a review's findings, an upgrade plan, a map
-of a part of the code — that the assistant publishes with `context_publish` and
+plan or note about one repository (a review's findings, an upgrade plan, a map
+of a part of the code) that the assistant publishes with `context_publish` and
 that every reader of that repository can then read, in the assistant or under
 **Assistant notes** on the repository's card in AI Context.
 
@@ -521,7 +523,7 @@ told where its owner can change that.
 
 | Tool | What it does |
 | --- | --- |
-| `context_notes` | Without a slug, lists the repository's notes, newest first. With one, reads that note — its latest version, or an earlier one by number. |
+| `context_notes` | Without a slug, lists the repository's notes, newest first. With one, reads that note; its latest version, or an earlier one by number. |
 | `context_publish` | Publishes a note under a slug. Publishing the same slug again adds a version; the earlier ones are kept. |
 
 Every note is marked **AI-written** and carries who it is from: the person the
@@ -556,7 +558,7 @@ commit verified, and a status:
 A repository whose context is behind because the workflow's last run failed no
 longer just says *out of date*. Zoomies reads the run for the commit it is waiting
 on, sorts the failure into one of the causes below, and shows that cause on the
-repository's card and in the problems list — the card links to the run, says what
+repository's card and in the problems list; the card links to the run, says what
 to change, and says what Zoomies will do about it on its own. It reads only what
 the GitHub App already may: **Actions** read. It never copies a log line into what
 it shows, because a run's log is written by whatever the run executed.
@@ -589,11 +591,11 @@ minutes for the push-triggered run, then starting it at most twice.
 Submitted repositories also have three maintenance actions. Each is reviewed in
 full before anything is written and published as one pull request:
 
-* **Reinstall / repair** — refresh the managed files to the current templates,
+* **Reinstall / repair**: refresh the managed files to the current templates,
   for example after upgrading Zoomies or after somebody edited the workflow.
   Merging it runs generation again.
-* **Amend** — change the output, exclusions or retention.
-* **Remove** — stop serving the repository at once. Its stored snapshots,
+* **Amend**: change the output, exclusions or retention.
+* **Remove**: stop serving the repository at once. Its stored snapshots,
   readers and every connection's access to it are deleted immediately. The
   pull request removes the workflow and Zoomies' marked sections and leaves your
   own text alone. The history of the generated branch stays in Git. Merge it to
@@ -771,7 +773,7 @@ things differ, each because GitHub.com's workflow could not run there:
   those releases with
   [actions-sync](https://docs.github.com/en/enterprise-server/admin/managing-github-actions-for-your-enterprise/managing-access-to-actions-from-githubcom/manually-syncing-actions-from-githubcom).
 * **Self-hosted runners.** Enterprise Server has no GitHub-hosted runners, so
-  the jobs ask for `[self-hosted, linux]` — any Linux pool of Zoomies' own will
+  the jobs ask for `[self-hosted, linux]`, any Linux pool of Zoomies' own will
   do. The runner needs Python 3 and network access to download Node.js, which
   the Zoomies runner image has.
 
@@ -789,8 +791,8 @@ where.
 ## For an agent operating the fleet
 
 AI Context is about a repository's source. An agent that is *operating* the
-fleet — asking why a job failed, what Kennel Club flags, which pools are the
-wrong size — needs a different thing: the vocabulary Zoomies answers in, and
+fleet (asking why a job failed, what Kennel Club flags, which pools are the
+wrong size) needs a different thing: the vocabulary Zoomies answers in, and
 where each answer leads.
 
 Every problem the controller raises and every check Kennel Club makes has a

@@ -11,7 +11,7 @@ below was run or read on this commit; nothing is inferred from an older one.
 | Reported version | `zoomies 0.1-alpha-299-g6d12a72`, i.e. 299 commits past the only tag, `v0.1-alpha` (4 September 2026) |
 | History | 341 commits between 4 and 6 September 2026. The project is three days old. |
 | Improvement plan | `IMPLEMENTATION_PLAN.md`: Waves 1, 2, 3, 4a, 4b, 4c and 4d all merged (PRs #62 to #68). Open: **D16**, a brand decision for the maintainer; **N02**, runners stuck in `registering` on a dev instance, not reproducible on `main`, waiting on a deployment of `main` to look again. |
-| Schema | Eleven migration files, `0001_init.sql` through `0009_jobs_waiting_state.sql`. Two prefixes are used twice (`0005`, `0006`); both pairs shipped and must never be renamed. The next migration is `0010`. *Overtaken by later work: prefixes from `0010` onwards have since shipped, some of them from outside this roadmap. This row records the schema as it stood at `6d12a72` and says nothing about where it stands now — a new migration takes the next unused prefix in `internal/store/migrations/`, which is the schema rule in section 3 of ROADMAP.md and is what that document names in place of a number.* |
+| Schema | Eleven migration files, `0001_init.sql` through `0009_jobs_waiting_state.sql`. Two prefixes are used twice (`0005`, `0006`); both pairs shipped and must never be renamed. The next migration is `0010`. *Overtaken by later work: prefixes from `0010` onwards have since shipped, some of them from outside this roadmap. This row records the schema as it stood at `6d12a72` and says nothing about where it stands now; a new migration takes the next unused prefix in `internal/store/migrations/`, which is the schema rule in section 3 of ROADMAP.md and is what that document names in place of a number.* |
 | Agent protocol | `agent.ProtocolVersion = 1` (`internal/agent/protocol.go`). Task kinds: `create_runner`, `stop_runner`, `remove_runner`, `stream_logs`, `cancel_logs`, `prewarm_image`. |
 | Deployment models | `native` (systemd or launchd), `compose`, `docker` (`install.sh`, `internal/installer`). |
 | Backends | `docker`, `podman`, `process`. |
@@ -103,7 +103,7 @@ timings need closed.
 
 *Since superseded.* All three moments are recorded now, and all three landed
 during Assignment A. `runners.task_issued_at` came with ZF-102 in migration
-`0014` and `runners.cleaned_up_at` with ZF-105 in `0015` — each with the
+`0014` and `runners.cleaned_up_at` with ZF-105 in `0015`; each with the
 package the measurement contract expected to own it. `jobs.eligible_at`, in
 migration `0019`, did not: the contract had it landing with ZF-101, and what
 ZF-101 delivered was `scheduler.Eligible`, the definition of eligibility as a

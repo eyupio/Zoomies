@@ -30,8 +30,8 @@ designed:
 | --- | --- | --- |
 | Phase 2: build `zoomies why` with classes, evidence and next steps | `GET /jobs/{id}/explanation` (`internal/controller/explain.go`, 374 lines) already answers "why is this job where it is" for queued, running, waiting and finished jobs, with a summary, detail and fix; the CLI, MCP `get_job` and the job drawer all show it. A closed fault taxonomy (`internal/store/faults.go`) names eleven fleet-side failure kinds, each with its own fix sentence | Phase 2 becomes *sharpening*: a `class`, structured evidence, a bounded log excerpt, a catalog link and ordered next steps on the existing payload, and a `why` verb that reads it. No second explainer |
 | Phase 3: build observed-usage size advice | `GET /label-advice`, `zoomies jobs advice`, MCP `label_advice` and the `SizeAdvice` card already recommend `too_small`, `unguaranteed` or `too_large` from the 90th percentile of at least five measured runs (`internal/scheduler/advice.go`, `history.go`) | Phase 3 becomes a small *exposure* change: show the figures the advice rests on and say "not enough data" out loud |
-| Phase 4: build `zoomies audit`, a standalone workflow auditor with its own rule table | `zoomies audit` **is already the audit-log command** (`cmd/zoomies/audit.go`). Kennel Club (`internal/kennel`) is the repository-standards feature: a registry with a catalogue endpoint, waivers, coverage, MCP read tools, UI and metrics. Since #714 it **already reads workflow files**: `ci.no_timeout`, `ci.no_concurrency`, `ci.action_not_pinned` and `token.permissions_unset` ship behind `kennel.workflow_checks`, as per-repository counts, plus ten `setup.*` presence checks behind `kennel.repository_setup`. Its design record specifies the rest of Stage 3 and fix-by-pull-request as Stage 5 | Phase 4 **deepens** what #714 shipped — per-file evidence, the security checks the record still owes, and a local, offline way to run the same checks. The plan's rule IDs become Kennel check codes. There is no second rule table and no second auditor |
-| Phase 1: extend "the existing problem-code table" | There is no table. Each of the 377 documented codes is a `Problem{Code: …}` literal where it is raised; the only central maps are the audience map (`problems.go:129-284`) and the status-page sentences. `docs/problem-codes.md` is hand-written and a test keeps it in step with the literals both ways | Phase 1 generates the catalog from what exists — the documented table plus Kennel Club's registry — rather than migrating 377 call sites into a struct nobody asked for |
+| Phase 4: build `zoomies audit`, a standalone workflow auditor with its own rule table | `zoomies audit` **is already the audit-log command** (`cmd/zoomies/audit.go`). Kennel Club (`internal/kennel`) is the repository-standards feature: a registry with a catalogue endpoint, waivers, coverage, MCP read tools, UI and metrics. Since #714 it **already reads workflow files**: `ci.no_timeout`, `ci.no_concurrency`, `ci.action_not_pinned` and `token.permissions_unset` ship behind `kennel.workflow_checks`, as per-repository counts, plus ten `setup.*` presence checks behind `kennel.repository_setup`. Its design record specifies the rest of Stage 3 and fix-by-pull-request as Stage 5 | Phase 4 **deepens** what #714 shipped, per-file evidence, the security checks the record still owes, and a local, offline way to run the same checks. The plan's rule IDs become Kennel check codes. There is no second rule table and no second auditor |
+| Phase 1: extend "the existing problem-code table" | There is no table. Each of the 377 documented codes is a `Problem{Code: …}` literal where it is raised; the only central maps are the audience map (`problems.go:129-284`) and the status-page sentences. `docs/problem-codes.md` is hand-written and a test keeps it in step with the literals both ways | Phase 1 generates the catalog from what exists (the documented table plus Kennel Club's registry) rather than migrating 377 call sites into a struct nobody asked for |
 | Phase 7.6a: an autonomy ladder over model-generated patches | Kennel Club Stage 5 is a *deterministic* fix planner: line-level edits verified by re-parsing, numbers from the job's own history, no model anywhere | Autonomy, where it is built at all, is built over deterministic fixes first. A model-generated patch is a later rung with its own gate |
 
 Two assumptions the plan makes about the platform are false today and must be
@@ -92,11 +92,11 @@ if a documented page changed.* The repository already holds itself to this;
 the plan should say so.
 
 **Vocabulary.** Findings, explanations and catalog text are never dog-themed,
-whatever the Appearance setting says — the Kennel Club record already fixes
+whatever the Appearance setting says; the Kennel Club record already fixes
 this (its names are chrome; its findings are plain). "Kennel Club" and "Best in
 show" are existing product names and stay.
 
-## 3. Phase 1 — identifiers and the catalog (ZF-230)
+## 3. Phase 1: identifiers and the catalog (ZF-230)
 
 **Goal.** Everything Zoomies can say is wrong is addressable by a stable ID, and
 one fetch tells an agent what every ID means.
@@ -133,10 +133,10 @@ severity, the *detects* sentence and the sources it needs. Add three fields the
 plan asks for, as sentences in the registry so they cannot drift from the
 evaluator:
 
-* `Fix` — what to change, in the imperative.
-* `Verify` — how to see it worked (usually "Recheck, and the finding closes" or
+* `Fix`: what to change, in the imperative.
+* `Verify`: how to see it worked (usually "Recheck, and the finding closes" or
   "the next run of the workflow shows …").
-* `Docs` — the anchor on the Kennel Club page.
+* `Docs`: the anchor on the Kennel Club page.
 
 `GET /kennel/checks` returns them. The per-finding text stays where it is (built
 by each eval function), because a finding's sentence carries numbers and the
@@ -150,7 +150,7 @@ registry's does not.
   `generated_from` (the commit), and `entries[]` of `{id, kind: problem|check,
   title, category, severity, detection, fix, verify, docs_html, docs_md}`. A
   JSON schema beside it, and a test that the file validates.
-* **Markdown mirrors.** Not one page per rule — 377 pages is a maintenance
+* **Markdown mirrors.** Not one page per rule: 377 pages is a maintenance
   burden and a worse read. The HTML and Markdown URLs point at *anchors* on two
   pages: `problem-codes.md` (exists) and `kennel-club.md` (the page the Kennel
   Club record already owes, with every check as a row). The site does not serve
@@ -191,11 +191,11 @@ voice; no new comparison content.
 unknown ID in a finding or an explanation is a test failure; the guard fails on
 a seeded term in a temporary copy.
 
-## 4. Phase 2 — `why`: a sharper explanation (ZF-231)
+## 4. Phase 2: `why`: a sharper explanation (ZF-231)
 
 **Goal.** One question, "why did this job fail, stall or run slow", answered
 with a class, evidence a person can check, the catalog entry and ordered next
-steps — from the CLI, the API, MCP and the job drawer — without calling a model.
+steps (from the CLI, the API, MCP and the job drawer) without calling a model.
 
 ### 4.1 Build on the existing explanation
 
@@ -205,7 +205,7 @@ steps — from the CLI, the API, MCP and the job drawer — without calling a mo
 | --- | --- |
 | `class` | One of the closed set below |
 | `confidence` | `high`, `medium` or `low`, with `reason` saying what data is missing when it is not high |
-| `evidence[]` | Typed facts: `{kind, label, value, unit?, ref?}` — exit code, signal, memory limit and peak, queue wait, host state at the time, the pool's plan reason, the fault kind |
+| `evidence[]` | Typed facts: `{kind, label, value, unit?, ref?}`, exit code, signal, memory limit and peak, queue wait, host state at the time, the pool's plan reason, the fault kind |
 | `log_excerpt` | At most N lines around the decisive line, with line numbers and a note when the log is gone; `null` when there is nothing to show. Hostile output is passed through the same control-character scrub the CLI already applies (`hostile_output_test.go`) |
 | `problem_code` / `check_code` | The catalog entry, when one applies |
 | `next_steps[]` | Ordered, each `{text, kind: read|change|rerun, link?}` |
@@ -262,14 +262,14 @@ hostile-log fixture whose "instructions" survive only as scrubbed text.
 `high` confidence; a job the fleet never touched returns `workflow-failure`,
 never `unknown`.
 
-## 5. Phase 3 — show the figures behind size advice (ZF-236)
+## 5. Phase 3: show the figures behind size advice (ZF-236)
 
 The advice exists. What an agent, and an operator, cannot see is the data it
 rests on. This phase is deliberately small.
 
 * The advice payload gains `observed: {runs, window, cpu: {p50, p95, max},
   memory_mb: {p50, p95, max}}`, `recommended_class`, `reason`, and
-  `fits: {ok, missing}` — whether any host carries the recommended class, with
+  `fits: {ok, missing}`, whether any host carries the recommended class, with
   the class named when none does. Fewer than `AdviceMinRuns` runs is a row with
   `state: not_enough_data` and the count, not an absence.
 * `zoomies jobs advice --window 14d` and `--repo`. The window is bounded by
@@ -277,23 +277,23 @@ rests on. This phase is deliberately small.
 * The `SizeAdvice` card shows the p95 and max beside the recommendation with
   the sample size in small text, and a "not enough data yet, N of 5 runs" row
   where that is the state.
-* Docs: `auto-pools.md` gains *How the figures are computed* — the p90 of
+* Docs: `auto-pools.md` gains *How the figures are computed* (the p90 of
   peaks, the ×1.2 memory headroom, the ×1.5 treatment of an OOM-killed run, the
-  minimum of five runs — naming the constants, and *What is deliberately not
+  minimum of five runs) naming the constants, and *What is deliberately not
   inferred*.
 
 Tests: fixtures for over-, right- and under-provisioned and sparse labels;
 boundary tests at the named constants.
 
-## 6. Phase 4 — Kennel Club reads workflow files (ZF-229c, extended)
+## 6. Phase 4: Kennel Club reads workflow files (ZF-229c, extended)
 
 **Goal.** The plan's auditor, delivered as the stage of Kennel Club that was
 already designed for it, plus an offline way to run it.
 
 ### 6.0 What #714 shipped, and what it leaves
 
-#714 (8 October) put the registry at `Version = 3` with five areas —
-`exposure`, `capacity`, `setup`, `ci`, `token` — and two opt-in settings, both
+#714 (8 October) put the registry at `Version = 3` with five areas:
+`exposure`, `capacity`, `setup`, `ci`, `token`, and two opt-in settings, both
 off by default and both needing Contents: read only for private repositories:
 
 * `kennel.workflow_checks` reads up to fifty default-branch workflow files of
@@ -316,7 +316,7 @@ and it is why the per-finding agent prompt (6.4) and the offline check (6.3)
 cannot be built on the counts alone. The remainder of Phase 4 is therefore:
 
 1. **Evidence with a location.** A second, typed evidence kind beside `pool`
-   and `run`: `{file_sha, job_index, line}` — a blob SHA, not a path, so the
+   and `run`: `{file_sha, job_index, line}`; a blob SHA, not a path, so the
    closed-grammar gate in `refs.go` still holds and the UI resolves the SHA to
    a path only at render time from the inventory it already has. With it, a
    finding can name where, and `Recheck` after a fix closes exactly it.
@@ -345,12 +345,12 @@ of the plan's rules, and where it lands:
 | label-matches-pool | **Already shipped** for the observed half | `capacity.unserved_label`; the static half (a `runs-on` in a file no pool serves) is a new Stage 3 row, `ci.label_unserved`, info |
 | secret-exposure | New, Stage 3, conservative: a `${{ secrets.* }}` interpolated into a `run:` line or passed as a command-line argument. Never a general "secret-looking string" scan | `ci.secret_on_command_line`, warning |
 | queue-sensitive-matrix | New, observed, Stage 1 data: a matrix whose jobs waited together on a pool smaller than the matrix | `capacity.matrix_exceeds_pool`, info |
-| fixed-sleeps, shallow-checkout, dependency-cache, duplicate-setup | **Deferred.** Each is a heuristic with a high false-positive rate, which breaks the registry's precision-over-recall rule and would be the first findings an operator learns to ignore. Revisit as `info` hints with run-history evidence (a job that *is* slow) rather than file patterns alone | — |
+| fixed-sleeps, shallow-checkout, dependency-cache, duplicate-setup | **Deferred.** Each is a heuristic with a high false-positive rate, which breaks the registry's precision-over-recall rule and would be the first findings an operator learns to ignore. Revisit as `info` hints with run-history evidence (a job that *is* slow) rather than file patterns alone | - |
 
 Two registry rules to respect: only `exposure` checks may be errors
 (`TestOnlyExposureChecksCanBeErrors`), so `ci.target_checkout_pr_head` on a
 public repository is either placed in the exposure area or the test and the
-`kennel.exposure` problem are revisited by a decision record — recommended: the
+`kennel.exposure` problem are revisited by a decision record, recommended: the
 exposure area, because that is what it is. And `kennel.Version` (3 since #714)
 is bumped again, because adding location evidence changes what a stored
 evaluation holds.
@@ -376,8 +376,8 @@ findings. The command is the thing the `zoomies-kennel` skill calls, and it
 never talks to a controller unless `--controller` is given, in which case the
 runtime checks join in from the API.
 
-The other `zoomies kennel` verbs — `overview`, `repositories`, `repository
-<id>`, `checks`, `recheck <id>` — are thin readers of the existing routes; none
+The other `zoomies kennel` verbs (`overview`, `repositories`, `repository
+<id>`, `checks`, `recheck <id>`) are thin readers of the existing routes; none
 exist today, and a fleet without a browser should have them.
 
 ### 6.4 The prompt per finding
@@ -397,7 +397,7 @@ negative fixtures, the fuzz target, the dogfooding test against this
 repository's own workflows), plus golden JSON for `kennel check`, and the
 catalog cross-check from Phase 1.
 
-## 7. Phase 5 — skills (ZF-233)
+## 7. Phase 5: skills (ZF-233)
 
 Two skills under `skills/` at the repository root: `skills/zoomies/` and
 `skills/zoomies-kennel/`. (`.claude/skills/` already holds the repository's
@@ -410,8 +410,8 @@ frontmatter, dangling references, absolute paths and length.
 changing GitHub state → `gh`; workflow files → `zoomies-kennel`. Preflight:
 `zoomies status` succeeds and names the controller, else stop and say which of
 "not installed / not signed in / not reachable" it is. The pinned reference from
-section 3.6. A *mutating commands* list — `drain`, `pools`, `hosts edit`,
-`size-pins`, `tune`, `apply-remedy` and the rest — each requiring the agent to
+section 3.6. A *mutating commands* list (`drain`, `pools`, `hosts edit`,
+`size-pins`, `tune`, `apply-remedy` and the rest) each requiring the agent to
 show the command and ask before running it, in the same spirit as the MCP
 tools' `expect` argument.
 
@@ -423,7 +423,7 @@ selection. States what it read and that nothing left the machine.
 Install documentation in the README and `docs/cli.md`, using the path
 `eyupio/zoomies`. Manual smoke test in two agents, recorded in the pull request.
 
-## 8. Phase 6 — documentation (ZF-234)
+## 8. Phase 6: documentation (ZF-234)
 
 New: `docs/kennel-club.md` (owed by the Kennel record anyway; every check a row,
 generated from the registry), a *Why a job failed* section on `queued-job.md`
@@ -434,7 +434,7 @@ or a sibling page, and the skills page. Updated: `ai-context.md`,
 generated `reference.md` is the skill's, and a test keeps the two from
 contradicting each other on command names.
 
-## 9. Phase 7 — the assistant (ZF-235, in slices)
+## 9. Phase 7: the assistant (ZF-235, in slices)
 
 This is where the refinement is largest, because "it just works" and the
 plan's two provider families pull in opposite directions.
@@ -451,9 +451,9 @@ quotes came from a route a test covers.
 
 **Build family A (direct API) and defer family B (driving an agent CLI).**
 
-The CLI bridge has the problem that the controller is a server process — in
+The CLI bridge has the problem that the controller is a server process (in
 the compose deployment it is a container with no agent CLI, no browser and no
-interactive session — so "installed and signed in on the host" is rarely true
+interactive session) so "installed and signed in on the host" is rarely true
 where the controller runs, and "the tool's own permission prompts left on"
 cannot be honoured from a non-interactive process. Worse, it inverts the
 direction the product already supports: a person's agent CLI already connects
@@ -466,7 +466,7 @@ to the controller over MCP** (section 9.9 keeps the gate on anything more). The
 in-UI assistant is for the operator who wants an answer on the page in front of
 them, and it talks to a model the operator configures:
 
-* **OpenAI-compatible endpoint** first — base URL, optional key, model name.
+* **OpenAI-compatible endpoint** first: base URL, optional key, model name.
   One adapter covers Ollama, LM Studio, vLLM, llama.cpp, OpenRouter and the
   gateways. It is the local path and the "it just works" path.
 * **Anthropic API** and **OpenAI API** as thin adapters over the same interface.
@@ -507,7 +507,7 @@ A new settings page, **Assistant**, in the Controller group of
 `web/src/lib/settings/pages.ts`, admin only, listed with a lock for everyone
 else as the rail already does. Providers as cards: name, kind, address, model,
 last check and its result, default badge, **Test**, **Set as default**,
-**Disable**, **Remove** (confirm dialog, typed name — the existing pattern).
+**Disable**, **Remove** (confirm dialog, typed name; the existing pattern).
 The key field is write-only and shows "set, never shown" afterwards. Below the
 cards: the data classes each provider may receive (section 9.6) as switches
 with the default and the consequence in one line each; the **local models
@@ -548,7 +548,7 @@ As the plan says, with the pieces placed:
 * **Limits**: messages per user per hour, tokens per request, an optional
   monthly ceiling per instance, each a setting with a problem code when hit.
 * **A problem** in the drawer when the assistant is on with a hosted provider
-  and logs or files are allowed — in the same style as the dangerous toggles on
+  and logs or files are allowed, in the same style as the dangerous toggles on
   the Security page, which is where it is also documented.
 
 ### 9.7 The panel
@@ -580,7 +580,7 @@ each on its own evidence.**
 2. **Model-drafted patches**, behind a per-repository allow list and off by
    default, only for findings Stage 5 has no planner for. The patch must apply
    cleanly, touch only allowed paths (workflow files by default), parse, and
-   pass the evaluator with no new security finding — the same `VerifyEdit`
+   pass the evaluator with no new security finding; the same `VerifyEdit`
    gate. The diff is shown; confirmation opens the pull request with a plain
    description.
 3. **Autonomy levels** (the plan's 7.6a), applied first to deterministic fixes
@@ -604,7 +604,7 @@ more than an admin session cookie. Add a **step-up**: a `POST /auth/step-up`
 that re-checks the password (and the two-step code where enrolled) and marks
 the session for ten minutes; the governed routes require it, and SSO accounts
 are asked to sign in again. API tokens cannot step up, so these settings are
-browser-only — which is the intent. This is new platform work and a package of
+browser-only, which is the intent. This is new platform work and a package of
 its own; without it the plan's "honours two-step" sentence is not true.
 
 ### 9.10 Gate on subscription sign-in
@@ -640,8 +640,8 @@ evidence (section 6.1).
 1. ZF-230 catalog, guard, command generator
 2. ZF-231 `why`
 3. ZF-236 size-advice figures
-4. ZF-229c the rest of Kennel Club Stage 3 — location evidence, the owed
-   checks, the parser move — with `zoomies kennel check`
+4. ZF-229c the rest of Kennel Club Stage 3 (location evidence, the owed
+   checks, the parser move) with `zoomies kennel check`
 5. ZF-233 skills
 6. ZF-234 docs, foldable into each of the above
 7. ZF-235 the assistant, 7a → 7j, with Stage 5 and step-up as their own
@@ -658,6 +658,6 @@ containing `/oc` or `/opencode`, with no check of the commenter's association.
 Anyone who could comment could trigger it. That is this repository's own
 instance of the plan's `pull_request_target` concern. Fixed alongside this
 record: the job now also requires the commenter's association to be owner,
-member or collaborator, so a stranger's comment is ignored. The shape — a
-comment-triggered job holding write tokens with no association check — is a
+member or collaborator, so a stranger's comment is ignored. The shape (a
+comment-triggered job holding write tokens with no association check) is a
 candidate Kennel Club check for other people's repositories.

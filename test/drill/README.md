@@ -1,8 +1,8 @@
 # The drill tier
 
 This is the only place in the repository that runs the product as an operator
-gets it: **the built binary, twice** — once as a controller, once as a remote
-agent that joined with a join token — with a real workload appearing on the
+gets it: **the built binary, twice** (once as a controller, once as a remote
+agent that joined with a join token) with a real workload appearing on the
 machine that runs it. The only thing faked is GitHub.
 
 Everything else here tests the code inside the test process, where a restart is
@@ -18,7 +18,7 @@ world afterwards.
 make test-drill
 ```
 
-No credentials, no Docker daemon, no network. That is deliberate — a tier that
+No credentials, no Docker daemon, no network. That is deliberate; a tier that
 needed any of those could not run on every pull request, and the roadmap wants
 the lifecycle drill to.
 
@@ -35,11 +35,11 @@ Three substitutions, each chosen so that what is left is still Zoomies:
   work directory. The process backend skips its download when
   `_tools/<version>/bin/Runner.Listener` is already there, so the pool pins a
   version we staged. The stub is a shell script that writes a marker, waits,
-  and exits — a *real process*, laid out by the real backend, in the real
+  and exits; a *real process*, laid out by the real backend, in the real
   place.
 * **The drill drives the job**, both on the fake and through a signed
-  `workflow_job` webhook. The fallback poller only finds *queued* jobs — it is
-  the webhook's backstop, not a second channel — so a drill that only added
+  `workflow_job` webhook. The fallback poller only finds *queued* jobs (it is
+  the webhook's backstop, not a second channel) so a drill that only added
   jobs to the fake would watch a runner sit idle and never see the job it was
   made for.
 
@@ -55,7 +55,7 @@ download.
 
 1. A queued job makes the fleet create a runner, and the task reaches the
    remote agent.
-2. **A real workload appears on this host** — not "the row says provisioning",
+2. **A real workload appears on this host**: not "the row says provisioning",
    but a directory laid out by the backend with a process running in it.
 3. GitHub holds a registration, under the same name the fleet minted.
 4. The job starts and the runner goes busy.
@@ -70,11 +70,11 @@ about Zoomies' opinion of itself.
 
 `TestRemovingARunnerDeletesItsRegistration` removes an idle runner the way an
 operator does, and requires its GitHub registration to be gone **within fifteen
-seconds** — well inside the reaper's first sweep.
+seconds**, well inside the reaper's first sweep.
 
 It is separate because the lifecycle path cannot carry that assertion, and the
-first version of this tier learned it the hard way. Written the obvious way —
-wait for the workload, then check GitHub — the lifecycle drill **passed with
+first version of this tier learned it the hard way. Written the obvious way
+(wait for the workload, then check GitHub) the lifecycle drill **passed with
 `deleteRegistration` commented out**. Two things delete a registration:
 `removeRunner`, and the reaper that lists GitHub every ten minutes and tidies
 up leftovers. The reaper's first sweep lands a minute after the controller
@@ -83,7 +83,7 @@ testing the backstop.
 
 The deeper reason it cannot be sharpened in place: an ephemeral runner that
 finishes its job exits by itself, the agent reports it gone, and the row is
-marked removed without anything being deleted on GitHub — correctly, because
+marked removed without anything being deleted on GitHub, correctly, because
 real GitHub removes a just-in-time runner once it has run its one job. The fake
 does not model that, so on that path there is nothing of Zoomies' to hold to
 account.
@@ -96,7 +96,7 @@ job, and the drill fails in seventeen seconds when it stops doing it.
 Both drills name the runner they are asserting about rather than counting what
 is left. While a job is still queued the scheduler is entitled to put a
 replacement on the host immediately, and a drill that counted would fail on
-correct behaviour — or, worse, pass or fail on which happened first.
+correct behaviour, or, worse, pass or fail on which happened first.
 
 ## The fault drills
 
@@ -165,8 +165,8 @@ here; the recovery half belongs on the reference host the roadmap asks the
 owner for.
 
 `TestAHostHammeringTheAgentRoutesDoesNotDelayAnotherHostsTasks` joins a
-second host from the test process — one that offers no backend, so nothing is
-placed on it — and has it hammer its heartbeat and its task poll from dozens of
+second host from the test process (one that offers no backend, so nothing is
+placed on it) and has it hammer its heartbeat and its task poll from dozens of
 goroutines at once, which is what a broken retry loop or a stolen agent token
 looks like. While it does, a job is queued for the drill's own agent, and the
 drill **asserts** that the job becomes a workload on that host within one poll
@@ -185,7 +185,7 @@ and signal 0, not the directory.
 The agent compares the host against what it is tracking on a fixed thirty-second
 tick (`defaultReconcileInterval`), so a finished workload is noticed within one
 tick. That is a real characteristic of the product, not a slow test, and it is
-not configurable — nor should it be made configurable to speed a test up.
+not configurable, nor should it be made configurable to speed a test up.
 
 ## The record
 

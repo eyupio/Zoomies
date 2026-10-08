@@ -28,7 +28,7 @@ task-issue stamp and the duplicated-agent fence (14); `0017` for the host's
 reported resources and the operator's reserve (15); `0015` for the cleanup
 record and `0016` for the drain timeout (17). Decision 16 shipped in code
 alone and left no schema behind. Of the five, only 15 is still cheap to decide
-differently — ZF-103's reporting half landed and its admission half did not,
+differently, ZF-103's reporting half landed and its admission half did not,
 so how a reservation is fitted, and what a blocked job is told about it, are
 still open. Changing any of the other four now means a new record here and a
 new migration, never an edit to an old one. All five still lack records, and

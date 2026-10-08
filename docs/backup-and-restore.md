@@ -1,9 +1,9 @@
 ---
 icon: material/backup-restore
 description: >-
-  The two files a Zoomies controller is made of, how to copy them safely — by
-  schedule, from the settings page, or by hand — and how to bring the fleet
-  back, here or on another machine.
+  The two files a Zoomies controller is made of, how to copy them safely by
+  schedule, from settings or by hand, and how to restore the fleet here or
+  elsewhere.
 ---
 
 # Backup and restore
@@ -19,7 +19,7 @@ that decrypts them is a separate file.
 | --- | --- | --- |
 | The database | `/var/lib/zoomies/zoomies.db` | Pools, hosts, runners, jobs, users, tokens, the audit log, and the encrypted secrets. |
 | The encryption key | `/etc/zoomies/encryption.key` | Without it the GitHub App's private key and the webhook secrets in that database cannot be read. |
-| `zoomies.yaml` | `/etc/zoomies/zoomies.yaml` | Not strictly needed — the defaults are safe and the rest is quick to retype — but it is the record of what you chose. |
+| `zoomies.yaml` | `/etc/zoomies/zoomies.yaml` | Not strictly needed (the defaults are safe and the rest is quick to retype) but it is the record of what you chose. |
 
 Those are the paths for an install running as root. A non-root install puts
 both directories under `~/.config/zoomies`, and macOS uses
@@ -31,13 +31,13 @@ A container deployment keeps all of it in the `zoomies-data` volume.
 
 ## Taking a backup
 
-There are three ways, and they write the same thing: a timestamped directory —
-`zoomies-20260908-181718/` — holding the database and a manifest. A copy taken
+There are three ways, and they write the same thing: a timestamped directory,
+`zoomies-20260908-181718/`, holding the database and a manifest. A copy taken
 by any of them is restorable by any of the others.
 
 * **The controller takes one itself**, on a schedule. `backup.interval` is
   nightly by default and `backup.keep` keeps the newest seven, into
-  `backup.directory` — a `backups` directory beside the database unless you
+  `backup.directory`; a `backups` directory beside the database unless you
   say otherwise, which on a container deployment is the mounted volume. Set
   the interval to `0` to switch the schedule off. A scheduled copy that fails
   is `backup.failed` in the problems drawer, with the error, and is retried
@@ -59,8 +59,8 @@ works while the controller is running and it works when the controller will not
 start.
 
 The copy is taken with SQLite's `VACUUM INTO`, which is what makes it whole.
-The database runs in WAL mode, so there are two more files beside it —
-`zoomies.db-wal` and `zoomies.db-shm` — and **copying `zoomies.db` alone while
+The database runs in WAL mode, so there are two more files beside it,
+`zoomies.db-wal` and `zoomies.db-shm`, and **copying `zoomies.db` alone while
 the controller is running gives you a file that is missing the most recent
 writes.** What `zoomies backup` produces is one checkpointed file with no WAL
 beside it, already checked with `PRAGMA integrity_check`, at mode 0600.
@@ -70,7 +70,7 @@ Useful flags:
 | Flag | What it does |
 | --- | --- |
 | `--dir` | Where to put it. Defaults to a `backups` directory beside the database. |
-| `--keep N` | After writing, delete all but the newest N. It only ever removes directories this command made — the name has to match and a manifest has to be inside — so a shared backup directory is safe. |
+| `--keep N` | After writing, delete all but the newest N. It only ever removes directories this command made (the name has to match and a manifest has to be inside) so a shared backup directory is safe. |
 | `--include-key` | Copy the encryption key in as well. Read the next section before you do. |
 
 ### The manifest
@@ -82,7 +82,7 @@ question asked during a restore and nowhere else:
   run that release or a later one, because the store refuses a database whose
   ledger names migrations the binary does not have.
 * **The encryption key's fingerprint** and where it came from, so you can tell
-  whether the key file in your hand is the one that opens this database —
+  whether the key file in your hand is the one that opens this database,
   rather than finding out when the first GitHub call fails.
 * **What the key is needed for**: each GitHub App installation whose private
   key or webhook secret is sealed in there. Never the secrets themselves.
@@ -96,8 +96,8 @@ has to be stored like the GitHub App's private key, because that is what it
 contains.
 
 A backup without the key is safe to keep almost anywhere and is useless on its
-own for anything sealed. So keep the key too — once, wherever you keep secrets
-— and let the fingerprint in each manifest tell you they belong together.
+own for anything sealed. So keep the key too (once, wherever you keep secrets)
+and let the fingerprint in each manifest tell you they belong together.
 `zoomies backup` says which of the two you have taken, every time.
 
 A key passed in `ZOOMIES_ENCRYPTION_KEY` rather than a file has nothing to
@@ -106,8 +106,8 @@ copy; `--include-key` says so rather than pretending.
 ## Getting a backup off the machine, and back on
 
 A backup beside the database is a backup against a mistake, not against the
-disk. Either the fleet takes the copy somewhere else itself — [backup
-remotes](#copies-that-leave-the-machine), below — or you do, with `rsync`, a
+disk. Either the fleet takes the copy somewhere else itself, [backup
+remotes](#copies-that-leave-the-machine), below, or you do, with `rsync`, a
 snapshot of the volume, or a job of your own. Keep the key with your secrets,
 once, either way.
 
@@ -120,23 +120,23 @@ argon2id and the archive through AES-256-GCM in chunks, so a file cut short or
 altered does not open as a shorter backup. Nothing on the controller remembers
 the passphrase; the file opens with it and with nothing else.
 
-**Upload** brings either kind back — on this controller or another one. The
+**Upload** brings either kind back, on this controller or another one. The
 archive is unpacked into a staging directory, verified exactly as a restore
 would verify it, and then listed under the name its manifest gives it, marked
 as uploaded. An upload is never counted or removed by retention: an operator who
 brought a file here brought it for a reason.
 
-**Verify** re-reads a backup that is already here — the database's digest
+**Verify** re-reads a backup that is already here (the database's digest
 against the manifest, `PRAGMA integrity_check`, and whether this build can open
-it — because a copy nobody has opened is a copy nobody knows about, and the
+it) because a copy nobody has opened is a copy nobody knows about, and the
 day to find the bad one is not the day it is needed.
 
 **Prune now** applies retention without waiting for a backup. Retention
 normally runs as part of taking one, which is the right moment for it and the
 wrong one for somebody who has just lowered `backup.keep` from thirty to seven:
 until the next backup the fleet is still holding thirty, and with
-`backup.interval` off it holds thirty forever. The button runs both halves —
-`backup.keep` here and each destination's own `keep` in its bucket — and says
+`backup.interval` off it holds thirty forever. The button runs both halves
+(`backup.keep` here and each destination's own `keep` in its bucket) and says
 what it deleted, per destination, because the two numbers are set on the same
 page and are meant to disagree. Nothing that was uploaded or brought back from
 a bucket is counted or removed.
@@ -144,8 +144,8 @@ a bucket is counted or removed.
 ## Copies that leave the machine
 
 A backup destination is an S3-compatible bucket the fleet puts every copy in
-after it takes one. Any implementation of the S3 API does — AWS, MinIO, Ceph,
-Backblaze B2, Cloudflare R2, Garage — and several can be configured at once,
+after it takes one. Any implementation of the S3 API does (AWS, MinIO, Ceph,
+Backblaze B2, Cloudflare R2, Garage) and several can be configured at once,
 because "offsite" and "somebody else's provider" are different words and some
 fleets want both.
 
@@ -156,7 +156,7 @@ it:
   **Add a destination** asks for the endpoint, the bucket and the credential,
   **Test** proves them against the real service before anything is saved, and
   the destination is stored in this fleet's database with its secret key and
-  passphrase sealed under the instance encryption key — the same way a
+  passphrase sealed under the instance encryption key; the same way a
   provider's credential is. Nothing has to be edited on disk and nothing has to
   be restarted.
 * **`backup.remotes` in `zoomies.yaml`** describes one in the file instead.
@@ -197,8 +197,8 @@ three years is opened by `zoomies restore` and by nothing else in particular.
 
 Three things are worth knowing before you rely on it:
 
-* **Set a passphrase.** A backup is the whole fleet — every repository and job
-  it has seen, every account, and the sealed GitHub App credentials — and in a
+* **Set a passphrase.** A backup is the whole fleet (every repository and job
+  it has seen, every account, and the sealed GitHub App credentials) and in a
   bucket it is a file anyone who can read the bucket can open. With a
   passphrase the archive is sealed with argon2id and AES-256-GCM before it
   leaves this host, so the bucket holds something its owner cannot read.
@@ -212,7 +212,7 @@ Three things are worth knowing before you rely on it:
   `backup.remote_unreadable` and sends nothing until the key is put back or the
   secret is entered again. A destination in the file is readable by anything
   that can read the file, which is why the secret belongs in
-  `ZOOMIES_BACKUP_REMOTE_SECRET_ACCESS_KEY` and the file belongs at mode 0600 —
+  `ZOOMIES_BACKUP_REMOTE_SECRET_ACCESS_KEY` and the file belongs at mode 0600,
   and why it is the one that still works on a host with no database at all.
   Neither ever reaches a manifest, a settings export or a diagnostics bundle;
   what the manifest does carry is the *list* of destinations whose secrets the
@@ -221,7 +221,7 @@ Three things are worth knowing before you rely on it:
   itself is one nobody has set the retention, versioning or access policy of.
   Make it, give the credential `s3:PutObject`, `s3:GetObject`,
   `s3:DeleteObject` and `s3:ListBucket` on it, and consider object versioning
-  and a lifecycle rule — they are the protection against somebody deleting the
+  and a lifecycle rule; they are the protection against somebody deleting the
   copies, which retention here cannot be.
 
 The pass itself is written as *make the bucket hold what the directory holds*
@@ -237,7 +237,7 @@ upload happens after the request has answered so that pressing the button does
 not mean holding a browser open for the length of a transfer. **Copy offsite
 now** runs the same pass on demand, which is what an operator who has just
 fixed a credential wants. Every destination is reconciled again on the hour
-regardless, so one that was unreachable catches up by itself —
+regardless, so one that was unreachable catches up by itself,
 `backup.remote_failed` in the problems drawer carries the service's own
 refusal, which is usually a wrong secret, a bucket that is not there, or a
 clock too far out to sign with.
@@ -246,12 +246,12 @@ clock too far out to sign with.
 describes it: what it holds and when it last took a copy, **Test** for a
 listing that proves the credential, **Show copies** for a live listing of the
 bucket, and **Bring back** for one of them. A stored destination also has
-**Edit** — which is where a rotated key goes — and **Remove**, which forgets the
+**Edit** (which is where a rotated key goes) and **Remove**, which forgets the
 destination and leaves what its bucket holds alone. `zoomies backup` sends the
 copy too (`--remote` for one destination, `--no-offsite` for none), and says
 what it did.
 
-The schedule itself — where backups go, how often, and how many are kept — is
+The schedule itself (where backups go, how often, and how many are kept) is
 on the same page, above the list. Those three settings are also in the
 configuration export and can still be set in `zoomies.yaml` or the
 environment; a value the environment is holding reads as pinned here exactly as
@@ -262,8 +262,8 @@ it does on the Configuration page.
 Fetching is separate from restoring on purpose. A restore swaps the database
 the fleet runs on, and the copy it swaps in should be one somebody has seen
 land and verified first, so **Bring back** unpacks the archive into the backup
-directory as an ordinary backup — verified on the way in, marked *From
-offsite*, and never counted or removed by retention — and the restore is the
+directory as an ordinary backup (verified on the way in, marked *From
+offsite*, and never counted or removed by retention) and the restore is the
 same staged restore as for any other backup.
 
 On a host that has lost everything but `zoomies.yaml` and the key, the command
@@ -284,7 +284,7 @@ $ zoomies restore --from-remote offsite latest --replace
 ```
 
 `latest` is the newest copy the remote holds. The restore that follows is the
-ordinary one, with every check and every refusal it makes — and the fleet comes
+ordinary one, with every check and every refusal it makes, and the fleet comes
 back fenced, exactly as it would from a local copy.
 
 ## Restoring
@@ -301,8 +301,8 @@ holds it, and a file swapped under a process that has it open is a process
 reading a file nobody else can see. So **Restore** on the Backups tab stages
 the restore rather than performing it:
 
-1. Every check in *What it refuses* below is made now — the copy is sound, this
-   build can read it, and this host's key is the one that sealed it — because
+1. Every check in *What it refuses* below is made now (the copy is sound, this
+   build can read it, and this host's key is the one that sealed it) because
    now is when you are looking. A refusal is a sentence in the dialog, not a
    line in a log after the restart.
 2. The restore is written down beside the database, and the tab shows a banner
@@ -313,7 +313,7 @@ the restore rather than performing it:
    systemd unit set to restart on failure and a container with a restart
    policy both act on; the next controller to start finds the staged restore,
    applies it before it opens the database, and comes up fenced. The tab
-   watches the health probe through both halves — gone, then back — and says
+   watches the health probe through both halves (gone, then back) and says
    which half it is in, so "still restarting" and "never coming back" are told
    apart. If nothing starts the process, start it by hand: the restore is
    applied whoever starts it.
@@ -326,8 +326,8 @@ database is in place and whether it is fenced, and where the old one was kept.
 A restore that did happen is a banner on the tab saying what was moved aside
 and what was invalidated, until you dismiss it.
 
-The two options the dialog offers — revoking every API token, and making every
-agent join again — are the command's two flags, and the same cost applies.
+The two options the dialog offers (revoking every API token, and making every
+agent join again) are the command's two flags, and the same cost applies.
 
 ### From the command line
 
@@ -340,13 +340,13 @@ and the service unit are yours to put back, because each is a decision about
 this host rather than a copy of the data.
 
 Stop the controller first. Restoring underneath a running one leaves it holding
-a database that is no longer there — and `zoomies restore` now refuses rather
+a database that is no longer there, and `zoomies restore` now refuses rather
 than letting you find that out afterwards.
 
 ### What it refuses, and why it refuses rather than warns
 
 Every one of these is something you would otherwise discover after the
-controller was running on the restored data — the fleet live, the original
+controller was running on the restored data; the fleet live, the original
 possibly gone, and the symptom saying nothing about the restore that caused it.
 So they all happen before anything is moved.
 
@@ -366,7 +366,7 @@ So they all happen before anything is moved.
   starts, reports itself healthy, and cannot authenticate to GitHub.
 * **An existing database.** `--replace` is required, and it moves the database
   that was there to `zoomies.db.before-restore-<timestamp>` rather than
-  deleting it — with its `-wal` and `-shm`, which belong to that database and
+  deleting it, with its `-wal` and `-shm`, which belong to that database and
   would otherwise be replayed into the restored one.
 
 ### What it invalidates
@@ -385,7 +385,7 @@ brings them back. Two are dealt with by default:
   different controller. Zoomies will not delete a machine it cannot currently
   prove it owns, so the restore takes that proof away and each one has to be
   re-established against the hypervisor before anything can act on it. Nothing
-  else about the machines changes — the rows, the resources and the hosts are
+  else about the machines changes; the rows, the resources and the hosts are
   all still there.
 
 Two more are flags, because each has a cost only you can weigh:
@@ -397,8 +397,8 @@ Two more are flags, because each has a cost only you can weigh:
 
 ### A backup from an older release
 
-`zoomies restore` accepts it — the refusal is only for a backup from a *newer*
-release — and the database is migrated to this build as part of putting it
+`zoomies restore` accepts it (the refusal is only for a backup from a *newer*
+release) and the database is migrated to this build as part of putting it
 back. A copy of it exactly as it was is kept first, under `pre-migration/`
 beside the database, so restoring an old backup does not consume it.
 
@@ -408,7 +408,7 @@ Whenever a controller starts and finds migrations pending on an existing
 database, it copies it to `pre-migration/zoomies-<timestamp>/` before applying
 anything, and keeps the last two. Migrations are one-way and the release that
 wrote a database will refuse to open it once a newer one has moved it on, so
-this is the rollback for an upgrade nobody planned to roll back — and it is the
+this is the rollback for an upgrade nobody planned to roll back, and it is the
 same layout `zoomies restore` takes, so putting one back is one command.
 
 It is a copy of the whole database each time, so the two are worth checking on
@@ -417,8 +417,8 @@ nothing there to lose.
 
 ### And what the controller checks when it starts
 
-`zoomies restore` is not the only path onto a restored database — a database
-put in place by hand skips all of the above — so the controller makes two of
+`zoomies restore` is not the only path onto a restored database (a database
+put in place by hand skips all of the above) so the controller makes two of
 the same checks itself, at startup, rather than hours later:
 
 * **The database is newer than the binary.** It refuses to start and names the
@@ -426,12 +426,12 @@ the same checks itself, at startup, rather than hours later:
   downgrade](upgrading.md#there-is-no-downgrade).
 * **The key did not come with the database.** If the database holds GitHub App
   credentials and there is no key file, it refuses to start and names the file
-  to put back, rather than generating a fresh key — which is what it does on a
+  to put back, rather than generating a fresh key, which is what it does on a
   genuine first run, and which here would leave every sealed credential
   unreadable for good.
 
-A key that is present but *wrong* cannot be refused at startup — a key is
-proven only by opening something — so that shows up as `crypto.key_mismatch` in
+A key that is present but *wrong* cannot be refused at startup (a key is
+proven only by opening something) so that shows up as `crypto.key_mismatch` in
 the problems drawer, naming the installations it cannot decrypt. `zoomies
 restore` catches it earlier, from the manifest's fingerprint.
 
@@ -447,7 +447,7 @@ allowed to".
 
 `/readyz` answers 503 while the fence is on, so a load balancer takes the
 instance out of rotation. Liveness is unaffected, so a container runtime does
-not restart it — that would achieve nothing and lose your session.
+not restart it; that would achieve nothing and lose your session.
 
 Check these three before you lift it, because they are what a restore does not
 bring with it:
@@ -463,7 +463,7 @@ bring with it:
   heartbeating, so this resolves itself, but the first few minutes will show
   failures for work that had already gone.
 * **The rented machines, if you have any.** While the fence is on, no machine
-  is created *or deleted* — deletion is fenced too, which it is not for runners,
+  is created *or deleted*, deletion is fenced too, which it is not for runners,
   and the asymmetry is deliberate. A restored copy's rows may describe virtual
   machines a different, still-running controller owns, and deleting one of
   those on the strength of a restored row is the worst thing this system could
@@ -478,20 +478,20 @@ curl -X POST -H "Authorization: Bearer $ZOOMIES_TOKEN" \
   https://zoomies.example.com/api/v1/recovery/unfence
 ```
 
-It needs an administrator, and it is audited under its own action — the audit
+It needs an administrator, and it is audited under its own action; the audit
 log is where somebody later asks who decided the fleet was ready.
 
 ### Restoring onto a second machine
 
 Stop the original first. Two controllers reconciling one fleet's runners from
-the same rows is how a restore becomes an outage — they will each decide the
+the same rows is how a restore becomes an outage; they will each decide the
 other's runners are theirs to remove. There is no interlock across machines
 that could enforce this for you.
 
 ## What is not worth backing up
 
 Runner containers, work directories and the runner binary cache are all
-disposable by design — an ephemeral runner is destroyed after one job, and
+disposable by design; an ephemeral runner is destroyed after one job, and
 anything a host holds can be rebuilt by pulling an image. There is nothing in
 `work_dir` that a restore needs.
 
@@ -499,7 +499,7 @@ anything a host holds can be rebuilt by pulling an image. There is nothing in
 
 The database is the only thing that changes, and what it holds is
 configuration and history rather than anything a workflow depends on minute to
-minute. The default schedule — nightly, keeping seven — is enough for most
+minute. The default schedule (nightly, keeping seven) is enough for most
 fleets; the controller takes an extra copy before an upgrade by itself, because
 that is the only rollback there is. Where those copies go is the other half of
 the question, and the honest answer is that a directory on the same disk is not
@@ -510,22 +510,22 @@ entry.
 
 ## Moving a configuration
 
-A backup is the whole fleet. The configuration alone — the settings an
-administrator has set, and nothing else — travels separately, from
+A backup is the whole fleet. The configuration alone (the settings an
+administrator has set, and nothing else) travels separately, from
 **Settings → Configuration**:
 
 * **Export** writes every setting somebody has set: stored in the database, set
   in the file, or pinned by the environment. Defaults are left out, because
   they are computed on the host that reads them, and no secret's value is ever
-  in it — the export names the secrets that were configured, so the import can
+  in it; the export names the secrets that were configured, so the import can
   say which to set by hand. As YAML it is the shape `zoomies.yaml` takes, so
   the file can be started from; as JSON it carries when it was taken and where
   from.
 * **Import** reads an export, or a `zoomies.yaml`, back. Every key is planned
   through the same checks a change on the page goes through and shown first:
   which would change, which are already so, and which this controller refuses
-  and why. Applying is one change or none — a refused key has to be fixed in
-  the document or left out — and the keys that wait for a restart are marked
+  and why. Applying is one change or none (a refused key has to be fixed in
+  the document or left out) and the keys that wait for a restart are marked
   on the page afterwards, exactly as a change made by hand would be.
 
 Both are audited, as `settings.export` and `settings.import`.
@@ -535,12 +535,12 @@ Both are audited, as `settings.export` and `settings.import`.
 The pools are the fleet's other half, and they travel the same way, from
 **Pools → Export** and **Pools → Import** or with `zoomies pools export` and
 `zoomies pools import`. It is how the pools you run on one instance reach
-another you run — staging to production, an old machine to a new one — and how
+another you run (staging to production, an old machine to a new one) and how
 they are kept in version control beside the workflows that use them.
 
 * **Export** writes every pool's own settings: its platform, labels, limits and
-  runner settings. Nothing the instance made up about a pool is in it — no id,
-  no counts, no timestamps — and the installation is named by the organisation
+  runner settings. Nothing the instance made up about a pool is in it (no id,
+  no counts, no timestamps) and the installation is named by the organisation
   or repository it covers rather than by its id, so the file means the same
   thing on an instance with the same GitHub App installed. A pool's
   environment is the one place a secret can hide, so the export names the
@@ -548,7 +548,7 @@ they are kept in version control beside the workflows that use them.
 * **Import** reads that file back and matches pools by name. Each is planned
   through the same checks the pool editor and `PATCH` go through and shown
   first: which pools would be created, which would change and in which
-  settings — with the value now and the value incoming — which are already so,
+  settings (with the value now and the value incoming) which are already so,
   and which this instance refuses and why. An installation it does not have,
   a figure the pools API refuses, and an edit that would leave a pool with no
   host that could run it are all refusals; a new pool that no host can run yet
@@ -580,7 +580,7 @@ The archive holds the installation, its pools, runners, jobs and their events,
 webhook deliveries, scaling events, runner sessions, usage days and capacity
 samples, and every audit row that names any of them. With a passphrase, the
 App's private key and webhook secret are sealed under it with argon2id and
-AES-256-GCM — the scheme an encrypted backup uses — and the import opens them
+AES-256-GCM (the scheme an encrypted backup uses) and the import opens them
 and seals them again under the new instance's key; without one, the history
 travels and the credentials do not. The instance-sealed columns never leave in
 any case. The import is all or nothing, keeps every row's ID, and leaves the
@@ -589,7 +589,7 @@ arrives as sessions. Stop the pools on the old instance first, for the reason
 [restoring onto a second machine](#restoring-onto-a-second-machine) gives.
 
 Deleting an installation leaves its history behind on purpose. To remove that
-too — a team that has left, whose jobs and audit trail should go with it —
+too (a team that has left, whose jobs and audit trail should go with it)
 purge it: `DELETE /api/v1/installations/{id}?purge=true&confirm=<target>`,
 with the target typed to confirm, removes exactly the set an export writes and
 nothing that belongs to another installation. Export first if it may ever be

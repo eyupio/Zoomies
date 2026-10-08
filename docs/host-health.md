@@ -542,7 +542,7 @@ It asks first (or accepts `--yes`), then:
 
 1. records which of `zoomies-agent.service` and `zoomies.service` are running, and
    stops those, so nothing new starts;
-2. waits up to `--wait` (default 10 minutes) for every running container to finish —
+2. waits up to `--wait` (default 10 minutes) for every running container to finish;
    the host's own and anyone else's, because a Docker restart ends them all;
 3. restarts Docker and waits for it to answer;
 4. starts the services it stopped, in the reverse order, and clears the pending restart.
@@ -551,7 +551,7 @@ It asks first (or accepts `--yes`), then:
 over, the host is put back in service, nothing is restarted, the change stays pending,
 and the message says so. `--kill-running` is the separate, named permission to stop
 what is left and restart anyway; it lists the containers first, and their jobs fail.
-If the restart itself fails, the services are still started again — a host left out of
+If the restart itself fails, the services are still started again; a host left out of
 service is worse than a restart that did not happen.
 
 On a host that runs the controller, `zoomies.service` is the control plane: it is

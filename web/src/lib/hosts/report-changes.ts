@@ -126,7 +126,7 @@ function list(titles: string[]): string {
 function group(titles: string[], single: string, many: (n: number) => string): string {
   if (titles.length === 0) return '';
   if (titles.length > 3) return many(titles.length);
-  return `${list(titles)} — ${single}`;
+  return `${list(titles)}, ${single}`;
 }
 
 /**
@@ -165,9 +165,9 @@ export function announcement(changes: ReportChange[], allClear: boolean): string
 
 /** The same facts one per row for the visible list. */
 export function logLine(c: ReportChange): string {
-  if (c.kind === 'resolved') return `${c.title} — now OK`;
-  if (c.kind === 'escalated') return `${c.title} — warning became an error`;
-  return `${c.title} — ${c.status === 'error' ? 'now has an error' : 'now needs attention'}`;
+  if (c.kind === 'resolved') return `${c.title}, now OK`;
+  if (c.kind === 'escalated') return `${c.title}, warning became an error`;
+  return `${c.title}, ${c.status === 'error' ? 'now has an error' : 'now needs attention'}`;
 }
 
 /** Whether a report now says everything is fine, for the "nothing needs attention" sentence. */

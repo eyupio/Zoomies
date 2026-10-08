@@ -10,7 +10,7 @@ reject it.
 Zoomies is increasingly provisioned and run by something other than a person
 at the UI: configuration-management tools, installers, one-click templates,
 and operators running many installations from one script. Each of them has
-to answer the same questions without a human step — is it serving, is it
+to answer the same questions without a human step, is it serving, is it
 ready, has anyone claimed it, who am I, what is wrong, is it backed up, how
 do I take its pools and installations elsewhere, and how do I stop it for an
 upgrade. [docs/api-surface.md](../../docs/api-surface.md) documents every

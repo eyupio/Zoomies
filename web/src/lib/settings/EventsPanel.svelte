@@ -77,7 +77,7 @@
 <p class="note">
   {on} of {categories.length} kinds are on. The feed keeps the last few hundred entries this tab has seen
   and shows the newest twelve; everything in it also lives on the page it is about, which is where the
-  whole of it is — every decision on the pool, every failure on the runner, every recorded action on the
+  whole of it is, every decision on the pool, every failure on the runner, every recorded action on the
   Audit page.
 </p>
 

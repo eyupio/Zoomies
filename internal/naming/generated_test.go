@@ -198,7 +198,7 @@ func TestDocsListTheCatalogue(t *testing.T) {
 		rows[tag] = strings.Trim(strings.TrimSpace(cells[1]), "`") + " " + strings.TrimSpace(cells[2]) + " " + strings.TrimSpace(cells[3])
 	}
 	for _, img := range Images() {
-		full := "—"
+		full := "-"
 		if img.Full {
 			full = "yes"
 		}

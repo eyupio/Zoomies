@@ -243,8 +243,8 @@
 
   {#if showSuggestion}
     <p class="suggest">
-      <button type="button" onclick={useSuggestion}>Use <code>{suggestion}</code></button>
-      — the branded label this pool's name suggests.
+      <button type="button" onclick={useSuggestion}>Use <code>{suggestion}</code></button>, the
+      branded label this pool's name suggests.
     </p>
   {/if}
 

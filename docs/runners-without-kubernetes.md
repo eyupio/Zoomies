@@ -1,6 +1,6 @@
 ---
 icon: material/server-network
-title: Self-hosted GitHub Actions runners without Kubernetes
+title: GitHub Actions runners without Kubernetes
 description: >-
   Choose between a simple runner, a Docker container, Zoomies and a runner
   service. Run ephemeral GitHub Actions jobs on your own hosts without a cluster.

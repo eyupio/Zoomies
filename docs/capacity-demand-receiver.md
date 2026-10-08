@@ -13,16 +13,16 @@ and a high-entropy `signing_secret`; `pools` optionally limits publication to
 pool IDs or names.
 
 The controller posts JSON for `capacity_demand` when queued work has nowhere to
-run — either because every eligible host is full, or because no host in the
-fleet could run that pool at all — and `scale_down_opportunity` only after
+run (either because every eligible host is full, or because no host in the
+fleet could run that pool at all) and `scale_down_opportunity` only after
 excess idle host capacity remains continuously visible for the cooldown.
 Delivery state is stored in SQLite, so it survives a restart. A scale-down event
 is advisory: the receiver must apply its own safety policy before removing a VM.
 
 The second case is the one worth knowing about, because it is the one a receiver
 is usually written for and the one Zoomies used to keep to itself. A pool with
-queued jobs and an empty fleet — or a fleet whose every host runs the wrong
-backend, the wrong platform, or does not match the pool's host selector — is
+queued jobs and an empty fleet (or a fleet whose every host runs the wrong
+backend, the wrong platform, or does not match the pool's host selector) is
 asking to be scaled from zero, and no job finishing anywhere will clear it. The
 event says what is missing; whether your infrastructure can supply it is still
 yours to decide, and a pool blocked on something a new machine would not fix
@@ -33,7 +33,7 @@ what you would guess:
 
 * **The cooldown keys on the attempt, not the outcome.** Once Zoomies has tried
   to deliver an event for a pool and event type, it will not try again until the
-  cooldown has passed — whether the first attempt was accepted, refused or
+  cooldown has passed, whether the first attempt was accepted, refused or
   never answered. This is deliberate: it is the circuit breaker that stops an
   unavailable receiver turning every reconcile pass into a request storm. It
   also means a receiver that returns 500 does not get an immediate retry from
@@ -45,7 +45,7 @@ what you would guess:
   `capacity_demand.delivery_failed` problem, and left until the cooldown
   expires.
 * **The event is a reading, not an increment.** After the cooldown, a shortfall
-  that is still unmet — because the hosts you asked for have not joined yet —
+  that is still unmet (because the hosts you asked for have not joined yet)
   is delivered again under a **new** `event_id`. A receiver that adds
   `required_runner_slots` to whatever it already asked for, once per event ID,
   therefore adds the same shortfall again every cooldown until the first hosts

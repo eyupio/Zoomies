@@ -1,6 +1,6 @@
 ---
 icon: material/timer-sand
-title: GitHub Actions job stuck queued on a self-hosted runner
+title: "GitHub Actions job stuck queued: self-hosted fix"
 description: >-
   Diagnose a queued GitHub Actions job: check labels, runner groups, Zoomies
   pool limits, host capacity, image startup and registration in order.

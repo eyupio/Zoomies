@@ -12,9 +12,9 @@ The controller exposes Prometheus metrics at `/metrics`. They are the same
 numbers the Overview draws, without the browser, and they are how you keep a
 history of everything that moves minute to minute: Zoomies stores enough of
 those to answer "what is happening now" and leaves their past to whatever you
-already scrape with. What it does keep is the usage ledger — every finished
+already scrape with. What it does keep is the usage ledger, every finished
 runner's session for a year (`retention.runner_sessions`) and a daily roll-up
-of runner-hours and cost per pool, host and installation that is never pruned —
+of runner-hours and cost per pool, host and installation that is never pruned,
 so the [usage report](api-surface.md) answers "how many runner-hours did we use
 last month, and what did they cost" however short `retention.runners` is. Job
 counts, execution time and queue waits still come from job rows and go with
@@ -22,7 +22,7 @@ counts, execution time and queue waits still come from job rows and go with
 
 **The agent exposes nothing.** Everything below is the controller's. Agent-side
 work still reaches Prometheus, because the agent reports what it did and the
-controller observes the result — the runner-startup histograms are all measured
+controller observes the result; the runner-startup histograms are all measured
 this way.
 
 ## Reaching the endpoint
@@ -54,11 +54,11 @@ memory, so they are always current and never drift.
 | Metric | Type | Labels | What it is |
 | --- | --- | --- | --- |
 | `zoomies_runners` | gauge | `pool`, `state` | Runners by pool and state. The main shape-of-the-fleet series. |
-| `zoomies_jobs_queued` | gauge | `pool` | Jobs waiting for a runner, under the pool that claimed them. This is the backlog worth alerting on. Work an operator removed from the queue is not waiting for anything and is not counted, nor is a job whose workflow run has been cancelled — from the moment GitHub accepts the cancellation rather than when it reports the job over. Paused work is still waiting and is still counted. |
+| `zoomies_jobs_queued` | gauge | `pool` | Jobs waiting for a runner, under the pool that claimed them. This is the backlog worth alerting on. Work an operator removed from the queue is not waiting for anything and is not counted, nor is a job whose workflow run has been cancelled, from the moment GitHub accepts the cancellation rather than when it reports the job over. Paused work is still waiting and is still counted. |
 | `zoomies_hosts` | gauge | `state` | Agent hosts, by `healthy`, `unhealthy` or `cordoned`. |
-| `zoomies_host_capacity` | gauge | — | Runner slots across healthy, uncordoned hosts: what their operators set, or — on a host given a standard runner size — what its machine holds of that size, up to the capacity set. |
-| `zoomies_host_effective_capacity` | gauge | — | The same slots as the hosts' throttles leave them. Equal to the previous while no host is throttled; the gap between the two is the throttle. |
-| `zoomies_host_capacity_used` | gauge | — | Slots occupied on healthy, uncordoned hosts — the same hosts the two capacity figures count, so dividing by the effective figure gives utilisation. Runners still finishing on a cordoned or silent host are not in it; `zoomies_runners` counts every live runner. |
+| `zoomies_host_capacity` | gauge | - | Runner slots across healthy, uncordoned hosts: what their operators set, or (on a host given a standard runner size) what its machine holds of that size, up to the capacity set. |
+| `zoomies_host_effective_capacity` | gauge | - | The same slots as the hosts' throttles leave them. Equal to the previous while no host is throttled; the gap between the two is the throttle. |
+| `zoomies_host_capacity_used` | gauge | - | Slots occupied on healthy, uncordoned hosts; the same hosts the two capacity figures count, so dividing by the effective figure gives utilisation. Runners still finishing on a cordoned or silent host are not in it; `zoomies_runners` counts every live runner. |
 | `zoomies_host_cpu_usage_percent` | gauge | `host` | Recent whole-host CPU occupied, including I/O wait. Missing when stale or unmeasured. |
 | `zoomies_host_memory_available_bytes` | gauge | `host` | Recent available memory including reclaimable cache. Missing when stale or unmeasured. |
 | `zoomies_host_memory_pool_bytes` | gauge | `host` | Memory the host can still [lend to running jobs](elastic-memory.md): what no runner's guarantee needs and the host measured as free, less the floor it keeps for itself. Missing for a host with no runner on a pool that has the memory valve on. |
@@ -66,25 +66,25 @@ memory, so they are always current and never drift.
 | `zoomies_host_admission_held` | gauge | `host` | 1 while measured CPU or memory pressure holds new starts; running jobs continue. |
 | `zoomies_host_usage_fresh` | gauge | `host` | 1 when usage is less than 90 seconds old; 0 when placement falls back to reservations. |
 | `zoomies_host_load_average_1m` | gauge | `host` | Recent whole-host one-minute load average. Missing when stale or unmeasured. Past twice the host's CPUs it is what throttles the host; under one per CPU is calm. |
-| `zoomies_host_runtime_recovering` | gauge | `host` | 1 while the host's agent reports its container runtime in a recovery cooldown — new starts held until one recovery attempt — and 0 otherwise. Reported for every host. The drawer's `host.runtime_recovering` says which failure it is and when the attempt is due. |
+| `zoomies_host_runtime_recovering` | gauge | `host` | 1 while the host's agent reports its container runtime in a recovery cooldown (new starts held until one recovery attempt) and 0 otherwise. Reported for every host. The drawer's `host.runtime_recovering` says which failure it is and when the attempt is due. |
 | `zoomies_host_throttle_level` | gauge | `host` | The rung of the throttle ladder the host is on after sustained pressure, 0 to 3. Reported for every host, throttled or not, so a threshold rule keeps matching when nothing is wrong. |
-| `zoomies_host_os_checks` | gauge | `host`, `state` | The checks on a host's latest [OS report](host-health.md) that need attention, by `warning`, `error`, `skipped`, `suggestion` or `accepted`. The first three count only what `zoomies doctor` counts by default — the safe tier, without optional checks — and are the numbers the host page and the `host.os_health` problem use; a pending reboot is not one of the warnings, because `zoomies_host_reboot_pending` says it. `suggestion` is a warning that is only a choice, from another tier or optional. `accepted` is a counted warning an operator has accepted as deliberate: it is no longer in `warning`, so a rule on `warning` keeps meaning unaccepted checks, and the host page and `zoomies doctor --host --verbose` show who accepted it and why, and `zoomies hosts list` shows how many. All five are reported for every host with a report, zeroes included, so a threshold rule keeps matching when nothing is wrong; there is no `ok` state, so the five do not add up to the number of checks. Missing for a host that is offline, has sent no report or sent only a container's partial one. Counts only, never the name of a check. |
+| `zoomies_host_os_checks` | gauge | `host`, `state` | The checks on a host's latest [OS report](host-health.md) that need attention, by `warning`, `error`, `skipped`, `suggestion` or `accepted`. The first three count only what `zoomies doctor` counts by default (the safe tier, without optional checks) and are the numbers the host page and the `host.os_health` problem use; a pending reboot is not one of the warnings, because `zoomies_host_reboot_pending` says it. `suggestion` is a warning that is only a choice, from another tier or optional. `accepted` is a counted warning an operator has accepted as deliberate: it is no longer in `warning`, so a rule on `warning` keeps meaning unaccepted checks, and the host page and `zoomies doctor --host --verbose` show who accepted it and why, and `zoomies hosts list` shows how many. All five are reported for every host with a report, zeroes included, so a threshold rule keeps matching when nothing is wrong; there is no `ok` state, so the five do not add up to the number of checks. Missing for a host that is offline, has sent no report or sent only a container's partial one. Counts only, never the name of a check. |
 | `zoomies_host_reboot_pending` | gauge | `host` | 1 while the host's latest OS report says an update is waiting for a reboot, 0 otherwise. Missing in the same cases as the series above. The drawer's `host.reboot_pending` is an info note, so this is for finding hosts that are overdue for one rather than for paging. |
 | `zoomies_host_health_report_age_seconds` | gauge | `host` | How old the host's latest OS report is, by the host's own clock, and never below zero. It is the freshness signal: on a native agent, a host whose collector has stopped is still reported and its age climbs, so a value above 600 is the same ten minutes as `host.health_stale`. On a Docker or Compose installation a stopped `zoomies-host-health.service` makes the series disappear instead, because the container's own partial report takes over; alert on its absence too (see [what it cannot see](host-health.md#what-it-cannot-see)). Missing in the same cases as the series above. |
-| `zoomies_host_allocatable_cpus` | gauge | — | CPUs across healthy, uncordoned hosts, less each host's reserve. |
-| `zoomies_host_allocatable_memory_bytes` | gauge | — | The same for memory. |
-| `zoomies_host_reserved_cpus` | gauge | — | What the live runners have promised away, as of the last scheduling pass. |
-| `zoomies_host_reserved_memory_bytes` | gauge | — | The same for memory. Divide by the allocatable pair for "how full are the machines", which is a different question from how full the slots are. |
-| `zoomies_job_queue_age_seconds` | gauge | `pool` | How long the oldest job still waiting has been waiting. Zero when the pool has nothing queued, and counted over the same jobs as the depth — an item removed from the queue would otherwise climb here for ever. |
+| `zoomies_host_allocatable_cpus` | gauge | - | CPUs across healthy, uncordoned hosts, less each host's reserve. |
+| `zoomies_host_allocatable_memory_bytes` | gauge | - | The same for memory. |
+| `zoomies_host_reserved_cpus` | gauge | - | What the live runners have promised away, as of the last scheduling pass. |
+| `zoomies_host_reserved_memory_bytes` | gauge | - | The same for memory. Divide by the allocatable pair for "how full are the machines", which is a different question from how full the slots are. |
+| `zoomies_job_queue_age_seconds` | gauge | `pool` | How long the oldest job still waiting has been waiting. Zero when the pool has nothing queued, and counted over the same jobs as the depth; an item removed from the queue would otherwise climb here for ever. |
 | `zoomies_github_paused` | gauge | `installation` | 1 while that installation is inside its GitHub rate-limit backoff and every background sweep is standing down from it. |
 | `zoomies_provider_machines` | gauge | `provider`, `state` | Machines a provider is renting, by state. Every state is reported including the zeroes, so a provider that has stopped buying is visible rather than absent. |
-| `zoomies_provider_machines_quarantined` | gauge | — | Machines whose ownership could not be proved. Nothing will move one until a person does, so this is a queue of work rather than a shape — alert on any sustained non-zero value. |
-| `zoomies_update_available` | gauge | — | 1 while the release `updates.mode` would take is newer than the build this controller is running, and 0 otherwise. A release still waiting out `updates.soak` counts: this says a newer one exists, and `GET /updates` says when `auto` will take it. It is 0 while `updates.mode` is `off`, until the release list has been read, and for a build that is not from a release, and it is reported at 0 as well as 1 so a rule on how long a release has been waiting has a series to match before there is one. The `controller.update_available` notice is separate: it still follows GitHub's latest release while the mode is `off`. |
+| `zoomies_provider_machines_quarantined` | gauge | - | Machines whose ownership could not be proved. Nothing will move one until a person does, so this is a queue of work rather than a shape, alert on any sustained non-zero value. |
+| `zoomies_update_available` | gauge | - | 1 while the release `updates.mode` would take is newer than the build this controller is running, and 0 otherwise. A release still waiting out `updates.soak` counts: this says a newer one exists, and `GET /updates` says when `auto` will take it. It is 0 while `updates.mode` is `off`, until the release list has been read, and for a build that is not from a release, and it is reported at 0 as well as 1 so a rule on how long a release has been waiting has a series to match before there is one. The `controller.update_available` notice is separate: it still follows GitHub's latest release while the mode is `off`. |
 
 **Configured and effective slots are kept apart rather than one replacing the
 other.** The effective figure is the utilisation denominator while a throttle
-stands — it is what `free` is measured against, on the Hosts page and in the
-scheduler — and the configured one is what the operator set, so an alert on
+stands (it is what `free` is measured against, on the Hosts page and in the
+scheduler) and the configured one is what the operator set, so an alert on
 "the fleet shrank" can tell a host somebody resized from a host the controller
 stepped down. `zoomies_host_throttle_level` names which.
 
@@ -105,7 +105,7 @@ two installations, one of them rate-limited, is a fleet half working, and only
 the label says which half. It reports 0 for every installation that is not held,
 so a threshold rule keeps matching when nothing is wrong.
 
-`zoomies_runners{state}` covers the live states only — `provisioning`,
+`zoomies_runners{state}` covers the live states only, `provisioning`,
 `registering`, `idle`, `busy`, `draining` and `failed`. There is no `removed`
 series, because a removed runner is not a runner.
 
@@ -121,36 +121,36 @@ will not fire when the numbers stop arriving altogether.
 | `zoomies_jobs_total` | counter | `pool`, `conclusion` | Jobs seen to completion. The denominator for every other job rate. `conclusion` is GitHub's, or `unknown` when it sent none. |
 | `zoomies_jobs_runner_lost_total` | counter | `pool` | Jobs whose runner died before GitHub reported the job over. These are the fleet's failures rather than the workflow's, and any sustained rate is worth waking up for. |
 | `zoomies_job_reruns_total` | counter | `pool`, `trigger` | Re-runs Zoomies has asked GitHub for. `trigger` is `operator` for the button on a job and `fleet_fault` for [`scheduler.auto_rerun`](configuration.md#schedulerauto_rerun-and-schedulerauto_rerun_limit). A rising `fleet_fault` rate is the fleet breaking jobs and paying to run them again: read it beside `zoomies_jobs_runner_lost_total` rather than on its own. |
-| `zoomies_jobs_sized_total` | counter | `basis`, `class`, `mode` | Jobs put in a size class when they were queued, by how the class was decided — `explicit` for a size label in `runs-on`, `pin`, `history` or `default` — the class, and the [`scheduler.size_routing`](configuration.md) mode. Counted once for each job, by the delivery that classed it, and only for a job a pool of this fleet answers: a job for GitHub's own runners is not classed. Absent while size routing is `off`. |
+| `zoomies_jobs_sized_total` | counter | `basis`, `class`, `mode` | Jobs put in a size class when they were queued, by how the class was decided (`explicit` for a size label in `runs-on`, `pin`, `history` or `default`) the class, and the [`scheduler.size_routing`](configuration.md) mode. Counted once for each job, by the delivery that classed it, and only for a job a pool of this fleet answers: a job for GitHub's own runners is not classed. Absent while size routing is `off`. |
 | `zoomies_jobs_ran_by_class_total` | counter | `class`, `ran_class`, `mode` | Classed jobs by the class they were put in and the class of the host that took them. Where the two differ the job ran somewhere other than where it was classed; for a job that only asked for the base label that is GitHub choosing the runner rather than a fault. Read the share of `class` ≠ `ran_class` under `shadow` before turning routing `on`. |
 | `zoomies_jobs_rerouted_total` | counter | `from`, `to` | Queued jobs sent to another size class because their own had no pool, or no room for as long as `scheduler.size_fallback_wait`. |
-| `zoomies_job_failures_total` | counter | `pool`, `domain`, `fault` | Job failures split by whose they are. `domain` is `fleet` or `workflow`; `fault` is the category — `out_of_memory`, `host_lost`, `image`, `registration`, `backend`, `backend_busy`, `container_conflict`, `config`, `out_of_disk`, `removed`, `runner_exited` — and is empty for a workflow's own failure. The fleet domain is the same set of jobs as `zoomies_jobs_runner_lost_total`, which is kept so an alert written against it does not disappear on upgrade. |
-| `zoomies_runner_start_failures_total` | counter | `pool`, `fault` | Runners that failed before they could ever take a job, by category. These reach no job at all — the job they were meant for stays queued and waits for the next one — so a pool climbing here while its queue never moves is a fleet failing with nothing in the failed-jobs count to show for it. |
+| `zoomies_job_failures_total` | counter | `pool`, `domain`, `fault` | Job failures split by whose they are. `domain` is `fleet` or `workflow`; `fault` is the category (`out_of_memory`, `host_lost`, `image`, `registration`, `backend`, `backend_busy`, `container_conflict`, `config`, `out_of_disk`, `removed`, `runner_exited`) and is empty for a workflow's own failure. The fleet domain is the same set of jobs as `zoomies_jobs_runner_lost_total`, which is kept so an alert written against it does not disappear on upgrade. |
+| `zoomies_runner_start_failures_total` | counter | `pool`, `fault` | Runners that failed before they could ever take a job, by category. These reach no job at all (the job they were meant for stays queued and waits for the next one) so a pool climbing here while its queue never moves is a fleet failing with nothing in the failed-jobs count to show for it. |
 | `zoomies_registrations_deferred_total` | counter | `installation` | Runner creations held back because the installation was already at `scheduler.registration_concurrency` credential requests in flight. The scheduler had already chosen a host for each of them, so this counts work deferred rather than work refused: the demand is kept and a later pass takes it. A rising rate alongside a growing queue means runners are appearing slowly for a reason no number of extra hosts will change. |
 | `zoomies_scaling_events_total` | counter | `pool`, `direction` | Scheduler decisions that changed a pool's size, `up` or `down`. Flapping shows up here first. |
 | `zoomies_webhook_deliveries_total` | counter | `status` | Inbound deliveries by `accepted`, `rejected` or `error`. A rising `rejected` count is a signing-secret mismatch or somebody probing. |
 | `zoomies_runner_cleanups_total` | counter | `outcome` | Attempts to take a runner off its host: `succeeded`, or `failed` and recorded on the runner's row. This is the half of a runner's life that goes wrong on the host rather than in the fleet, so it appears in no other series here. |
-| `zoomies_reconcile_errors_total` | counter | — | Reconcile passes that failed. A pass that fails observes no duration, so without this a controller deciding nothing looks exactly like one with nothing to decide. |
-| `zoomies_agent_polls_shed_total` | counter | — | Task polls answered with a backoff because the controller was holding too many at once. A fleet that keeps working while every host hears about its tasks a little later moves nothing else here, so this is the only place that pressure shows. |
+| `zoomies_reconcile_errors_total` | counter | - | Reconcile passes that failed. A pass that fails observes no duration, so without this a controller deciding nothing looks exactly like one with nothing to decide. |
+| `zoomies_agent_polls_shed_total` | counter | - | Task polls answered with a backoff because the controller was holding too many at once. A fleet that keeps working while every host hears about its tasks a little later moves nothing else here, so this is the only place that pressure shows. |
 | `zoomies_agent_requests_limited_total` | counter | `limit` | Agent requests refused or cut short by a per-host limit: `rate` (a heartbeat, result or report over the host's budget, answered 429), `poll` (a second task poll while the host already has one held, answered at once and empty) and `runners` (a heartbeat or report carrying more runners than any host runs, answered 413). A well-behaved agent never reaches any of them, so a non-zero rate is one misbehaving host; the controller's log names it. |
-| `zoomies_log_relay_dropped_bytes_total` | counter | — | Relayed runner output dropped because one stream went over its byte budget of a megabyte a second. The relay drops rather than waits, so a flood shows here and as gaps in the viewer, never as a stalled agent. |
+| `zoomies_log_relay_dropped_bytes_total` | counter | - | Relayed runner output dropped because one stream went over its byte budget of a megabyte a second. The relay drops rather than waits, so a flood shows here and as gaps in the viewer, never as a stalled agent. |
 | `zoomies_github_api_requests_total` | counter | `installation`, `result` | GitHub API calls by outcome: `ok`, `rate_limited`, `forbidden`, `not_found`, `error`. Where rate-limiting and a broken installation become visible. |
 | `zoomies_kennel_github_requests_total` | counter | `result` | The part of the line above that was made for Kennel Club, by the same outcomes. Read it against the installation's hourly limit before raising `kennel.api_budget_percent`: the budget is a share of that limit, and this is what it was spent on. |
 | `zoomies_kennel_findings_opened_total` | counter | `code` | Findings Kennel Club has raised, by check. One that comes back after a waiver ended is not counted again. |
-| `zoomies_kennel_findings_closed_total` | counter | `code` | Findings that stopped being reported — fixed, or gone with the repository's jobs. A check whose findings are mostly closed is earning its place. Waived ones are counted apart. |
+| `zoomies_kennel_findings_closed_total` | counter | `code` | Findings that stopped being reported, fixed, or gone with the repository's jobs. A check whose findings are mostly closed is earning its place. Waived ones are counted apart. |
 | `zoomies_kennel_findings_waived_total` | counter | `code` | Open findings a waiver now covers. When most of one check's findings end up here, the check is wrong for this fleet and the severity, the wording or the check itself should change. |
-| `zoomies_kennel_rate_limit_holds_total` | counter | — | Holds that began because a Kennel Club read was refused by GitHub. The target is zero; any is a defect in the budget, and the problems list says which installation is held. |
-| `zoomies_provider_operations_total` | counter | `kind`, `outcome` | Provider operations by what was attempted — `create`, `start`, `stop`, `bootstrap`, `delete` — and how it went: `ok`, `ambiguous`, `quota`, `unreachable` or `refused`. `ambiguous` is separated from the failures because it means something different: a create that failed cost nothing, and a create whose answer was lost may already be a machine somebody is paying for. Any sustained rate of it is worth looking at. |
+| `zoomies_kennel_rate_limit_holds_total` | counter | - | Holds that began because a Kennel Club read was refused by GitHub. The target is zero; any is a defect in the budget, and the problems list says which installation is held. |
+| `zoomies_provider_operations_total` | counter | `kind`, `outcome` | Provider operations by what was attempted (`create`, `start`, `stop`, `bootstrap`, `delete`) and how it went: `ok`, `ambiguous`, `quota`, `unreachable` or `refused`. `ambiguous` is separated from the failures because it means something different: a create that failed cost nothing, and a create whose answer was lost may already be a machine somebody is paying for. Any sustained rate of it is worth looking at. |
 | `zoomies_host_runtime_failures_total` | counter | `kind` | Container-runtime failures agents have reported, each one opening or extending a cooldown on new starts: `unavailable` (the daemon could not be reached) or `timeout` (it did not answer in time). Counted when the controller hears of them, so failures during a controller outage arrive as one step. |
 | `zoomies_image_pull_failures_total` | counter | `pool`, `kind` | Runner starts (`kind="start"`) and prewarms (`kind="prewarm"`) that failed because the pool's image could not be made ready on the host. The registry is on the host card and in `host.image_pull_failed` rather than a label, to keep the series bounded. |
 | `zoomies_image_prewarms_total` | counter | `pool`, `backend`, `outcome` | Background image preparations by outcome: `prepared`, `cache_hit`, `failed`, or `unknown` for a successful older agent. The hit share says whether shared-image coalescing is saving runtime work. |
-| `zoomies_elastic_cpu_decisions_total` | counter | `pool`, `mode`, `outcome` | Elastic CPU plans by pool. `outcome` is `burst`, `base`, `host_busy` — the host was held, throttled, or too busy on CPU, load or memory to lend anything — or `unsupported_agent`; observe mode records the same decisions without changing quotas. |
+| `zoomies_elastic_cpu_decisions_total` | counter | `pool`, `mode`, `outcome` | Elastic CPU plans by pool. `outcome` is `burst`, `base`, `host_busy` (the host was held, throttled, or too busy on CPU, load or memory to lend anything) or `unsupported_agent`; observe mode records the same decisions without changing quotas. |
 | `zoomies_elastic_memory_decisions_total` | counter | `pool`, `mode`, `outcome` | What the [memory valve](elastic-memory.md) reported of each runner it watches, once per heartbeat. `outcome` is `healthy`, `raised`, `spilled`, `at_ceiling` (a runner held all it may, and wanted more), `pool_empty` or `host_floor` (the host had nothing it could lend), `unmeasured` (the host's memory could not be read, so nothing is lent), `unsupported` (the container runtime cannot raise a live limit), `failed`, or `unreported` for a runner that was not heard from. Observe mode counts what the valve would have done. |
 | `zoomies_elastic_memory_near_limit_total` | counter | `pool`, `mode` | Runners that came within a tenth of a memory limit, counted once per runner. It is the evidence of whether a pool's jobs would use the valve at all: a pool that never moves it has no use for the valve. |
 
 Every `pool` label is the pool's **name**, so a query can join these against
 the gauges above on `pool`. Work no pool claims is counted under the literal
-`unmatched` — a real pool of that name would merge with it, which is a reason
+`unmatched`; a real pool of that name would merge with it, which is a reason
 not to name one that.
 
 Every `host` label is the host's **ID**, as `zoomies hosts list` prints it in
@@ -220,11 +220,11 @@ with retention before interpreting either as a delay.
 The histograms above are what the controller has seen since it started. The
 per-installation report is the other kind of answer: an operator's own record,
 over a month or any window up to a year, of how well each GitHub App
-installation has been served — how long its jobs waited on the fleet, how many
+installation has been served, how long its jobs waited on the fleet, how many
 the fleet broke, and whether the runners it started were cleaned up. It is
 computed exactly from stored timestamps, not from histogram buckets, and it is
 the section of the Usage page that opens on one installation, the
-`GET /api/v1/installations/{id}/report` route, and — grouped by installation —
+`GET /api/v1/installations/{id}/report` route, and, grouped by installation,
 the extra columns of `/api/v1/usage.csv` ([API surface](api-surface.md)).
 
 The window is moved back to the UTC midnight it begins in, so every day in it
@@ -235,14 +235,14 @@ a runner to the day it finished.
 
 | Figure | Exactly |
 | --- | --- |
-| **Observed** | Every job first observed in the window for the installation (`Job.InstallationID`), whatever became of it — including jobs no pool claimed and jobs held for a deployment review. |
+| **Observed** | Every job first observed in the window for the installation (`Job.InstallationID`), whatever became of it, including jobs no pool claimed and jobs held for a deployment review. |
 | **Eligible** | Observed jobs with `Job.EligibleAt` set: a pool claimed the labels and GitHub was not holding the job for a review, so the fleet could act on it. |
 | **Created for** | Eligible jobs that ran on a runner this fleet created, whose first create task (`Runner.CreateTaskIssuedAt`) was issued at or after the job became eligible. That is a runner started while the job was waiting, as opposed to one already there. |
 | **Ran here** | Jobs that ran on any runner this fleet created (`Job.RunnerID` set), including one prewarmed or left idle by an earlier job. *Ran here* minus *created for* is the jobs an already-waiting runner took. |
 | **Ran elsewhere** | Jobs GitHub gave to a runner this fleet did not create: GitHub reported a runner name that matches no runner here. A GitHub-hosted runner, or another fleet's. |
-| **Fleet fault** | Jobs carrying a `fault_kind` — the `fleet` domain of `zoomies_job_failures_total`: the runner died under the job or never worked. A workflow's own failure is not one. |
+| **Fleet fault** | Jobs carrying a `fault_kind`; the `fleet` domain of `zoomies_job_failures_total`: the runner died under the job or never worked. A workflow's own failure is not one. |
 | **Cleanup pending** | Runners of the installation's pools that finished in the window and whose cleanup has not been confirmed: the host has not confirmed removal, GitHub has not confirmed the registration is gone, or both. A runner pruned in that state stays pending for good. |
-| **Cleanup converged** | Runners that finished in the window with `Runner.CleanedUpAt` set — both confirmations seen. |
+| **Cleanup converged** | Runners that finished in the window with `Runner.CleanedUpAt` set, both confirmations seen. |
 
 ### Timings
 
@@ -283,15 +283,15 @@ records outlive them:
   counted as it stood. Days the roll-up has absorbed are read from it, later
   moments from the rows. Neither jobs nor runner sessions are pruned before the
   day they belong to has been counted.
-- **The timings** are read from runner sessions — kept for
-  `retention.runner_sessions`, a year by default — and from the rows still
+- **The timings** are read from runner sessions (kept for
+  `retention.runner_sessions`, a year by default) and from the rows still
   here. A percentile cannot be summed across days, so the roll-up keeps no
   timings at all rather than an approximation of them.
 
 The response carries `counts_from` and `timings_from`. When either is later
 than the window's start, that half of the report does not cover the part of the
-window before it — the records were pruned before anything kept them, or
-predate the build that started keeping them — and `unavailable` says so in
+window before it (the records were pruned before anything kept them, or
+predate the build that started keeping them) and `unavailable` says so in
 words. The figures are then for the rest of the window, never an estimate of
 the whole. Sessions recorded before the timings columns existed have no create
 task or eligibility on them and give no scheduling or registration sample.
@@ -303,8 +303,8 @@ Present only when a [provider](providers.md) is configured.
 | Metric | Type | Labels | What it is |
 | --- | --- | --- | --- |
 | `zoomies_provider_machines` | gauge | `provider`, `state` | Machines by provider and lifecycle state, read from the rows at scrape time so it cannot drift across a restart. |
-| `zoomies_provider_machines_quarantined` | gauge | — | Machines whose ownership could not be proved. Nothing will act on one until a person does, so this is a queue of work rather than a shape: **alert on it above zero**. |
-| `zoomies_provider_operations_total` | counter | `kind`, `outcome` | Provider operations, by what was attempted and how it ended: `ok`, `ambiguous`, `quota`, `unreachable` or `refused`. `ambiguous` is its own value on purpose — a create that failed costs nothing, and a create whose answer was lost may already be a machine somebody is paying for. |
+| `zoomies_provider_machines_quarantined` | gauge | - | Machines whose ownership could not be proved. Nothing will act on one until a person does, so this is a queue of work rather than a shape: **alert on it above zero**. |
+| `zoomies_provider_operations_total` | counter | `kind`, `outcome` | Provider operations, by what was attempted and how it ended: `ok`, `ambiguous`, `quota`, `unreachable` or `refused`. `ambiguous` is its own value on purpose; a create that failed costs nothing, and a create whose answer was lost may already be a machine somebody is paying for. |
 | `zoomies_provider_operation_seconds` | histogram | `kind` | How long one provider request took. It measures the request, not the clone the request starts. |
 
 ## Build information
@@ -343,7 +343,7 @@ being down:
 * `zoomies_host_os_checks{state="error"} > 0` and
   `zoomies_host_health_report_age_seconds > 600` are the two worth a page: an
   error is a check that could not run, so nobody knows what that host is
-  doing, and ten minutes without a report is a collector that has stopped —
+  doing, and ten minutes without a report is a collector that has stopped:
   the same ten minutes after which the drawer raises `host.health_stale`. On a
   Docker or Compose installation that collector's stopping makes the series
   vanish rather than climb, so a rule there wants
@@ -357,6 +357,6 @@ being down:
 * `absent(zoomies_runners)`, which catches the case above where the gauges stop
   being reported at all.
 
-The [problems drawer](problem-codes.md) answers a different question — it says
+The [problems drawer](problem-codes.md) answers a different question; it says
 what is wrong *now*, in sentences, with a fix. Metrics say what has been
 happening. An operator wants both.

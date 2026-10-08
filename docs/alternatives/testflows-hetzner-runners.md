@@ -2,9 +2,8 @@
 icon: material/server-network-outline
 title: "Zoomies vs TestFlows GitHub Hetzner Runners"
 description: >-
-  How Zoomies compares with TestFlows' Hetzner-focused runner project: standby
-  cloud servers and cost estimates against a multi-host fleet controller with
-  GitHub App authentication, and when each fits.
+  How Zoomies compares with TestFlows' Hetzner runners: standby cloud servers
+  and cost estimates against a multi-host fleet controller, and when each fits.
 ---
 
 # Zoomies and TestFlows' Hetzner runners

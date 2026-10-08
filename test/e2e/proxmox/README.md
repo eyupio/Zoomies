@@ -20,7 +20,7 @@ is qualification.
 ## What you need
 
 A Proxmox VE cluster you are willing to lose, and a GitHub installation that can
-queue real jobs — a machine that never ran a job has not been qualified for
+queue real jobs; a machine that never ran a job has not been qualified for
 anything.
 
 On the cluster, before you start:
@@ -33,7 +33,7 @@ On the cluster, before you start:
   enabled, outside the reserved range. Everything the provider builds starts as
   a clone of it; [docs/proxmox.md](../../../docs/proxmox.md) says how to build
   one.
-* **An API token** with the privileges the provider's preflight asks for —
+* **An API token** with the privileges the provider's preflight asks for,
   [docs/proxmox.md](../../../docs/proxmox.md) lists them. The harness runs that
   same preflight before it creates anything and names each one that is missing,
   rather than failing at cycle three.
@@ -72,17 +72,17 @@ The rest are optional:
 
 | Variable | Default | What it is |
 | --- | --- | --- |
-| `ZOOMIES_PROXMOX_TOKEN_SECRET` | — | The token's secret, if you would rather not put it in `ZOOMIES_PROXMOX_TOKEN` |
+| `ZOOMIES_PROXMOX_TOKEN_SECRET` | - | The token's secret, if you would rather not put it in `ZOOMIES_PROXMOX_TOKEN` |
 | `ZOOMIES_PROXMOX_CONTROLLER_URL` | worked out from the route to the cluster | Where a guest reaches this controller |
-| `ZOOMIES_PROXMOX_CA_PEM_FILE` | — | The cluster's own CA, for the usual self-signed certificate |
+| `ZOOMIES_PROXMOX_CA_PEM_FILE` | - | The cluster's own CA, for the usual self-signed certificate |
 | `ZOOMIES_PROXMOX_INSECURE` | unset | Do not verify the cluster's certificate at all |
 | `ZOOMIES_PROXMOX_BRIDGE` | `vmbr0` | The bridge each machine's network card joins |
-| `ZOOMIES_PROXMOX_POOL` | — | A Proxmox resource pool to put the machines in |
+| `ZOOMIES_PROXMOX_POOL` | - | A Proxmox resource pool to put the machines in |
 | `ZOOMIES_PROXMOX_CPUS` | `2` | Cores per machine |
 | `ZOOMIES_PROXMOX_MEMORY_MB` | `2048` | Memory per machine |
 | `ZOOMIES_PROXMOX_DISK_MB` | `0` (the template's) | Grow each clone's disk by this much |
 | `ZOOMIES_PROXMOX_BACKEND` | `docker` | How the guest runs runners: `docker`, `podman` or `process` |
-| `ZOOMIES_PROXMOX_BROKEN_TEMPLATE` | — | A template with no guest agent, to induce the bootstrap failure honestly |
+| `ZOOMIES_PROXMOX_BROKEN_TEMPLATE` | - | A template with no guest agent, to induce the bootstrap failure honestly |
 | `ZOOMIES_PROXMOX_WORKFLOW` | `zoomies-e2e.yml` | The workflow the cycles trigger |
 | `ZOOMIES_PROXMOX_LEDGER_DIR` | `~/.zoomies/proxmox-ledgers` | Where the ledgers go |
 | `ZOOMIES_PROXMOX_RECORD` | `roadmap/validation/proxmox-qualification-<commit>-<run>.md` | Where the evidence goes |
@@ -96,7 +96,7 @@ someone is qualifying a cluster from, where a skip looks exactly like a pass:
 set `ZOOMIES_PROXMOX_REQUIRED=1` there and a missing prerequisite fails instead.
 
 Nothing is created until every prerequisite holds, including the read-only ones
-against the cluster itself — the node exists, the storage takes disk images, the
+against the cluster itself; the node exists, the storage takes disk images, the
 template is a template, the range is free. A run that is going to fail for a
 reason a person can fix should fail before it has built anything.
 
@@ -105,8 +105,8 @@ reason a person can fix should fail before it has built anything.
 Every resource is written to a ledger *before* the call that could create it,
 which is the same discipline the `machines` row has and exists for the same
 reason: a timeout is not evidence that creation failed. A harness killed
-between the clone and the delete — by `go test`'s deadline, by a lost
-connection, by somebody's Ctrl-C — still leaves a file naming the cluster, the
+between the clone and the delete (by `go test`'s deadline, by a lost
+connection, by somebody's Ctrl-C) still leaves a file naming the cluster, the
 node, the storage, the range and every VMID it had claimed.
 
 The ledgers live outside the test's temporary directory, in
@@ -138,7 +138,7 @@ mistake this whole design is built to make impossible.
 The waits live in `budget.go`, with no build tag, and `budget_test.go` checks
 them against the Makefile on every ordinary `go test ./...`. A harness whose
 waits total more than its own timeout could never reach its last assertion, and
-here the last assertion is the reconciliation — the step that decides
+here the last assertion is the reconciliation; the step that decides
 qualification, and the one that finds what a shorter run would have left behind.
 
 The harness also reads `go test`'s real deadline before each cycle and stops

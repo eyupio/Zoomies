@@ -10,7 +10,7 @@ description: >-
 Every dependency needs a reason. If one below stops earning its line, it should
 go. The bar is: *would writing this ourselves be worse than carrying it?*
 
-Two things are deliberately **not** here, and both were close calls — see
+Two things are deliberately **not** here, and both were close calls, see
 [Deliberate omissions](#deliberate-omissions).
 
 ## Go
@@ -28,7 +28,7 @@ Two things are deliberately **not** here, and both were close calls — see
 | `github.com/coreos/go-oidc/v3` | OIDC discovery and ID-token verification, including JWKS rotation: single sign-on, and the GitHub Actions tokens Zoomies-only AI Context uploads carry. Optional features, well-maintained library. |
 | `github.com/prometheus/client_golang` | The metrics endpoint. The exposition format has enough edge cases that hand-writing it is a false economy. |
 | `gopkg.in/yaml.v3` | `zoomies.yaml`. Strict decoding turns a misspelled key into an error naming the line. |
-| `github.com/charmbracelet/huh` | The installer's prompts — select, input, confirm, with validation. It is what makes `zoomies init` feel like a product rather than a script. It brings `bubbletea` with it as its runtime, which is why that appears in `go.mod` as indirect and has no row of its own. |
+| `github.com/charmbracelet/huh` | The installer's prompts, select, input, confirm, with validation. It is what makes `zoomies init` feel like a product rather than a script. It brings `bubbletea` with it as its runtime, which is why that appears in `go.mod` as indirect and has no row of its own. |
 | `github.com/charmbracelet/lipgloss` | Styling for the installer and the CLI's table output. |
 | `golang.org/x/term` | Terminal detection, so the CLI and installer degrade to plain output when piped. |
 | `golang.org/x/sys` | The Windows half of the agent: the service control dispatcher a process started by the service manager must answer, the job object that lets killing a runner kill what it started, and the process and disk queries POSIX answers with a signal and a `statfs`. It was already in the tree as a transitive dependency; making it direct added no module. |
@@ -43,7 +43,7 @@ Runtime (shipped to the browser):
 | Package | Why |
 | --- | --- |
 | `svelte` | The framework. Runes, no virtual DOM, and a compiled output small enough to hit the 200 KB shell budget. |
-| `@tanstack/svelte-table` / `@tanstack/table-core` | Headless data-grid logic — sorting, filtering, column visibility, row selection — with our own markup. Reimplementing this correctly, including keyboard navigation over a virtualised body, is weeks. |
+| `@tanstack/svelte-table` / `@tanstack/table-core` | Headless data-grid logic (sorting, filtering, column visibility, row selection) with our own markup. Reimplementing this correctly, including keyboard navigation over a virtualised body, is weeks. |
 | `@xterm/xterm` + `addon-fit`, `addon-search`, `addon-webgl` | The log viewer. 100k lines without jank is a hard requirement, and xterm's WebGL renderer is the reason it is achievable. |
 | `@lucide/svelte` | Icons. Imported individually so tree-shaking keeps only what is used. |
 | `@fontsource-variable/inter`, `@fontsource/jetbrains-mono` | Self-hosted fonts. An air-gapped install must not make a third-party font request, and neither should anyone else's browser. |
@@ -69,7 +69,7 @@ Build and test only:
 
 ## The docs site
 
-`docs/requirements.txt`, pinned. These never reach a user's machine — they
+`docs/requirements.txt`, pinned. These never reach a user's machine; they
 build [zoomies.sh](https://zoomies.sh) and nothing else.
 
 | Package | Why |
@@ -77,7 +77,7 @@ build [zoomies.sh](https://zoomies.sh) and nothing else.
 | `mkdocs` | Turns `docs/` into the site, so the website is the repository's own documentation rather than a second copy of it. Pinned below 2.0 deliberately; the reason is in `docs/requirements.txt`. |
 | `mkdocs-material` | The theme. It carries the search, the light/dark palettes, the tabbed blocks the quick start uses, and the Mermaid integration below. |
 | `pymdown-extensions` | The fenced-block, tabbed and admonition syntax the pages are written in, including the custom `mermaid` fence. |
-| Mermaid | Diagrams. Material fetches it from a CDN in the reader's browser, only on a page that has one, and colours it from the palette above — so a diagram lives in the Markdown beside what it explains, renders on GitHub as well, and there is no exported image to go stale. |
+| Mermaid | Diagrams. Material fetches it from a CDN in the reader's browser, only on a page that has one, and colours it from the palette above, so a diagram lives in the Markdown beside what it explains, renders on GitHub as well, and there is no exported image to go stale. |
 | `pillow` | Encodes the screenshots in `docs/screenshots/` as lossless WebP, at under half the size of the PNGs Playwright takes. Only `make screenshots` needs it, so it is not in `docs/requirements.txt` and the site builds without it; the browser can write lossless WebP itself but compresses it six times worse. |
 
 ## Coverage reporting
@@ -94,7 +94,7 @@ the upload because their restricted permissions do not provide the OIDC token.
 `make cover` measures with `-coverpkg=./...`, and that flag is load-bearing
 rather than a detail. Without it Go credits a package only for the lines its
 own `_test.go` files run, and this repository deliberately tests several things
-through the layer above them — the controller's migration service is driven
+through the layer above them; the controller's migration service is driven
 entirely by `internal/api`'s handler tests. Those files reported 0%, which is
 worse than a low number: it is a dashboard pointing the next contributor at the
 best-covered file in the tree.
@@ -102,34 +102,34 @@ best-covered file in the tree.
 ## Deliberate omissions
 
 **`github.com/docker/docker`.** The official client drags in a very large
-dependency tree — containerd, gRPC, OpenTelemetry, swarm types — for what
+dependency tree (containerd, gRPC, OpenTelemetry, swarm types) for what
 amounts to a dozen JSON endpoints over a unix socket. `internal/backend/dockerapi.go`
 is a few hundred lines of `net/http` against the documented Engine API, and it
 buys Podman support almost free, because `podman.sock` speaks the same protocol.
 The one genuinely fiddly part, demultiplexing the log stream's 8-byte frame
 headers, is unit-tested.
 
-**A Proxmox VE client.** The Go clients for it — `luthermonson/go-proxmox`,
-`Telmate/proxmox-api-go` — model most of a hypervisor for what Zoomies asks of
+**A Proxmox VE client.** The Go clients for it (`luthermonson/go-proxmox`,
+`Telmate/proxmox-api-go`) model most of a hypervisor for what Zoomies asks of
 one: clone a template, start it, write a file into the guest, destroy it, and
 poll a task. That is a dozen endpoints, and `internal/provider/proxmox` reaches
 them with the same hand-rolled `net/http` approach as the Engine API client
 above. The deciding argument is not the dependency tree, though: it is that the
-one classification the whole design rests on — whether a deadline or a reset
+one classification the whole design rests on (whether a deadline or a reset
 happened *before or after* the request body went out, which is the difference
-between "nothing happened" and "we do not know" — can only be made inside the
+between "nothing happened" and "we do not know") can only be made inside the
 transport, and no third-party client exposes it. A client that reports both as
 one error would have Zoomies retry a create that already worked, and rent a
 second machine nobody is tracking.
 
-**An S3 SDK.** The backup remotes need four verbs — put an object, get it,
-list a prefix, delete a key — and signature version 4, which is forty lines of
+**An S3 SDK.** The backup remotes need four verbs (put an object, get it,
+list a prefix, delete a key) and signature version 4, which is forty lines of
 HMAC with a published definition. `internal/backup/s3.go` is that, against the
 same hand-rolled `net/http` approach as the two clients above, and it speaks to
 every implementation for the same reason a hand-rolled client speaks to Podman:
 ListObjectsV2 and SigV4 are what they all agree on. `aws-sdk-go-v2` would bring
-its own configuration, credential-provider and middleware stacks — and its own
-release cadence and vulnerability surface — so that a controller can write one
+its own configuration, credential-provider and middleware stacks (and its own
+release cadence and vulnerability surface) so that a controller can write one
 file a night; `minio-go` is smaller and still an order of magnitude more client
 than four requests deserve. The one part with an external definition, the
 canonical request's encoding, is unit-tested against that definition rather

@@ -20,7 +20,7 @@ Scoped guidance for the UI, loaded in addition to the root [CLAUDE.md](../CLAUDE
   neutral). Operators learn them; do not reuse them for anything else.
 - No state-management library (runes are it), no client-side router
   (`web/src/lib/router.ts` is ours), no charting library (sparklines and bars are
-  inline SVG). These are deliberate — see `docs/dependencies.md`.
+  inline SVG). These are deliberate, see `docs/dependencies.md`.
 - Nothing is reachable from the UI that is not reachable from the REST API. If a
   page needs data, it comes from a documented route in
   [docs/api-surface.md](docs/api-surface.md).

@@ -1,4 +1,4 @@
-# Testsmith's Journal — Zoomies
+# Testsmith's Journal: Zoomies
 
 Critical test-coverage learnings only. Routine test additions are not logged here.
 

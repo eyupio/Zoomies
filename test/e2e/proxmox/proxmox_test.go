@@ -586,7 +586,7 @@ func (f *fixture) timeCycle(m machineView, job jobView, dispatchedAt, drainAt, d
 // difference is worth money.
 func (f *fixture) scaleFromZero(t *testing.T) {
 	assertTimeToFinish(t, scaleFromZeroBudget, "scale from zero")
-	row := CaseRow{Number: 2, Case: "Scale from zero — no hosts at all, then queued work"}
+	row := CaseRow{Number: 2, Case: "Scale from zero, no hosts at all, then queued work"}
 	defer func() { f.finish(t, &row) }()
 
 	var hosts struct {
@@ -638,7 +638,7 @@ func (f *fixture) twentyCycles(t *testing.T) {
 // machine and leaving the second pool waiting for ever.
 func (f *fixture) multiPoolBurst(t *testing.T) {
 	assertTimeToFinish(t, multiPoolBurstBudget, "the multi-pool burst")
-	row := CaseRow{Number: 3, Case: "Multi-pool burst — two pools demanding at once"}
+	row := CaseRow{Number: 3, Case: "Multi-pool burst, two pools demanding at once"}
 	defer func() { f.finish(t, &row) }()
 
 	before := map[string]bool{}
@@ -775,7 +775,7 @@ func (f *fixture) restartMidCreate(t *testing.T) {
 // can also report.
 func (f *fixture) bootstrapFailure(t *testing.T) {
 	assertTimeToFinish(t, bootstrapFailureBudget, "the induced bootstrap failure")
-	row := CaseRow{Number: 5, Case: "Bootstrap failure — a deliberately broken template"}
+	row := CaseRow{Number: 5, Case: "Bootstrap failure, a deliberately broken template"}
 	defer func() { f.finish(t, &row) }()
 
 	broken := map[string]string{}
@@ -838,7 +838,7 @@ func (f *fixture) bootstrapFailure(t *testing.T) {
 			"the guest's own complaint is what says what to fix", id, w.last.ProviderError)
 	}
 	row.Observed += "; failed with " + w.last.complaint()
-	row.Human = "none — the machine failed with an explanation and its guest was destroyed"
+	row.Human = "none, the machine failed with an explanation and its guest was destroyed"
 
 	// It failed, and its guest exists. Nothing may leave it there.
 	f.deleteMachine(t, id)
@@ -852,7 +852,7 @@ func (f *fixture) bootstrapFailure(t *testing.T) {
 // as a delete that succeeded: that is how an orphan is made.
 func (f *fixture) deleteFailure(t *testing.T) {
 	assertTimeToFinish(t, deleteFailureBudget, "the induced delete failure")
-	row := CaseRow{Number: 6, Case: "Deletion retry — a delete that fails once"}
+	row := CaseRow{Number: 6, Case: "Deletion retry, a delete that fails once"}
 	defer func() { f.finish(t, &row) }()
 
 	before := map[string]bool{}
@@ -929,7 +929,7 @@ func (f *fixture) deleteFailure(t *testing.T) {
 	}
 	f.led.removed(KindMachine, id)
 	row.Observed += "; it was destroyed on a later attempt once the flag was cleared"
-	row.Human = "none — the retry succeeded without anybody intervening"
+	row.Human = "none, the retry succeeded without anybody intervening"
 }
 
 // reconcile is the case that decides qualification, and it is deliberately last.

@@ -264,7 +264,7 @@ func TestSummariseCutsBetweenCharacters(t *testing.T) {
 	}
 
 	// A message that fits is returned whole, whatever it is made of.
-	short := "could not pull ghcr.io/acme/runner: manifest unknown — check the tag"
+	short := "could not pull ghcr.io/acme/runner: manifest unknown, check the tag"
 	if got := summarise(short); got != short {
 		t.Fatalf("summarise(%q) = %q, want it unchanged", short, got)
 	}

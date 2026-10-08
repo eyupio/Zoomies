@@ -134,7 +134,7 @@
     {:else}
       <p>
         It stopped and nothing has started it in {START_LIMIT_S} seconds. If it runs under systemd or
-        a container with a restart policy, look at that; if you ran it by hand, start it again — the staged
+        a container with a restart policy, look at that; if you ran it by hand, start it again, the staged
         restore is applied when it starts, whoever starts it.
       </p>
       <pre class="mono">zoomies controller</pre>

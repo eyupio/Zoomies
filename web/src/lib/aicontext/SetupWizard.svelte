@@ -620,7 +620,7 @@
               {#each matchingRepositories as repository (repository.id)}
                 <Checkbox
                   label={repository.full_name}
-                  description={`${repository.private ? 'Private' : 'Public'} · ${repository.archived ? 'Archived — unavailable for setup' : 'Source branch: ' + repository.default_branch}`}
+                  description={`${repository.private ? 'Private' : 'Public'} · ${repository.archived ? 'Archived, unavailable for setup' : 'Source branch: ' + repository.default_branch}`}
                   checked={repositoryIds.includes(repository.id)}
                   disabled={repository.archived ||
                     !!resuming ||

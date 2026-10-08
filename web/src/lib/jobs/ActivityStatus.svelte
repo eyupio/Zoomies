@@ -25,7 +25,7 @@
     type="button"
     class="activity-status"
     style:--activity-colour={activity.status.colour}
-    aria-label="{activity.label} — {activity.status.label}: show status details"
+    aria-label="{activity.label}, {activity.status.label}: show status details"
     aria-describedby={id}
     aria-expanded={open}
     onclick={(event) => {

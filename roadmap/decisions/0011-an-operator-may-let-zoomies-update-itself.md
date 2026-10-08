@@ -36,7 +36,7 @@ Four things already in this repository bear on that.
   or weaken a trust check as a recovery shortcut." Without its last clause the
   rule forbids this outright.
 * Delivery rule 16: the platform's hand on a fleet's host is the agent and
-  nothing else — no SSH, no controller-initiated dial, no OS package, firewall
+  nothing else; no SSH, no controller-initiated dial, no OS package, firewall
   or reboot.
 * Decision 25 deferred ZF-404b indefinitely. ROADMAP.md section 7 describes it
   as "dedicated-host maintenance windows, controller-driven agent upgrades and
@@ -59,8 +59,8 @@ a root-owned systemd path unit and oneshot service on each host that wants it,
 installed only with that host's consent, which on a request naming one published
 release tag runs the existing `zoomies upgrade --version <tag> --non-interactive`
 and does nothing else. Read rule 12 as binding recovery logic and trust checks,
-not an operator's own policy: no recovery path — the machine loop, the
-host-lost reclaim, the handling of an incompatible host — may start an update,
+not an operator's own policy: no recovery path (the machine loop, the
+host-lost reclaim, the handling of an incompatible host) may start an update,
 and no update may skip a check to get a stuck host moving. Keep rule 16: every
 request reaches a host as a task over its agent's own outbound connection, the
 controller never dials a host, and the helper is listed in "What the agent owns

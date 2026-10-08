@@ -28,8 +28,8 @@ Appearance → **Zoomies vocabulary** offers three choices:
 | Cute | Zoomies dog-park vocabulary | Original animated avatar |
 | Standard | Zoomies dog-park vocabulary | Slim black cocker spaniel that runs, stands, sits or lies down by state |
 
-The choice stays in this browser. A browser that has never chosen — a new
-install, or one whose saved preferences were cleared — starts on Off. Existing
+The choice stays in this browser. A browser that has never chosen (a new
+install, or one whose saved preferences were cleared) starts on Off. Existing
 users keep Cute when their old vocabulary switch was on, and Off when it was
 off. The validated `prefs.statusStyle` is the saved choice; `prefs.quirkyStatus`
 is its derived boolean for state maps, filters and activity text. Those maps
@@ -65,12 +65,12 @@ One glyph also means one thing wherever it appears:
 Standard is a solid black English cocker spaniel. Its white is kept small: the
 muzzle, a narrow blaze and the toe tips are a stylisation that keeps the face
 and feet legible at 32px rather than breed marks, and the one white a solid
-cocker is allowed, a fleck under the throat, stays a fleck — so it never reads
+cocker is allowed, a fleck under the throat, stays a fleck, so it never reads
 as a penguin's white front. It is built from solid shapes: a domed skull with a
 pronounced stop and a square muzzle, held a little under life size on a longer
 neck so the dog reads as an adult rather than a puppy; a long ear hung at eye
 level from a narrow root, widening below the jaw into lobed, feathered locks;
-and a near-square body — rump to forechest about the height at the withers —
+and a near-square body (rump to forechest about the height at the withers)
 with a level topline, a deep chest, a tucked-up waist and muscled hindquarters
 whose hock points back. The ear's lobes are the dog's feathering everywhere
 else too: a skirt under the chest and belly that stops short of the tuck-up, a
@@ -100,7 +100,7 @@ ground, snuffling along a scent trail; registering dogs sit on one foreleg and
 hold out the other paw, bent at the elbow and dropped at the wrist, giving it a
 shake now and then. Throttled dogs stand paused mid-step with a forepaw lifted
 and wait patiently, now and then twitching an ear or wagging; draining dogs lie
-heavy-lidded and settle. Failure has a concerned static pose — sitting with its
+heavy-lidded and settle. Failure has a concerned static pose, sitting with its
 head hung forward and low, clear of the chest, its tail tucked forward under the
 haunch until only the tip shows, looking up from under a worried brow, with no
 chest fleck for the muzzle to run into; removed dogs lie asleep with closed eyes
@@ -117,7 +117,7 @@ Stable per-runner timing separates gestures across the fleet: each dog's
 glances, wags and blinks start at their own point in the cycle, spread at random
 from its seed rather than tied to its stride, so a page of idle dogs never
 glances up together. Reduced motion stops every animated part in both styles; a
-Standard dog then holds the pose that says what it was doing — mid-stride if it
+Standard dog then holds the pose that says what it was doing, mid-stride if it
 was running, with maximum zoomies' extra speed line still telling it from extra
 zoomies, and paw held out if it was registering. The 44px reserved box and
 wrapping labels preserve narrow saved column widths; workflow packs keep their
@@ -156,7 +156,7 @@ could drift.
 **Never write a raw colour, and never write a raw value that already has a
 token.** Colour is absolute: a hex or `rgb()` in a component is a bug, because a
 colour written by hand is a colour that only works in one theme. Everything
-else is a rule about repetition — a value that appears twice is a decision being
+else is a rule about repetition; a value that appears twice is a decision being
 made twice, and it belongs here where it can be made once. A hairline border,
 the tracking on an uppercase label, the width of a dialog and the height of a
 switch thumb were all raw in several dozen files before they were tokens.
@@ -164,7 +164,7 @@ switch thumb were all raw in several dozen files before they were tokens.
 Three things are still raw, and each is raw for a reason worth knowing:
 
 * **Media query widths.** `@media (max-width: var(--z-bp-md))` is not valid CSS
-  — a media query is evaluated before custom properties exist — so the two
+  (a media query is evaluated before custom properties exist) so the two
   thresholds are written out. `--z-bp-md` and `--z-bp-lg` are declared anyway,
   so the number has one home and JavaScript can read it rather than repeat it.
 * **A one-off content measure.** The width a filter row stops growing at, the
@@ -289,7 +289,7 @@ legend is the one place they are read side by side. An earlier palette set all
 six within a few points of L\* 45 and let hue do the whole job, which worked for
 green against red and failed everywhere else: draining and neutral were two
 greys at the same lightness, six points of CIEDE2000 apart, where a pair has
-to be around twenty before a legend dot tells them apart at a glance — and
+to be around twenty before a legend dot tells them apart at a glance, and
 busy, accent and the greys sat inside twenty points of each other. Two of them are now pulled off
 that plane. Draining carries a plum cast and the far end of the lightness range
 (dark on light, light on dark: it is a state an operator asked for, and should
@@ -299,8 +299,8 @@ contrast floor.
 Measured across all six plus `--z-accent`, the closest pair is now 19.3
 (CIEDE2000, light) and 21.7 (dark), against 6.1 and 10.2 before; no pair that
 can appear in one legend is under 19, and most are past 25. When a chart puts
-two of them within about twenty points — the executing and allocated lines in
-the usage chart, queued against cancelled work — the nearer of the two is drawn
+two of them within about twenty points (the executing and allocated lines in
+the usage chart, queued against cancelled work) the nearer of the two is drawn
 dashed, so the legend swatch carries a stroke style and not only a colour.
 
 Each status foreground clears 4.9:1 on its own theme's surface and 4.5:1 on its
@@ -342,7 +342,7 @@ panel alone. Measured on `#080808`:
 
 | Token | Value | Use | Contrast |
 | --- | --- | --- | --- |
-| `--z-panel-bg` | `--z-brand-black` | The panel | — |
+| `--z-panel-bg` | `--z-brand-black` | The panel | - |
 | `--z-panel-text` | `--z-brand-white` | The tagline, fact titles, the credit's name | 20.0:1 |
 | `--z-panel-text-muted` | `--z-brand-cool-grey` | The lede and the links | 10.5:1 |
 | `--z-panel-text-subtle` | `#868B94` | The facts' detail, "Developed by" | 5.9:1 |
@@ -362,9 +362,9 @@ control's indicator needs.
 Two faces, both self-hosted as woff2 so an air-gapped install has no network
 dependency and no third-party font request:
 
-* **Inter Variable** — UI. `--z-font-sans`. Geist and `system-ui` are the
+* **Inter Variable**: UI. `--z-font-sans`. Geist and `system-ui` are the
   brand's sanctioned alternatives and sit in the fallback stack.
-* **JetBrains Mono** — logs, IDs, labels, durations, anything monospaced.
+* **JetBrains Mono**: logs, IDs, labels, durations, anything monospaced.
   `--z-font-mono`.
 
 The wordmark in the logo artwork is custom-rendered and is not Inter. Do not
@@ -420,12 +420,12 @@ about what empty looks like. Ranges (`1–10 of 24`) and sentences keep their da
 zooms the whole viewport whenever a focused control is under 16px, and the
 viewport meta deliberately sets no `maximum-scale`, so without this every field
 tap on the first-run screens jumped a 360px page to roughly 410px of effective
-width and ran the card off both edges — once per field. Control height comes
+width and ran the card off both edges, once per field. Control height comes
 from the space scale, so nothing reflows; only the glyphs grow.
 
 **A validation error takes the hint's place; it never appears beside it.**
 `Field` renders one message row, because an error rendered *in addition* to the
-hint adds a line and moves everything below it — including the submit button,
+hint adds a line and moves everything below it, including the submit button,
 out from under a pointer already on its way down, so the click lands on whatever
 takes its place and the operator experiences a button that does nothing. A field
 on a form worth clicking therefore carries a hint, so the row is occupied before
@@ -453,7 +453,7 @@ Borders come in three weights and the choice between them is meaning, not
 taste. `--z-border-width` (1px) is the hairline that separates things belonging
 to the same list. `--z-border-width-thick` (2px) marks the one that is selected,
 focused or wrong. `--z-border-width-rail` (3px) is the flag down the left edge
-of a problem, a disabled pool or a failed step — thicker because it is a signal
+of a problem, a disabled pool or a failed step, thicker because it is a signal
 rather than a boundary.
 
 Below the 4px spacing grid there are three optical nudges, `--z-nudge-1` to
@@ -464,18 +464,18 @@ The drawn controls have their own sizes, for the same reason: `--z-control-box`
 (15px, the checkbox and radio box), `--z-control-thumb` (14px, the switch), and
 `--z-control-icon` (14px, the icon inside a button). Field and button *heights*
 are on the spacing scale and stay there: `sm` is `--z-space-6`, `md` is
-`--z-space-8`, and `lg` — which only the sign-in form uses, because it is the one
-form that is the whole page — is `--z-space-10`. The one exception is `--z-control-touch`
+`--z-space-8`, and `lg` (which only the sign-in form uses, because it is the one
+form that is the whole page) is `--z-space-10`. The one exception is `--z-control-touch`
 (44px) is the height a control read by a finger takes under
-`@media (pointer: coarse)` — the segmented choices, the chips and legend
+`@media (pointer: coarse)` (the segmented choices, the chips and legend
 switches every trend carries, a slider's thumb, a column heading's reposition
-grip and resize edge, and the sign-in form's `lg` fields and button — because a 24px row
+grip and resize edge, and the sign-in form's `lg` fields and button) because a 24px row
 a mouse is fine with is two rows under one fingertip. It applies only where the pointer is coarse,
 so the desktop keeps its density.
 
 Dialogs and drawers are cut to their content's comfortable measure rather than
 to the viewport, so each has three widths and they are the three shapes we
-actually put in one — a confirmation, a form, a table:
+actually put in one; a confirmation, a form, a table:
 `--z-width-dialog-sm|md|lg` (400/560/820) and `--z-width-drawer-sm|md|lg`
 (360/520/760).
 
@@ -490,7 +490,7 @@ dark mode elevation is carried mostly by surface colour, not shadow.
 | `--z-shadow-md` | `0 4px 12px -2px rgb(8 12 20 / .10)` | `0 4px 12px -2px rgb(0 0 0 / .6)` |
 | `--z-shadow-lg` | `0 16px 40px -8px rgb(8 12 20 / .16)` | `0 16px 40px -8px rgb(0 0 0 / .7)` |
 
-Every modal sits on the same veil, `--z-scrim` with `--z-scrim-blur` — the page's
+Every modal sits on the same veil, `--z-scrim` with `--z-scrim-blur`; the page's
 own ground at 72% and a 3px blur, so it dims in both themes without a hard-coded
 black. Dialog, Drawer, the command palette and the phone's navigation sheet all
 take it from the token, so a dialog opened over a drawer dims the page by one
@@ -523,7 +523,7 @@ field cannot make.
 | `--z-motion-slow` | 320ms | Dialogs, drawer, route transition |
 | `--z-ease` | `cubic-bezier(.2,.8,.2,1)` | Everything |
 
-State changes animate the *colour and the dot*, never layout — a table that
+State changes animate the *colour and the dot*, never layout; a table that
 reflows while you are reading it is worse than one that does not animate at all.
 Everything inside `@media (prefers-reduced-motion: reduce)` collapses to `1ms`.
 
@@ -585,40 +585,40 @@ it is handed the same three thumb tokens through its theme.
 Persistent left navigation, collapsible to icons only (persisted). Order is
 fixed, because muscle memory is the point:
 
-1. **Overview** — fleet health at a glance
-2. **Pools** — what runners to make
-3. **Runners** — what runners exist right now
-4. **Queue** — what is waiting for a runner, and why
-5. **Workflows** — what has run, one row per workflow run, each opening to the
+1. **Overview**: fleet health at a glance
+2. **Pools**: what runners to make
+3. **Runners**: what runners exist right now
+4. **Queue**: what is waiting for a runner, and why
+5. **Workflows**: what has run, one row per workflow run, each opening to the
    jobs inside it. The job-level list is one step down, at `/jobs`: it is not
-   in the navigation, but every link that names a job — the problems drawer's,
-   the Overview's — lands there, and the two pages share their filters.
-6. **Usage** — runner-hours and job activity by pool, repository or workflow
-7. **Hosts** — where runners can go
-8. **Providers** — the infrastructure that machines are rented from
-9. **Installations** — GitHub App connections
-10. **Migrate repositories** — move repositories off GitHub's runners onto this
+   in the navigation, but every link that names a job (the problems drawer's,
+   the Overview's) lands there, and the two pages share their filters.
+6. **Usage**: runner-hours and job activity by pool, repository or workflow
+7. **Hosts**: where runners can go
+8. **Providers**: the infrastructure that machines are rented from
+9. **Installations**: GitHub App connections
+10. **Migrate repositories**: move repositories off GitHub's runners onto this
     fleet. The navigation shortens it to *Migrate*, because a nav label has to
     fit beside an icon in a 232px column; every other place that names the page
-    — its heading, the palette, the shortcut sheet, the browser title — uses the
+    (its heading, the palette, the shortcut sheet, the browser title) uses the
     full name.
-11. **Kennel Club** — which repositories could hurt the fleet or stop its CI
+11. **Kennel Club**: which repositories could hurt the fleet or stop its CI
     ([Kennel Club](kennel-club.md)). It is a section of pages, like Settings:
     *Standards* (the Overview and the list of Repositories, and each
-    repository's own page) and, under *For assistants*, **AI Context** —
+    repository's own page) and, under *For assistants*, **AI Context**,
     preparing repositories for AI coding assistants, where explicit source access
     is separate from fleet permissions. AI Context has no section of its own, and
     `/ai-context` still reaches it.
-12. **Audit** — who did what
-13. **Settings** — a section of pages rather than one page: your account and
+12. **Audit**: who did what
+13. **Settings**: a section of pages rather than one page: your account and
     appearance; users and API tokens; the configuration, backups, updates and about.
     Each has an address of its own (`/settings/users`), the section's own rail
     lists them beside the page, and `/settings` alone goes to the first of
-    them — except on a phone, where it is the list.
+    them, except on a phone, where it is the list.
 
-The sidebar reads the same order under four headings — *Fleet*, *Infrastructure*,
+The sidebar reads the same order under four headings (*Fleet*, *Infrastructure*,
 *GitHub* and *Administration*, with the Overview standing alone at the top and
-Administration pinned to the foot — so an entry is found by its neighbourhood
+Administration pinned to the foot) so an entry is found by its neighbourhood
 rather than read for from the top. Collapsed, the headings become hairlines
 and nothing moves. The headings change nothing about the order or the `g`
 chords, which is what lets them be added without anyone relearning anything.
@@ -627,10 +627,10 @@ Every page is shown, in both themes, in [The UI](ui.md).
 
 The navigation is headed by the mark, the wordmark and the descriptor, and every
 page ends in a hairline footer carrying the mark, the name, the running version,
-a link to the docs and the credit *Developed by EyUp.io* — so a signed-in
+a link to the docs and the credit *Developed by EyUp.io*, so a signed-in
 screenshot says which product and which build it came from, and who makes it,
 without anyone having to open Settings. On a phone the navigation moves to the
-bottom edge and loses its masthead, so the mark appears in the top bar instead —
+bottom edge and loses its masthead, so the mark appears in the top bar instead,
 and again at the head of the sheet the More button opens, which is the one
 place on a phone with room to say the name.
 
@@ -642,7 +642,7 @@ out. On a phone the same things live at the top of the More sheet.
 **A link that leaves the product opens in a new tab; a link within it does
 not.** An operator watching a fleet should not lose the page they were on to go
 and read what a runner group is. Both footer links leave, so both take a new
-tab, as does every link to GitHub or to the documentation from a dialog —
+tab, as does every link to GitHub or to the documentation from a dialog,
 `Button` has a `newTab` prop for the ones that are buttons. Each of them adds
 "(opens in a new tab)" to its accessible name, because a tab appearing under
 somebody who cannot see it happen is disorienting rather than helpful.
@@ -658,16 +658,16 @@ The one page that has to earn the second monitor.
 
 * **The activity matrix**, first: today by the hour, and up to a year of the
   fleet's days as one band of squares, a column per week and a row per
-  weekday, coloured by what finished
-  — greener as more jobs finish, red the moment any fail, darker red the
+  weekday, coloured by what finished,
+  greener as more jobs finish, red the moment any fail, darker red the
   larger the share. Colour never carries it alone: a failing square has a hole
   in it, a square with work waiting and nothing finished is hollow, and every
   square's accessible name is the whole sentence its tooltip shows. The grid
   is one tab stop walked with the arrow keys; selecting a square opens the
   day's hours and its links beneath the grid rather than in an overlay. Quick
-  ranges cut the window — a day and a week are drawn by the hour, a month and a
+  ranges cut the window (a day and a week are drawn by the hour, a month and a
   quarter as the calendar with each day cut into four- or eight-hour squares
-  side by side, and the year by the day — and the choice, the day it starts on
+  side by side, and the year by the day) and the choice, the day it starts on
   aside, is a per-operator preference. Slicing the days is what gives the
   shorter calendars about as many columns as the year, so every range fills
   the band the same way. Every range is drawn whole, never cut to the width or
@@ -678,8 +678,8 @@ The one page that has to earn the second monitor.
   numbers under it lose. The band spends its width as well as its height: a
   grid with at least as many columns as rows grows its square until it fills
   the room beside the figures, one too narrow for that keeps its size and
-  hands the width over, and the figures — what the squares on screen come to,
-  so the window reads without hovering every square — take whatever is left.
+  hands the width over, and the figures (what the squares on screen come to,
+  so the window reads without hovering every square) take whatever is left.
   On a phone the band cannot hold both, so the one that would use the width
   gets it: a week of hours or a month of sliced days grows across the whole
   band with the figures under it, a few weeks of whole days keeps them beside
@@ -690,13 +690,13 @@ The one page that has to earn the second monitor.
   `lib/insights/` because the Usage page draws its range with the same one.
 * **Four metric tiles**: queued jobs, running jobs, live runners, median queue
   wait. Each carries a sparkline of the last hour.
-* **Per-pool utilisation bars** — busy / live, with the pool's min and max marked
+* **Per-pool utilisation bars**: busy / live, with the pool's min and max marked
   so an operator can see a pool pinned at its ceiling.
-* **Recent events** — a reverse-chronological list of what has happened to the
+* **Recent events**, a reverse-chronological list of what has happened to the
   fleet, whatever kind of thing it was: the scheduler's decisions in its own
   words (*"scaled `linux-x64` 2 → 4: 3 jobs queued > 30s"*), how each job
   ended, a runner that failed and a runner that came up ready, a runner lent
-  spare CPU or slowed by the host it is on (*"Squirrel spotted — maximum
+  spare CPU or slowed by the host it is on (*"Squirrel spotted, maximum
   zoomies"*, in the same words the runner's own page uses), a host that went
   quiet, was throttled or is holding new runners off under pressure, a machine
   a provider is renting, a pool somebody changed, the GitHub connection,
@@ -704,14 +704,14 @@ The one page that has to earn the second monitor.
   category as much as what goes wrong**: a panel that only ever reported
   failures would teach an operator that silence is the good state, which is
   the same thing as teaching them not to read it. Every line is
-  the same four things — a mark in one of the six status tones, what happened,
-  what it happened to, and when — with the controller's own sentence under it
+  the same four things (a mark in one of the six status tones, what happened,
+  what it happened to, and when) with the controller's own sentence under it
   where there is one, printed verbatim. A job's line names the step it stopped
   at, how long it took and where it came from, and a job whose runner stopped
   under it says so: that failure is the fleet's, not the workflow's, and this
   page is where the two are told apart. The hour's failures and how many of
   them were the fleet's own are a badge in the panel's header, because nothing
-  else answers that — GitHub records both as *failure*.
+  else answers that, GitHub records both as *failure*.
 
   **Which kinds it carries is the operator's choice**, one switch per category
   on *Settings → Events*, grouped under four headings and kept in the browser
@@ -719,7 +719,7 @@ The one page that has to earn the second monitor.
   that safe: the panel says how many kinds are switched off rather than
   quietly omitting them, and a category never reports a frame that carries no
   news, so nothing floods the panel with heartbeats. A category with no
-  history to load — a host, a machine, a pool — says so on the settings page,
+  history to load (a host, a machine, a pool) says so on the settings page,
   because one that is on and empty otherwise looks exactly like one that is
   broken.
 
@@ -728,11 +728,11 @@ The one page that has to earn the second monitor.
   It is the one panel whose length says nothing about the fleet, so it never
   decides the height of the page: a fleet with one pool does not get a screen
   of blank space under it because the scheduler has been busy.
-* **Active jobs**, under the pools — what is running this moment, newest
+* **Active jobs**, under the pools: what is running this moment, newest
   first. How the last jobs ended was a second panel across the bottom of the
   page and is now part of the feed: two reverse-chronological lists on one
   page, each with its own idea of what belonged on it, was one list too many.
-* **Problems summary** — one line saying how many things need a person, worst
+* **Problems summary**: one line saying how many things need a person, worst
   severity first, with a *Review* button that opens the problems drawer.
   **When everything is fine it is a single quiet line, not an empty box and not
   a green celebration.** It is a line rather than a list on purpose: the panels
@@ -743,15 +743,15 @@ The one page that has to earn the second monitor.
 ### The problems drawer
 
 Reachable from the count in the top bar on every page, from the Overview's
-*Review*, and from the command palette. It holds the list itself — unhealthy
+*Review*, and from the command palette. It holds the list itself (unhealthy
 hosts, failed registrations, webhook delivery failures, unmatched queued jobs,
 jobs whose runner stopped under them in the last hour, and every dangerous
-configuration setting the validator flagged — worst first,
+configuration setting the validator flagged) worst first,
 each entry saying what is true, why it matters and what to change, with a link
 to the pool, host, runner or installation it is about.
 
 Every entry can be **dismissed** or **snoozed** for 15 minutes, an hour, four
-hours or a day — for that one problem, or for every problem of its kind. A
+hours or a day, for that one problem, or for every problem of its kind. A
 decision is the operator's own, kept on their account in the database
 (`problem_dismissals`, via `GET`/`PATCH /api/v1/auth/problem-dismissals`) so it
 holds on another browser, another device and a second tab, and is never fleet
@@ -779,7 +779,7 @@ from tokens. Everything else lives in a folder named for the thing it serves --
 `lib/pools/`, `lib/jobs/`, `lib/shell/` -- so a file's path says who owns it,
 and a component earns its way into `components/` when a second feature needs it
 rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
-`$props`, `$effect`) throughout — no stores except for genuinely global state.
+`$props`, `$effect`) throughout; no stores except for genuinely global state.
 
 ### Primitives
 
@@ -806,7 +806,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `Duration` | humanised, tabular numerals |
 | `Sparkline` | inline SVG, no chart library, `role="img"` with a text summary |
 | `Slider` | the browser's own range control between notches, with the recommended notch ringed and words at the ones worth naming; a second row when two would collide. `aria-valuetext` says the value in the same words the readout shows |
-| `QuantityField` | **every size and CPU figure** — a runner's limits, a host's reserve, a machine's shape, and every numeric or duration setting on the Configuration page. A `Slider` for choosing beside a field that reads what people write — `4gb`, `4096mb`, `4g`, `4 GiB`, `1.5`, `1500m` — and, on Enter or blur, writes it back in the largest unit that says it exactly: `4096mb` becomes “4 GB”, `1536` becomes “1.5 GB”, and `3000 MB` stays as it is rather than turning into a rounded, different limit. A gigabyte is 1024 MB, as it is everywhere else on the page. A length of time reads Go's spelling and the one people say — `168h`, `7d`, `2 weeks`, `1h30m`, `90 seconds` — is shown as “7d” or “1h 30m”, and is sent to the controller in Go's spelling, which has no day. What cannot be read is said beside the field and changes nothing. Never a bare `type="number"` box with the unit in its label |
+| `QuantityField` | **every size and CPU figure**; a runner's limits, a host's reserve, a machine's shape, and every numeric or duration setting on the Configuration page. A `Slider` for choosing beside a field that reads what people write (`4gb`, `4096mb`, `4g`, `4 GiB`, `1.5`, `1500m`) and, on Enter or blur, writes it back in the largest unit that says it exactly: `4096mb` becomes “4 GB”, `1536` becomes “1.5 GB”, and `3000 MB` stays as it is rather than turning into a rounded, different limit. A gigabyte is 1024 MB, as it is everywhere else on the page. A length of time reads Go's spelling and the one people say (`168h`, `7d`, `2 weeks`, `1h30m`, `90 seconds`) is shown as “7d” or “1h 30m”, and is sent to the controller in Go's spelling, which has no day. What cannot be read is said beside the field and changes nothing. Never a bare `type="number"` box with the unit in its label |
 | `UtilisationBar` | busy/live with min and max ticks |
 | `ConfirmDialog` | destructive confirmation that **names the thing** ("Delete pool `linux-x64`? 3 runners will be drained.") and requires typing the name for anything irreversible; `Enter` in that field confirms only once the name matches |
 
@@ -814,7 +814,7 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 
 | Component | Notes |
 | --- | --- |
-| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame; an explicitly widened layout scrolls inside its own frame — see *Tables use the space they need* |
+| `DataGrid` | TanStack Table core + our own markup. Server-side pagination, sorting and filtering; column show/hide, width and order persisted per grid; sticky header; row selection with a bulk action bar; full keyboard navigation (`↑ ↓` rows, `Enter` opens, `Space` selects, `Shift+↑/↓` range). Defaults fit the frame; an explicitly widened layout scrolls inside its own frame, see *Tables use the space they need* |
 | `RowActions` | a row's actions as buttons rather than a menu, as an ARIA toolbar: one tab stop per row, `← →` along it, and every button's name carries what it acts on |
 | `FilterBar` | chips for active filters, each individually removable, plus a clear-all |
 | `PageHeader` | title, subtitle, breadcrumb, primary action, and the refresh button where the page passes `onrefresh` |
@@ -825,18 +825,18 @@ rather than on the day it is written. Svelte 5 runes (`$state`, `$derived`,
 | `HostMemoryPool` | `lib/hosts/`. The memory a host may lend, as a figure and a bar drawn against the whole machine, so segments compare between hosts of different sizes; the ledger it was worked out from, line by line, is the card behind it. The figure and bar are one button, so the ledger opens on focus and a tap as well as on hover |
 | `MemoryBar` | `lib/runners/`. A runner's memory as one bar: guaranteed, lent, swap (hatched, so it cannot be mistaken for the solid fill where colour is lost) and a tick at the ceiling. `aria-hidden`: the figures beside it carry the meaning |
 | `RunnerTimeline` | `lib/runners/`. One row per state with how long the runner stayed there, reconstructed from the four timestamps a runner row carries -- and it says so, rather than letting an operator read it as an audit trail |
-| `Wizard` | a flow of steps that is genuinely a sequence — the AI Context setup, the provider form, the migration; on a phone its footer stays pinned above the bottom bar. A pool is not one: see [the pool editor](#the-pool-editor) |
+| `Wizard` | a flow of steps that is genuinely a sequence; the AI Context setup, the provider form, the migration; on a phone its footer stays pinned above the bottom bar. A pool is not one: see [the pool editor](#the-pool-editor) |
 
 ### The log viewer
 
 100k lines without jank is a hard requirement. xterm.js with the canvas/WebGL
 addon handles the rendering; the constraints on our side are:
 
-* a bounded scrollback (`scrollback: 100000`) — beyond that the oldest lines go;
+* a bounded scrollback (`scrollback: 100000`): beyond that the oldest lines go;
 * writes are **batched on `requestAnimationFrame`**, never once per SSE frame;
 * `fit` is debounced and only runs on real size changes;
 * search uses the search addon, not a DOM scan;
-* "follow" is a mode, not a scroll position — leaving the bottom turns it off,
+* "follow" is a mode, not a scroll position: leaving the bottom turns it off,
   and a floating "jump to latest" button turns it back on.
 
 ---
@@ -851,10 +851,10 @@ sends `Last-Event-ID` and the server replays what it buffered, then the page
 does one reconciling fetch; frames that land while that fetch is in flight are
 held and applied on top of its result, because they are newer than it. The
 connection state is visible in the top bar: a quiet dot when live, an explicit
-"reconnecting…" when not — never a silent stall.
+"reconnecting…" when not, never a silent stall.
 
 A grid that fetches its rows from the server refetches on the cache's *shape*
-— a runner appearing, changing state, pool, host or job — not on every frame,
+(a runner appearing, changing state, pool, host or job) not on every frame,
 so a heartbeat that only moves a runner's CPU and memory costs no round trip;
 and it refreshes at most about once a second however fast the shape moves, so
 a fleet in trouble is still readable while it is in trouble.
@@ -862,25 +862,25 @@ a fleet in trouble is still readable while it is in trouble.
 The one page that asks rather than listens is *Add a host*: while it waits for
 the new machine it fetches its own join token every few seconds, because
 credentials are deliberately not on the stream. Even there the stream is the
-fast path — a host's first frame is the cue to ask at once — and the page says
+fast path (a host's first frame is the cue to ask at once) and the page says
 in words that it is waiting and how.
 
 ### Refresh
 
-Refreshing is never how the screen keeps up — the stream is — but it is how an
+Refreshing is never how the screen keeps up, the stream is, but it is how an
 operator settles the question of whether it has. Some things genuinely do not
 arrive over the stream: join tokens, users, API tokens, and the configuration.
 
 So the control is one control, in one place, everywhere it means anything:
 
 * `PageHeader` renders it, first in the actions row, ahead of the page's own
-  actions. It is a `secondary` button, never the primary one — the primary
+  actions. It is a `secondary` button, never the primary one; the primary
   action changes the fleet, not the view of it.
 * A page declares what refreshing means for it by passing `onrefresh`, and
   `RefreshButton` registers that with `lib/state/refresh.svelte.ts`, which is
   also what the `R` shortcut and the palette entry run. The button and the key
   cannot drift apart, because there is only one handler.
-* A page with nothing to fetch — a wizard mid-flight, the not-found page —
+* A page with nothing to fetch (a wizard mid-flight, the not-found page)
   passes nothing and shows no button. A control that succeeds at nothing is
   worse than no control.
 * One at a time: a second press joins the refresh in flight rather than starting
@@ -900,12 +900,12 @@ returns 409 the badge flips back and the toast explains. Background outcomes
 
 The same holds for an answer a person is waiting on after they asked for it: a
 refresh, or a check they asked a host to run, shows its result by the page
-changing — a fresher time, a finding that cleared — and is announced once in a
+changing (a fresher time, a finding that cleared) and is announced once in a
 polite live region for people who cannot see the change. A toast is for the
 failure of the request itself, which the person's own press caused, never for
 what arrived afterwards.
 
-The controller's own words are what a failure says — a 403 names the role
+The controller's own words are what a failure says; a 403 names the role
 required, and paraphrasing it would lose that. They are shown as they are, but
 run through `sentence()` in `lib/errors.ts` first, in the failure toast and the
 error panel: the server writes for a log line (lowercase, no full stop), and
@@ -932,8 +932,8 @@ pattern.
 ### The pool editor
 
 Creating a pool and editing one are the same page, made of sections that are
-each a *decision* — who the pool is for, which hosts, what a runner is, how big,
-how many, what makes it faster — rather than a screen of the code that handles
+each a *decision* (who the pool is for, which hosts, what a runner is, how big,
+how many, what makes it faster) rather than a screen of the code that handles
 it.
 
 * **Every section is a row that says its answer.** A heading holding a
@@ -948,7 +948,7 @@ it.
   can read than by a form to scroll. A link to a section opens it: `#size`.
 * **The rows are the navigation.** From `--z-bp-lg` up a rail beside the page
   lists the same sections, marks the ones that are edited or have something to
-  fix, and jumps — opening, scrolling to and focusing the section, and writing
+  fix, and jumps, opening, scrolling to and focusing the section, and writing
   `#size` into the address as a replacement rather than an entry. Below it there
   is no rail: a second copy of the list above the form is one more thing to
   scroll past on a phone.
@@ -961,7 +961,7 @@ it.
 * **The exception is behind a row of its own.** A section is the answer to one
   question, and the controls that refine it are in a native disclosure with a
   line saying whether any are in use. One or two to a section, and open already
-  when one is — never a setting in use hidden behind a closed row.
+  when one is, never a setting in use hidden behind a closed row.
 * **The form vocabulary is shared.** `.group`, `.hint`, `.echo`, `.pair`,
   `.proposal` and `.callout` are laid out once, by the section that holds them, so
   six bodies do not carry six copies of the same eight rules; a `.pair` stacks
@@ -982,21 +982,21 @@ action inline:
 
 * Pools: *"No pools yet. A pool decides what labels your runners answer to and
   how many of them exist."* + **Create a pool**
-* Runners: *"No runners right now. That is normal when nothing is queued —
+* Runners: *"No runners right now. That is normal when nothing is queued,
   runners are created on demand."*
 * Jobs: *"Nothing is running right now. No runner here is working on a job at
   this moment, which on a quiet fleet is the ordinary state."* + **Show every
-  status** — the page opens on what is running, so that is the empty grid an
+  status**; the page opens on what is running, so that is the empty grid an
   operator meets first
 
 **An empty grid that is empty because of a filter says so instead**, naming the
 filter rather than the noun: "No pools match those filters", "No runners match
 these filters". The two are different facts and an operator acts on them
-differently — one is a fleet with nothing in it, the other is a search with
+differently, one is a fleet with nothing in it, the other is a search with
 nothing in it. The Jobs page carries this furthest, because an empty grid there
 means seven different things, and the page says which: with a search or a
-facet in force it is "no jobs match these filters" — the Workflows page says
-"no runs" — offering **Clear filters**, and that outranks every status
+facet in force it is "no jobs match these filters" (the Workflows page says
+"no runs") offering **Clear filters**, and that outranks every status
 sentence below, because none of them is true of a search that matched nothing
 (the dates are not a facet here; an empty window keeps its own advice to widen
 it); under the unmatched filter
@@ -1009,15 +1009,15 @@ points at webhook delivery; and without them it is "no jobs have run on this
 fleet", which offers to widen the view.
 
 **A page past the end is not an empty grid.** When the page an operator is on
-answers no rows beside a total that says there are some — the last page emptied
-by a live refresh, or a pasted `?offset=` from before the fleet shrank — the grid
+answers no rows beside a total that says there are some (the last page emptied
+by a live refresh, or a pasted `?offset=` from before the fleet shrank) the grid
 steps back to the last page that has rows. The empty state is for a list whose
 total is zero.
 
 ### Keyboard
 
 Everything reachable, in a sensible order, with a visible focus ring
-(`2px` `--z-accent`, `2px` offset — never removed). `Cmd/Ctrl+K` palette,
+(`2px` `--z-accent`, `2px` offset, never removed). `Cmd/Ctrl+K` palette,
 `g` then `o/p/r/q/w/j/u/h/v/i/m/k/a/s` to jump between sections (`j` is the Jobs
 list, one step down from Workflows), `/` focuses the current page's search, `R` refreshes it, `?` opens the shortcut sheet, `Esc` closes the
 topmost layer. While a dialog, drawer, menu or the palette is open, `Esc` is
@@ -1031,9 +1031,9 @@ it is `inert`.
 Two thresholds, `--z-bp-md` (768px) and `--z-bp-lg` (1180px), and so three
 ranges:
 
-* `< 768px` — **phone.** The navigation becomes a bar along the bottom edge
-  carrying the four sections a fleet is watched with — Overview, Pools, Runners,
-  Workflows — each under its own word, plus a **More** button opening a sheet from
+* `< 768px` (**phone.** The navigation becomes a bar along the bottom edge
+  carrying the four sections a fleet is watched with) Overview, Pools, Runners,
+  Workflows; each under its own word, plus a **More** button opening a sheet from
   the bottom edge that lists all thirteen, with the account, the theme and sign
   out above them. An icon-only target for every section across a 412px screen is
   about 32px apart and told apart only by a glyph, which is not a navigation an
@@ -1042,24 +1042,24 @@ ranges:
   it. Settings has no room for its rail here, so `/settings` is the list of its
   pages and each page carries a way back to it; between 768 and 1180px the rail
   is a strip of the same pages above the one being read.
-  Collapsing is a *desktop* idea and the phone must never inherit it — a bar
+  Collapsing is a *desktop* idea and the phone must never inherit it; a bar
   along the bottom has nothing to collapse, and `.nav.collapsed` outranking the
   phone's own rules is what once made that bar 56px wide with every entry piled
-  into the corner. Metric tiles stack, every table's rows become cards — read
-  down, one heading per line, nothing dropped and nothing truncated — text
+  into the corner. Metric tiles stack, every table's rows become cards (read
+  down, one heading per line, nothing dropped and nothing truncated) text
   controls step up to `--z-control-font-touch` so iOS does not zoom, and every
   control stays usable: the Playwright suite's mobile project runs the whole
   suite at this width, drains and the pool editor included.
-* `768–1180px` — **tablet.** The nav starts collapsed to icons unless the
+* `768–1180px`: **tablet.** The nav starts collapsed to icons unless the
   operator has chosen otherwise. That default is bounded at both ends, in
   `prefs.svelte.ts` and in the inline script in `index.html` that applies it
   before first paint: a phone is not a narrow desktop and has no sidebar to
   collapse.
-* `> 1180px` — **full.**
+* `> 1180px`: **full.**
 
 One page also answers to the window's height. On a desktop the sign-in page's
-brand panel drops its three facts when the window is under 720px tall — a laptop
-with its browser chrome is often less — rather than grow a scrollbar on the one
+brand panel drops its three facts when the window is under 720px tall (a laptop
+with its browser chrome is often less) rather than grow a scrollbar on the one
 page that should fit without one. It is the only height query in the product,
 and it hides nothing a person needs to sign in.
 
@@ -1067,8 +1067,8 @@ On a phone that page's brand panel becomes a band drawn to the very top of the
 screen, so it pads by `--z-safe-top`, the status bar's height, which is zero
 anywhere but an installed web app.
 
-An overlay that covers the screen — the drawer, the dialogs, the command
-palette, the side menu, the bar along the bottom and the toasts — takes its
+An overlay that covers the screen (the drawer, the dialogs, the command
+palette, the side menu, the bar along the bottom and the toasts) takes its
 width from `--z-window-width`, never from a bare `100%` or `inset`. A phone
 answers a page that overflows sideways by laying the whole thing out in a wider
 block and showing it smaller, and everything `position: fixed` is laid out
@@ -1081,12 +1081,12 @@ desktop it is the side of the two that does not add a scrollbar.
 
 The mobile project emulates a 412px Pixel 7, which is the forgiving end of the
 range most phones are in, so two of its tests set 360px instead and walk every
-section at it. That is where a settings row — 15rem of key, the value beside it
-— ran **Change** over the edge, and with it the document and every overlay laid
+section at it. That is where a settings row (15rem of key, the value beside it)
+ran **Change** over the edge, and with it the document and every overlay laid
 out against it.
 
 A third threshold is not a judgement call to be made per component. Four
-components had one each — 560, 640 and 720 — and every one of them was a "stack
+components had one each (560, 640 and 720) and every one of them was a "stack
 this on a phone" rule written to a width somebody eyeballed. They are all 768px
 now. A media query cannot say "above 1180" without naming the next pixel, so the
 one `min-width: 1181px` in `FleetMetrics.svelte` is the same threshold from the
@@ -1119,7 +1119,7 @@ Five things make it fit, in this order:
   immediate and offline fallback. New columns append to a saved order.
 * **Both gestures answer a finger.** They are pointer gestures rather than
   HTML5 drag-and-drop, which a browser raises from a finger only after a long
-  press on Android and never on iOS — so the order was once a preference a
+  press on Android and never on iOS, so the order was once a preference a
   phone could read and not write, on the Rows layout that exists to give a
   phone columns to arrange. Under `@media (pointer: coarse)` the heading takes
   `--z-control-touch`, both controls grow into it, and the resize edge stops
@@ -1143,7 +1143,7 @@ Five things make it fit, in this order:
   each say very little, so each grid carries a Cards/Rows toggle above its rows
   and Settings → Appearance holds the default every grid that has not chosen
   follows. In the card layout every row becomes a card and every cell carries
-  its own heading, taken from its `data-label` — the shape the usage report and
+  its own heading, taken from its `data-label`; the shape the usage report and
   the Hosts page already had. Nothing is dropped and nothing is truncated; a
   `wide` column is back, because a card has a line for it. Two things a heading
   row does that a card cannot are kept as a strip above the cards: the sort, and
@@ -1151,19 +1151,19 @@ Five things make it fit, in this order:
   in the document, out of the layout, so a screen reader still has a column
   header to associate each cell with.
 
-The same card layout is written out by hand in the tables that are not grids —
+The same card layout is written out by hand in the tables that are not grids;
 the usage report, the accounts and API-token lists, the outstanding join tokens
 and the three check tables on a host's page.
 The `tableLayout` action gives those record tables the same measured defaults,
 handles and account preference keys without taking ownership of their rows. A
-compact matrix whose column order carries meaning — the chronological capacity
-card, for example — stays a matrix and does not offer a misleading reorder
+compact matrix whose column order carries meaning (the chronological capacity
+card, for example) stays a matrix and does not offer a misleading reorder
 control. A new table of any size belongs in one of those two places.
 
 All of them, the grid included, spell their ARIA roles out rather than leaving
 them to the element. A browser drops a row's implicit role the moment `display`
 stops being `table-row`, so a card layout that says nothing is a run of loose
-text to a screen reader — the values are all there and nothing says which record
+text to a screen reader; the values are all there and nothing says which record
 any of them belongs to.
 
 ---
@@ -1182,7 +1182,7 @@ How it is kept:
 
 * route-level code splitting; xterm.js and TanStack Table load only on the
   routes that use them;
-* no chart library — sparklines and bars are hand-written SVG;
+* no chart library: sparklines and bars are hand-written SVG;
 * Lucide icons imported individually so tree-shaking works;
 * fonts declared by hand as four Latin faces with `font-display: swap`,
   rather than @fontsource's own stylesheets, which pull in Cyrillic, Greek and
@@ -1194,7 +1194,7 @@ How it is kept:
 any route is over its budget, so this stays true.
 
 The shell is the entry chunk, what it imports statically, and the CSS those
-bring with them — not every stylesheet in the build, which is what it used to
+bring with them, not every stylesheet in the build, which is what it used to
 count and why the printed number overstated the first paint.
 
 The status page is its own document, `web/status.html`, built by a second pass
@@ -1249,13 +1249,13 @@ and deliberately so: the demo keeps its two starting runners young
 not report a fault in a fleet that has no agent to have one. Those two also
 need a queue behind them. The fixture is a snapshot and the reconcile loop
 reads it as a fleet, so a pool holding more runners than its demand justifies
-has the ones that have not finished starting drained on the very first pass —
+has the ones that have not finished starting drained on the very first pass,
 which is why `seedBacklog` writes a queued job for every runner in the pool
 that is neither busy nor draining, and the fixture survives the loop that
 reads it. The cost is that
-every page which explains a fault has nothing to render there — the problems
+every page which explains a fault has nothing to render there (the problems
 drawer, both stuck-runner shapes, a pool nothing can place, a job GitHub is
-holding — so all of them went untested.
+holding) so all of them went untested.
 
 `ZOOMIES_SEED_STUCK=true`, on top of `ZOOMIES_SEED_DEMO`, is the opt-in that
 breaks three things in that fleet: it ages the demo's two starting runners past
@@ -1266,7 +1266,7 @@ applies to them unchanged.
 
 The `diagnostics` Playwright project runs `tests/diagnostics.spec.ts` against
 its own controller on that fixture. Put a spec there when what it protects is a
-diagnosis — the words an operator reads on their worst day — rather than a
+diagnosis (the words an operator reads on their worst day) rather than a
 grid.
 
 `ZOOMIES_SEED_UPDATES=<folder>`, on top of `ZOOMIES_SEED_DEMO`, is the opt-in
@@ -1282,8 +1282,8 @@ page as the documents the controller would send.
 
 ## 8. Screenshots
 
-The screenshots in `docs/screenshots/` — the ones [The UI](ui.md), the site's
-home page and the repository README embed — are captured from the real binary,
+The screenshots in `docs/screenshots/`, the ones [The UI](ui.md), the site's
+home page and the repository README embed, are captured from the real binary,
 never from a design file or a retouched page. `make screenshots` builds, boots
 a controller with the demo fleet (`ZOOMIES_SEED_DEMO`) and authentication on,
 signs in as a freshly bootstrapped administrator, and photographs every page in
@@ -1296,5 +1296,5 @@ Refresh them when a page changes in a way a reader would notice, and commit
 the whole set: a gallery in which one page has the new navigation and the rest
 the old one is worse than one that is uniformly a release behind. If a shot
 needs the fixture to show something new, change the fixture in
-`internal/controller/seed.go` rather than the image — that is the fleet the
+`internal/controller/seed.go` rather than the image; that is the fleet the
 Playwright suite asserts on, so the picture and the tests stay honest together.

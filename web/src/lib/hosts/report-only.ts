@@ -36,11 +36,11 @@ export function reportOnly(report: DoctorReport | undefined): ReportOnly | null 
 export function reportOnlySentence(kind: ReportOnly, os: string): string {
   switch (kind) {
     case 'os':
-      return `Zoomies does not tune ${os ? `${os} hosts` : 'this kind of host'} — its OS checks need Linux, so this report is informational and there is nothing to change on this host.`;
+      return `Zoomies does not tune ${os ? `${os} hosts` : 'this kind of host'}, its OS checks need Linux, so this report is informational and there is nothing to change on this host.`;
     case 'distro':
       return 'This distribution is report-only: run sudo zoomies doctor on the host to read its checks. zoomies tune will not change it.';
     case 'container':
-      return 'Run sudo zoomies doctor on the host itself with the native binary, not inside the container — a container cannot be tuned.';
+      return 'Run sudo zoomies doctor on the host itself with the native binary, not inside the container, a container cannot be tuned.';
   }
 }
 

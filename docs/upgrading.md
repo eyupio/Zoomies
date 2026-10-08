@@ -128,14 +128,14 @@ configuration directory: remove it only after checking no upgrade is running.
 ## What a release adds to the host
 
 A release sometimes needs more of the host than the one you installed: a
-folder, a mount, a file the installer wrote and somebody has since removed —
+folder, a mount, a file the installer wrote and somebody has since removed,
 and a Compose file written by an older release, or by hand, can lack a mount
 this one would write. Before it pulls or restarts anything, an upgrade works
 out what this deployment should have, compares it with what it has, lists what
 is missing, and adds it only with your approval.
 
 What the deployment should have depends on what it runs, and that is read from
-its **settings, in its database** — the same place the Settings page writes —
+its **settings, in its database** (the same place the Settings page writes)
 layered exactly as the controller layers them at start. The upgrade opens the
 database read-only beside the running controller, as a backup does; for a
 container deployment it asks the container where its data volume is. So a
@@ -146,7 +146,7 @@ upgrade says so and offers what a host that runs runners needs.
 
 | Missing | Offered to | What the upgrade offers |
 | --- | --- | --- |
-| The [shared folder](configuration.md#the-shared-folder), or a folder in it | hosts that run runners: an agent, or a controller with its embedded agent on | Create it, owned by the account Zoomies runs as — uid 65532 in the container images, the state directory's owner for a native install. A shared folder owned by someone else is given back to that account. |
+| The [shared folder](configuration.md#the-shared-folder), or a folder in it | hosts that run runners: an agent, or a controller with its embedded agent on | Create it, owned by the account Zoomies runs as, uid 65532 in the container images, the state directory's owner for a native install. A shared folder owned by someone else is given back to that account. |
 | The shared folder's mount | the same, in a container | `/var/lib/zoomies/shared:/var/lib/zoomies/shared` |
 | A pool's cache folder | the same, in a container, for each pool whose cache has a size limit and lives in a host folder outside the shared folder | The folder at its own path. The host's daemon mounts it into runners on its own, so the cache works without it, but the agent keeps the limit by measuring the folder, and without the mount it finds nothing to measure and never evicts. A folder the container already sees, through a folder above it bound at its own path, is left alone. |
 | The runtime's socket, and the group that owns it | the same, on the Docker or Podman backend | The socket at its own path, and its owning group as `group_add` so the image's account can use it |
@@ -173,7 +173,7 @@ How the approval is given depends on how the upgrade runs:
   asks on the terminal even when the script itself arrived through a pipe.
 * **With `--yes`** (`zoomies upgrade --yes`, or `install.sh --upgrade --yes`),
   it adds them without asking.
-* **Unattended** — `--non-interactive`, or no terminal at all — it adds
+* **Unattended** (`--non-interactive`, or no terminal at all) it adds
   nothing, finishes the upgrade as before, and ends by listing what is missing
   and the command that adds it: `zoomies upgrade --yes`. The shared folder is
   only needed by pools that keep a [tool cache](configuration.md#keeping-a-tool-cache),
@@ -201,14 +201,14 @@ go back in.
 
 A controller's settings live in its database, where the Settings page changes
 them. A container deployment installed by an older release carries them in its
-`.env` instead — the external URL, bind address, TLS, trusted proxies, the
-embedded agent's backend, socket and capacity, log settings — and a `ZOOMIES_*`
+`.env` instead (the external URL, bind address, TLS, trusted proxies, the
+embedded agent's backend, socket and capacity, log settings) and a `ZOOMIES_*`
 variable wins over the database, so each one shows on the Settings page as
 locked, and a change made there never takes effect.
 
-An upgrade finds them — in the running container's own environment, which is
+An upgrade finds them (in the running container's own environment, which is
 what the controller reads, whether it came from `.env`, from a literal in the
-Compose file or from a `docker run` long ago — lists them with the setting
+Compose file or from a `docker run` long ago) lists them with the setting
 each one sets, and with the same approval as above moves them:
 
 1. It pulls the new image and stops the controller, which holds the database's
@@ -220,8 +220,8 @@ each one sets, and with the same approval as above moves them:
 3. Each line in `.env` is commented out, with a line above it naming the
    setting it moved to; a credential's value is not kept in the comment. On a
    Compose deployment the variables leave the service's `environment:` too,
-   and anywhere else the file used them — an older file mounted the
-   certificate as `${ZOOMIES_TLS_CERT_FILE}` — gets the value written in. The
+   and anywhere else the file used them (an older file mounted the
+   certificate as `${ZOOMIES_TLS_CERT_FILE}`) gets the value written in. The
    Compose file is copied to `docker-compose.yml.bak.<time>` first. On a
    `docker` deployment the replacement container is created without them.
 4. The controller comes back up on the same values, from the database.
@@ -231,8 +231,8 @@ with the settings where they were. If the recreate fails, `.env` and the
 Compose file are put back as they were before the move, because the image
 being rolled back to may predate reading them from the database.
 
-What stays in `.env` is what is needed before the database can be opened — the
-encryption key, the database path, the state directory — and what Compose or
+What stays in `.env` is what is needed before the database can be opened (the
+encryption key, the database path, the state directory) and what Compose or
 `docker run` reads itself: the image, the published address and port, the
 docker group. An agent keeps its whole environment: it has no database.
 
@@ -269,7 +269,7 @@ the order it will be noticed:
 
 * **A pool that sets no `cpus` or `memory_mb` no longer gets unlimited
   containers.** Its runners are created with one slot's share of their host's
-  allocatable CPU and memory as a real cgroup limit — the same share the
+  allocatable CPU and memory as a real cgroup limit; the same share the
   scheduler was already charging them. A job that used to have the whole
   machine to itself on a quiet host now has its share of it, and a job that
   needed more memory than its share is killed for exceeding a limit nobody
@@ -281,14 +281,14 @@ the order it will be noticed:
   allocations](hosts-and-pools.md#default-allocations) has the rules.
 * **The host's CPU reserve now has a floor** of half a core, or a twentieth of
   the machine on a large one, held back for the daemon. A fleet whose explicit
-  pool CPU limits summed to exactly the host's CPUs — four pools of 2 CPU on
-  an 8-CPU box, say — takes **one runner fewer per host** than it did, because
+  pool CPU limits summed to exactly the host's CPUs (four pools of 2 CPU on
+  an 8-CPU box, say) takes **one runner fewer per host** than it did, because
   the last one no longer fits; pools with no limits simply get a slightly
   smaller share. A host's `allocatable_cpus` in the API and its committed CPU
   bar on the card show the figure the floor leaves. An operator's own
   `reserve_cpus` replaces the floor where it is larger.
-* **Runners created before the upgrade keep whatever limit their pool set** —
-  none where it set none — but carry no recorded allocation and an empty
+* **Runners created before the upgrade keep whatever limit their pool set**,
+  none where it set none, but carry no recorded allocation and an empty
   `allocation_source`: the allocation is written when a runner is made, and
   nothing is applied to a live container retroactively. Two things follow
   while such a runner is on a host. It is counted among the host's
@@ -302,8 +302,8 @@ the order it will be noticed:
   default only where the host's daemon has said it can apply the limit, and an
   agent from before the probe has not said, so its hosts get no defaults and
   `host.limits_unverified` names them until the agent is upgraded. Throttling
-  needs the agent's measurements — including the load average, which older
-  agents do not send — and needs the agent to understand the throttle
+  needs the agent's measurements (including the load average, which older
+  agents do not send) and needs the agent to understand the throttle
   directive in the heartbeat response; an older agent ignores it, its running
   jobs are never slowed, and only the smaller effective capacity applies.
   Everything else about an older agent holds as before: a host with no fresh
@@ -323,14 +323,14 @@ wants every core placed has a smaller reserve than the daemon needs.
 
 A `dind` pool runs two containers per runner: the runner, and the daemon its
 builds run inside. A pool that **types** its own CPU and memory has both given
-those figures — the build would gain nothing from a limit on the container that
-is not building — so the host is charged twice, as it has been since the
+those figures (the build would gain nothing from a limit on the container that
+is not building) so the host is charged twice, as it has been since the
 release that started charging for the pair at all.
 
 What changes here is the pool that leaves its size to the host. Its runner and
 its daemon now **split one slot** between them, and the host is charged one. So
 a host set to eight slots carries eight runners of such a pool, the same as any
-other, where the last release made it four — and an operator who followed the
+other, where the last release made it four, and an operator who followed the
 `pool.host_overcommitted` advice to "adjust the host to the slots its machine
 can back" was walked down to fewer slots each time they took it, arriving at
 one slot, which held nothing: one slot is the whole machine's share, doubled is
@@ -341,8 +341,8 @@ For such a pool that means **twice as many runners per host** as the last
 release, each with half the machine it had: the pair divides the slot rather
 than taking two. Nothing changes for a pool that is not `dind`, nothing changes
 for one that typed its own figures, and no job is failed by it. A slot too
-small to give both halves what a runner needs — under half a core, or under a
-gigabyte, after the reserve — is refused with a sentence naming the capacity
+small to give both halves what a runner needs (under half a core, or under a
+gigabyte, after the reserve) is refused with a sentence naming the capacity
 that divides it, rather than divided into a runner and a daemon with no limit.
 `host.overprovisioned` now counts a slot as a pair only for pools that typed
 their limits.
@@ -358,7 +358,7 @@ version is unchanged: an agent that sends no CPU throttling counters only means 
 jobs are classed on memory alone.
 
 There is one change that is not behind a switch, and it is a repair. A host that
-joins again — a rebuilt machine, an agent restarted with its old credentials — now
+joins again (a rebuilt machine, an agent restarted with its old credentials) now
 keeps the labels an operator added since it first joined, and the size class it
 held. Before, the join built the row from the token and the agent alone and quietly
 dropped every edit, which the comment on that code said it did not. The join
@@ -396,7 +396,7 @@ Migrations `0047_runner_sessions.sql` and `0048_usage_daily.sql` add two
 tables and change none. The first records a session for every runner already
 cleaned up when the upgrade runs, reading the runners table without rewriting
 it, so the usage report's runner history begins at the oldest runner row the
-database still had — about a week back with the default `retention.runners` —
+database still had (about a week back with the default `retention.runners`)
 rather than at the upgrade. Runners pruned by an earlier build are gone, and no
 migration can bring their hours back; `history_from.runners` on `/usage` says
 where the ledger begins.
@@ -429,7 +429,7 @@ counted as it stood. No configuration is required.
 
 A restart does not touch a running job. The runner is a container on its host,
 the job is executing inside it, and neither is talking to the controller while
-that happens — GitHub is. That holds on a host with its own agent, and it now
+that happens, GitHub is. That holds on a host with its own agent, and it now
 holds on a single-VM install too, where the agent runs inside the controller:
 an agent lists what is already on its host before it starts its loops and
 adopts every runner it finds, so a restart finds its own work rather than a set
@@ -437,7 +437,7 @@ of containers nobody claims.
 
 It is the controller that says what may be cleaned up. An agent reports the
 runners it adopted, and the controller answers with the ones it has no record
-of — a runner deleted while the agent was down, say. Only those are removed.
+of; a runner deleted while the agent was down, say. Only those are removed.
 The agent never decides on its own that something is litter, because it cannot
 tell "the controller deleted this" from "I have forgotten it", and only one of
 those should cost somebody a job.
@@ -450,7 +450,7 @@ The task queue does not survive a restart either, and that is deliberate: every
 task is derived from state the database already holds, so persisting it would
 add a second source of truth that could disagree with the runners table. An
 agent that finishes work across the gap reports a result for a task the new
-controller never issued, and it is applied anyway — the agent did the work, and
+controller never issued, and it is applied anyway; the agent did the work, and
 the row is the only place that fact can land. Each runner row also records when
 its task was last handed to its host, so a restart does not lose how long the
 host has actually had it.
@@ -472,7 +472,7 @@ Two consequences follow:
 
 * **Upgrade whenever you like.** There is no drain-first ritual. A fleet with
   fifty jobs running is as safe to upgrade as an idle one.
-* **A host that stays silent past `store.HeartbeatTimeout` — ninety seconds —
+* **A host that stays silent past `store.HeartbeatTimeout`, ninety seconds,
   is counted unhealthy.** A controller that is down for longer than that will
   show every host as unhealthy for a moment when it comes back, until the next
   heartbeat arrives. That is the display catching up, not a fault.
@@ -484,9 +484,9 @@ they do not have to match.
 
 The policy, in three rules:
 
-* **The protocol version must match.** It is checked when an agent joins — a
+* **The protocol version must match.** It is checked when an agent joins (a
   mismatch is refused there, because an agent that cannot join has nothing
-  running to strand — and on **every heartbeat** after that, because an agent
+  running to strand) and on **every heartbeat** after that, because an agent
   that joined before a bump would otherwise keep polling and receiving tasks it
   could not understand.
 * **An agent may lag the controller by releases**, as long as the protocol
@@ -499,7 +499,7 @@ The policy, in three rules:
 
 ### What happens when the protocol stops matching
 
-The host is **excluded from placement, exactly as a cordon excludes it** — and
+The host is **excluded from placement, exactly as a cordon excludes it**, and
 nothing else. Its runners keep working, its agent keeps draining and stopping
 them, and the fleet shrinks host by host as it goes.
 
@@ -520,7 +520,7 @@ fleet the moment its controller learnt to ask.
 
 An agent handed a task kind it does not understand reports that task as failed,
 with a message saying to upgrade it. The controller treats an unrecognised kind
-as **not** lifecycle work, so the runner the task concerned is left alone — a
+as **not** lifecycle work, so the runner the task concerned is left alone; a
 runner that is running a job is not made to fail by a message neither side can
 name. Only `create_runner`, `stop_runner` and `remove_runner` are lifecycle,
 and that list is an allowlist so a kind added in a later release is safe on an
@@ -530,7 +530,7 @@ older controller by default.
 
 Copying a VM, or a state directory, to a second machine gives two agents one
 host identity. Both hold a valid token, both report real work, and each sees
-only half of that host's tasks — which looks like a fault almost anywhere else.
+only half of that host's tasks, which looks like a fault almost anywhere else.
 
 Zoomies notices. An agent takes a fresh session each time it starts and never
 returns to an old one, so a session a host has already moved on from can only
@@ -545,8 +545,8 @@ stop swapping.
 This release adds a fourth role, `platform`, above `admin`, for whoever runs
 the process rather than the fleet. Two things move behind it: lifting the
 recovery fence, and taking, downloading and restoring backups. A backup is
-the whole database — every account's password hash and every sealed
-credential, under the key this host holds — so it belongs to whoever operates
+the whole database (every account's password hash and every sealed
+credential, under the key this host holds) so it belongs to whoever operates
 the instance.
 
 **Nobody loses anything on the way through.** Every account that held `admin`
@@ -557,7 +557,7 @@ action more: `platform` is `admin` plus the two things above. A nightly
 
 What is carried across is what held `admin` *before* the role existed. If you
 track `main` and have already started a build that added the role, an account
-or token you have made at `admin` since then stays `admin` — you made it
+or token you have made at `admin` since then stays `admin`; you made it
 knowing what `admin` no longer reaches, and an upgrade should not overrule
 that. Upgrading from a release, the two steps run seconds apart on the same
 start, so this excludes nothing you have.
@@ -566,7 +566,7 @@ You do not have to do anything. On an instance one team runs, the change is
 invisible: everyone who could take a backup yesterday can take one today, and
 the Backups page looks the same.
 
-The role earns its keep on the other shape — an instance one team operates
+The role earns its keep on the other shape; an instance one team operates
 while another uses the fleet. There you separate the two deliberately, by
 giving the fleet's people `admin` and keeping `platform` for whoever runs the
 process. An upgrade will not do that to you on its own.
@@ -595,8 +595,8 @@ image has no client for the daemon that mode gives it; the API makes the same
 change to every pool saved from then on. A pool pinned to a `sha-<commit>` tag is not
 touched, and neither is a pool on a digest or on an image of its own. What the
 migration left behind, the controller resolves as it makes a runner: every tag
-the running build publishes — the channels and the operating-system aliases,
-`vX.Y.Z` among them — is swapped there, and a pool on a reference that cannot be
+the running build publishes (the channels and the operating-system aliases,
+`vX.Y.Z` among them) is swapped there, and a pool on a reference that cannot be
 swapped raises `pool.docker_client_missing` rather than failing its jobs one at
 a time. Idle runners made from the old
 image are drained and replaced on the first scheduler pass. See [Jobs that
@@ -608,7 +608,7 @@ repository itself before one on the organisation that owns it, and it then
 unclaims any waiting or queued job whose pool turns out to belong to a
 different installation. Before it, a job carried no installation identity at
 all and a pool was chosen for it on labels alone, so on a controller with more
-than one installation a job could be — and deterministically was — matched to a
+than one installation a job could be, and deterministically was, matched to a
 pool in the wrong GitHub target. Those matches are the ones it takes back: the
 pool would never have run the job, and the next scheduler pass decides again.
 A job in a repository no installation here covers keeps no installation and is
@@ -628,15 +628,15 @@ which migrations it does not have. That check arrived after `0.2-beta`, so
 rolling back *to* `0.2-beta` itself is the one case where nothing stops you:
 that release will come up on a migrated database and look perfectly healthy.
 Put the pre-upgrade copy back alongside the binary, which is what the rest of
-this section is about. SQLite itself does not object — it has no
-opinion about columns nobody reads — which is exactly why the check exists:
+this section is about. SQLite itself does not object (it has no
+opinion about columns nobody reads) which is exactly why the check exists:
 without it, the older binary comes up, looks healthy, reads columns whose
 meaning it does not know and writes rows the newer one will not accept, and
 does all of it silently. Rolling a release back is a thing people do under
 pressure, and this is the moment to be told that the database went forward
 with it.
 
-So the rollback plan is a copy of the database from before the upgrade — and
+So the rollback plan is a copy of the database from before the upgrade, and
 **the controller takes one for you**. Whenever it starts and finds migrations
 pending on an existing database, it copies the database to
 `pre-migration/zoomies-<timestamp>/` beside it before applying anything, and
@@ -675,7 +675,7 @@ rolling `dev` prerelease asset beside the `:dev` images, so the Add Host command
 can install the same channel as a controller tracking `main`. Run `:dev` when
 you want `main`; it says so.
 
-A prerelease — a tag with a hyphen in it, `v0.1-alpha`, `v1.0-rc1` — is
+A prerelease (a tag with a hyphen in it, `v0.1-alpha`, `v1.0-rc1`) is
 published under its own tag and does **not** move `:latest`. Name it to run it.
 
 Runner images use the same split. Their default `:dev` follows `main`, while
@@ -697,18 +697,18 @@ gh attestation verify oci://ghcr.io/eyupio/zoomies:v1.2.3 --repo eyupio/zoomies
 ```
 
 The attestation is attached twice. `zoomies-provenance.sigstore.json` is the
-Sigstore bundle `gh attestation verify` reads — the signed statement together
+Sigstore bundle `gh attestation verify` reads; the signed statement together
 with the certificate and transparency-log entry that say who signed it.
 `zoomies-provenance.intoto.jsonl` is the same signed statement on its own, in
 the DSSE envelope that SLSA tooling and the OpenSSF Scorecard recognise as
 provenance. Both describe every binary in the release; neither is needed to
 install, and `install.sh` checks neither.
 
-Every image says what it is without being started, in the standard OCI labels —
+Every image says what it is without being started, in the standard OCI labels,
 `org.opencontainers.image.version`, `.revision` and `.created`. That includes
 the runner images, which until recently carried no version at all.
 
-A tag with a hyphen in it — `v0.1-alpha`, `v1.0-rc1` — is published as a
+A tag with a hyphen in it (`v0.1-alpha`, `v1.0-rc1`) is published as a
 **prerelease**. GitHub keeps prereleases out of `/releases/latest`, so while
 every release so far is one, `install.sh` with no `--version` asks the API for
 the newest release of any kind instead. Once there is a full release, that is
@@ -751,7 +751,7 @@ while an operator watches and concludes the drain failed.
 Step 2 is optional, and skipping it is safe rather than merely tolerated: an
 agent that restarts over running work adopts it rather than reaping it, which is
 what makes a binary swap non-disruptive at all. Draining first is what makes it
-*predictable* — a host with nothing on it cannot surprise you — and on a host
+*predictable* (a host with nothing on it cannot surprise you) and on a host
 whose jobs are short it costs a few minutes.
 
 On a Windows host the same sequence is `zoomies hosts drain`, replace

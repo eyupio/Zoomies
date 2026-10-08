@@ -1089,7 +1089,7 @@
           <Switch
             bind:checked={draft.insecure_skip_verify}
             label="Do not verify the certificate"
-            description="The credential then travels to whatever answers at that address. A homelab hypervisor's certificate is usually its own, which is why this exists rather than being refused — but pasting the certificate above is better."
+            description="The credential then travels to whatever answers at that address. A homelab hypervisor's certificate is usually its own, which is why this exists rather than being refused, but pasting the certificate above is better."
           />
         {/if}
       {:else if step.id === 'placement'}
@@ -1261,7 +1261,7 @@
           <section class="terminal" aria-label="The same thing from a terminal">
             <p class="prose">
               {editing ? 'The same change' : 'The same provider'}, as one command for a shell that
-              can reach Zoomies — for a setup you would rather keep in a script. It asks for the
+              can reach Zoomies, for a setup you would rather keep in a script. It asks for the
               credential itself, so nothing secret is in the line.
             </p>
             <div class="command">

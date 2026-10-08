@@ -1,9 +1,9 @@
 ---
 icon: material/storefront-outline
 description: >-
-  Deploying Zoomies from a VPS provider's marketplace: what the one-click
-  install puts on the instance, how it gets a certificate without Cloudflare,
-  and the first-run journey from a booted image to a connected fleet.
+  Deploy Zoomies from a VPS provider's marketplace: what the one-click install
+  sets up, how it gets a certificate without Cloudflare, and the first-run
+  journey.
 ---
 
 # One-click deployment
@@ -14,7 +14,7 @@ run the same thing by hand.
 
 It deploys **a controller**. Zoomies is open source, self-hosted and
 bring-your-own-infrastructure: the one-click install puts the always-on half on
-one instance, and the runner capacity stays yours — this instance by default,
+one instance, and the runner capacity stays yours; this instance by default,
 your own machines when you join them, a hypervisor when you configure a
 provider. Nobody else runs your jobs and nobody else holds your GitHub App.
 
@@ -35,10 +35,10 @@ between one customer's deployment and the next.
 | --- | --- |
 | `ZOOMIES_HOSTNAME` | **Required.** The DNS name that will point at this instance. Webhook deliveries, the session cookie's `Secure` flag and every link in the UI are built from it. |
 | `ZOOMIES_EXTERNAL_URL` | The public address, when something in front publishes this instance under a different name. Derived from the hostname otherwise. |
-| `ZOOMIES_DNS` | Whether that record already points here at boot, or is created afterwards — which is the usual order when the provider assigns the address at boot. It does not apply to a tunnel, where Cloudflare maps the hostname and this instance has no record of its own. |
+| `ZOOMIES_DNS` | Whether that record already points here at boot, or is created afterwards, which is the usual order when the provider assigns the address at boot. It does not apply to a tunnel, where Cloudflare maps the hostname and this instance has no record of its own. |
 | `ZOOMIES_TLS` | Who holds the certificate for the public name: `tunnel`, `cloudflare`, `acme`, `files` or `off`. See below. |
 | `ZOOMIES_CONTROLLER_IMAGE` | The image to run. Defaults to the pinned, tested one in `release.env`. |
-| `ZOOMIES_DATA_DIR` | Where the database, the encryption key and the runners' work area live — the directory to put on an attached volume, and the one a backup copies. |
+| `ZOOMIES_DATA_DIR` | Where the database, the encryption key and the runners' work area live; the directory to put on an attached volume, and the one a backup copies. |
 
 There is deliberately no input for a GitHub App private key, a webhook secret,
 an administrator password or a join token. Everything a provider's form
@@ -79,7 +79,7 @@ flowchart LR
   end
 ```
 
-**`tunnel` — a Cloudflare Tunnel, and no inbound rule at all.** A daemon on the
+**`tunnel`; a Cloudflare Tunnel, and no inbound rule at all.** A daemon on the
 instance dials out to Cloudflare, Cloudflare serves HTTPS on the public name,
 and the controller answers plain HTTP on loopback. Nothing is published, this
 machine needs no DNS record of its own, and no certificate lives here. It is
@@ -91,16 +91,16 @@ Leave `ZOOMIES_TUNNEL_TOKEN` empty and the instance still boots ready for it:
 the first-login notes name the file to paste it into and the single command
 that starts the tunnel, so the token never passes through instance metadata,
 the provider's database or cloud-init's log. Set it in the inputs only when a
-form has to produce a working instance unattended, knowing where it ends up —
+form has to produce a working instance unattended, knowing where it ends up,
 `render.sh` says so on the way past.
 
-**`cloudflare` — Cloudflare in front of a published origin.** The classic
+**`cloudflare`, Cloudflare in front of a published origin.** The classic
 arrangement: this instance serves plain HTTP on port 80 and Cloudflare proxies
 to it. **Firewall port 80 to Cloudflare's ranges.** Left open, the origin is
 reachable directly and Cloudflare is merely in front of it rather than in the
 way, so anyone who finds the address bypasses every rule set at the edge.
 
-**`acme` — a certificate, automatically.** A small reverse proxy on the
+**`acme`; a certificate, automatically.** A small reverse proxy on the
 instance asks Let's Encrypt for one and renews it. The controller stays on
 loopback. This needs the DNS record to point at the instance and ports 80 and
 443 reachable; until the record exists the proxy keeps trying, so an instance
@@ -108,22 +108,22 @@ booted before its DNS was ready becomes healthy on its own once it is. Set
 `ZOOMIES_ACME_EMAIL` and Let's Encrypt will warn you before a renewal that
 stopped working becomes an outage.
 
-**`files` — a certificate you already have**, from the provider's own
+**`files`; a certificate you already have**, from the provider's own
 certificate offering or anywhere else. Zoomies serves it itself, published on
 443, and runs no proxy. Give it `ZOOMIES_TLS_CERT_FILE` and
 `ZOOMIES_TLS_KEY_FILE`; the deployment mounts both into the container at the
 paths you name. This is the only arrangement where the controller is the public
 endpoint.
 
-**`off` — something else in front already terminates TLS**: a load balancer of
+**`off`, something else in front already terminates TLS**: a load balancer of
 the provider's, or a proxy you run.
 
 ### Which proxy is believed
 
 This is the half that fails silently, so the arrangement sets it rather than
 leaving it to be remembered. `X-Forwarded-For` is read only from a peer listed
-in `trusted_proxies`, and `CF-Connecting-IP` — the one header a client cannot
-forge — only from a peer that is Cloudflare's own edge.
+in `trusted_proxies`, and `CF-Connecting-IP` (the one header a client cannot
+forge) only from a peer that is Cloudflare's own edge.
 
 | Arrangement | Trusted | Why |
 | --- | --- | --- |
@@ -136,7 +136,7 @@ Both Cloudflare arrangements are Cloudflare and they want opposite answers.
 Trusting Cloudflare's ranges behind a tunnel would trust nothing that ever
 connects; trusting loopback in front of a proxied origin would trust nothing
 either. Get it wrong and every audit row records the proxy instead of the
-person, and the login rate limiter throttles the whole internet as one caller —
+person, and the login rate limiter throttles the whole internet as one caller,
 with nothing anywhere reporting it. Setting `ZOOMIES_TRUSTED_PROXIES` yourself
 overrides the arrangement's choice.
 
@@ -165,7 +165,7 @@ the message of the day.
 
 This step is the gate on the next one, and it is not ceremony. The origin is
 reachable the moment the container starts, and "no user exists yet" is a
-condition an attacker can satisfy too — so an empty database is not proof of
+condition an attacker can satisfy too, so an empty database is not proof of
 ownership. Being able to read this instance's log is.
 
 **2. Create the first account.** Open the external URL, paste the token,
@@ -190,7 +190,7 @@ skip both: put a token you generated in a file only the controller can read,
 and start the controller with `ZOOMIES_BOOTSTRAP_ADMIN` and
 `ZOOMIES_BOOTSTRAP_TOKEN_FILE`. The first account is created from them at
 startup, as `platform`, and recorded in the audit log. Wait on `/readyz` until
-`bootstrap_required` is `false`, then call the API with that token — to connect
+`bootstrap_required` is `false`, then call the API with that token, to connect
 GitHub, create a pool, or mint join tokens for agents. [The first account,
 from the environment](configuration.md#the-first-account-from-the-environment)
 has the rules for the files, and `deploy/marketplace/controller-answers.yaml` is
@@ -214,7 +214,7 @@ are GitHub's, not this instance's.
 | 4 | Make a pool. On a `single` install the suggested one matches this machine, so accepting it is enough | 1 min |
 | 5 | Point a workflow at it and push | 2 min |
 
-Step 5 is one line in a workflow — the pool's name is what `runs-on` asks for:
+Step 5 is one line in a workflow; the pool's name is what `runs-on` asks for:
 
 ```yaml
 jobs:
@@ -227,8 +227,8 @@ jobs:
 
 The job appears on the Jobs page as it queues, a runner is created for it, and
 the container is destroyed when it finishes. If it stays queued, the Overview's
-problems panel says which half is missing — no pool matches the labels, or no
-host can run the pool — rather than leaving you to guess.
+problems panel says which half is missing (no pool matches the labels, or no
+host can run the pool) rather than leaving you to guess.
 [Migrating repositories](migration.md) rewrites `runs-on` across a repository
 when you are ready for more than one workflow.
 
@@ -237,8 +237,8 @@ when you are ready for more than one workflow.
 The controller is a single Go binary with a SQLite file; it is not what needs
 the room. On a `single` install, the runners are.
 
-Each runner gets a share of what the host has left after its reserve — half a
-CPU or a twentieth of the machine, whichever is larger, plus 512 MB — divided by
+Each runner gets a share of what the host has left after its reserve (half a
+CPU or a twentieth of the machine, whichever is larger, plus 512 MB) divided by
 the host's capacity. That arithmetic gives these starting points:
 
 | Instance | Capacity | Each runner gets | Suits |
@@ -251,7 +251,7 @@ the host's capacity. That arithmetic gives these starting points:
 Give it **40 GB of disk or more**. Runner images are a few gigabytes each and a
 build cache grows; the disk is what runs out first on a small instance.
 
-A `controller` install needs far less — 2 vCPU and 2 GB is comfortable — because
+A `controller` install needs far less (2 vCPU and 2 GB is comfortable) because
 the jobs are somewhere else. That is the shape to choose when the runners want
 to be near your own network, or want machines bigger than this one.
 
@@ -261,7 +261,7 @@ hardware are their own piece of work and are not claimed here.
 ## The data, and getting it back
 
 Everything that matters is in `ZOOMIES_DATA_DIR`: the SQLite database, the
-runners' work area, and — unless you supplied one — the encryption key generated
+runners' work area, and, unless you supplied one, the encryption key generated
 on first start. Put that directory on the provider's attached volume when there
 is one, which is the whole reason it is an input.
 
@@ -314,7 +314,7 @@ is left behind on GitHub's side except the App, which you delete there.
 `release.env` names one release and `images.lock` records the digest every tag
 resolved to when that release was cut. The controller is pinned by tag *and*
 digest, the installer is verified against a checksum before it is run, and the
-join command a host is given names the same release as the controller — an
+join command a host is given names the same release as the controller; an
 agent newer than its controller is unsupported, and copying a join line months
 later is exactly how that happens by accident.
 

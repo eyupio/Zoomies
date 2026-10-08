@@ -1444,10 +1444,10 @@ test('a check that clears while the page is open is announced and listed', async
     await expect(page.getByText('Changed since you opened this page')).toHaveCount(0);
 
     await heartbeat(page, credentials, [disk('ok')]);
-    await expect(live).toContainText('Free space — now OK');
+    await expect(live).toContainText('Free space, now OK');
     await expect(live).toContainText('Nothing on this host needs attention now');
     const list = page.getByRole('region', { name: 'Changed since you opened this page' });
-    await expect(list).toContainText('Free space — now OK');
+    await expect(list).toContainText('Free space, now OK');
     const width = await documentWidth(page);
     expect(width.scrollWidth).toBeLessThanOrEqual(width.clientWidth);
     await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
@@ -1473,10 +1473,10 @@ test('a check that starts needing attention while the page is open is announced'
     await expect(live).toHaveText('');
 
     await heartbeat(page, credentials, [disk('warn')]);
-    await expect(live).toHaveText('Free space — now needs attention');
+    await expect(live).toHaveText('Free space, now needs attention');
     await expect(
       page.getByRole('region', { name: 'Changed since you opened this page' }),
-    ).toContainText('Free space — now needs attention');
+    ).toContainText('Free space, now needs attention');
   } finally {
     await page.request.delete(`/api/v1/hosts/${credentials.host_id}?force=true`);
   }

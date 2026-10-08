@@ -1,8 +1,8 @@
 ---
 icon: material/rocket-launch-outline
-title: "Install self-hosted GitHub Actions runners: quick start"
+title: "Install self-hosted Actions runners: quick start"
 description: >-
-  Install Zoomies and run your first job on a self-hosted ephemeral runner —
+  Install Zoomies and run your first job on a self-hosted ephemeral runner,
   one curl command, one GitHub App, no Kubernetes.
 ---
 
@@ -12,8 +12,8 @@ On a fresh Ubuntu, Debian, Fedora or Alpine host. macOS works too for running a
 controller in development.
 
 One command installs it and asks the questions only a terminal can answer.
-Everything after that — GitHub, the first pool, the first job, every host you
-add later — happens in the **web UI**, which is where a Zoomies fleet is run.
+Everything after that (GitHub, the first pool, the first job, every host you
+add later) happens in the **web UI**, which is where a Zoomies fleet is run.
 Prefer a file or a terminal? Each step below says where its Docker Compose,
 CLI or API equivalent is, and [Other ways in](#other-ways-in) collects them.
 
@@ -40,8 +40,8 @@ curl -fsSL https://zoomies.sh/install.sh | sh -s -- --demo
 
 That downloads the binary to a temporary folder, checks it the way an install
 does, and runs `zoomies demo` from there: a controller on this machine only,
-with a fleet already in it — pools, hosts, runners and a morning's worth of
-jobs — and nobody to sign in as. It opens the address in your browser, asks for
+with a fleet already in it (pools, hosts, runners and a morning's worth of
+jobs) and nobody to sign in as. It opens the address in your browser, asks for
 no `sudo`, writes nothing outside the temporary folder, and deletes both when
 you press Ctrl-C. `--port` picks the port. If the binary is already installed,
 `zoomies demo` does the same without the download.
@@ -56,7 +56,7 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 
 </div>
 
-The script is POSIX `sh`, and it is written to be read before it is run — which
+The script is POSIX `sh`, and it is written to be read before it is run, which
 is the way we would rather you did it:
 
 ```sh
@@ -70,19 +70,19 @@ sh install.sh
     It works out your OS and architecture, your distribution and init system,
     whether Docker or Podman is present and whether its socket is actually
     reachable, whether that socket is rootless, which `compose` command you have,
-    whether ports 8080 and 443 are free — where `ss` or `netstat` exists to tell
-    it, and it says so when neither does — and whether Zoomies is already
+    whether ports 8080 and 443 are free (where `ss` or `netstat` exists to tell
+    it, and it says so when neither does) and whether Zoomies is already
     installed, in which case it upgrades in place and says so.
 
     The download must verify. It is checked against the release's
-    `checksums.txt`, and every way that can fail — a mismatch, no entry for this
+    `checksums.txt`, and every way that can fail (a mismatch, no entry for this
     asset, no hashing tool on the host, a checksums file that could not be
-    fetched — refuses the install rather than warning about it. A private mirror
+    fetched) refuses the install rather than warning about it. A private mirror
     that publishes no checksums is the one supported exception, with
     `--allow-unverified`.
 
-    Before it changes anything it prints what it is about to do — the version,
-    where the binary goes, whether it needs `sudo`, and what it leaves alone —
+    Before it changes anything it prints what it is about to do (the version,
+    where the binary goes, whether it needs `sudo`, and what it leaves alone)
     and asks once. `--yes` and `--non-interactive` skip the question.
 
     Everything it discovered is handed to `zoomies init`, so the interactive
@@ -124,8 +124,8 @@ instead, with agents joined from machines that have a container runtime. See
 
 Then it walks the rest: a dedicated service user and directories, an encryption
 key (which it will tell you to back up, and say exactly what is lost without),
-the runner backend — preferring a rootless Docker or Podman socket, and
-spelling out the consequence of each alternative — the bind address and TLS, the
+the runner backend (preferring a rootless Docker or Podman socket, and
+spelling out the consequence of each alternative) the bind address and TLS, the
 address GitHub will use to reach the controller, and your first account.
 
 ??? note "What setup does for you, in more detail"
@@ -148,15 +148,15 @@ address GitHub will use to reach the controller, and your first account.
     Podman socket or a distribution that names it something else; the account is
     added to whichever group that is; and the check runs **again** afterwards, so
     an install only reports success it has verified. Where joining a group cannot
-    help — a socket with no group permissions at all — it says so and names the
+    help (a socket with no group permissions at all) it says so and names the
     two ways out, instead of leaving you with a fleet that comes up unable to run
     anything.
 
 ## 3. Connect GitHub
 
 Zoomies creates the GitHub App for you through the manifest flow. It opens your
-browser at a pre-filled form — and always prints the URL as well, so a headless
-host still works — with exactly the permissions it needs and no more:
+browser at a pre-filled form (and always prints the URL as well, so a headless
+host still works) with exactly the permissions it needs and no more:
 
 | Permission | Why |
 | --- | --- |
@@ -169,7 +169,7 @@ host still works — with exactly the permissions it needs and no more:
 That is the whole list, and none of it is access to your repositories' contents.
 Before it opens GitHub, Zoomies asks one more question: **Also let Zoomies open migration
 pull requests?** The answer is no unless you say otherwise. Yes adds three more
-permissions — `contents: write`, `pull_requests: write` and `workflows: write` —
+permissions (`contents: write`, `pull_requests: write` and `workflows: write`)
 so the [migration wizard](migration.md) can rewrite `runs-on` and open one pull
 request per repository. Nothing else in Zoomies writes to a repository, so a
 fleet that never migrates never needs them. Decide now if you can: adding a
@@ -207,11 +207,11 @@ same defaults:
 | | |
 | --- | --- |
 | **Name** | `zoomies-linux-x64` |
-| **Labels** | `zoomies-linux-x64` — what your workflows put in `runs-on` — and `zoomies`, which every pool answers to |
+| **Labels** | `zoomies-linux-x64` (what your workflows put in `runs-on`) and `zoomies`, which every pool answers to |
 | **Platform** | What the host is: Ubuntu 24.04, amd64. It picks the runner image, and it keeps this pool off hosts running something else |
 | **Backend** | Docker (rootless if available) |
-| **Size per runner** | One share of each host — the machine divided by its slots, as a real limit. A pool made in the pool editor also starts with **Elastic CPU** on *Observe only*; the installer's pool starts with it off |
-| **Min / max** | `0` / `4` — nothing idle when nothing is queued; the maximum starts at the room those hosts have and stops following once you type your own |
+| **Size per runner** | One share of each host; the machine divided by its slots, as a real limit. A pool made in the pool editor also starts with **Elastic CPU** on *Observe only*; the installer's pool starts with it off |
+| **Min / max** | `0` / `4`; nothing idle when nothing is queued; the maximum starts at the room those hosts have and stops following once you type your own |
 | **Idle timeout** | `5m` |
 | **Ephemeral** | yes |
 | **Docker in jobs** | none |
@@ -250,7 +250,7 @@ trigger, and `workflow_dispatch` means it runs when you press the button and at
 no other time.
 
 Zoomies sees the `workflow_job` webhook, starts a runner, and you watch the
-whole thing happen on the Overview page without refreshing — including the
+whole thing happen on the Overview page without refreshing, including the
 scheduler's reasoning, in its own words:
 
 ```text
@@ -260,7 +260,7 @@ scaled zoomies-linux-x64 0 -> 1: 1 job queued
 When the job starts, the setup checklist gives way to a line saying which
 runner took it, and when it finishes, to how long it waited for a runner and how
 long it ran. The Jobs page keeps the record: how long each job waited, how long
-it ran, which runner took it, and — for anything that failed — the step it
+it ran, which runner took it, and, for anything that failed, the step it
 failed at.
 
 ![The Jobs page: queue depth, running jobs, success rate, P95 wait and outcome composition above the job grid](screenshots/jobs-dark.webp#only-dark){ .zoomies-shot }
@@ -299,9 +299,9 @@ The defaults ran it. These are the settings worth a look now that something has.
 This is the row that decides how many jobs run at once, and the default answer is
 to leave it to the host: each runner is given one slot's share of whichever
 machine it lands on, as a real limit rather than a promise, so the same pool is
-sized correctly on a 16-core box and on a 64-core one. There is no “unlimited” —
-a runner with no limit takes whatever the machine has while the fleet still
-counts it as one slot — and a pool whose jobs need a particular amount of machine
+sized correctly on a 16-core box and on a 64-core one. There is no “unlimited”
+(a runner with no limit takes whatever the machine has while the fleet still
+counts it as one slot) and a pool whose jobs need a particular amount of machine
 everywhere can say so instead, on the advanced path. Its sliders open on the
 figures the whole fleet starts from, under **Settings → Configuration**
 (`runners.default_cpus`, `runners.default_memory_mb`).
@@ -321,15 +321,15 @@ two cores gets the rest of the machine until something else wants it.
 ### Operating system
 
 The other row worth a look. It picks which `zoomies-runner` variant the pool
-boots — [the catalogue](naming.md#the-runner-image) lists what is published — and
+boots, [the catalogue](naming.md#the-runner-image) lists what is published, and
 it stops the scheduler putting these runners on a host running something else.
 Leave it as *Any* and the pool takes the controller's default image and any host
 that fits otherwise. See [Naming and platforms](naming.md).
 
 ### Docker in jobs
 
-This stays `none` until a workflow needs a daemon — a `docker` step, a
-`container:` or a `services:` block — and then `dind` is the one to choose. That
+This stays `none` until a workflow needs a daemon (a `docker` step, a
+`container:` or a `services:` block) and then `dind` is the one to choose. That
 one setting is enough for the pool: it is switched to a runner image with a Docker
 client as it is saved. Each slot is then a runner and a daemon, which needs about 2 CPU
 and 4 GB of the machine, so a host left at its default capacity of half its CPUs can
@@ -340,8 +340,8 @@ images](configuration.md#jobs-that-build-container-images) says what it costs.
 ### The names the pool editor offers
 
 The pool editor does not make you invent the first two rows. It opens with a name
-already in the field — the brand and the shape of the pool, so
-`zoomies-ubuntu-2404`, or a name from the kennel before a host has connected —
+already in the field (the brand and the shape of the pool, so
+`zoomies-ubuntu-2404`, or a name from the kennel before a host has connected)
 and a label derived from that name, so the pool is reachable by a workflow before
 you have typed anything. The dice beside the field roll another name; type over
 it and the editor leaves the name and the label alone from then on. Every name it
@@ -423,15 +423,15 @@ in the queue is telling you.
 
 ## Next
 
-- [The UI](ui.md) — every page you now have, in both themes
-- [Hosts and pools](hosts-and-pools.md) — a second machine, a second pool, and how placement is decided
-- [Configuration](configuration.md) — every setting, including running behind Cloudflare
-- [Deploying on a PaaS](paas.md) — Coolify, Dokploy, Railway and anything else that builds with Nixpacks
-- [Troubleshooting](troubleshooting.md) — when a first run does not work, and when a job sits in the queue
-- [Security](security.md) — the threat model, and what each dangerous toggle costs
-- [Upgrading](upgrading.md) — what an upgrade does to work in flight, and why there is no way back
-- [Backup and restore](backup-and-restore.md) — the two files, and bringing a controller back elsewhere
-- [Architecture](architecture.md) — how the pieces fit
-- [API](api-surface.md) — the REST surface the UI and CLI both use
-- [Command line](cli.md), [Problem codes](problem-codes.md), [Metrics](metrics.md) — the reference tables
-- [FAQ](faq.md) — what it costs, what it needs, and what it will not protect you from
+- [The UI](ui.md): every page you now have, in both themes
+- [Hosts and pools](hosts-and-pools.md): a second machine, a second pool, and how placement is decided
+- [Configuration](configuration.md): every setting, including running behind Cloudflare
+- [Deploying on a PaaS](paas.md): Coolify, Dokploy, Railway and anything else that builds with Nixpacks
+- [Troubleshooting](troubleshooting.md): when a first run does not work, and when a job sits in the queue
+- [Security](security.md): the threat model, and what each dangerous toggle costs
+- [Upgrading](upgrading.md): what an upgrade does to work in flight, and why there is no way back
+- [Backup and restore](backup-and-restore.md): the two files, and bringing a controller back elsewhere
+- [Architecture](architecture.md): how the pieces fit
+- [API](api-surface.md): the REST surface the UI and CLI both use
+- [Command line](cli.md), [Problem codes](problem-codes.md), [Metrics](metrics.md): the reference tables
+- [FAQ](faq.md): what it costs, what it needs, and what it will not protect you from

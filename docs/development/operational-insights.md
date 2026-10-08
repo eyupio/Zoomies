@@ -16,7 +16,7 @@ and links that explain the work visible on each page.
 | Pools | Matched queue depth, enabled/disabled totals, pools at their configured ceiling, ranked demand and headroom |
 | Pool and runner detail | Pool queue depth, live runner state, headroom, provisioning state and links to the corresponding queue and usage report |
 | Jobs | Current queue/running counts, completion outcomes as a bar whose segments are ways into the jobs they count, P95 queue wait and the same fleet trend |
-| Hosts | Eligible slot headroom and how many hosts need attention, then a filter row and the cards, with the capacity map folded behind a button until it is asked for (a choice the browser remembers). Opened, the map shows every host's utilisation over the last minute, hour, six hours, day or week, live — measured CPU, memory and load beside committed CPU, memory, runner slots and disk, each as a share of the machine on one 0–100% axis with the band from 85% marked as pressure, and load past the cores drawn in a lane of its own above it. Either every host on one chart, where pointing at a line or its row brings that host forward and steps the rest back, or a chart per host sharing one x axis and one crosshair — which of the two each page opens in is a fleet setting, `ui.capacity_map.hosts_layout` here and `ui.capacity_map.overview_layout` on the Overview, until an operator picks the other on the page; the lead measurement's newest value is written at the end of each line, a headline names the peak in view and the hosts past the pressure line, and each host's row carries meters that read the moment under the crosshair, with links to its controls and usage history |
+| Hosts | Eligible slot headroom and how many hosts need attention, then a filter row and the cards, with the capacity map folded behind a button until it is asked for (a choice the browser remembers). Opened, the map shows every host's utilisation over the last minute, hour, six hours, day or week, live, measured CPU, memory and load beside committed CPU, memory, runner slots and disk, each as a share of the machine on one 0–100% axis with the band from 85% marked as pressure, and load past the cores drawn in a lane of its own above it. Either every host on one chart, where pointing at a line or its row brings that host forward and steps the rest back, or a chart per host sharing one x axis and one crosshair, which of the two each page opens in is a fleet setting, `ui.capacity_map.hosts_layout` here and `ui.capacity_map.overview_layout` on the Overview, until an operator picks the other on the page; the lead measurement's newest value is written at the end of each line, a headline names the peak in view and the hosts past the pressure line, and each host's row carries meters that read the moment under the crosshair, with links to its controls and usage history |
 | Overview | The activity matrix across the top: a year of days as a contribution graph, coloured by outcome, queue depth, runner time or capacity pressure, with a tooltip per square and an hourly breakdown per selected day; then the same host capacity map the Hosts page draws, beside existing fleet, pool, scaling and outcome information |
 | Installations | Connection health, dependent pool totals, low API quota count and per-connection quota meters |
 
@@ -49,8 +49,8 @@ not measured CPU or memory utilisation. Disk is reported free space. Missing
 resource telemetry stays unknown; commitments above 100% retain the exact
 percentage even though the visual meter stops at its boundary.
 
-The fleet trend draws every chosen figure at once — queued jobs, running jobs,
-idle, busy and live runners — rather than one picked from a dropdown, because
+The fleet trend draws every chosen figure at once (queued jobs, running jobs,
+idle, busy and live runners) rather than one picked from a dropdown, because
 the question the panel exists to answer is whether anything was waiting and
 whether anything was free to take it, and that is two lines rather than two
 charts. Colour is the status colour the console uses for that state everywhere
@@ -72,7 +72,7 @@ Intervals where jobs queued with no idle runner to take them are shaded, and
 counted in the line above the chart. It is the trend's version of the capacity
 map's pressure band: a count of jobs has no 85% to draw a line at, but "work
 was waiting and nothing was free" needs no threshold to be worth seeing. It is
-judged a minute at a time and folded afterwards, so it survives zooming out —
+judged a minute at a time and folded afterwards, so it survives zooming out,
 folding the figures first would compare the deepest queue in a quarter of an
 hour with the most idle runners that quarter ever had.
 
@@ -105,7 +105,7 @@ scope change. No scheduler behavior is changed by these views.
   past the cores, emphasis for a host or measurement singled out, a value at
   the end of every line, the wash under a lone host and a slot for the
   reading. Its geometry is in `hostSeries.ts`, and the round time labels and the
-  spreading of the end labels — which the fleet trend wants on the same terms —
+  spreading of the end labels (which the fleet trend wants on the same terms)
   are in `plot.ts`. `npm run test:unit` covers both.
 - `ActivityMatrix` draws usage buckets as a contribution graph with one tab
   stop, a tooltip per square and an inline detail per selection; its

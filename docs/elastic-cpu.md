@@ -1,6 +1,6 @@
 ---
 icon: material/rabbit
-title: "Dynamic CPU allocation for self-hosted GitHub Actions runners"
+title: Dynamic CPU allocation for self-hosted runners
 description: >-
   Lend idle host CPU to busy GitHub Actions runners while reserving capacity
   for queued jobs. Configure Zoomies CPU boosts and read their live status.
@@ -13,14 +13,14 @@ of the time that is the right size. But a host with eight cores and two busy
 runners is idling on more than half of itself, while each of those runners
 compiles inside a quota of under two cores. **Elastic CPU zoomies** lends that
 spare CPU to the runners that are actually using theirs, takes it back the
-moment anything else needs it, and never touches memory — that is [elastic
+moment anything else needs it, and never touches memory; that is [elastic
 memory](elastic-memory.md), on terms of its own. A job that would have taken
 four minutes at its guarantee finishes in two, and the fleet's accounting does
 not change by a single slot.
 
 It is a pool setting, on by default in its measuring form for every new pool,
 and the runner page and the Overview feed say when it is happening in the
-product's own words: **Squirrel spotted — maximum zoomies**.
+product's own words: **Squirrel spotted, maximum zoomies**.
 
 The runners table uses one **Status** column. A runner normally shows its
 lifecycle state, such as **Registering** or **Busy**. While a boost or throttle
@@ -41,7 +41,7 @@ CPU carelessly is a scheduler that starves a job it never noticed.
 * **Every runner keeps its guarantee.** A runner's share of the host is what it
   was created with, and elasticity only ever adds to it. A busy or starting
   runner's guarantee is charged in full before a single hundredth of a core is
-  lent to anyone. Idle runners — warm capacity waiting for a job — are charged
+  lent to anyone. Idle runners (warm capacity waiting for a job) are charged
   one guarantee between them, the largest, because only one of them can be
   handed a job before the next plan; the rest of what they are not using is
   lent. [Idle runners](#idle-runners) says what that costs.
@@ -52,14 +52,14 @@ CPU carelessly is a scheduler that starves a job it never noticed.
   guarantee is already charged.
 * **The host's own reserve is untouched.** The agent, the container daemon and
   the operator's `reserve_cpus` come first, as they do for placement. Only what
-  is left after all three — the guarantees, the imminent start and the reserve
-  — is spare.
+  is left after all three (the guarantees, the imminent start and the reserve)
+  is spare.
 * **Host pressure always wins.** A host climbing the [throttle
   ladder](hosts-and-pools.md#current-usage-and-automatic-holds) is a host that
   has been overwhelmed, and a throttle reduces every limited runner on it
   whether or not its pool is elastic. A boost is never applied to a throttled
-  host, and a throttle can take a runner below its guarantee. **Leash tightened
-  — host under pressure** is the runner page's word for it.
+  host, and a throttle can take a runner below its guarantee. **Leash tightened,
+  host under pressure** is the runner page's word for it.
 * **Memory is lent on different terms.** Lowering a live memory limit can kill
   the job it was meant to help, so elastic CPU never touches memory and a
   throttle never lowers it. [Elastic memory](elastic-memory.md) is the other
@@ -93,7 +93,7 @@ flowchart TD
 ```
 
 A runner is **demanding** when its latest sample shows it using at least 80% of
-its guarantee, or when its throttling counters rose since the last sample —
+its guarantee, or when its throttling counters rose since the last sample,
 which is the cgroup saying, in its own terms, that the job wanted more than it
 was allowed.
 
@@ -111,15 +111,15 @@ loan. A daemon building on two lent cores keeps them while the runner half
 beside it idles, where the pair's sum would have read the loan as barely
 touched.
 
-Three fresh samples in a row under that line — a minute and a half at the
-default sample interval — and the loan is taken back. One low sample is a link
+Three fresh samples in a row under that line (a minute and a half at the
+default sample interval) and the loan is taken back. One low sample is a link
 step or a test waiting on a socket; three is a job that has settled below what
 it was given. A heartbeat that carries the same sample again counts for
 nothing.
 
 A runner whose loan was taken back **backs off**: it is not lent again for five
 minutes, even though it is filling its guarantee and so looks demanding. That
-is the point — a build that sized itself to a little over its guarantee fills
+is the point; a build that sized itself to a little over its guarantee fills
 its guarantee without a loan and wastes one with it, and without a memory it
 was lent, reclaimed and lent again every few heartbeats. Each loan wasted again
 straight after a backoff doubles the next one, up to half an hour, and a loan
@@ -140,16 +140,16 @@ with no memory of the last.
 | Backing off, filling its guarantee as it did under the loan | Not lent until the backoff ends |
 | Backing off, filling a guarantee it did not fill under the loan | Lent again at once |
 
-Every decision carries a reason in plain words — *"loan taken back: used at
+Every decision carries a reason in plain words (*"loan taken back: used at
 most 2.20 CPUs of 4.00 for 3 samples in a row; not lent again for 5m0s unless
-its demand changes"* — and the controller logs it when a loan is taken back or
+its demand changes"*) and the controller logs it when a loan is taken back or
 a backoff ends early. The decisions metric counts them as the `reclaimed` and
 `backing_off` outcomes. The memory lives in the controller's process: a
 restarted controller forgets a backoff, which costs at most one wasted loan per
 runner.
 
-Only runners that will actually be boosted — an `automatic` pool on an agent
-that can move a quota — share the spare the agent is sent. An `observe` runner
+Only runners that will actually be boosted (an `automatic` pool on an agent
+that can move a quota) share the spare the agent is sent. An `observe` runner
 beside them keeps its guarantee in that plan, because a share it was handed
 would be CPU nobody used and nobody else was lent. What `observe` reports is
 worked out separately, as the share it *would* have had.
@@ -161,8 +161,8 @@ stranded. Each target is floored to the hundredth of a core the daemon works in,
 so rounding can never promise more than the machine has, however many runners
 share it.
 
-The plan is complete on every heartbeat — every runner the controller leaves out
-goes back to its guarantee — so a runner whose demand ended is never left
+The plan is complete on every heartbeat (every runner the controller leaves out
+goes back to its guarantee) so a runner whose demand ended is never left
 holding a boost. A controller that stops answering sends no plan at all, so the
 agent keeps count: after three heartbeats in a row go unanswered it gives back
 every boost itself, since a few missed beats are a restart and more are a
@@ -176,19 +176,19 @@ which leaves 7.5 allocatable, and gives each runner a guarantee of 1.87 CPUs.
 
 | Situation | Each busy runner is given | Factor | The runner page says |
 | --- | --- | --- | --- |
-| Two busy runners, nothing queued | 3.75 CPUs | 2.0× | Squirrel spotted — maximum zoomies |
-| Two busy runners, one compatible job queued | 2.81 CPUs | 1.5× | Rabbit spotted — extra zoomies |
-| Two busy runners, ceiling of 3 CPUs on the pool | 3 CPUs | 1.6× | Rabbit spotted — extra zoomies |
-| Two busy and two idle runners, nothing queued | 2.81 CPUs | 1.5× | Rabbit spotted — extra zoomies |
-| Host at 90% CPU from other work | 1.87 CPUs | 1.0× | Steady paws — guaranteed pace |
-| Host throttled one rung | 1.40 CPUs | 0.75× | Leash tightened — host under pressure |
+| Two busy runners, nothing queued | 3.75 CPUs | 2.0× | Squirrel spotted, maximum zoomies |
+| Two busy runners, one compatible job queued | 2.81 CPUs | 1.5× | Rabbit spotted, extra zoomies |
+| Two busy runners, ceiling of 3 CPUs on the pool | 3 CPUs | 1.6× | Rabbit spotted, extra zoomies |
+| Two busy and two idle runners, nothing queued | 2.81 CPUs | 1.5× | Rabbit spotted, extra zoomies |
+| Host at 90% CPU from other work | 1.87 CPUs | 1.0× | Steady paws, guaranteed pace |
+| Host throttled one rung | 1.40 CPUs | 0.75× | Leash tightened, host under pressure |
 
 The fifth row is about CPU the plan did not lend. The first row's two runners,
 using their boosts, put the host above 90% themselves, and a host busy only
 because of what it was lent is not a busy host: the test for "under 85%" is
 made on the host's CPU less the lent CPU its runners are using. Judged on the
 raw figure instead, a boost that worked withdrew itself on the next heartbeat,
-the host fell quiet, and the one after lent it again — every other heartbeat,
+the host fell quiet, and the one after lent it again; every other heartbeat,
 for as long as the job ran. Outside work, a runner with no limit, or the
 daemon still count in full, and still stop a boost.
 
@@ -204,7 +204,7 @@ The fourth row is the one warm capacity decides. The two idle runners are
 charged one guarantee between them rather than one each: only one of them can
 be handed a job before the next heartbeat, and CPU they are not using is the
 whole point of lending. Charging each in full left a fleet with `min_runners`
-above zero — sixteen CPUs, four slots, one busy job and three warm runners —
+above zero (sixteen CPUs, four slots, one busy job and three warm runners)
 with nothing to lend at all.
 
 The cost is a bounded oversubscription. If a second idle runner is handed a
@@ -221,7 +221,7 @@ neighbour, briefly, and then has them.
 | `cpu_burst.mode` | What it does | Who gets it |
 | --- | --- | --- |
 | `off` | Nothing. Runners stay at their creation quota, and the runner page shows CPU state only when the host is throttling. | Every pool that existed before elasticity did, so an upgrade changes no running quota. |
-| `observe` | Makes every decision above and publishes it to Prometheus, but moves no quota. The runner page says **Nose to the wind — watching spare CPU**. | Every automatically-sized Docker or Podman pool created in the pool editor, the CLI or the API without saying otherwise. The one the installer creates during setup starts `off`. |
+| `observe` | Makes every decision above and publishes it to Prometheus, but moves no quota. The runner page says **Nose to the wind, watching spare CPU**. | Every automatically-sized Docker or Podman pool created in the pool editor, the CLI or the API without saying otherwise. The one the installer creates during setup starts `off`. |
 | `automatic` | Applies the target: the agent moves the runner's CPU quota live, and the runner page and the feed say so. | A pool you have switched on, after watching `observe`. |
 
 `observe` exists so that switching a fleet on is a decision made with evidence
@@ -230,7 +230,7 @@ metrics it publishes:
 
 | Metric | What to look for |
 | --- | --- |
-| `zoomies_elastic_cpu_decisions_total{pool, mode, outcome}` | How often the plan found room. Read `burst` against everything else: `base` is a calm host with nothing to spare, and `host_busy` is a host too busy to lend at all — held, throttled, or high on CPU, load or memory. Both are heartbeats a boost would not have helped, so leaving `host_busy` out would overstate how often one would. `unsupported_agent` says an agent needs upgrading before `automatic` will do anything on its host. Under `automatic`, `reclaimed` is a loan taken back unused and `backing_off` a runner waiting out its backoff: a pool where they are common has jobs that do not scale past their guarantee, and a lower ceiling suits it. |
+| `zoomies_elastic_cpu_decisions_total{pool, mode, outcome}` | How often the plan found room. Read `burst` against everything else: `base` is a calm host with nothing to spare, and `host_busy` is a host too busy to lend at all, held, throttled, or high on CPU, load or memory. Both are heartbeats a boost would not have helped, so leaving `host_busy` out would overstate how often one would. `unsupported_agent` says an agent needs upgrading before `automatic` will do anything on its host. Under `automatic`, `reclaimed` is a loan taken back unused and `backing_off` a runner waiting out its backoff: a pool where they are common has jobs that do not scale past their guarantee, and a lower ceiling suits it. |
 | `zoomies_elastic_cpu_target_factor{pool, mode}` | A histogram of the target divided by the guarantee. A p50 around 1.0 means the host is usually full; a p50 at 2.0 means half of it is routinely idle while a job waits on its quota. |
 
 A pool whose factor histogram never leaves 1.0 gains nothing from `automatic`
@@ -239,11 +239,11 @@ and loses nothing from staying on `observe`. A pool whose factor is often above
 
 ### The ceiling
 
-`max_cpus` is the most one logical runner may be lent up to, in cores. Zero —
-the default — is the host's allocatable CPU, which is the right answer for a
+`max_cpus` is the most one logical runner may be lent up to, in cores. Zero,
+the default, is the host's allocatable CPU, which is the right answer for a
 job that can use everything it is given. Set a ceiling for a pool whose jobs do
-not scale — a test suite that runs single-threaded gains nothing past two
-cores, and a ceiling leaves the rest for a runner that can use it — or when you
+not scale (a test suite that runs single-threaded gains nothing past two
+cores, and a ceiling leaves the rest for a runner that can use it) or when you
 want the machine shared more evenly than fairness alone would.
 
 The ceiling is also never above the core count the host's container daemon
@@ -273,8 +273,8 @@ does. The pool's per-host table shows whose ceiling is in force on each host.
     **Elastic CPU** offers the three modes: *Off*, *Observe only* and
     *Automatic boost*. **Boost ceiling** is `max_cpus`; leave it empty for the
     host ceiling. Choosing *Automatic boost* adds a line under the fields
-    saying what you will see — busy runners sprint, quiet runners keep their
-    guarantee, memory has a choice of its own below — so the decision is made
+    saying what you will see (busy runners sprint, quiet runners keep their
+    guarantee, memory has a choice of its own below) so the decision is made
     with its consequences in view.
 
     It also says whether the hosts will honour it. Choosing *Automatic boost*
@@ -310,8 +310,8 @@ does. The pool's per-host table shows whose ceiling is in force on each host.
     The two go to the API as one object, so an edit that types only the
     ceiling carries the mode forward from the pool as it stands rather than
     resetting it. `pools get` shows the policy beside the pool's sizing, and
-    `--dry-run` on a create gives the pool editor's own verdict — including the
-    refusal below — without creating anything.
+    `--dry-run` on a create gives the pool editor's own verdict, including the
+    refusal below, without creating anything.
 
 === "The API"
 
@@ -329,7 +329,7 @@ does. The pool's per-host table shows whose ceiling is in force on each host.
     enforcing, `automatic` when it is off and the host decides, and `fixed`
     when the pool typed a size. `GET /api/v1/runners/{id}` carries the live
     state as `cpu_resource`: `state`, a `label`, a `reason`, and the
-    guaranteed, current and ceiling CPU. Clients branch on `state` — the label
+    guaranteed, current and ceiling CPU. Clients branch on `state`; the label
     is for people.
 
 Whichever way it is set, the server checks the same three things and refuses
@@ -357,7 +357,7 @@ The controller records what each agent advertises (`features` and
 pool can land on can lend CPU and names the ones that cannot, the controller's
 check at the foot of the page warns (`pool.elastic_cpu_unsupported`) with the same names, and each such
 host's card carries a **Cannot lend CPU** badge with the upgrade command folded
-beneath it. Nothing else about a host is part of it — no slot, reserve or
+beneath it. Nothing else about a host is part of it; no slot, reserve or
 capacity setting changes for an elastic pool.
 
 ## What you see
@@ -370,12 +370,12 @@ The API and Overview feed retain these full labels and stable state values:
 
 | Label | `state` | What is true |
 | --- | --- | --- |
-| Squirrel spotted — maximum zoomies | `maximum_zoomies` | Lent at least 1.75× its guarantee. |
-| Rabbit spotted — extra zoomies | `zoomies` | Lent something, under 1.75×. |
-| Steady paws — guaranteed pace | `guaranteed` | At its guarantee, in a pool that is observing or enforcing. |
-| Nose to the wind — watching spare CPU | `observing` | An `observe` pool; the decision was made and no quota moved. |
-| Sit and stay — CPU held at its share | `sit_and_stay` | A pool with elastic CPU off: held at exactly its share, not moving and doing as it was told. A held quota is not an unmeasured one, so this is a state rather than a blank. |
-| Leash tightened — host under pressure | `throttled` | The host's throttle has taken it below its guarantee. Shown for any limited runner, elastic pool or not. |
+| Squirrel spotted, maximum zoomies | `maximum_zoomies` | Lent at least 1.75× its guarantee. |
+| Rabbit spotted, extra zoomies | `zoomies` | Lent something, under 1.75×. |
+| Steady paws, guaranteed pace | `guaranteed` | At its guarantee, in a pool that is observing or enforcing. |
+| Nose to the wind, watching spare CPU | `observing` | An `observe` pool; the decision was made and no quota moved. |
+| Sit and stay: CPU held at its share | `sit_and_stay` | A pool with elastic CPU off: held at exactly its share, not moving and doing as it was told. A held quota is not an unmeasured one, so this is a state rather than a blank. |
+| Leash tightened, host under pressure | `throttled` | The host's throttle has taken it below its guarantee. Shown for any limited runner, elastic pool or not. |
 
 **On the Overview feed**, a runner lent spare CPU or slowed by its host is an
 entry alongside the scheduler's decisions and the jobs that finished, under the
@@ -392,8 +392,8 @@ it.
 A `dind` pool's runner and its sidecar are **one logical runner** throughout:
 the guarantee and the ceiling cover both, and the boost is the pair's. It is
 given to whichever half is using more of its own quota at the moment of the
-update — the daemon for a `docker build`, the runner container for a job whose
-steps run there, such as `go build` after `setup-go` — and the other half stays
+update (the daemon for a `docker build`, the runner container for a job whose
+steps run there, such as `go build` after `setup-go`) and the other half stays
 at its own share. With no sample to judge by, the sidecar has it. A throttle
 still reaches both.
 
@@ -409,8 +409,8 @@ not offer it there.
 
 ## When a boosted runner's CPU does not rise
 
-A boost raises a runner's CPU quota — the most it *may* use. It does not make a
-job use more, and a runner can show **Squirrel spotted — maximum zoomies** while
+A boost raises a runner's CPU quota; the most it *may* use. It does not make a
+job use more, and a runner can show **Squirrel spotted, maximum zoomies** while
 its CPU stays at about its guarantee. The quota is moved on the live container
 (the Docker Engine's container update, which Podman's compatible API also
 serves), so the limit really is higher; what is flat is the job.
@@ -424,12 +424,12 @@ look again:
 | Rust (`cargo`, `std::thread::available_parallelism`) | The cgroup quota, when the build starts. |
 | The JVM (Gradle, Maven, `ActiveProcessorCount`) | The cgroup quota, when the JVM starts. |
 | .NET (`Environment.ProcessorCount`) | The cgroup quota, when the runtime starts. |
-| Go 1.25 and later (`GOMAXPROCS`) | The quota at start, and again periodically — a raise does reach it. |
+| Go 1.25 and later (`GOMAXPROCS`) | The quota at start, and again periodically; a raise does reach it. |
 | `nproc`, `make -j$(nproc)`, Node's `os.availableParallelism()` | The CPUs the process may be scheduled on, not the quota: every core of the host, from the start. |
 
 A job whose workers were sized to its guarantee before the boost arrived keeps
-that many workers, so it saturates its guarantee — which is exactly what makes
-it look demanding — and cannot use the rest. Two things now answer that.
+that many workers, so it saturates its guarantee (which is exactly what makes
+it look demanding) and cannot use the rest. Two things now answer that.
 
 **Builds are sized for the ceiling.** A runner of an `automatic` pool starts
 with its toolchains told to size for the pool's CPU ceiling, in whole cores,
@@ -454,13 +454,13 @@ variable would switch that tracking off. Go before 1.25 ignores the quota and
 starts a thread per host core, which is already more than any ceiling.
 
 On a host with nothing to lend, the extra workers share the guarantee, which
-costs a little in context switches and memory — each JVM or Cargo job holds
+costs a little in context switches and memory; each JVM or Cargo job holds
 its own. A pool whose jobs are memory-tight at their guarantee can turn it
 off: **Size builds for the ceiling** under *Automatic boost* in the pool editor,
 `--cpu-burst-size-builds=false` on the command line, or `"size_for_ceiling":
 false` in the pool's `cpu_burst` in the API. It is on by default, applies only
-to `automatic` pools — `observe` lends nothing, so there is nothing to size
-for — and takes effect from the next runner started, never a running one. A
+to `automatic` pools (`observe` lends nothing, so there is nothing to size
+for) and takes effect from the next runner started, never a running one. A
 ceiling no higher than the guarantee sets nothing, because it would say only
 what the toolchain reads for itself.
 
@@ -472,7 +472,7 @@ environment rather than the runner's: pass the count as a build argument
 image.
 
 **An unused loan is taken back.** A job that cannot use its loan is no longer
-allowed to keep it merely by filling its guarantee — see [keeping a loan, and
+allowed to keep it merely by filling its guarantee, see [keeping a loan, and
 giving it back](#keeping-a-loan-and-giving-it-back).
 
 What to check on a host where this happens:
@@ -482,8 +482,8 @@ What to check on a host where this happens:
   compare it with the runner page's current CPU. For a `dind` pool, look at
   both the runner and its sidecar.
 * **What does the job size itself by?** A step that prints `nproc` and the
-  toolchain's own figure — `cargo`'s job count, the JVM's
-  `Runtime.availableProcessors()` — shows whether it read the guarantee.
+  toolchain's own figure, `cargo`'s job count, the JVM's
+  `Runtime.availableProcessors()`, shows whether it read the guarantee.
 * **Is the pool sizing its builds?** The runner page's **Resource usage**
   panel says so, and `printenv CARGO_BUILD_JOBS` in a step shows it. A pool's
   own env value wins, so a `CARGO_BUILD_JOBS` set there to the guarantee keeps
@@ -498,8 +498,8 @@ What to check on a host where this happens:
 Elasticity is the last of four things that decide what CPU a runner has, and
 the only one that moves while a job runs:
 
-1. The **host's reserve** — the daemon's floor and the operator's `reserve_cpus`
-   — is held back first. [What a runner
+1. The **host's reserve** (the daemon's floor and the operator's `reserve_cpus`)
+   is held back first. [What a runner
    reserves](hosts-and-pools.md#what-a-runner-reserves).
 2. The **guarantee** is one slot's share of what is left, the standard size of
    the host's [runner

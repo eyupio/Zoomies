@@ -2,9 +2,8 @@
 icon: material/aws
 title: "Zoomies vs terraform-aws-github-runner"
 description: >-
-  How Zoomies compares with the AWS Terraform module for self-hosted GitHub
-  Actions runners: an infrastructure-as-code EC2 autoscaler against a host-based
-  fleet controller, and when each fits.
+  How Zoomies compares with the AWS Terraform module for self-hosted runners: an
+  infrastructure-as-code EC2 autoscaler against a host-based fleet controller.
 ---
 
 # Zoomies and the AWS Terraform module

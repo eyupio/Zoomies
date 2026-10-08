@@ -3,8 +3,8 @@
 **Status**: accepted. Taken on 7 October 2026 on the owner's instruction, in
 answer to the question whether Kennel Club should be able to look at some
 repositories and not others. The two things it first left open were settled by
-the owner the same day, by question: the split of roles under *Decision* — an
-administrator stops tracking, an operator starts it again — stands, and an
+the owner the same day, by question: the split of roles under *Decision* (an
+administrator stops tracking, an operator starts it again) stands, and an
 untracked repository is **not** pruned after ninety days (see *Consequences*).
 
 ## Context
@@ -37,9 +37,9 @@ tracked*. It stays listed, with a filter for it, and its page still shows what
 the fleet knows about it, because that comes from the fleet's own records and
 not from GitHub. Its waivers are kept and do nothing until it is tracked again.
 
-Record who stopped tracking it, when and why — a reason of the same length as a
+Record who stopped tracking it, when and why (a reason of the same length as a
 waiver's, and no end date, because tracking is a state and not a decision to be
-renewed — and show that beside the switch. Stopping is an administrator's
+renewed) and show that beside the switch. Stopping is an administrator's
 decision, because it silences errors; starting again is an operator's, because it
 only makes Kennel Club stricter. Waivers stay, for a single finding.
 

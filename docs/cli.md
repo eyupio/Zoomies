@@ -18,8 +18,8 @@ is nothing to learn about the others first. `zoomies help` lists the commands,
 `zoomies <group> help` lists a group's, and `--help` on any command prints its
 flags and an example.
 
-Exit codes are the usual three — `0` it worked, `1` it ran and failed, `2` it was
-invoked wrongly — plus one of the controller's own: `3` when it stopped because
+Exit codes are the usual three (`0` it worked, `1` it ran and failed, `2` it was
+invoked wrongly) plus one of the controller's own: `3` when it stopped because
 the settings page asked it to restart, which is how a [staged
 restore](backup-and-restore.md#from-the-settings-page) is applied.
 Non-zero on purpose, so a service manager set to restart on failure starts it
@@ -40,7 +40,7 @@ Everything under *Your fleet* below takes the same connection flags:
 
 The listing commands add `--limit` (50), `--offset`, `--sort` and `--order`.
 
-The CLI never follows a redirect. Go would turn a `PATCH` or `POST` into a `GET` on a `301`, `302` or `303` and drop its body, so a controller behind a proxy that forces `https` answered `pools edit` with the pool as it was and the command reported a change that was never sent — and the credential would have followed the `Location`. A redirect is an error that says where it pointed; use that address as `--url`.
+The CLI never follows a redirect. Go would turn a `PATCH` or `POST` into a `GET` on a `301`, `302` or `303` and drop its body, so a controller behind a proxy that forces `https` answered `pools edit` with the pool as it was and the command reported a change that was never sent, and the credential would have followed the `Location`. A redirect is an error that says where it pointed; use that address as `--url`.
 
 Where the URL and token come from is, in order: the flags, then `ZOOMIES_URL` and
 `ZOOMIES_TOKEN`, then `~/.config/zoomies/cli.yaml` (`url`, `token`, and optionally
@@ -57,12 +57,12 @@ the controller it joined (`agent.controller_url`), so the CLI on that host uses 
 with no flag. A host that joined over a private connection is the exception: its agent
 reaches the controller through a tunnel of its own, there is no address a command can
 dial, and the CLI says so and asks for `--url`. When a request cannot reach the controller,
-the error names where its address came from — `--url`, `ZOOMIES_URL` or a file — because
+the error names where its address came from (`--url`, `ZOOMIES_URL` or a file) because
 an address nobody typed is the one that cannot be fixed without knowing.
 
 On the machine that runs the controller you do not have to write that file.
 `zoomies init` creates it, with the controller's address and no token, and
-`zoomies upgrade` offers to when it is missing — it is listed with the other
+`zoomies upgrade` offers to when it is missing; it is listed with the other
 additions an upgrade asks approval for, and `--yes` accepts it. The file is private
 (`0600`), an address you already put there is never replaced, and a token is never
 written for you: create one in the UI under your account's API tokens, or with
@@ -78,12 +78,12 @@ as `token:`. It is the file of whichever account ran the command, so under `sudo
 | `zoomies agent [--config path]` | Run this host's agent: long-poll a controller for work, start and stop runners, report what happens. Also takes `--controller` and `--join-token` for a host configured entirely from flags, and `--log-file` to append the log to a file instead of stderr, which is how the Windows service keeps one. |
 | `zoomies agent join <controller-url> --token <join-token>` | Enrol this host: redeem the token, write the credentials, install the service. |
 | `zoomies agent install` | Install the agent's service on a machine about to become a provider's template, joined to nothing. The unit reads `/etc/zoomies/zoomies.env`, which the controller writes into each clone, and is left disabled for the controller to enable there. It refuses a machine that has already joined, because its `agent.json` would be cloned into every machine. See [Proxmox VE](proxmox.md#preparing-the-template). |
-| `zoomies gateway --target <host:port>` | Publish a private provider API — a Proxmox cluster on your home network, say — to a controller over Tailcat. It prints the address the provider form asks for, keeps its identity in `--state-dir` so a restart keeps the same address, and forwards every connection that arrives through the tunnel to the one target. `--quiet` keeps the address out of a service's log. See [Private hosts and providers](private-hosts.md#private-providers). |
+| `zoomies gateway --target <host:port>` | Publish a private provider API (a Proxmox cluster on your home network, say) to a controller over Tailcat. It prints the address the provider form asks for, keeps its identity in `--state-dir` so a restart keeps the same address, and forwards every connection that arrives through the tunnel to the one target. `--quiet` keeps the address out of a service's log. See [Private hosts and providers](private-hosts.md#private-providers). |
 
-`agent join` takes the host's shape as flags — `--name` (at most 128 characters,
+`agent join` takes the host's shape as flags, `--name` (at most 128 characters,
 with no backtick or control character; it is refused before the token is spent
 otherwise, see [Naming](naming.md)), `--capacity`,
-`--labels`, `--backend`, `--docker-host` — plus the TLS trio (`--ca-file`,
+`--labels`, `--backend`, `--docker-host`, plus the TLS trio (`--ca-file`,
 `--client-cert`, `--client-key`), `--no-service` to skip installing one, and
 `--non-interactive` with `--yes` for automation.
 
@@ -97,8 +97,8 @@ recent decisions to print.
 
 ### `zoomies problems`
 
-What the controller thinks is wrong, and — for the problems it has worked out a change
-for — the change.
+What the controller thinks is wrong, and (for the problems it has worked out a change
+for) the change.
 
 ```sh
 zoomies problems list                        # everything wrong now
@@ -140,7 +140,7 @@ resource limits `--cpus`, `--memory-mb`, `--disk-gb`, `--size-from-host` to take
 each runner's size from the host it lands on instead (a pool does that or states
 a size, so it cannot be combined with `--cpus` or `--memory-mb`; moving an
 existing pool to it clears the stated figures in the same request, and
-`--size-from-host=false` hands it back to a slot's share of each host — see
+`--size-from-host=false` hands it back to a slot's share of each host, see
 [runner profiles](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host)),
 and the [elastic CPU](elastic-cpu.md) policy, `--cpu-burst` (`off`, `observe` or `automatic`)
 with `--cpu-burst-max` as its ceiling in cores; on a create the ceiling needs
@@ -184,7 +184,7 @@ charge every runner at least 2.9 CPUs). `0` follows the fleet's `runners.minimum
 `runners.minimum_memory_mb`. Editing any size flag carries the pool's minimum forward;
 it is never cleared by an edit that does not name it.
 
-On `edit`, only the flags you actually type are sent — the defaults above are
+On `edit`, only the flags you actually type are sent; the defaults above are
 not applied to a partial update, so editing a pool's image cannot silently reset
 its ceiling.
 
@@ -215,15 +215,15 @@ The runners that exist right now.
 
 `jobs list` is job history newest first, filtered by `--repo`, `--workflow`,
 `--pool`, `--state`, `--conclusion`, `--q`, and a window with `--since` and
-`--until` — each of which takes a duration (`24h`) or a date. `--unmatched`
+`--until`; each of which takes a duration (`24h`) or a date. `--unmatched`
 and `--failed` are the two questions worth a switch of their own.
 `jobs get <job-id>` shows one.
 
 `--ours` and `--theirs` split `--failed` by whose failure it was. GitHub records
 both halves as `failure`, so this is the only place the question can be asked,
 and only one half is anybody here's to fix. `--fault` narrows the fleet's half
-to a category — `out_of_memory`, `image`, `registration`, `backend` and the rest
-— and a category this build does not know is refused rather than quietly
+to a category (`out_of_memory`, `image`, `registration`, `backend` and the rest)
+and a category this build does not know is refused rather than quietly
 matching everything.
 
 ```sh
@@ -239,8 +239,8 @@ the jobs stamped with them, `--controller-version unknown` finds the ones that
 were never stamped, and `--hosted=true` or `--hosted=false` keeps only jobs on
 somebody else's runners, or only the rest.
 
-To read further back than one page, pass the cursor a full page prints — or the
-`next` field of `--output json` — back as `--before`. A cursor continues after
+To read further back than one page, pass the cursor a full page prints (or the
+`next` field of `--output json`) back as `--before`. A cursor continues after
 the last job of the page before it, so a job queued while you are reading
 cannot repeat or hide a row, which `--offset` cannot promise. `--output json`
 returns every job with its steps; `--include-steps=false` returns one short
@@ -295,7 +295,7 @@ Runner startup needs the runner's own record, which is kept for
 the remedy for a job the fleet broke: nothing about the workflow has changed.
 GitHub has no job-level re-run, so it re-runs **every** failed job in the run.
 It refuses a job that has not finished and one that did not fail, and it does
-not ask whose fault the failure was — if you have looked at one and decided to
+not ask whose fault the failure was; if you have looked at one and decided to
 run it again, that is your call to make.
 
 ### `zoomies hosts`
@@ -315,23 +315,23 @@ run it again, that is your call to make.
 | Command | What it does |
 | --- | --- |
 | `providers list` | Every provider machines can be rented from, how many it has, and whether it may buy more. A provider that is buying nothing says why in a sentence below the table. |
-| `providers kinds` | What this build can rent machines from, and the settings each kind asks for — the list `--setting` on the next command chooses from. |
-| `providers add <kind>` | The wizard in one line — the UI's review step shows the exact line for what it holds, with a copy button. `--name`, `--endpoint`, `--nodes`, `--template`, `--storage` and `--bridge` are the Proxmox form's questions as flags; `--vmid-range 9000-9099`, `--max-machines`, `--capacity`, `--labels` and the machine's shape follow, and `--setting key=value` reaches anything else. The API token is asked for without echo, read from standard input when that is not a terminal, or taken from `--credential-file`; `--endpoint-ca-file` is the cluster's CA. It validates the answers first — a wrong one is named and nothing is saved — then creates the provider, then runs the live check and prints what the cluster would refuse. The ceiling is zero unless `--max-machines` says otherwise, so a connection test never starts an invoice. |
+| `providers kinds` | What this build can rent machines from, and the settings each kind asks for; the list `--setting` on the next command chooses from. |
+| `providers add <kind>` | The wizard in one line; the UI's review step shows the exact line for what it holds, with a copy button. `--name`, `--endpoint`, `--nodes`, `--template`, `--storage` and `--bridge` are the Proxmox form's questions as flags; `--vmid-range 9000-9099`, `--max-machines`, `--capacity`, `--labels` and the machine's shape follow, and `--setting key=value` reaches anything else. The API token is asked for without echo, read from standard input when that is not a terminal, or taken from `--credential-file`; `--endpoint-ca-file` is the cluster's CA. It validates the answers first (a wrong one is named and nothing is saved) then creates the provider, then runs the live check and prints what the cluster would refuse. The ceiling is zero unless `--max-machines` says otherwise, so a connection test never starts an invoice. |
 | `providers edit <name\|id>` | Change the settings you name and nothing else: `--max-machines 8` raises the ceiling, `--credential-file` rotates the token, `--storage ceph` changes one driver setting and keeps the rest. It takes the same flags as `add`. |
 | `providers check <name\|id>` | The live preflight: ask the hypervisor what it would refuse, changing nothing there. Exits non-zero if anything would stop a machine being created, and prints what to fix in the same words the setup wizard uses. |
 | `providers pause <name\|id>` | Stop buying new machines. `--reason` is kept for the card and the audit row. Machines that exist keep running, and drains, deletes and recovery carry on. Pressing it twice is not an error. |
-| `providers resume <name\|id>` | Let it buy machines again. If something else is still holding it — the fence a restore sets, the configuration, a ceiling — the answer says so rather than claiming the fleet is buying. |
+| `providers resume <name\|id>` | Let it buy machines again. If something else is still holding it (the fence a restore sets, the configuration, a ceiling) the answer says so rather than claiming the fleet is buying. |
 | `providers machines` | The machines that exist right now, filtered by `--provider` and `--state`, with `--include-deleted` for the ones whose resource is confirmed gone. A stuck machine prints the provider's own words and the task handle to paste into its console. |
-| `providers orphans <name\|id>` | The three ways a row and a real resource can disagree: resources with no row, rows holding no resource, and machines nobody can vouch for. It deletes nothing — every line is for a person to decide. |
+| `providers orphans <name\|id>` | The three ways a row and a real resource can disagree: resources with no row, rows holding no resource, and machines nobody can vouch for. It deletes nothing; every line is for a person to decide. |
 
 There is no `providers machines delete`. Destroying a machine destroys a VM
 somebody is paying for, and the row is the only record that it exists, so it is
-`DELETE /api/v1/machines/{id}` with a refusal to read first — see
+`DELETE /api/v1/machines/{id}` with a refusal to read first, see
 [the API surface](api-surface.md#providers-and-machines).
 
 ### `zoomies installations`
 
-`installations list` shows the GitHub App installations pools register with —
+`installations list` shows the GitHub App installations pools register with,
 never any key material. `installations verify <installation-id>` asks GitHub
 whether the credentials and permissions are still what Zoomies needs, which is
 the first thing to run when registration starts failing.
@@ -339,8 +339,8 @@ the first thing to run when registration starts failing.
 ### `zoomies export` and `zoomies import`
 
 `export --installation <installation-id>` writes everything about one
-installation — its pools, runners, jobs, deliveries, scaling events, runner
-sessions and the audit rows that name them — as one archive (`--out`, by
+installation (its pools, runners, jobs, deliveries, scaling events, runner
+sessions and the audit rows that name them) as one archive (`--out`, by
 default `zoomies-installation-<id>.json`, mode 0600). With
 `--passphrase-file` the App's private key and webhook secret are sealed under
 that passphrase, so the archive can be imported on another instance without
@@ -358,15 +358,15 @@ interrupt it.
 
 ### `zoomies diagnostics`
 
-Collects a support bundle — this instance, its fleet, its configuration and
-everything currently wrong, in one JSON document — and writes it to a file
+Collects a support bundle (this instance, its fleet, its configuration and
+everything currently wrong, in one JSON document) and writes it to a file
 named after the instant the controller took it. `--file` names the file
 yourself, `--stdout` (or `--output json`) sends it to a pipe instead.
 
 The terminal summary is there so you know what you are about to attach: how
 many pools, hosts, runners and unfinished jobs went in, which sections the
 controller could not gather, and which were shortened. No workflow log is in
-it — the bundle names the runners whose logs a support case is likely to want
+it; the bundle names the runners whose logs a support case is likely to want
 and the route that fetches each, so you choose what leaves the fleet.
 
 It needs an admin token, because the document contains the settings section.
@@ -377,13 +377,13 @@ It needs an admin token, because the document contains the settings section.
 | --- | --- |
 | `users list` | The accounts that can sign in. |
 | `users create` | `--username` and `--role`; omit `--password` for an account that signs in through single sign-on. |
-| `users passwd <user-id>` | Set a password. Read from the terminal without echo, or from stdin when piped — never a flag, because a password in a flag is a password in the shell history. |
+| `users passwd <user-id>` | Set a password. Read from the terminal without echo, or from stdin when piped, never a flag, because a password in a flag is a password in the shell history. |
 | `users reset-two-step <user-id>` | Turn off two-step verification for somebody who has lost their authenticator and their recovery codes. Their sessions end and the reset is audited; see [Two-step verification](two-step.md#lost-your-phone). |
 | `users delete <user-id>` | Refused if it would leave no enabled administrator. |
 | `tokens list` | Metadata only. The value is not stored. Your own tokens; everybody's for an administrator. |
 | `tokens create` | `--name`, `--role`, repeatable `--scope`, `--expires-in`. Printed once; only its hash is kept. Anybody signed in may mint their own, never above their own role. |
 | `tokens revoke <token-id>` | Immediate. The row stays, marked revoked. |
-| `tokens delete <token-id>` | Removes a revoked or expired token from the list for good. A token that still works is refused — revoke it first. The audit log keeps the revocation and the deletion, by prefix. |
+| `tokens delete <token-id>` | Removes a revoked or expired token from the list for good. A token that still works is refused, revoke it first. The audit log keeps the revocation and the deletion, by prefix. |
 | `tokens purge` | Deletes every revoked or expired token you own; `--user <id>` for one account's, `--all` for every one you can see. Tokens that still work are left alone. |
 
 ### `zoomies mcp-clients`
@@ -394,7 +394,7 @@ itself when it connects, so most controllers never need one made by hand; see
 
 | Command | What it does |
 | --- | --- |
-| `mcp-clients list` | Every client — made here, self-registered, or a client ID metadata document — and how many connections each holds. |
+| `mcp-clients list` | Every client (made here, self-registered, or a client ID metadata document) and how many connections each holds. |
 | `mcp-clients create` | `--name`, repeatable `--redirect-uri` (Claude's callback by default), and `--secret` for a confidential client. Prints the client ID, and the secret once. |
 | `mcp-clients rotate-secret <client-id>` | A new secret, printed once; the old one stops working. |
 | `mcp-clients revoke <client-id>` | The client can no longer ask, and every connection made with it ends. |
@@ -424,8 +424,8 @@ In PowerShell, run it as one line and quote the `--`: PowerShell does not take
 
 `zoomies mcp` runs on the machine the agent runs on, not on the controller, so
 that machine needs the `zoomies` binary. The `dev` release carries `mcp` until a
-versioned release does. On Windows, fetch it with `curl.exe` — plain `curl` in
-Windows PowerShell is `Invoke-WebRequest` — and give its full path:
+versioned release does. On Windows, fetch it with `curl.exe` (plain `curl` in
+Windows PowerShell is `Invoke-WebRequest`) and give its full path:
 
 ```powershell
 New-Item -ItemType Directory -Force "$HOME\bin" | Out-Null
@@ -434,7 +434,7 @@ curl.exe -fL -o "$HOME\bin\zoomies.exe" https://github.com/eyupio/zoomies/releas
 claude mcp add zoomies -e ZOOMIES_URL=https://zoomies.example.com -e ZOOMIES_TOKEN=zoo_... '--' "$HOME\bin\zoomies.exe" mcp
 ```
 
-On macOS or Linux, the same file for the platform — `zoomies_darwin_arm64`,
+On macOS or Linux, the same file for the platform, `zoomies_darwin_arm64`,
 `zoomies_darwin_amd64`, `zoomies_linux_amd64` or `zoomies_linux_arm64`:
 
 ```sh
@@ -474,8 +474,8 @@ again.
 #### Straight to the controller
 
 The controller serves the same tools itself at `/mcp`, over MCP's Streamable
-HTTP transport, so an agent that can reach it — a cloud session, a hosted
-agent, a laptop that would rather not install the binary — needs only the URL
+HTTP transport, so an agent that can reach it (a cloud session, a hosted
+agent, a laptop that would rather not install the binary) needs only the URL
 and a token:
 
 ```sh
@@ -498,7 +498,7 @@ it is never committed:
 }
 ```
 
-It takes a bearer token and nothing else — a browser session is refused — and
+It takes a bearer token and nothing else, a browser session is refused, and
 every tool is the documented route called with that token, so the controller
 applies the token's role and scopes to each call exactly as it would to the
 CLI's. There is no `--allow-actions` here: `rerun_job`, `drain_runner`, `update_pool`, `update_host` and `apply_remedy` are
@@ -513,7 +513,7 @@ nothing: a viewer token's re-run is still refused by the controller, and the
 agent is told which role was missing.
 
 A workflow's log, and its job, step and branch names, are text anyone who can
-open a pull request can write — so they are prompt-injection material for the
+open a pull request can write, so they are prompt-injection material for the
 agent reading them. The server tells the agent so when it connects, and
 returns a log in a block of its own after a notice saying it is untrusted, so
 the log's own text cannot pass itself off as Zoomies speaking. That is why the
@@ -525,24 +525,24 @@ act is an agent a pull request can try to steer.
 
 | Command | What it does |
 | --- | --- |
-| `zoomies demo [--port N] [--no-browser]` | Run a throwaway controller on this machine with a fleet already in it — two pools, hosts, runners and a morning's worth of jobs — and open it in your browser. Nobody has to sign in, because it listens on `127.0.0.1` only; GitHub is not involved, and nothing is asked of the outside world, including the daily check for a new release. Everything it writes is under a temporary directory that is deleted when you press Ctrl-C. Port 8080 where that is free and any free port where it is not; `--port` insists on the one you name. Whatever `ZOOMIES_*` variables this shell has are ignored for its duration, so a machine that already runs Zoomies is not disturbed. `install.sh --demo` is the same thing without installing the binary first. |
+| `zoomies demo [--port N] [--no-browser]` | Run a throwaway controller on this machine with a fleet already in it (two pools, hosts, runners and a morning's worth of jobs) and open it in your browser. Nobody has to sign in, because it listens on `127.0.0.1` only; GitHub is not involved, and nothing is asked of the outside world, including the daily check for a new release. Everything it writes is under a temporary directory that is deleted when you press Ctrl-C. Port 8080 where that is free and any free port where it is not; `--port` insists on the one you name. Whatever `ZOOMIES_*` variables this shell has are ignored for its duration, so a machine that already runs Zoomies is not disturbed. `install.sh --demo` is the same thing without installing the binary first. |
 | `zoomies init` | Set this host up: how it runs, backend, listener, GitHub App and the first account. `--answers` takes a file and implies `--non-interactive`; `--print-answers` writes one out from an interactive run so the next host can be identical. |
 | `zoomies update [--check] [--yes \| --non-interactive]` | Compatibility alias for `zoomies upgrade`; accepts the same flags. |
-| `zoomies upgrade [--check] [--yes \| --non-interactive] [--version <tag>] [--no-download]` | Download the newest release binary, verify it against the release's `checksums.txt`, and apply it with matching images to an existing native, Compose or Docker deployment. Never downgrades; `--no-download` applies the binary already installed. Keeps configuration and credentials; `--check` changes nothing. What this release expects and the deployment lacks — the shared folder, its mount, a deleted Compose file — is added at a terminal once you agree, with `--yes` without asking, and never with `--non-interactive`. `install.sh --upgrade` does the same download first. See [Upgrading](upgrading.md#what-a-release-adds-to-the-host). |
+| `zoomies upgrade [--check] [--yes \| --non-interactive] [--version <tag>] [--no-download]` | Download the newest release binary, verify it against the release's `checksums.txt`, and apply it with matching images to an existing native, Compose or Docker deployment. Never downgrades; `--no-download` applies the binary already installed. Keeps configuration and credentials; `--check` changes nothing. What this release expects and the deployment lacks (the shared folder, its mount, a deleted Compose file) is added at a terminal once you agree, with `--yes` without asking, and never with `--non-interactive`. `install.sh --upgrade` does the same download first. See [Upgrading](upgrading.md#what-a-release-adds-to-the-host). |
 | `zoomies logs` | Show the latest 100 controller log lines for the recorded Compose or Docker deployment. Alias for `zoomies deployment logs`. |
 | `zoomies deployment <action>` | Operate the container deployment recorded by `zoomies init`: `status`, `logs`, `start`, `stop`, `restart`, `update`, or `down`. `update` is a compatibility alias for the complete `zoomies upgrade` flow, including the binary download. `down` keeps the database volume. |
-| `zoomies uninstall` | Remove the service or container, the database, the encryption key and the configuration. A container deployment's data volume is kept unless you pass `--volumes` or answer yes, and so is the environment file that holds the key sealing it — the report names it — because a later install can only read the volume with that key. `--volumes` removes both. |
-| `zoomies backup [--dir path] [--keep N] [--include-key] [--no-offsite]` | Take a consistent copy of this host's database into a timestamped directory, with a manifest recording the build, the migration ledger, the encryption key's fingerprint, what that key is needed for, and the blanked configuration. Reads the database file directly, so it works when the controller will not start. The copy is then sent to every destination this fleet has — those `backup.remotes` describes and those stored from the Backups page, which this command reads out of the database it has just copied — with `--remote <name>` for one and `--no-offsite` for none. A destination that refuses is reported without failing the backup, which is on the disk either way. See [Backup and restore](backup-and-restore.md). |
+| `zoomies uninstall` | Remove the service or container, the database, the encryption key and the configuration. A container deployment's data volume is kept unless you pass `--volumes` or answer yes, and so is the environment file that holds the key sealing it, the report names it, because a later install can only read the volume with that key. `--volumes` removes both. |
+| `zoomies backup [--dir path] [--keep N] [--include-key] [--no-offsite]` | Take a consistent copy of this host's database into a timestamped directory, with a manifest recording the build, the migration ledger, the encryption key's fingerprint, what that key is needed for, and the blanked configuration. Reads the database file directly, so it works when the controller will not start. The copy is then sent to every destination this fleet has (those `backup.remotes` describes and those stored from the Backups page, which this command reads out of the database it has just copied) with `--remote <name>` for one and `--no-offsite` for none. A destination that refuses is reported without failing the backup, which is on the disk either way. See [Backup and restore](backup-and-restore.md). |
 | `zoomies restore <backup-directory> [--replace]` | Put a backup's database back at `database.path`, after checking that the copy is sound, that this build can read its schema, and that this host's encryption key is the one that sealed it. Ends every session, removes unredeemed join tokens, and fences the fleet; `--revoke-api-tokens` and `--reset-agent-tokens` go further. `--replace` is required to overwrite an existing database, and moves it aside rather than deleting it. See [Backup and restore](backup-and-restore.md). |
-| `zoomies restore --from-remote <name> [<id>\|latest]` | The same restore, on a host that has the configuration file and the encryption key and nothing else — a destination stored in the database is found too when there is a database to read: the copy is fetched from that remote into the backup directory, decrypted with the destination's passphrase — or `--passphrase-file FILE` for one sealed with a passphrase the configuration no longer carries (`--passphrase` still works but is deprecated, because a flag's value stays in the shell history and the process list) — verified, and then restored. Naming no backup lists what the remote holds, because an operator in front of an empty machine has no way to know the ids. |
+| `zoomies restore --from-remote <name> [<id>\|latest]` | The same restore, on a host that has the configuration file and the encryption key and nothing else (a destination stored in the database is found too when there is a database to read: the copy is fetched from that remote into the backup directory, decrypted with the destination's passphrase) or `--passphrase-file FILE` for one sealed with a passphrase the configuration no longer carries (`--passphrase` still works but is deprecated, because a flag's value stays in the shell history and the process list), verified, and then restored. Naming no backup lists what the remote holds, because an operator in front of an empty machine has no way to know the ids. |
 | `zoomies commands [--output json\|markdown]` | Every command and subcommand with the help text the binary prints for it, as Markdown by default or as JSON. `make generate` writes `skills/zoomies/reference.md` from it, and a test keeps that file equal to what the binary says, so an agent reading the reference reads this release's help and not a copy somebody once pasted. |
 | `zoomies config check [--config path]` | Validate a file without starting anything. Warnings print and exit 0; errors exit 1. |
-| `zoomies config print [--config path]` | The effective configuration — file, environment and defaults combined — with secrets blanked. `--output` is `yaml` or `json` here, and defaults to `yaml`. |
+| `zoomies config print [--config path]` | The effective configuration (file, environment and defaults combined) with secrets blanked. `--output` is `yaml` or `json` here, and defaults to `yaml`. |
 | `zoomies config list [--all]` | What this fleet has stored, and which layer each value came from. `--all` lists every setting, including the ones nobody has changed. |
 | `zoomies config get <key>` | One setting's effective value, and whether it came from the defaults, the file, the database or the environment. |
-| `zoomies config set <key> <value>` | Store one setting in the fleet's database — the same thing the settings page does, for when the settings page is the thing that is broken. |
+| `zoomies config set <key> <value>` | Store one setting in the fleet's database; the same thing the settings page does, for when the settings page is the thing that is broken. |
 | `zoomies config unset <key>` | Forget a stored setting, so the configuration file or the built-in default decides it again. |
-| `zoomies config import-env [file]` | Store every setting an environment file sets — standard input when no file is given — in one write, and name the variables that cannot live in the database. The installer runs it in a one-off container to put a controller's settings in its database; see [Settings that were in `.env`](upgrading.md#settings-that-were-in-env). |
+| `zoomies config import-env [file]` | Store every setting an environment file sets (standard input when no file is given) in one write, and name the variables that cannot live in the database. The installer runs it in a one-off container to put a controller's settings in its database; see [Settings that were in `.env`](upgrading.md#settings-that-were-in-env). |
 | `zoomies doctor [--verbose] [--json] [--tier safe\|aggressive\|dedicated] [--host <id>]` | Read host OS health, summary and recommendations. Exit 0/1/2 for no warnings/warnings/errors among every check in the tier you ran, so `--tier aggressive` exits 1 on an aggressive warning. The host's page, the problems and `zoomies hosts list` count only the safe tier and leave optional checks out, and count a pending reboot as a reboot rather than also as a warning, so the doctor's own warning count is one higher than theirs for that one check. A warning an operator has accepted on the controller (see [Accepting a check as deliberate](host-health.md#accepting-a-check-as-deliberate)) is left out of those counts and of the exit status of `--host`, and `--host` lists it under **Accepted**; a local run knows nothing of acceptances. There is no command to accept or revoke one: that is the host's page and the API. `--interactive` offers explicitly approved local fixes; `--watch --report-file PATH` runs the native read-only reporter. See [Host health and tuning](host-health.md). |
 | `zoomies tune [--dry-run] [--yes] [--tier safe\|aggressive] [--dedicated] [--only ids] [--skip ids] [--revert] [--force]` | Review and apply local OS tuning, or restore recorded previous values. Safe and per-item confirmation by default. Dedicated hosts require explicit confirmation. No reboot and no Docker restart while jobs can run. |
 | `zoomies healthcheck --url <url>` | Probe a controller's `/healthz`. Exit 0 when it answers. This is what the container image's `HEALTHCHECK` runs. |

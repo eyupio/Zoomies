@@ -71,8 +71,7 @@
         <a href={plan.settings_url} target="_blank" rel="noopener noreferrer">
           Open the App's permissions
           <ExternalLink size={12} aria-hidden="true" />
-        </a>
-        — then accept the change on the installation and come back.
+        </a>, then accept the change on the installation and come back.
       </p>
     {/if}
   </div>

@@ -585,7 +585,7 @@ func (c *Config) Validate() Findings {
 		add(Finding{
 			Code: "crypto.key_in_config", Severity: SeverityWarning, Setting: "security.encryption_key",
 			Title:  "the encryption key is written in the config file",
-			Detail: "anything that can read " + c.path + " — backups, configuration management, a support bundle — can decrypt every stored secret.",
+			Detail: "anything that can read " + c.path + ", backups, configuration management, a support bundle, can decrypt every stored secret.",
 			Fix:    "move it to security.encryption_key_file (mode 0600) or the ZOOMIES_ENCRYPTION_KEY environment variable.",
 		})
 	}
@@ -1547,7 +1547,7 @@ func (c *Config) validateBackupRemotes(add func(Finding)) {
 				Code: "backup.remote_plaintext", Severity: SeverityWarning, Setting: "backup.remotes",
 				Title:  fmt.Sprintf("the backup remote %s is sent the backup unencrypted", named),
 				Detail: "a backup is the whole fleet: every repository and job it has seen, every account, and the sealed GitHub App credentials. In " + r.Where() + " it is a file anyone who can read the bucket can open.",
-				Fix:    "set a passphrase on the remote — the archive is then sealed with argon2id and AES-256-GCM before it leaves this host — and keep it wherever you keep the encryption key. Nothing here can recover it.",
+				Fix:    "set a passphrase on the remote, the archive is then sealed with argon2id and AES-256-GCM before it leaves this host, and keep it wherever you keep the encryption key. Nothing here can recover it.",
 			})
 		}
 		if r.Passphrase != "" && len(r.Passphrase) < MinBackupPassphrase {
@@ -1570,7 +1570,7 @@ func (c *Config) validateBackupRemotes(add func(Finding)) {
 			Code: "backup.no_remote", Severity: SeverityInfo, Setting: "backup.remotes",
 			Title:  "backups are taken but never leave this host",
 			Detail: "the schedule keeps copies beside the database, which is a backup against a mistake and not against the disk, the machine or the datacentre.",
-			Fix:    "add an S3-compatible destination on the Backups page, or under backup.remotes here — or keep shipping the directory yourself. The point is that one of the three is somebody's job.",
+			Fix:    "add an S3-compatible destination on the Backups page, or under backup.remotes here, or keep shipping the directory yourself. The point is that one of the three is somebody's job.",
 		})
 	}
 }

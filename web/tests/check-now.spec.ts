@@ -77,7 +77,7 @@ test('Check now asks the agent and the page shows the changed report without a t
     await expect(page.locator('.fresh')).toContainText('Report checked just now');
     await expect(
       page.getByRole('region', { name: 'Changed since you opened this page' }),
-    ).toContainText('Free space — now OK');
+    ).toContainText('Free space, now OK');
     await expect(page.getByRole('region', { name: 'Needs attention' })).toHaveCount(0);
     // Success never toasts.
     await expect(page.locator('.toast')).toHaveCount(0);

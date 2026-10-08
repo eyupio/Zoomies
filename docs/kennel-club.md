@@ -1,7 +1,9 @@
 ---
 icon: material/dog-side
 title: Kennel Club
-description: Kennel Club checks the repositories your Zoomies fleet serves and says which could hurt it or stop its CI, what it reads from GitHub, and how to waive, stop or read a finding.
+description: >-
+  Kennel Club checks the repositories your fleet serves for what could hurt it
+  or stop its CI, what it reads from GitHub, and how to waive or read a finding.
 ---
 
 # Kennel Club

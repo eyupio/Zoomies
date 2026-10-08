@@ -2,9 +2,8 @@
 icon: material/kubernetes
 title: "Zoomies vs actions-runner-controller (ARC)"
 description: >-
-  How Zoomies compares with actions-runner-controller: what each needs, how
-  each scales and isolates jobs, where each is the better choice, and how to
-  move between them.
+  How Zoomies compares with actions-runner-controller: what each needs, how each
+  scales and isolates jobs, where each is better, and how to move between them.
 ---
 
 # Zoomies and actions-runner-controller
@@ -44,7 +43,7 @@ where it is silent, so is the table.
 | Seeing the fleet | Prometheus metrics from the controller and listeners | Prometheus [metrics](metrics.md), a live [web UI](ui.md), an audit log and live job logs |
 | Moving workflows onto it | Change each `runs-on` to the scale set's name | A [migration wizard](migration.md) that opens one pull request per repository |
 | GitHub Enterprise Server | Supported, with its own documentation per release | Configurable, [not yet tested against one](faq.md#does-it-work-with-github-enterprise-server) |
-| Who supports it | GitHub, for the scale sets mode — the Kubernetes side stays yours | This project, in the open |
+| Who supports it | GitHub, for the scale sets mode; the Kubernetes side stays yours | This project, in the open |
 
 ## When ARC is the better choice
 
@@ -77,8 +76,8 @@ where it is silent, so is the table.
   [migration wizard](migration.md) rewrites `runs-on` across your repositories
   and opens a pull request for each one, after showing you the diff.
 - **You want a busy job to borrow idle CPU.** Each runner keeps a guaranteed
-  share of its host, and a pool can lend a busy one what nobody else is using
-  — see [elastic CPU zoomies](elastic-cpu.md).
+  share of its host, and a pool can lend a busy one what nobody else is using,
+  see [elastic CPU zoomies](elastic-cpu.md).
 
 ## What is the same either way
 
@@ -89,7 +88,7 @@ execution short-lived. [Security](security.md) covers what Zoomies does about
 the rest.
 
 Neither charges for itself. GitHub does not charge for self-hosted runner
-minutes today, whichever controller starts them —
+minutes today, whichever controller starts them,
 [what self-hosted runners cost](costs.md) has the details, including the
 postponed platform charge.
 

@@ -542,7 +542,7 @@
   emptyTitle={filtered ? 'No runners match these filters' : 'No runners right now'}
   emptyDescription={filtered
     ? 'Nothing in the fleet answers all of these at once. Removing one of them will widen the search.'
-    : 'That is normal when nothing is queued — runners are created on demand.'}
+    : 'That is normal when nothing is queued, runners are created on demand.'}
 >
   {#snippet emptyAction()}
     {#if filtered}

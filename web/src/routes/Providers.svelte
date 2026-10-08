@@ -207,7 +207,7 @@
       <EmptyState
         icon={Cloud}
         title="No providers yet"
-        description="A provider is somewhere Zoomies may rent a machine — a hypervisor, say. It builds one when a pool has work and nowhere to put it, and deletes it again when the work runs out. Nothing is rented until you raise a ceiling above zero."
+        description="A provider is somewhere Zoomies may rent a machine, a hypervisor, say. It builds one when a pool has work and nowhere to put it, and deletes it again when the work runs out. Nothing is rented until you raise a ceiling above zero."
       >
         {#if canAdmin}
           <Button variant="primary" icon={Plus} href="/providers/new">Add a provider</Button>

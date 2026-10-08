@@ -51,7 +51,7 @@
   {% set page_title = (page.meta.title if page and page.meta and page.meta.title else (page.title if page else none)) %}
   {% set title = config.site_name %}
   {% if page_title and not page.is_homepage %}
-    {% set title = page_title ~ " — " ~ config.site_name %}
+    {% set title = page_title ~ " - " ~ config.site_name %}
   {% endif %}
   {#
     A page may name the title it wants to be shared under. The home page needs

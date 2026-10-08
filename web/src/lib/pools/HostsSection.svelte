@@ -78,7 +78,7 @@
     </p>
     <p class="empty-body">
       This pool will reach every host that joins. Once machines are connected you can come back and
-      keep it to some of them — an architecture, an operating system, or your own labels.
+      keep it to some of them, an architecture, an operating system, or your own labels.
     </p>
   </div>
 {:else}

@@ -3,8 +3,7 @@ icon: material/lock-outline
 title: Private hosts with Tailcat
 description: >-
   Turn your home lab into GitHub Actions runner capacity. Connect private hosts
-  to your self-hosted Zoomies controller with built-in Tailcat tunnels, without
-  public IPs, port forwarding or a Tailscale account.
+  over built-in Tailcat tunnels: no public IPs, port forwarding or Tailscale.
 ---
 
 # Your home lab. Your runner fleet.
@@ -42,8 +41,8 @@ channel; unpublished builds must be distributed to agents manually.
 Before you run it, read
 [what the agent owns on a host](security.md#what-the-agent-owns-on-a-host):
 its service and user, its work directory, the containers carrying its labels,
-its per-pool cache, and the one daemon-wide thing it does — pruning unused
-Docker builder cache — with the setting that turns that off on a shared
+its per-pool cache, and the one daemon-wide thing it does, pruning unused
+Docker builder cache, with the setting that turns that off on a shared
 daemon.
 
 The runtime must permit network-interface discovery (including netlink on
@@ -125,7 +124,7 @@ until the first private host is requested. Once an identity exists, the
 controller resumes its listener on startup; if no relay answers then, the
 controller starts anyway, raises
 [`tailcat.unavailable`](problem-codes.md#runtime-hosts-and-installations) and
-keeps retrying — its sealed relay first — so the listener comes back without a
+keeps retrying, its sealed relay first, so the listener comes back without a
 restart once a relay does. It requires normal Zoomies
 authentication and a usable controller encryption key; it is unavailable in
 auth-disabled demo mode.
@@ -172,8 +171,8 @@ is something the controller connects to, so a **gateway** listens instead.
 
 `zoomies gateway` runs on the hypervisor node or on any machine beside it that
 can reach the API. It forwards every connection that arrives through the tunnel
-to that one address and nothing else — no port on the machine, no route into
-the LAN, no second destination — and TLS is not terminated there: the
+to that one address and nothing else (no port on the machine, no route into
+the LAN, no second destination) and TLS is not terminated there: the
 controller still verifies the cluster's certificate end to end, so the gateway
 reads none of the API token that passes through it.
 
@@ -181,7 +180,7 @@ reads none of the API token that passes through it.
    `zoomies gateway --target 192.168.1.10:8006`. It prints a Tailcat address
    beginning with `tc`.
 2. Open **Providers → Add provider**, keep the endpoint as
-   `https://192.168.1.10:8006` — the name the certificate is checked against —
+   `https://192.168.1.10:8006` (the name the certificate is checked against)
    choose **Private connection · Tailcat**, and paste the address.
 3. Press **Check**. The preflight now reaches the cluster through the gateway,
    and the provider card shows **Tailcat** beside the endpoint.
@@ -196,7 +195,7 @@ to be given.
 **The address is a credential.** Whoever holds it can open connections to the
 hypervisor's API, so it is handled exactly as the API token is: sealed on the
 provider row with the instance key, never returned by the API, never in an
-audit row. A form that cannot read it back cannot erase it by accident either —
+audit row. A form that cannot read it back cannot erase it by accident either,
 switching the provider back to **Direct** is what clears it. Run the gateway
 with `--quiet` where its output goes to a log, and read the address from the
 state file instead.
