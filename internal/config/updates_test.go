@@ -330,14 +330,76 @@ func TestEveryPlaceThatPromisesAnUpdateSaysThisReleaseOnlyShowsOne(t *testing.T)
 		t.Errorf("the updates.auto title carries the clause; a title is short, so it belongs in the detail")
 	}
 
-	for _, page := range []string{"configuration.md", "problem-codes.md"} {
-		body, err := os.ReadFile(filepath.Join("..", "..", "docs", page))
-		if err != nil {
-			t.Fatal(err)
+	// Each place is pinned, not the page: a clause that survives in one row
+	// would let the others drop it unnoticed.
+	configuration := docLines(t, "configuration.md")
+	problems := docLines(t, "problem-codes.md")
+	for _, tc := range []struct {
+		where string
+		line  string
+	}{
+		{"the updates.mode row of docs/configuration.md", lineStarting(t, configuration, "| `updates.mode` |")},
+		{"the paragraph under the mode table of docs/configuration.md", lineAfter(t, configuration, "### `updates.mode`", "In this release")},
+		{"the updates.mode row of docs/problem-codes.md", lineStarting(t, problems, "| `updates.mode` |")},
+		{"the updates.auto row of docs/problem-codes.md", lineStarting(t, problems, "| `updates.auto` |")},
+	} {
+		if !strings.Contains(tc.line, updatesNotInstalledYet) {
+			t.Errorf("%s never says %q: %s", tc.where, updatesNotInstalledYet, tc.line)
 		}
-		if got := strings.Count(string(body), updatesNotInstalledYet); got < 1 {
-			t.Errorf("docs/%s never says %q", page, updatesNotInstalledYet)
+	}
+}
+
+func docLines(t *testing.T, page string) []string {
+	t.Helper()
+	body, err := os.ReadFile(filepath.Join("..", "..", "docs", page))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.Split(string(body), "\n")
+}
+
+func lineStarting(t *testing.T, lines []string, prefix string) string {
+	t.Helper()
+	for _, l := range lines {
+		if strings.HasPrefix(l, prefix) {
+			return l
 		}
+	}
+	t.Fatalf("no line starts %q", prefix)
+	return ""
+}
+
+// lineAfter is the first line at or after the heading that starts with prefix.
+// The paragraph under the mode table is found by where it sits, so a version
+// of it that lost the clause is reported rather than not found.
+func lineAfter(t *testing.T, lines []string, heading, prefix string) string {
+	t.Helper()
+	seen := false
+	for _, l := range lines {
+		if strings.HasPrefix(l, heading) {
+			seen = true
+		}
+		if seen && strings.HasPrefix(l, prefix) {
+			return l
+		}
+	}
+	t.Fatalf("no line starting %q after %q", prefix, heading)
+	return ""
+}
+
+// A soak of nothing is warned about because it takes a release before anyone
+// can look at it. The words must not claim the release is installed, which this
+// release does not do, in the finding or on the page that explains it.
+func TestTheNoSoakWarningDoesNotSayAReleaseIsInstalled(t *testing.T) {
+	c := Default()
+	c.Updates.Mode, c.Updates.Soak = "auto", 0
+	const want = "would be taken before anyone has had the chance to notice"
+	if got := find(c.Validate(), "updates.auto_without_soak").Detail; !strings.Contains(got, want) || strings.Contains(got, "is installed") {
+		t.Errorf("detail = %q, want %q and no claim of an install", got, want)
+	}
+	row := lineStarting(t, docLines(t, "problem-codes.md"), "| `updates.auto_without_soak` |")
+	if !strings.Contains(row, want) || strings.Contains(row, "is installed") {
+		t.Errorf("docs/problem-codes.md row = %q, want %q and no claim of an install", row, want)
 	}
 }
 
