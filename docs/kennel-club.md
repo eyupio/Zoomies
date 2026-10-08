@@ -20,7 +20,10 @@ It is **off by default**, and off means off: nothing is read from GitHub,
 nothing is stored, and [AI Context](ai-context.md) carries on exactly as it was.
 Turn it on with the **Check repository standards** setting
 (`kennel.enabled`, see [Configuration](configuration.md)), and it appears in the
-UI under **Kennel Club**.
+UI under **Kennel Club**. This is its Overview for the demo fleet:
+
+![The Kennel Club Overview of the demo fleet: three repositories, two with no open findings and one needing attention, two errors open, acme/site listed first under Needs attention, and the by-check table beneath](screenshots/kennel-dark.webp#only-dark){ .zoomies-shot }
+![The Kennel Club Overview of the demo fleet: three repositories, two with no open findings and one needing attention, two errors open, acme/site listed first under Needs attention, and the by-check table beneath](screenshots/kennel-light.webp#only-light){ .zoomies-shot }
 
 ## What it checks
 
@@ -53,16 +56,21 @@ change, the pools and runs involved, and where to look. The sentences come from
 Kennel Club and never from the repository, so a pull request title or a branch
 name cannot put words into an operator's page.
 
+The same table is served by `GET /api/v1/kennel/checks`, so a script can read
+what is checked without scraping this page.
+
 **One finding can be worse than its usual severity.** On its own,
 `exposure.public_repo_on_fleet` is a warning: a public repository using your
 fleet is a fact to know, and often a deliberate one. When
 `exposure.public_repo_weak_pool` or `exposure.fork_code_ran` is open beside it,
 it is raised to an **error**, because a stranger can already reach something
 that matters. The raising happens before waivers are applied, so a waiver of the
-milder finding does not quietly cover the worse one.
+milder finding does not quietly cover the worse one. On acme/site the first
+finding below is an error because the second is open beside it, and each says
+what to change:
 
-The same table is served by `GET /api/v1/kennel/checks`, so a script can read
-what is checked without scraping this page.
+![The CI tab of acme/site: two open errors, a public repository running jobs on this fleet and a public repository's jobs run on a pool with weak isolation, each with what to change and a Waive button](screenshots/kennel-repository-dark.webp#only-dark){ .zoomies-shot }
+![The CI tab of acme/site: two open errors, a public repository running jobs on this fleet and a public repository's jobs run on a pool with weak isolation, each with what to change and a Waive button](screenshots/kennel-repository-light.webp#only-light){ .zoomies-shot }
 
 ## How to read a repository's standing
 
@@ -195,6 +203,10 @@ turned off is never given the *Best in show* badge.
 Some findings are decisions you have made. A repository that deliberately runs
 public jobs on a disposable pool has a finding for it, and you may be content
 with that. A **waiver** records the decision, instead of hiding the finding.
+**Waive** on a finding asks for the reason and for how long:
+
+![The Waive this finding dialog for a public repository running jobs on this fleet: a reason written for whoever reads it in a year, a waiver of 30 days, and the Cancel and Waive buttons](screenshots/kennel-waive-dark.webp#only-dark){ .zoomies-shot }
+![The Waive this finding dialog for a public repository running jobs on this fleet: a reason written for whoever reads it in a year, a waiver of 30 days, and the Cancel and Waive buttons](screenshots/kennel-waive-light.webp#only-light){ .zoomies-shot }
 
 * **It needs a reason**, of at least ten and at most five hundred characters,
   because whoever reads the audit log in a year will want to know why.
@@ -216,7 +228,11 @@ Kennel Club stricter.
 Every repository is **tracked** until somebody says otherwise. A scratch
 repository that runs public jobs on purpose, or one that is archived in all but
 name, can be told to be left alone. On the repository's page, **Track this
-repository** is a switch.
+repository** is a switch, and turning it off says what it will do before it does
+it:
+
+![The Stop tracking this repository dialog for acme/api: four consequences listed, a reason for leaving it alone, and the Cancel and Stop tracking buttons](screenshots/kennel-stop-tracking-dark.webp#only-dark){ .zoomies-shot }
+![The Stop tracking this repository dialog for acme/api: four consequences listed, a reason for leaving it alone, and the Cancel and Stop tracking buttons](screenshots/kennel-stop-tracking-light.webp#only-light){ .zoomies-shot }
 
 * **An administrator stops it**, and is asked for a reason first, in the same
   length a waiver's is held to: stopping silences the repository's errors, so
@@ -234,11 +250,25 @@ repository** is a switch.
   stop, so a sandbox does not come back tracked, and read, the day somebody
   pushes to it.
 
+Afterwards the repository's page says who stopped it, when and why, and that it
+is not looking:
+
+![The page of acme/api once it is not tracked: the Track this repository switch off, and a notice saying Kennel Club is not looking at it, who stopped it, when and why](screenshots/kennel-not-tracked-dark.webp#only-dark){ .zoomies-shot }
+![The page of acme/api once it is not tracked: the Track this repository switch off, and a notice saying Kennel Club is not looking at it, who stopped it, when and why](screenshots/kennel-not-tracked-light.webp#only-light){ .zoomies-shot }
+
 The repository list leaves untracked repositories out unless you ask for them,
 so that a card's number and the rows behind it agree. The **Tracking** filter
 brings them back.
 
 ## Where it shows up
+
+The Repositories list opens on the tracked repositories that have run a job in
+the last thirty days. **Active on Zoomies** widens it to every repository Kennel
+Club knows, a choice each person's browser remembers, and the Overview's cards
+open it widened, so that a number and the rows behind it agree:
+
+![The Kennel Club Repositories list: acme/site needs attention with two errors, acme/widgets and acme/api have no open findings, and the filters above it include Tracked and Active on Zoomies](screenshots/kennel-repositories-dark.webp#only-dark){ .zoomies-shot }
+![The Kennel Club Repositories list: acme/site needs attention with two errors, acme/widgets and acme/api have no open findings, and the filters above it include Tracked and Active on Zoomies](screenshots/kennel-repositories-light.webp#only-light){ .zoomies-shot }
 
 * **The UI.** Under **Kennel Club** in the side menu: the **Overview** (how many
   repositories are in each standing, what is open by severity, and which to open
