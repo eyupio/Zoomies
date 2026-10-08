@@ -1,13 +1,18 @@
 ---
 icon: material/currency-usd
-title: What self-hosted GitHub Actions runners cost
+title: "GitHub Actions cost: hosted vs self-hosted"
 description: >-
-  GitHub-hosted runner prices, free minutes per plan, the postponed
-  $0.002-a-minute self-hosted charge, and the sums for deciding whether to run
-  your own.
+  Does GitHub Actions cost money? Hosted runner pricing, free minutes per plan,
+  the postponed self-hosted charge, and the sums for running your own.
 ---
 
-# What self-hosted runners cost
+# What GitHub Actions runners cost
+
+**Does GitHub Actions cost money?** It depends on the repository and the runner.
+Public repositories on standard GitHub-hosted runners are free. Private
+repositories get a monthly allowance of minutes with the plan, then pay per
+minute (Linux 2-core is $0.006). Self-hosted runners cost nothing in GitHub
+minutes today, so you pay only for your own machines.
 
 GitHub does not charge for minutes on self-hosted runners. You pay for the
 machines, and for the time it takes to look after them; Zoomies itself is free
