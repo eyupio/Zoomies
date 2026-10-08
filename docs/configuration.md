@@ -727,7 +727,7 @@ operator's browser sees.
 | --- | --- | --- | --- |
 | `updates.check_interval` | `ZOOMIES_UPDATE_CHECK_INTERVAL` | at once | Update check interval — How often github.com is asked which release of Zoomies is current. 0 never asks, and is the one request that is not about your fleet. Nothing is ever downloaded by it. |
 | `updates.mode` | `ZOOMIES_UPDATE_MODE` | at once | Release update mode — What this controller does about a newer release of Zoomies. `off` (default) says that one exists and nothing more. `manual` adds Update buttons for the controller and its hosts, and nothing moves without a click. `auto` takes the newest release once it has been public for `updates.soak`, and the hosts that have opted in then follow it, one at a time. Only the `platform` role changes it, and an assistant connected over MCP cannot. A mode other than `off` beside `updates.check_interval: 0` raises the `updates.mode_without_check` warning, and `auto` raises the `updates.auto` notice so that unattended updating is never silent. |
-| `updates.soak` | `ZOOMIES_UPDATE_SOAK` | at once | Release update soak — How long a release must have been public before `auto` takes it, counted from when GitHub published it. A newer release restarts the wait, so one that is replaced quickly is never installed. `24h` is the default. `0` removes the wait, which raises the `updates.auto_without_soak` warning. `manual` ignores it, because a person pressing the button is the soak. |
+| `updates.soak` | `ZOOMIES_UPDATE_SOAK` | at once | Release update soak — How long a release must have been public before `auto` takes it, counted from when GitHub published it. A newer release restarts the wait, so one that is replaced quickly is never installed. `24h` is the default. `0` removes the wait, which under `auto` raises the `updates.auto_without_soak` warning. `manual` ignores it, because a person pressing the button is the soak. |
 
 ## The settings that matter most
 
@@ -1157,7 +1157,7 @@ role can change it:
 
 | Mode | What it does |
 | --- | --- |
-| `off` (default) | The notice and the command to copy, as above. Nothing new is created and nothing is downloaded. |
+| `off` (default) | The info notice that a newer release exists, naming both versions and linking the release notes, as above. Nothing new is created and nothing is downloaded. |
 | `manual` | Update buttons appear, for the controller, for one host and for every host that is behind. Nothing moves without a click. |
 | `auto` | The controller takes the newest release once it has been public for `updates.soak`, and the hosts that have opted in then follow it, one at a time. The buttons stay, and mean "now, without the wait". |
 
@@ -1168,7 +1168,7 @@ of 24 hours, a `v1.3.2` that replaces `v1.3.1` the same afternoon means `v1.3.1`
 is skipped and `v1.3.2` is taken a day after its own publication. The cost is
 that a project publishing faster than the soak would never be updated by `auto`.
 `manual` ignores the soak, because a person pressing the button is the soak, and
-`0` removes the wait, which raises the `updates.auto_without_soak` warning.
+`0` removes the wait, which under `auto` raises the `updates.auto_without_soak` warning.
 
 `auto` is never silent: it raises the `updates.auto` notice, which the startup
 output, `zoomies config check` and the Settings page all show.

@@ -883,7 +883,7 @@ var registry = buildRegistry([]Setting{
 	},
 	{
 		Key: "updates.soak", Label: "Release update soak", Env: "ZOOMIES_UPDATE_SOAK", Kind: KindDuration, Scope: ScopePlatform, Live: true,
-		Summary: "How long a release must have been public before auto takes it. A newer release restarts the wait, so one that is replaced quickly is never installed. 0 removes the wait, which is warned about. manual ignores it, because a person pressing the button is the soak.",
+		Summary: "How long a release must have been public before auto takes it. A newer release restarts the wait, so one that is replaced quickly is never installed. 0 removes the wait, which under auto is warned about. manual ignores it, because a person pressing the button is the soak.",
 	},
 
 	// ---------------------------------------------------------------------
