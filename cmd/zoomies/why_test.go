@@ -142,6 +142,22 @@ func TestWhyPrintsTextTheFleetDidNotWriteAsQuotedData(t *testing.T) {
 	}
 }
 
+// A name the operator chose is the fleet's own words, and is not quoted, but a
+// control character in it is no safer in a terminal than one a workflow wrote.
+func TestWhyMakesControlCharactersInAnyValueHarmless(t *testing.T) {
+	srv := newWhyServer(t, map[string]string{
+		"/api/v1/jobs/job_1/explanation": `{"job_id":"job_1","state":"completed","summary":"This job ran and success.","waiting":false,"blocked":false,
+			"computed_at":"2026-10-08T12:00:00Z","class":"succeeded","confidence":"high",
+			"evidence":[{"kind":"pool","label":"Pool","value":"zoomies\u001b[2Jpool","ref":"/pools/pool_1"}],
+			"next_steps":[{"text":"Open the pool\u001b[2J.","kind":"read","link":"/pools/pool_1"}]}`,
+		"/api/v1/jobs/job_1": jobOne,
+	})
+	out, _, code := runWhyCLI(t, "why", "job_1", "--url", srv.URL)
+	if code != exitOK || strings.ContainsRune(out, '\x1b') {
+		t.Errorf("exit %d; a control character reached the terminal:\n%q", code, out)
+	}
+}
+
 func jsonString(s string) string {
 	var b strings.Builder
 	b.WriteByte('"')
