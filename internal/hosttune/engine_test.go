@@ -64,8 +64,11 @@ func fixture() (*Engine, *fakeSystem) {
 	e := New(Options{System: f, OS: "linux", UID: 0, Now: func() time.Time { return time.Unix(1234, 0) }, WorkDir: "/work"})
 	return e, f
 }
+
+// The kernel and dedicated checks are included because "Check now" runs the whole
+// dedicated tier on an operator's say-so, so none of them may change a thing.
 func TestEveryBaseCheckOnlyReadsTheInjectedHost(t *testing.T) {
-	for _, c := range baseChecks() {
+	for _, c := range append(append(baseChecks(), kernelChecks()...), dedicatedChecks()...) {
 		t.Run(c.ID, func(t *testing.T) {
 			e, f := fixture()
 			r := c.Detect(context.Background(), e)
@@ -76,7 +79,7 @@ func TestEveryBaseCheckOnlyReadsTheInjectedHost(t *testing.T) {
 				t.Fatal("detection wrote files")
 			}
 			for _, cmd := range f.calls {
-				if strings.Contains(cmd, " -w ") || strings.Contains(cmd, " restart ") {
+				if strings.Contains(cmd, " -w ") || strings.Contains(cmd, " restart ") || strings.Contains(cmd, " mask ") || strings.Contains(cmd, " disable ") || strings.Contains(cmd, " stop ") || strings.Contains(cmd, "swapoff") || strings.Contains(cmd, " install ") {
 					t.Fatalf("mutating detection: %s", cmd)
 				}
 			}

@@ -3856,6 +3856,37 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Host" }
 
+  /hosts/{id}/health-check:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: checkHostHealth
+      tags: [hosts]
+      summary: Ask a host's agent to check itself now
+      description: >-
+        Queues one request for the host's agent to run its read-only OS checks once and send the
+        report back, instead of waiting for its next periodic report. Nothing on the host is
+        changed, and the controller never dials the agent: the request goes out on the agent's
+        own poll. The answer is the host straight away, carrying `health_check.state` of `asked`;
+        the report arrives later as an ordinary `host.updated` event. Only a native Linux agent
+        (a systemd or bare-process install, or the agent inside a natively installed controller)
+        that advertises `host-check` can answer. An agent in a container, including the Compose
+        deployment with the host-health service, a host that is not Linux and an agent older
+        than this feature are refused with 409 and a sentence saying so, as is a host that is not
+        connected. A host asked within the last 15 seconds answers 429 with `Retry-After`; asking
+        again while a request is still waiting for its answer changes nothing and answers the
+        host. Audited as `host.check_requested` only when a request was queued. Takes no body.
+      x-zoomies-role: operator
+      responses:
+        "202":
+          description: Accepted
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Host" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "429": { $ref: "#/components/responses/RateLimited" }
+
   /hosts/{id}/check-acceptances:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
     put:
@@ -10277,9 +10308,23 @@ components:
         short_code: { type: string, enum: [pool_empty, host_floor] }
         at: { type: string, format: date-time, description: When the pool was last worked out. }
 
+    HostHealthCheck:
+      type: object
+      description: >-
+        The last "Check now" asked of this host's agent. It lives in the controller's
+        memory only, so it is lost on a restart, and it is absent when there is nothing
+        to say: no request, or one old enough that the page has no use for it.
+      required: [state, asked_at]
+      properties:
+        state: { type: string, enum: [asked, done, failed], description: "asked while the agent has not answered; failed also covers an agent that did not answer in time." }
+        asked_at: { type: string, format: date-time }
+        outcome: { type: string, enum: [first, changed, unchanged, not_newer], description: "When done: whether the report was the first, changed the findings, matched the last, or carried a clock no later than the last report's." }
+        message: { type: string, description: "When failed: a sentence for a person saying what to check." }
+        next_at: { type: string, format: date-time, description: "When the host may be asked again. Only present while that is in the future." }
     Host:
       type: object
       properties:
+        health_check: { $ref: "#/components/schemas/HostHealthCheck" }
         doctor: { $ref: "#/components/schemas/HostDoctorView" }
         usage: { $ref: "#/components/schemas/HostUsage" }
         usage_fresh: { type: boolean, description: Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. }

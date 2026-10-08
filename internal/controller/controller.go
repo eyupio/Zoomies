@@ -157,7 +157,9 @@ type Controller struct {
 	metrics *metrics
 	clients *clientCache
 	queues  *taskQueues
-	relay   *logRelay
+	// hostChecks is the last request to each host to check itself; see host_check.go.
+	hostChecks hostChecks
+	relay      *logRelay
 	// toolchains is the latest workflow toolchain scan; see toolchains.go.
 	toolchains toolchainScans
 	// providers is what this build can build, and machines is everything the
@@ -1103,6 +1105,7 @@ func (c *Controller) DeleteHostForgettingMachine(ctx context.Context, id, machin
 		return err
 	}
 	c.queues.forget(id)
+	c.hostChecks.forget(id)
 	c.dropMemoryState(id)
 	c.publishRunnersDeleted(runners)
 	if machineID != "" {

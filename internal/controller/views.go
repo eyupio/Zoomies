@@ -80,6 +80,10 @@ func doctorView(r *hosttune.Report) *DoctorView {
 
 // HostView is one agent host and the room it has left.
 type HostView struct {
+	// HealthCheck is the last "Check now" asked of this host's agent, in memory
+	// only and omitted when there is nothing to say: no request, or one old
+	// enough that the page has no use for it.
+	HealthCheck     *HostCheckView   `json:"health_check,omitempty"`
 	Doctor          *DoctorView      `json:"doctor,omitempty"`
 	Usage           *store.HostUsage `json:"usage,omitempty"`
 	UsageFresh      bool             `json:"usage_fresh"`
@@ -262,6 +266,7 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		// Judged, not raw: the page, the problems and the metrics must read one
 		// answer about what counts.
 		Doctor:             doctorView(h.JudgedDoctor(c.Now())),
+		HealthCheck:        c.hostCheckView(h),
 		ID:                 h.ID,
 		Name:               h.Name,
 		Address:            h.Address,
