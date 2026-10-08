@@ -69,10 +69,11 @@ func (t Target) DueBy(now time.Time) bool {
 
 // Choose says which release the mode would take, when, and why.
 //
-// It is Newest, then a comparison of what is running with that release, then the
-// mode. Only a build that is behind is Newer: one that is ahead would be a
-// downgrade, and the same release written two ways, 1.3.5 and v1.3.5, is no
-// change at all.
+// Off is decided first, before any release is looked at, so that nothing a
+// release says can read as an offer. After that it is Newest, then a comparison
+// of what is running with that release, then the mode's own wait. Only a build
+// that is behind is Newer: one that is ahead would be a downgrade, and the same
+// release written two ways, 1.3.5 and v1.3.5, is no change at all.
 func Choose(in ChooseInput) Target {
 	if in.Mode != ModeManual && in.Mode != ModeAuto {
 		return Target{Reason: "Updates are off. Set updates.mode to manual or auto to be offered new releases."}
@@ -97,13 +98,13 @@ func Choose(in ChooseInput) Target {
 	case version.SkewBehind:
 		t.Newer = true
 	case version.SkewNone:
-		t.Reason = "Up to date: " + best.Tag + " is the newest release."
+		t.Reason = "Up to date: " + best.Tag + " is the newest release that can be installed."
 		return t
 	case version.SkewAhead:
-		t.Reason = fmt.Sprintf("Ahead of the newest release: this build is %s and the newest is %s, and updates never go back.", running, best.Tag)
+		t.Reason = fmt.Sprintf("Ahead of the newest release that can be installed (%s): this build is %s, and updates never go back.", best.Tag, running)
 		return t
 	default:
-		t.Reason = fmt.Sprintf("This build, %s, cannot be ordered against %s, so updates leave it alone.", running, best.Tag)
+		t.Reason = fmt.Sprintf("This build, %s, cannot be ordered against %s, so updates leave it alone. Run a released build such as %s and this clears.", running, best.Tag, best.Tag)
 		return t
 	}
 

@@ -157,10 +157,11 @@ func (r Release) supersedes(other Release) bool {
 
 // displaced is the release that newest pushed aside: the newest release an
 // update could take that is older than newest and still ahead of what is
-// running. Under a soak it is the one an operator asks about -- public as long
-// as the wait, perhaps, and still not taken -- and only that one, because each
-// of the earlier ones was pushed aside by the release after it. It asks Newest
-// rather than restating what makes a release eligible, so the two cannot drift.
+// running. Under a soak it is the one an operator asks about, having perhaps
+// been public for the whole wait and still not been taken. Only it is named,
+// because each of the earlier ones was pushed aside by the release after it. It
+// asks Newest rather than restating what makes a release eligible, so the two
+// cannot drift apart.
 func displaced(releases []Release, goos, goarch string, newest Release, running string) (Release, bool) {
 	between := make([]Release, 0, len(releases))
 	for _, r := range releases {

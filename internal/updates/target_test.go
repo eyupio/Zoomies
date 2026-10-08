@@ -69,6 +69,12 @@ func TestChooseSaysUpToDateWhenRunningTheNewest(t *testing.T) {
 			if !strings.HasPrefix(got.Reason, "Up to date") {
 				t.Errorf("Reason = %q, want it to say the controller is up to date", got.Reason)
 			}
+			// "The newest release" alone would be untrue the day a newer one is
+			// still uploading: the sentence means the newest one that can be
+			// installed, and says so.
+			if !strings.Contains(got.Reason, "the newest release that can be installed") {
+				t.Errorf("Reason = %q, want it to say which newest release it means", got.Reason)
+			}
 		})
 	}
 }
@@ -91,7 +97,7 @@ func TestChooseNeverOffersADowngrade(t *testing.T) {
 			if got.Release.Tag != "v1.3.4" {
 				t.Errorf("Release = %q, want the newest, v1.3.4", got.Release.Tag)
 			}
-			for _, want := range []string{"v1.4.0", "v1.3.4", "never go back"} {
+			for _, want := range []string{"v1.4.0", "v1.3.4", "the newest release that can be installed", "never go back"} {
 				if !strings.Contains(got.Reason, want) {
 					t.Errorf("Reason = %q, want it to contain %q", got.Reason, want)
 				}
@@ -103,7 +109,9 @@ func TestChooseNeverOffersADowngrade(t *testing.T) {
 // A controller on :dev is stamped main-sha-abc1234 and is usually ahead of the
 // newest release, so "a release is available" would tell it to downgrade. The
 // release below is newer than any version a person would compare, which leaves
-// only the build to explain why it is left alone.
+// only the build to explain why it is left alone. The release is still reported
+// as the newest, because the status shows what is out there even for a build it
+// will not touch.
 func TestChooseRefusesABuildThatIsNotFromARelease(t *testing.T) {
 	newest := published("v9.9.9", noon.Add(-72*time.Hour))
 	for _, running := range []string{"main-sha-abc1234", "dev", "v0.2-beta-5-gabc1234", "some-fork-build", ""} {
@@ -112,6 +120,9 @@ func TestChooseRefusesABuildThatIsNotFromARelease(t *testing.T) {
 				got := Choose(asking(mode, running, noon, newest))
 				if got.Newer || got.DueBy(noon.AddDate(1, 0, 0)) {
 					t.Errorf("offered %q to the build %q", got.Release.Tag, running)
+				}
+				if got.Release.Tag != "v9.9.9" {
+					t.Errorf("Release = %q, want the newest, v9.9.9, reported although it is not offered", got.Release.Tag)
 				}
 				if !strings.Contains(got.Reason, "not from a release") {
 					t.Errorf("Reason = %q, want it to say the build is not from a release", got.Reason)
@@ -124,13 +135,18 @@ func TestChooseRefusesABuildThatIsNotFromARelease(t *testing.T) {
 // "1.2.x" starts like a release and still cannot be placed against one.
 // CompareBuilds answers "differs" rather than guess an order, and a guess here
 // would be a downgrade. It is a different fault from a build that is not from a
-// release, and the sentence says which.
+// release, and the sentence says which -- and what to do about it, since the
+// person reading it can run the newest release and make it go away. The release
+// is reported here too, as it is for a build that is not from one.
 func TestChooseLeavesABuildItCannotOrderAlone(t *testing.T) {
 	got := Choose(asking(ModeManual, "1.2.x", noon, published("v1.3.5", noon.Add(-72*time.Hour))))
 	if got.Newer || got.DueBy(noon.AddDate(1, 0, 0)) {
 		t.Errorf("offered %q to a build that cannot be ordered", got.Release.Tag)
 	}
-	for _, want := range []string{"v1.2.x", "v1.3.5", "cannot be ordered"} {
+	if got.Release.Tag != "v1.3.5" {
+		t.Errorf("Release = %q, want the newest, v1.3.5, reported although it is not offered", got.Release.Tag)
+	}
+	for _, want := range []string{"v1.2.x", "v1.3.5", "cannot be ordered", "Run a released build such as v1.3.5"} {
 		if !strings.Contains(got.Reason, want) {
 			t.Errorf("Reason = %q, want it to contain %q", got.Reason, want)
 		}
