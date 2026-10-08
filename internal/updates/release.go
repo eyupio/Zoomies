@@ -32,9 +32,10 @@ type Release struct {
 	// URL is the release's page, so an operator can read its notes before
 	// choosing to update.
 	URL string
-	// PublishedAt is GitHub's published_at, which is where the soak starts. The
-	// caller must supply it: a zero time reads as published long ago and would
-	// pass any soak.
+	// PublishedAt is GitHub's published_at, where the soak starts. The zero time
+	// means no date was given -- encoding/json yields it for a null, a missing or
+	// a zero published_at without an error -- and a release that cannot be dated
+	// cannot be soaked, so it is never offered.
 	PublishedAt time.Time
 	// Prerelease and Draft are GitHub's own flags, honoured whatever the tag
 	// looks like: a maintainer can mark a release with a stable-looking tag as
@@ -100,16 +101,24 @@ func (r Release) Complete(goos, goarch string) bool {
 }
 
 // eligible is the whole of "a release an update could take": a tag of the strict
-// shape, neither a draft nor a prerelease, with its files, and a tag that
-// CompareBuilds can place.
+// shape, neither a draft nor a prerelease, a publication date, its files, and a
+// tag that CompareBuilds can place.
 //
-// The last is for a number too large for an int, which matches the pattern and
-// which CompareBuilds can say nothing about. Ranked anyway, it would sit at the
-// head of the list whenever it came first and hide every release that can be
-// ordered. Any tag it can place compares as ahead of or equal to v0.0.0, and one
-// it cannot parse compares as differing, which is the difference tested for.
+// The date matters in every mode, not only auto. The soak is counted from it, so
+// a release that cannot be dated cannot be soaked, and it is treated as not yet
+// released rather than as old: read as the zero time it would count as public
+// for centuries and pass any wait, in the one mode that exists to hold a release
+// back. Nothing upstream is certain to refuse it first, because encoding/json
+// hands over the zero time without an error.
+//
+// The last condition is for a number too large for an int, which matches the
+// pattern and which CompareBuilds can say nothing about. Ranked anyway, it would
+// sit at the head of the list whenever it came first and hide every release that
+// can be ordered. Any tag it can place compares as ahead of or equal to v0.0.0,
+// and one it cannot parse compares as differing, which is the difference tested
+// for.
 func (r Release) eligible(goos, goarch string) bool {
-	return ValidTag(r.Tag) && !r.Prerelease && !r.Draft && r.Complete(goos, goarch) &&
+	return ValidTag(r.Tag) && !r.Prerelease && !r.Draft && !r.PublishedAt.IsZero() && r.Complete(goos, goarch) &&
 		version.CompareBuilds(r.Tag, "v0.0.0") != version.SkewDiffers
 }
 

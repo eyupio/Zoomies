@@ -124,7 +124,7 @@ func noReleaseReason(goos, goarch string) string {
 	if asset == "" {
 		return fmt.Sprintf("Updates are available only on linux and darwin, and this is %s/%s.", goos, goarch)
 	}
-	return fmt.Sprintf("No complete release is available for %s/%s. A complete release has a vX.Y.Z tag, is not a draft or a prerelease, and carries %s and %s.",
+	return fmt.Sprintf("No complete release is available for %s/%s. A complete release has a vX.Y.Z tag and a publication date, is not a draft or a prerelease, and carries %s and %s.",
 		goos, goarch, checksumsAsset, asset)
 }
 

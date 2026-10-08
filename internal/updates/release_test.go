@@ -161,11 +161,12 @@ func TestCompleteNeedsTheChecksumsAndTheHostsBinary(t *testing.T) {
 
 // Every release below is one a careless rule would take, and all but the capital
 // V are newer than the one that is right, so a filter that fails to drop one
-// shows as the wrong answer rather than as a quiet pass. The last three are tags
+// shows as the wrong answer rather than as a quiet pass. Three are tags
 // CompareBuilds can order -- it reads a missing v, a missing patch number and a
 // suffix without complaint -- so only the check on the shape of the tag keeps
-// them out. The list is tried in every rotation because a tag CompareBuilds
-// cannot order only wins when it comes first.
+// them out, and the last is perfect in every way but has no publication date.
+// The list is tried in every rotation because a tag CompareBuilds cannot order
+// only wins when it comes first.
 func TestNewestIgnoresIncompletePrereleaseDraftAndOddTags(t *testing.T) {
 	t0 := time.Date(2026, 10, 1, 9, 0, 0, 0, time.UTC)
 	flagged := published("v1.6.0", t0)
@@ -174,6 +175,7 @@ func TestNewestIgnoresIncompletePrereleaseDraftAndOddTags(t *testing.T) {
 	candidate.Prerelease = true
 	draft := published("v1.5.0", t0)
 	draft.Draft = true
+	undated := published("v2.0.0", time.Time{})
 	releases := []Release{
 		published("V1.1.0", t0),
 		published("v1.3.4", t0),
@@ -184,6 +186,7 @@ func TestNewestIgnoresIncompletePrereleaseDraftAndOddTags(t *testing.T) {
 		published("v1.7", t0),
 		published("1.8.0", t0),
 		published("v1.9.0-rc2", t0),
+		undated,
 	}
 
 	inEveryRotation(releases, func(rotated []Release) {

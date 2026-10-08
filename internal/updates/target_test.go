@@ -154,7 +154,39 @@ func TestChooseSaysWhatAReleaseNeedsWhenNoneIsComplete(t *testing.T) {
 			if got.Newer || got.Release.Tag != "" {
 				t.Errorf("offered %q with nothing complete to offer", got.Release.Tag)
 			}
-			for _, want := range []string{"No complete release", "linux/amd64", "checksums.txt", "zoomies_linux_amd64"} {
+			for _, want := range []string{"No complete release", "linux/amd64", "publication date", "checksums.txt", "zoomies_linux_amd64"} {
+				if !strings.Contains(got.Reason, want) {
+					t.Errorf("Reason = %q, want it to contain %q", got.Reason, want)
+				}
+			}
+		})
+	}
+}
+
+// encoding/json turns a null, a missing or a zero published_at into the zero
+// time without an error, and the soak is counted from that date. A release that
+// cannot be dated cannot be soaked, so it must not be mistaken for an old one:
+// the release below is perfect and the newest, and read as the zero time it
+// would have passed the soak at once, in the one mode meant to hold a release
+// back. Manual refuses it too, because a release GitHub cannot date is not one
+// to offer to anybody.
+func TestChooseNeverOffersAReleaseThatHasNoPublicationDate(t *testing.T) {
+	dated := published("v1.3.4", noon.Add(-72*time.Hour))
+	undated := published("v1.3.5", time.Time{})
+	for _, mode := range []Mode{ModeManual, ModeAuto} {
+		t.Run(string(mode), func(t *testing.T) {
+			inEveryRotation([]Release{dated, undated}, func(rotated []Release) {
+				got := Choose(asking(mode, "1.3.3", noon, rotated...))
+				if got.Release.Tag != "v1.3.4" || !got.Newer {
+					t.Errorf("chose %q (newer: %v) from %s first, want the dated v1.3.4", got.Release.Tag, got.Newer, rotated[0].Tag)
+				}
+			})
+
+			got := Choose(asking(mode, "1.3.3", noon, undated))
+			if got.Newer || got.Release.Tag != "" || got.DueBy(noon.AddDate(1, 0, 0)) {
+				t.Errorf("offered %q (newer: %v) when it was the only release and had no date", got.Release.Tag, got.Newer)
+			}
+			for _, want := range []string{"No complete release", "publication date"} {
 				if !strings.Contains(got.Reason, want) {
 					t.Errorf("Reason = %q, want it to contain %q", got.Reason, want)
 				}
