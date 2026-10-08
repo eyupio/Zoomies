@@ -7851,7 +7851,30 @@ export interface components {
              */
             at: string;
         };
+        /** @description The last "Check now" asked of this host's agent. It lives in the controller's memory only, so it is lost on a restart, and it is absent when there is nothing to say: no request, or one old enough that the page has no use for it. */
+        HostHealthCheck: {
+            /**
+             * @description asked while the agent has not answered; failed also covers an agent that did not answer in time.
+             * @enum {string}
+             */
+            state: "asked" | "done" | "failed";
+            /** Format: date-time */
+            asked_at: string;
+            /**
+             * @description When done: whether the report was the first, changed the findings, matched the last, or carried a clock no later than the last report's.
+             * @enum {string}
+             */
+            outcome?: "first" | "changed" | "unchanged" | "not_newer";
+            /** @description When failed: a sentence for a person saying what to check. */
+            message?: string;
+            /**
+             * Format: date-time
+             * @description When the host may be asked again. Only present while that is in the future.
+             */
+            next_at?: string;
+        };
         Host: {
+            health_check?: components["schemas"]["HostHealthCheck"];
             doctor?: components["schemas"]["HostDoctorView"];
             usage?: components["schemas"]["HostUsage"];
             /** @description Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. */

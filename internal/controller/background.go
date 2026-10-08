@@ -155,8 +155,12 @@ func (c *Controller) sweepTasks(ctx context.Context, now time.Time) {
 			continue
 		}
 		c.log.Error("gave up redelivering tasks to a host",
-			"host", hostID, "tasks", len(dropped), "attempts", maxTaskAttempts)
+			"host", hostID, "tasks", len(dropped))
 		for _, task := range dropped {
+			if task.Kind == agent.TaskCheckHost {
+				c.expireHostCheck(ctx, hostID, task.ID)
+				continue
+			}
 			if task.Kind == agent.TaskRemoveRunner {
 				if r, err := c.st.GetRunner(ctx, task.RunnerID); err == nil {
 					c.noteCleanupFailure(ctx, r, task.Kind, "host did not confirm removal; cleanup will be retried")

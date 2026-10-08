@@ -6,6 +6,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -57,6 +58,8 @@ func TestEveryTaskLeaseOutlastsTheWorkItCovers(t *testing.T) {
 		// (reconcile.go), and the agent adds StopMargin to it.
 		{agent.TaskStopRunner, stopLease, agent.DefaultStopTimeout + agent.StopMargin},
 		{agent.TaskRemoveRunner, removeLease, agent.RemoveTimeout},
+		// A check is bounded by the monitor's own run timeout on the agent.
+		{agent.TaskCheckHost, hostCheckLease, hosttune.MonitorRunTimeout},
 	}
 	for _, c := range cases {
 		if got := requeueAfter(c.kind); got != c.lease {

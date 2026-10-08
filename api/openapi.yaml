@@ -10213,9 +10213,23 @@ components:
         short_code: { type: string, enum: [pool_empty, host_floor] }
         at: { type: string, format: date-time, description: When the pool was last worked out. }
 
+    HostHealthCheck:
+      type: object
+      description: >-
+        The last "Check now" asked of this host's agent. It lives in the controller's
+        memory only, so it is lost on a restart, and it is absent when there is nothing
+        to say: no request, or one old enough that the page has no use for it.
+      required: [state, asked_at]
+      properties:
+        state: { type: string, enum: [asked, done, failed], description: "asked while the agent has not answered; failed also covers an agent that did not answer in time." }
+        asked_at: { type: string, format: date-time }
+        outcome: { type: string, enum: [first, changed, unchanged, not_newer], description: "When done: whether the report was the first, changed the findings, matched the last, or carried a clock no later than the last report's." }
+        message: { type: string, description: "When failed: a sentence for a person saying what to check." }
+        next_at: { type: string, format: date-time, description: "When the host may be asked again. Only present while that is in the future." }
     Host:
       type: object
       properties:
+        health_check: { $ref: "#/components/schemas/HostHealthCheck" }
         doctor: { $ref: "#/components/schemas/HostDoctorView" }
         usage: { $ref: "#/components/schemas/HostUsage" }
         usage_fresh: { type: boolean, description: Usage is less than 90 seconds old. Unknown or stale readings retain reservation-based placement. }
