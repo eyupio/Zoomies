@@ -327,6 +327,10 @@ type CapacityDemand struct {
 type Kennel struct {
 	// Enabled is the master switch.
 	Enabled bool `yaml:"enabled"`
+	// RepositorySetup opts into the additional Contents read for setup advice.
+	RepositorySetup bool `yaml:"repository_setup"`
+	// WorkflowChecks separately opts into reading default-branch workflow contents.
+	WorkflowChecks bool `yaml:"workflow_checks"`
 	// Scope says which repositories are looked at: those the fleet has served
 	// (the default), or every one the GitHub App can see. The second multiplies
 	// the requests Kennel Club spends, so it is a choice and not a default.

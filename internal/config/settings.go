@@ -1017,6 +1017,14 @@ var registry = buildRegistry([]Setting{
 		Summary: "Whether Kennel Club runs. Off by default, and off means off: no request to GitHub, nothing stored, and AI Context carries on as it was. On, it reads facts about the repositories this fleet serves and keeps what it concludes.",
 	},
 	{
+		Key: "kennel.repository_setup", Label: "Check repository setup", Env: "ZOOMIES_KENNEL_REPOSITORY_SETUP", Kind: KindBool, Scope: ScopeInstance, Live: true,
+		Summary: "Whether Kennel Club reads the default-branch file inventory for advisory setup checks. Off by default. Needs Contents read for private repositories; reads no file contents and changes no App permissions.",
+	},
+	{
+		Key: "kennel.workflow_checks", Label: "Check workflow best practices", Env: "ZOOMIES_KENNEL_WORKFLOW_CHECKS", Kind: KindBool, Scope: ScopeInstance, Live: true,
+		Summary: "Whether Kennel Club reads default-branch workflow contents for timeouts, concurrency, action pins and token permission declarations. Off by default. Needs Contents read for private repositories; changes no files or App permissions.",
+	},
+	{
 		Key: "kennel.scope", Label: "Repositories to check", Env: "ZOOMIES_KENNEL_SCOPE", Kind: KindEnum, Scope: ScopeInstance, Live: true,
 		Choices: KennelScopes,
 		Summary: "served checks the repositories this fleet has run a job for; installation checks every repository the GitHub App can see, up to 500. installation multiplies the requests Kennel Club makes, so it is a choice and not the default.",
@@ -1032,7 +1040,7 @@ var registry = buildRegistry([]Setting{
 	},
 	{
 		Key: "kennel.disabled_checks", Label: "Checks turned off", Env: "ZOOMIES_KENNEL_DISABLED_CHECKS", Kind: KindStrings, Scope: ScopeInstance, Live: true,
-		Summary: "Checks to turn off, by code (exposure.fork_code_ran) or by area (exposure, capacity). A check that is turned off is listed as turned off in Settings, not hidden, and a repository with none left to run is not given the badge.",
+		Summary: "Checks to turn off, by code (exposure.fork_code_ran) or by area (exposure, capacity, setup, ci, token). A check that is turned off is listed as turned off in Settings, not hidden, and a repository with none left to run is not given the badge.",
 	},
 
 	// ---------------------------------------------------------------------

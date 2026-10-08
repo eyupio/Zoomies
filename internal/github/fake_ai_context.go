@@ -157,6 +157,13 @@ func (f *FakeGitHub) contextGitRead(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	case strings.Contains(r.URL.Path, "/git/trees/"):
+		// A tree can be addressed by a branch name as well as an object SHA.
+		if sha == repo.defaultBranch {
+			repo.pinContextSource()
+		}
+		if commit := g.Commits[repo.branches[sha]]; commit != nil {
+			sha = commit.GetTree().GetSHA()
+		}
 		if obj := g.Trees[sha]; obj != nil {
 			if r.URL.Query().Get("recursive") != "" {
 				files := map[string]*gh.TreeEntry{}

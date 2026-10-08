@@ -12,6 +12,12 @@ import (
 // the documentation quotes.
 func TestKennelClubIsOffByDefaultAndSpendsAFifthOfTheRequestLimit(t *testing.T) {
 	k := Default().Kennel
+	if k.WorkflowChecks {
+		t.Error("workflow content reads are on without opting in")
+	}
+	if k.RepositorySetup {
+		t.Error("repository setup reads are on without opting in")
+	}
 	if k.Enabled {
 		t.Error("Kennel Club is on in a configuration nobody has touched")
 	}
@@ -41,7 +47,7 @@ func TestKennelClubIsOffByDefaultAndSpendsAFifthOfTheRequestLimit(t *testing.T) 
 func TestEveryKennelSettingIsLiveAndTheFleetsToChange(t *testing.T) {
 	want := []string{
 		"kennel.api_budget_percent", "kennel.disabled_checks", "kennel.enabled",
-		"kennel.refresh_interval", "kennel.scope",
+		"kennel.refresh_interval", "kennel.repository_setup", "kennel.scope", "kennel.workflow_checks",
 	}
 	var got []string
 	for _, s := range Settings() {
