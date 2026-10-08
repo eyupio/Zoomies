@@ -233,3 +233,17 @@ func TestAHostWithOnlyAcceptedWarningsExitsZero(t *testing.T) {
 		t.Errorf("exit code = %d, want 0", r.ExitCode())
 	}
 }
+
+func TestAWarningWithACommandTellsTheOperatorWhatToRun(t *testing.T) {
+	t.Setenv("COLUMNS", "80")
+	r := hosttune.Report{CheckedAt: time.Now(), Results: []hosttune.Result{
+		{ID: "kernel.hwe", Title: "HWE kernel", Status: hosttune.Warn, Command: "sudo apt-get install linux-generic-hwe-24.04"},
+		{ID: "kernel.ok", Title: "Fine", Status: hosttune.OK, Command: "sudo true"},
+	}}
+	var b strings.Builder
+	printDoctor(&b, r, true)
+	out := b.String()
+	if !strings.Contains(out, "run: sudo apt-get install linux-generic-hwe-24.04") || strings.Contains(out, "sudo true") {
+		t.Errorf("the command belongs on the warning only:\n%s", out)
+	}
+}

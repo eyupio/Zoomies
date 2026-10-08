@@ -9957,6 +9957,12 @@ components:
         recommended: { type: string }
         rationale: { type: string }
         reason: { type: string }
+        command:
+          type: string
+          description: >-
+            A shell command an operator can run on the host to put this finding right by hand,
+            such as the `apt-get install` for the Ubuntu HWE kernel. Absent when there is none.
+            Zoomies never runs it; it is for copying.
         actionable: { type: boolean }
         optional: { type: boolean }
         accepted:

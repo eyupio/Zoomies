@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -57,7 +58,8 @@ func TestAnUnchangedImageKeepsTheControllerContainer(t *testing.T) {
 			if err != nil || env["ZOOMIES_IMAGE"] != opts.Image || env["CUSTOM_SETTING"] != "leave me alone" {
 				t.Fatalf("environment = %v, %v", env, err)
 			}
-			if info, err := os.Stat(rec.EnvFile); err != nil || info.Mode().Perm() != 0600 {
+			// Windows reports every file as 0666, so there is no mode to keep.
+			if info, err := os.Stat(rec.EnvFile); err != nil || (runtime.GOOS != "windows" && info.Mode().Perm() != 0600) {
 				t.Fatalf("environment permissions changed: %v, %v", info, err)
 			}
 		})

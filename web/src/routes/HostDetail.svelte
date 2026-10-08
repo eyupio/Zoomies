@@ -582,6 +582,12 @@
             <td role="cell" data-label="Recommended">{niceValue(check.recommended) || '—'}</td>
             <td role="cell" data-label="Why / details"
               >{check.rationale}{#if check.reason}<small>{check.reason}</small>{/if}
+              {#if check.command && check.status === 'warn' && !check.accepted}
+                <span class="fix-command">
+                  <code>{check.command}</code>
+                  <CopyButton value={check.command} label="Copy command: {check.title}" />
+                </span>
+              {/if}
               {#if check.accepted}
                 <small class="accepted-note">{acceptNote(check.accepted, now)}</small>
               {:else if endedNote(check)}
@@ -802,6 +808,15 @@
   .kind {
     color: var(--z-text-muted);
     font-size: var(--z-text-xs);
+  }
+  .fix-command {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    margin-top: 0.25rem;
+  }
+  .fix-command code {
+    overflow-wrap: anywhere;
   }
   small {
     display: block;

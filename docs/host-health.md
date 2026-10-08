@@ -591,7 +591,12 @@ sudo zoomies tune --tier aggressive --only tmp.tmpfs --dry-run
 kernel with installed kernels and reports a pending reboot. `kernel.hwe` checks
 whether Ubuntu 24.04's official `linux-generic-hwe-24.04` package is installed
 or available in the locally cached package metadata. No package index is
-updated by doctor. Debian skips the Ubuntu-specific check. A pending reboot is
+updated by doctor. When the package is available, the finding carries the command
+to install it by hand (`sudo apt-get install --no-install-recommends
+linux-generic-hwe-24.04`): `zoomies doctor --verbose` prints it on a `run:` line, and
+the host's page in the web UI shows it with a copy button, which is the route for a
+containerised install or a run without root, where `tune` cannot do it for you.
+Zoomies never runs that command itself. Debian skips the Ubuntu-specific check. A pending reboot is
 one fact that a report carries twice, as this warning and as `reboot_pending`;
 the controller counts it once, as
 [described above](#continuous-reporting-uses-the-installed-host-binary), and
