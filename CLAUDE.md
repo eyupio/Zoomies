@@ -37,7 +37,7 @@ make screenshots   # recapture docs/screenshots from the real UI, both themes (n
 it writes a placeholder, before any Go command that compiles that package. CI
 does the same thing as its first step.
 
-Go 1.27.1 or later (`go.mod` sets the floor; CI builds with 1.27.1), Node 22 or
+Go 1.27.2 or later (`go.mod` sets the floor; CI builds with 1.27.2), Node 22 or
 later. Node is a build-time dependency only; the shipped binary is
 self-contained and static (`CGO_ENABLED=0`, pure-Go SQLite).
 
