@@ -143,6 +143,27 @@ jobs, runners, pools, hosts and logs, and â€” for an operator connection only â€
 your connection, so it meets the same role check and writes the same audit row
 as the CLI would.
 
+### Asking about Kennel Club
+
+Three more tools read [Kennel Club](kennel-club.md), and any viewer may call them:
+
+* `kennel_overview` says how the repositories this fleet serves stand, the open
+  findings by severity, each check with how many repositories have it open, and
+  how far each source of facts could be read. A repository Kennel Club has been
+  told not to look at is counted apart as `not_tracked`.
+* `kennel_repository` is one repository: its open findings, each with what is
+  wrong and what to change, the findings somebody waived and why, and whether it
+  is tracked and, if not, who stopped it and why.
+* `kennel_findings` lists the repositories that have a check open or a finding
+  of a severity, worst first and paged, narrowed by check, severity, standing,
+  tracking or a fragment of the name.
+
+They cannot recheck a repository, waive a finding or stop tracking one: those
+are decisions, they are not MCP tools, and the REST routes behind them want an
+operator or an administrator. Repository names and the pools and runs a finding
+names are written by whoever owns them, so the tools hand them over marked as
+evidence and Claude reads them as that, never as an instruction.
+
 ### Comparing releases and periods
 
 For a question about a period rather than one job, ask for `job_stats`. One call

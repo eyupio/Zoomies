@@ -588,21 +588,29 @@ fixed, because muscle memory is the point:
 1. **Overview** — fleet health at a glance
 2. **Pools** — what runners to make
 3. **Runners** — what runners exist right now
-4. **Workflows** — what has run, one row per workflow run, each opening to the
+4. **Queue** — what is waiting for a runner, and why
+5. **Workflows** — what has run, one row per workflow run, each opening to the
    jobs inside it. The job-level list is one step down, at `/jobs`: it is not
    in the navigation, but every link that names a job — the problems drawer's,
    the Overview's — lands there, and the two pages share their filters.
-5. **Usage** — runner-hours and job activity by pool, repository or workflow
-6. **Hosts** — where runners can go
-7. **Installations** — GitHub App connections
-8. **Migrate repositories** — move repositories off GitHub's runners onto this
-   fleet. The navigation shortens it to *Migrate*, because a nav label has to
-   fit beside an icon in a 232px column; every other place that names the page
-   — its heading, the palette, the shortcut sheet, the browser title — uses the
-   full name.
-9. **AI Context** — prepare repositories for AI coding assistants; explicit source access is separate from fleet permissions.
-10. **Audit** — who did what
-11. **Settings** — a section of pages rather than one page: your account and
+6. **Usage** — runner-hours and job activity by pool, repository or workflow
+7. **Hosts** — where runners can go
+8. **Providers** — the infrastructure that machines are rented from
+9. **Installations** — GitHub App connections
+10. **Migrate repositories** — move repositories off GitHub's runners onto this
+    fleet. The navigation shortens it to *Migrate*, because a nav label has to
+    fit beside an icon in a 232px column; every other place that names the page
+    — its heading, the palette, the shortcut sheet, the browser title — uses the
+    full name.
+11. **Kennel Club** — which repositories could hurt the fleet or stop its CI
+    ([Kennel Club](kennel-club.md)). It is a section of pages, like Settings:
+    *Standards* (the Overview and the list of Repositories, and each
+    repository's own page) and, under *For assistants*, **AI Context** —
+    preparing repositories for AI coding assistants, where explicit source access
+    is separate from fleet permissions. AI Context has no section of its own, and
+    `/ai-context` still reaches it.
+12. **Audit** — who did what
+13. **Settings** — a section of pages rather than one page: your account and
     appearance; users and API tokens; the configuration, backups and about.
     Each has an address of its own (`/settings/users`), the section's own rail
     lists them beside the page, and `/settings` alone goes to the first of
@@ -1003,7 +1011,7 @@ total is zero.
 
 Everything reachable, in a sensible order, with a visible focus ring
 (`2px` `--z-accent`, `2px` offset — never removed). `Cmd/Ctrl+K` palette,
-`g` then `o/p/r/q/w/j/u/h/v/i/m/a/s` to jump between sections (`j` is the Jobs
+`g` then `o/p/r/q/w/j/u/h/v/i/m/k/a/s` to jump between sections (`j` is the Jobs
 list, one step down from Workflows), `/` focuses the current page's search, `R` refreshes it, `?` opens the shortcut sheet, `Esc` closes the
 topmost layer. While a dialog, drawer, menu or the palette is open, `Esc` is
 the only one of these the shell answers; the rest belong to the overlay, so a
@@ -1018,11 +1026,11 @@ ranges:
 
 * `< 768px` — **phone.** The navigation becomes a bar along the bottom edge
   carrying the four sections a fleet is watched with — Overview, Pools, Runners,
-  Jobs — each under its own word, plus a **More** button opening a sheet from
-  the bottom edge that lists all twelve, with the account, the theme and sign
-  out above them. Twelve icon-only targets across a 412px screen were 40px
-  apart and told apart only by a glyph, which is not a navigation an operator
-  can use one-handed at 3am. The sheet is a modal overlay like any other:
+  Workflows — each under its own word, plus a **More** button opening a sheet from
+  the bottom edge that lists all thirteen, with the account, the theme and sign
+  out above them. An icon-only target for every section across a 412px screen is
+  about 32px apart and told apart only by a glyph, which is not a navigation an
+  operator can use one-handed at 3am. The sheet is a modal overlay like any other:
   Escape closes it, the page behind it is inert, and choosing a section closes
   it. Settings has no room for its rail here, so `/settings` is the list of its
   pages and each page carries a way back to it; between 768 and 1180px the rail
