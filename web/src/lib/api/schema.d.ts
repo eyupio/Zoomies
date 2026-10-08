@@ -7572,6 +7572,8 @@ export interface components {
             recommended: string;
             rationale: string;
             reason?: string;
+            /** @description A shell command an operator can run on the host to put this finding right by hand, such as the `apt-get install` for the Ubuntu HWE kernel. Absent when there is none. Zoomies never runs it; it is for copying. */
+            command?: string;
             actionable: boolean;
             optional?: boolean;
             /** @description Present when an operator has accepted this warning as deliberate, so it no longer counts. The controller stamps it when it reads the report; an agent cannot send it. The reason is written by a person on the controller, not by the host. */

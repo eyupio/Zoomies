@@ -121,3 +121,19 @@ func TestCompletedCloudInitAcceptsCompactJSON(t *testing.T) {
 		t.Fatal(reason)
 	}
 }
+
+// A host Zoomies cannot tune (a container install, a non-root run) still needs
+// to be told what to type, so the finding carries the command rather than only
+// the name of a flag that would not work there.
+func TestAnAvailableHWEKernelCarriesTheCommandToInstallIt(t *testing.T) {
+	e, f := fixture()
+	f.commands["apt-cache policy linux-generic-hwe-24.04"] = "linux-generic-hwe-24.04:\n  Installed: (none)\n  Candidate: 6.14.0.1\n"
+	r := detectHWE(context.Background(), e)
+	if r.Status != Warn || r.Command != "sudo apt-get install --no-install-recommends linux-generic-hwe-24.04" {
+		t.Fatalf("got %s %q", r.Status, r.Command)
+	}
+	f.commands["dpkg-query -W -f=${Status} linux-generic-hwe-24.04"] = "install ok installed"
+	if r := detectHWE(context.Background(), e); r.Command != "" {
+		t.Fatalf("an installed kernel should not suggest installing it: %q", r.Command)
+	}
+}
