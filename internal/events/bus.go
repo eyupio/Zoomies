@@ -60,6 +60,11 @@ const (
 	KindStats         Kind = "stats"
 	KindAudit         Kind = "audit"
 	KindWebhook       Kind = "webhook.delivery"
+	// KindUpdates is the update status, in the shape GET /updates returns. Like
+	// stats and kennel.summary it is computed and sent only when it changes: a
+	// soak ends with no row written, so nothing but the pass that notices could
+	// announce it.
+	KindUpdates Kind = "updates.updated"
 	// KindHeartbeat is an empty keep-alive so that proxies do not close an
 	// idle SSE connection.
 	KindHeartbeat Kind = "heartbeat"

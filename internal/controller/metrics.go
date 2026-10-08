@@ -451,6 +451,14 @@ var (
 	descHostHealthReportAge = prometheus.NewDesc("zoomies_host_health_report_age_seconds",
 		"How old a host's latest OS report is, by the host's own clock; never negative. This is the freshness signal: on a native agent a host whose collector has stopped is still reported and its age climbs, but on a Docker or Compose installation the container's partial report takes over and the series is absent. Absent when the host is offline, has sent no report, or sent only the container's partial one.",
 		[]string{"host"}, nil)
+	// Reported at 0 as well as 1, for the reason the paused gauge is: a rule such
+	// as "a newer release has been waiting for a week" needs a series to match from
+	// the first day, before any release is waiting. It reads the update status
+	// rather than the rule beneath it, so it cannot say that something is waiting
+	// when the page does not.
+	descUpdateAvailable = prometheus.NewDesc("zoomies_update_available",
+		"1 while the release updates.mode would take is newer than the build this controller is running, whether or not it may be taken yet, 0 otherwise. Always 0 while updates.mode is off, until the release list has been read, and for a build that is not from a release.",
+		nil, nil)
 )
 
 // fleetCollector reads the fleet's shape from the database on each scrape.
@@ -483,6 +491,7 @@ func (f *fleetCollector) Describe(ch chan<- *prometheus.Desc) {
 	ch <- descHostOSChecks
 	ch <- descHostRebootPending
 	ch <- descHostHealthReportAge
+	ch <- descUpdateAvailable
 }
 
 func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
@@ -650,6 +659,7 @@ func (f *fleetCollector) Collect(ch chan<- prometheus.Metric) {
 
 	f.collectMachines(ctx, gauge)
 	f.collectHostHealth(hosts, now, gauge)
+	f.collectUpdates(ctx, gauge)
 
 	gauge(descHosts, float64(healthy), "healthy")
 	gauge(descHosts, float64(unhealthy), "unhealthy")
@@ -699,6 +709,23 @@ func (f *fleetCollector) collectMachines(ctx context.Context, gauge func(*promet
 		}
 	}
 	gauge(descProviderQuarantined, float64(quarantined))
+}
+
+// collectUpdates reports whether the update status has a newer release to offer.
+//
+// A release waiting out the soak counts: the gauge says there is a newer one, and
+// the status says when auto will take it.
+func (f *fleetCollector) collectUpdates(ctx context.Context, gauge func(*prometheus.Desc, float64, ...string)) {
+	status, err := f.c.UpdatesView(ctx)
+	if err != nil {
+		f.c.log.Warn("could not work out the update status for the metrics endpoint", "error", err)
+		return
+	}
+	waiting := 0.0
+	if status.Target != nil && status.Target.Newer {
+		waiting = 1
+	}
+	gauge(descUpdateAvailable, waiting)
 }
 
 // collectHostHealth reports what each host's OS report says, for the hosts it is

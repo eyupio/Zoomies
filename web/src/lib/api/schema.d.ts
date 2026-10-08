@@ -4083,6 +4083,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/updates": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * What an update would take
+         * @description The update mode and soak, the build that is running, the newest release that can be installed on this system, whether that is newer than the build, and when the mode would take it, with the sentence that says why. It answers 200 whatever the mode: with `mode: off` it names no release and says how to turn updating on, and until the list of releases has been read it says that, because a list nobody has read and a list with nothing in it that can be installed are different things to be told. A build that is not from a release is left alone, and the sentence says so. It changes nothing. The same document is the payload of the `updates.updated` event.
+         */
+        get: operations["getUpdates"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agent/join": {
         parameters: {
             query?: never;
@@ -8827,6 +8847,58 @@ export interface components {
             };
             secrets_configured: string[];
             settings?: components["schemas"]["Settings"];
+        };
+        UpdatesRunning: {
+            /**
+             * @description The build as it reports itself. A release binary says `1.3.5`, without the v its tag has; any other says something like `main-sha-abc1234` or `dev`.
+             * @example 1.3.5
+             */
+            version: string;
+            /** @description Whether the build came from a release. Only one that did is offered an update, because a build from main is usually ahead of the newest release and taking it there would be a downgrade. */
+            release: boolean;
+        };
+        UpdatesRelease: {
+            /** @example v1.3.5 */
+            tag: string;
+            /** @description The release's page, where its notes are. */
+            url: string;
+            /**
+             * Format: date-time
+             * @description When GitHub published it, which is where the soak starts.
+             */
+            published_at: string;
+        };
+        UpdatesTarget: {
+            /** @example v1.3.5 */
+            tag: string;
+            /** @description Whether the release is a later one than the build that is running. Only then is there anything to take. */
+            newer: boolean;
+            /**
+             * Format: date-time
+             * @description The earliest time the mode takes the release: the end of the soak in `auto`. Null in `manual`, where the person asking is the only wait, and whenever `newer` is false.
+             */
+            due_at: string | null;
+        };
+        UpdatesStatus: {
+            /**
+             * @description `updates.mode` as the controller acts on it. `off` offers nothing, `manual` offers the newest release to a person, and `auto` takes it once it has been public for the soak.
+             * @enum {string}
+             */
+            mode: "off" | "manual" | "auto";
+            /** @description `updates.soak` as the Settings page writes it. `auto` waits this long after a release is published; `manual` ignores it. */
+            soak: components["schemas"]["Duration"];
+            running: components["schemas"]["UpdatesRunning"];
+            /** @description The newest release that could be installed on this system, whether or not the build is behind it. Null while updating is off, until the list of releases has been read, and when nothing in it can be installed here. */
+            latest: components["schemas"]["UpdatesRelease"] | null;
+            /** @description What the mode would do about `latest`. Null whenever `latest` is. */
+            target: components["schemas"]["UpdatesTarget"] | null;
+            /** @description One sentence, in an operator's words, that says what the mode would do and why. It always says something: it is what to show when there is nothing to offer. */
+            reason: string;
+            /**
+             * Format: date-time
+             * @description When the list of releases `latest` was chosen from was read. Null while updating is off, and until a list has been read.
+             */
+            checked_at: string | null;
         };
         AgentJoinRequest: {
             protocol_version: number;
@@ -15487,6 +15559,26 @@ export interface operations {
                 };
             };
             422: components["responses"]["Unprocessable"];
+        };
+    };
+    getUpdates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdatesStatus"];
+                };
+            };
         };
     };
     agentJoin: {

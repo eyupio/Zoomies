@@ -329,6 +329,8 @@ export interface EventPayloads {
   'kennel.deleted': Deleted;
   /** The whole Overview document, sent when it changes. */
   'kennel.summary': KennelOverview;
+  /** What an update would take, as `GET /updates` returns it, sent when it changes. */
+  'updates.updated': UpdatesStatus;
   heartbeat: unknown;
   /**
    * The first frame on a reconnection whose gap the server could not replay:
@@ -359,3 +361,5 @@ export type KennelCounts = Schemas['KennelCounts'];
 export type KennelState = Schemas['KennelState'];
 export type KennelCoverageState = Schemas['KennelCoverageState'];
 export type KennelCatalogueEntry = Schemas['KennelCatalogueEntry'];
+
+export type UpdatesStatus = Schemas['UpdatesStatus'];

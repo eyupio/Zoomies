@@ -451,6 +451,17 @@ account's password hash and every sealed credential. `backups:restore` is its
 own action rather than `backups:write` because it is the one that replaces the
 fleet. [Backup and restore](backup-and-restore.md) is the operator's page.
 
+## Updates
+
+| Method | Path | Role | Notes |
+| --- | --- | --- | --- |
+| GET | `/api/v1/updates` | viewer | What an update would take, and why. `mode` and `soak` are the settings as the controller acts on them. `running` is the build, with whether it came from a `release`. `latest` is the newest release that can be installed on this system (`tag`, `url`, `published_at`), and `target` is what the mode would do about it: `newer` says whether it is a later release than the build, and `due_at` is the end of the soak in `auto` and null in `manual`. `reason` is one sentence, and always says something. `checked_at` is when the release list was read. While `mode` is `off`, and until the list has been read, `latest`, `target` and `checked_at` are null and `reason` says why; a list that was read and holds nothing that can be installed has a `checked_at`, no `latest`, and a sentence that says what a complete release is. A build that is not from a release is left alone, and the sentence says so. Computed, not stored. |
+
+It takes no role above `viewer`: it names a public release and the build this
+controller runs, and nothing of the fleet's. It answers `200` in every mode,
+because the page that reads it is the one an operator opens to find out why
+nothing is offered.
+
 ## Diagnostics
 
 | Method | Path | Role | Notes |
@@ -539,7 +550,7 @@ flowchart LR
 `problems.updated` · `stats` · `audit` · `webhook.delivery` ·
 `provider.updated` · `provider.deleted` · `machine.updated` ·
 `machine.deleted` · `kennel.updated` · `kennel.deleted` · `kennel.summary` ·
-`heartbeat` · `resync`
+`updates.updated` · `heartbeat` · `resync`
 
 Every frame but `heartbeat` and `resync` carries an `id` of the form
 `<epoch>.<sequence>`, where the epoch names one run of the controller. A client
@@ -587,6 +598,8 @@ client ever has to poll or ask the operator to reload:
   the same idea for Kennel Club: it is `GET /kennel` whole, sent when it changes,
   because nothing writes a row when an evaluation grows older. `kennel.updated`
   is one repository's `GET` shape and `kennel.deleted` carries `{ "id": … }`.
+  `updates.updated` is `GET /updates` whole, sent when it changes, because nothing
+  writes a row when a soak ends and the sentence in it moves with the clock.
 * **An operator's change is announced by the handler that made it.** Creating,
   editing, enabling, disabling or deleting a pool; editing, cordoning, clearing
   the throttle on or deleting a host; adding, editing or removing an

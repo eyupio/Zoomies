@@ -162,6 +162,11 @@ const (
 	ActionMigrationsWrite Action = "migrations.write"
 )
 
+// Updates. Reading what an update would take is every role's: it names a public
+// release, the build this controller runs and a sentence about why one has not
+// been taken, and nothing of the fleet's.
+const ActionUpdatesRead Action = "updates.read"
+
 // Account and credential actions.
 const (
 	ActionUsersRead   Action = "users.read"
@@ -279,6 +284,8 @@ var actionRoles = map[Action]store.Role{
 	ActionMachinesDelete:  store.RoleAdmin,
 
 	ActionAuditRead: store.RoleViewer,
+
+	ActionUpdatesRead: store.RoleViewer,
 
 	ActionMigrationsRead:  store.RoleOperator,
 	ActionMigrationsWrite: store.RoleOperator,

@@ -240,6 +240,50 @@ func TestTheGitHubPauseGaugeNamesTheInstallationItIsHolding(t *testing.T) {
 	}
 }
 
+// A fleet that wants to hear about a newer release alerts on this gauge, and a
+// rule whose threshold is "for a week" needs a series that is there all the time:
+// one that only appeared while a release was waiting would leave the rule with
+// nothing to match on the day it was needed. So it is reported at 0 as well, and
+// it is 0 for every reason there is nothing to take -- the list unread, the build
+// up to date, updating off -- because it reads the status and not the rule, and
+// cannot say something the status does not.
+func TestTheMetricsSayWhetherANewerReleaseIsWaiting(t *testing.T) {
+	h := newHarness(t)
+	withVersion(t, "1.3.0")
+	h.inMode("manual")
+
+	waiting := func(when string) float64 {
+		t.Helper()
+		got, ok := gatherValue(t, h.c, "zoomies_update_available", nil)
+		if !ok {
+			t.Fatalf("%s: there is no zoomies_update_available series, and one reporting 0 is what a rule needs to match", when)
+		}
+		return got
+	}
+
+	if got := waiting("before the list is read"); got != 0 {
+		t.Errorf("zoomies_update_available = %v before the list is read, want 0", got)
+	}
+
+	h.readTheList(releaseEntry("v1.3.2", whenAgo(6*time.Hour), completeAssets(t)...))
+	if got := waiting("with a newer release in the list"); got != 1 {
+		t.Errorf("zoomies_update_available = %v with v1.3.2 waiting and 1.3.0 running, want 1", got)
+	}
+
+	withVersion(t, "1.3.2")
+	if got := waiting("with the build up to date"); got != 0 {
+		t.Errorf("zoomies_update_available = %v running the newest release, want 0", got)
+	}
+
+	// The list is still held when updating is switched off, and what it holds
+	// must not read as something waiting: the status offers nothing then.
+	withVersion(t, "1.3.0")
+	h.inMode("off")
+	if got := waiting("with updating off"); got != 0 {
+		t.Errorf("zoomies_update_available = %v with updating off, want 0", got)
+	}
+}
+
 // A pass that fails observes no duration, so without this the difference
 // between a controller deciding nothing and a controller with nothing to decide
 // is invisible: the duration series goes quiet either way.

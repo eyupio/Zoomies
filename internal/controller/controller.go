@@ -379,7 +379,9 @@ type Controller struct {
 	lastProblems []byte
 	// lastKennel is the Overview's document as it was last sent.
 	lastKennel []byte
-	lastHosts  map[string][]byte
+	// lastUpdates is the update status as it was last sent.
+	lastUpdates []byte
+	lastHosts   map[string][]byte
 	// lastMachines is the same memoisation for machines, which are in the tens
 	// like hosts: a machine whose elapsed phase time moved with no row written
 	// repaints from the pass's diff rather than needing a publish call.

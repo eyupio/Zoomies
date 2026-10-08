@@ -95,6 +95,8 @@ tags:
     description: The fence a restore sets, and the one act that lifts it.
   - name: backups
     description: Copies of the database, and the restore that puts one back.
+  - name: updates
+    description: Which release this controller's update mode would take, when, and why.
   - name: agent
     description: Routes used by agents. Not for general clients.
 
@@ -6029,6 +6031,31 @@ paths:
         "422": { $ref: "#/components/responses/Unprocessable" }
 
   # ==========================================================================
+  # Updates
+  # ==========================================================================
+  /updates:
+    get:
+      operationId: getUpdates
+      tags: [updates]
+      summary: What an update would take
+      description: >-
+        The update mode and soak, the build that is running, the newest release that can be
+        installed on this system, whether that is newer than the build, and when the mode
+        would take it, with the sentence that says why. It answers 200 whatever the mode:
+        with `mode: off` it names no release and says how to turn updating on, and until the
+        list of releases has been read it says that, because a list nobody has read and a
+        list with nothing in it that can be installed are different things to be told. A
+        build that is not from a release is left alone, and the sentence says so. It changes
+        nothing. The same document is the payload of the `updates.updated` event.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatesStatus" }
+
+  # ==========================================================================
   # Agent routes
   # ==========================================================================
   # The half of the API agents talk to. These carry an agent token, never a
@@ -11275,6 +11302,88 @@ components:
             skipped: { type: integer }
         secrets_configured: { type: array, items: { type: string } }
         settings: { $ref: "#/components/schemas/Settings" }
+
+    # --- updates -----------------------------------------------------------
+    UpdatesRunning:
+      type: object
+      required: [version, release]
+      properties:
+        version:
+          type: string
+          description: >-
+            The build as it reports itself. A release binary says `1.3.5`, without the v its
+            tag has; any other says something like `main-sha-abc1234` or `dev`.
+          examples: ["1.3.5"]
+        release:
+          type: boolean
+          description: >-
+            Whether the build came from a release. Only one that did is offered an update,
+            because a build from main is usually ahead of the newest release and taking it
+            there would be a downgrade.
+    UpdatesRelease:
+      type: object
+      required: [tag, url, published_at]
+      properties:
+        tag: { type: string, examples: [v1.3.5] }
+        url:
+          type: string
+          description: The release's page, where its notes are.
+        published_at:
+          type: string
+          format: date-time
+          description: When GitHub published it, which is where the soak starts.
+    UpdatesTarget:
+      type: object
+      required: [tag, newer, due_at]
+      properties:
+        tag: { type: string, examples: [v1.3.5] }
+        newer: { type: boolean, description: Whether the release is a later one than the build that is running. Only then is there anything to take. }
+        due_at:
+          type: [string, "null"]
+          format: date-time
+          description: >-
+            The earliest time the mode takes the release: the end of the soak in `auto`. Null in
+            `manual`, where the person asking is the only wait, and whenever `newer` is false.
+    UpdatesStatus:
+      type: object
+      required: [mode, soak, running, latest, target, reason, checked_at]
+      properties:
+        mode:
+          type: string
+          enum: [off, manual, auto]
+          description: >-
+            `updates.mode` as the controller acts on it. `off` offers nothing, `manual` offers
+            the newest release to a person, and `auto` takes it once it has been public for the soak.
+        soak:
+          allOf: [{ $ref: "#/components/schemas/Duration" }]
+          description: >-
+            `updates.soak` as the Settings page writes it. `auto` waits this long after a release is
+            published; `manual` ignores it.
+        running: { $ref: "#/components/schemas/UpdatesRunning" }
+        latest:
+          description: >-
+            The newest release that could be installed on this system, whether or not the build is
+            behind it. Null while updating is off, until the list of releases has been read, and
+            when nothing in it can be installed here.
+          oneOf:
+            - $ref: "#/components/schemas/UpdatesRelease"
+            - type: "null"
+        target:
+          description: What the mode would do about `latest`. Null whenever `latest` is.
+          oneOf:
+            - $ref: "#/components/schemas/UpdatesTarget"
+            - type: "null"
+        reason:
+          type: string
+          description: >-
+            One sentence, in an operator's words, that says what the mode would do and why. It
+            always says something: it is what to show when there is nothing to offer.
+        checked_at:
+          type: [string, "null"]
+          format: date-time
+          description: >-
+            When the list of releases `latest` was chosen from was read. Null while updating is
+            off, and until a list has been read.
 
     # --- agent protocol (internal) ------------------------------------------
     # The wire types of the agent routes. internal/agent/protocol.go owns them;
