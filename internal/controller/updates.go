@@ -117,8 +117,12 @@ func releaseVersion(v string) (string, bool) { return version.Release(v) }
 // configuration refuses a word it does not know when it loads, so one arriving
 // here is a bug, and the reading that asks for the least is the safe one: the
 // list is only ever requested because somebody chose a mode that needs it.
-func (c *Controller) updateMode() updates.Mode {
-	switch mode := updates.Mode(c.cfg().Updates.Mode); mode {
+func (c *Controller) updateMode() updates.Mode { return updateModeOf(c.cfg().Updates.Mode) }
+
+// updateModeOf reads one loaded updates.mode, for a caller that has already
+// loaded the configuration and must not load it a second time.
+func updateModeOf(word string) updates.Mode {
+	switch mode := updates.Mode(word); mode {
 	case updates.ModeManual, updates.ModeAuto:
 		return mode
 	}

@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/updates"
 )
 
@@ -302,22 +303,34 @@ func TestTheStatusNamesTheSettingThatStopsTheListBeingRead(t *testing.T) {
 // is about to be read would be wrong for as long as it ran, and would hide the
 // true and more useful sentence, that updates leave it alone.
 func TestTheStatusLeavesABuildThatIsNotFromAReleaseAlone(t *testing.T) {
+	const alone = "This build is not from a release"
 	for _, tc := range []struct {
 		version string
+		mode    string
 		read    bool
+		reason  string
 	}{
-		{"main-sha-abc1234", false},
-		{"dev", false},
-		{"dev", true},
+		{"main-sha-abc1234", "manual", false, alone},
+		{"dev", "manual", false, alone},
+		{"dev", "manual", true, alone},
+		// What `git describe` gives a local build: a release tag with commits on
+		// top. It reads like a release and is not one that can be downloaded.
+		{"v1.3.0-5-gabc1234", "manual", false, alone},
+		{"v1.3.0-5-gabc1234", "manual", true, alone},
+		{"main-sha-abc1234", "auto", false, alone},
+		{"main-sha-abc1234", "auto", true, alone},
+		// Off decides before the build is looked at, so it says that and not the
+		// sentence about the build: nothing is offered either way.
+		{"main-sha-abc1234", "off", false, "Updates are off."},
 	} {
-		name := tc.version + ", list not read"
+		name := tc.version + ", " + tc.mode + ", list not read"
 		if tc.read {
-			name = tc.version + ", list read"
+			name = tc.version + ", " + tc.mode + ", list read"
 		}
 		t.Run(name, func(t *testing.T) {
 			h := newHarness(t)
 			withVersion(t, tc.version)
-			h.inMode("manual")
+			h.inMode(tc.mode)
 			if tc.read {
 				h.readTheList(releaseEntry("v1.3.2", whenAgo(6*time.Hour), completeAssets(t)...))
 			}
@@ -327,8 +340,8 @@ func TestTheStatusLeavesABuildThatIsNotFromAReleaseAlone(t *testing.T) {
 			if got.Running != (UpdatesRunning{Version: tc.version, Release: false}) {
 				t.Errorf("running = %+v, want %s and not from a release", got.Running, tc.version)
 			}
-			if !strings.HasPrefix(got.Reason, "This build is not from a release") {
-				t.Errorf("reason = %q, want the sentence that says updates leave this build alone", got.Reason)
+			if !strings.HasPrefix(got.Reason, tc.reason) {
+				t.Errorf("reason = %q, want it to begin %q", got.Reason, tc.reason)
 			}
 			if got.Target != nil && got.Target.Newer {
 				t.Errorf("target = %+v, want nothing to take: a build that is ahead of the releases would be taken back", got.Target)
@@ -441,5 +454,75 @@ func TestEveryUpdateModeTheRegistryOffersIsOneThePlannerKnows(t *testing.T) {
 				t.Errorf("the planner does not act on %q: it offers nothing when a newer release is there, which is how it treats a mode it does not know", choice)
 			}
 		})
+	}
+}
+
+// A check that finishes writes no row and publishes nothing of its own: the
+// status is computed from what the check recorded, and the pass that follows
+// sends the frame. So an open page hears about a finished check exactly once,
+// from the pass, and a check does not need a publish call that could be forgotten
+// or could say something the GET would not.
+func TestAFinishedCheckReachesAnOpenStreamOnTheNextPassAndNotBefore(t *testing.T) {
+	h := newHarness(t)
+	h.fleet()
+	withVersion(t, "1.3.0")
+	h.inMode("manual")
+	sub := h.listen(events.KindUpdates)
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+	before := nextOfKind(t, sub, events.KindUpdates)
+	if reason, _ := before["reason"].(string); !strings.Contains(reason, "has not read the release list") {
+		t.Fatalf("frame before the check: reason = %q, want it to say the list is unread", reason)
+	}
+
+	h.readTheList(releaseEntry("v1.3.2", whenAgo(6*time.Hour), completeAssets(t)...))
+	nothingFor(t, sub)
+
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile after the check: %v", err)
+	}
+	after := nextOfKind(t, sub, events.KindUpdates)
+	if target, _ := after["target"].(map[string]any); target["tag"] != "v1.3.2" || after["checked_at"] == nil {
+		t.Errorf("frame after the check: target %v, checked_at %v, want v1.3.2 and the time it was read", after["target"], after["checked_at"])
+	}
+}
+
+// The address is put in a link on the page, and it arrives off the network. Only
+// an absolute https one is passed on; anything else leaves the release without a
+// link and is never an error, because the page works without one.
+func TestTheReleasePageIsLinkedOnlyWhenItIsAnAbsoluteHTTPSAddress(t *testing.T) {
+	for _, tc := range []struct {
+		name, url, want string
+	}{
+		{"a release page", "https://github.com/eyupio/zoomies/releases/tag/v1.3.5", "https://github.com/eyupio/zoomies/releases/tag/v1.3.5"},
+		{"a script address", "javascript:alert(1)", ""},
+		{"plain http", "http://x/", ""},
+		{"https with no host", "https://", ""},
+		{"a newline in the address", "https://github.com/eyupio/zoomies/releases/tag/v1.3.5\nx", ""},
+		{"a tab in the address", "https://github.com/\teyupio", ""},
+		{"a delete character in the address", "https://github.com/\x7f", ""},
+		{"a relative address", "/eyupio/zoomies/releases", ""},
+		{"nothing", "", ""},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := releasePageURL(tc.url); got != tc.want {
+				t.Errorf("releasePageURL(%q) = %q, want %q", tc.url, got, tc.want)
+			}
+		})
+	}
+
+	// And the status uses it, so a list GitHub's answer put a bad address in is
+	// shown without the link and not with it.
+	h := newHarness(t)
+	withVersion(t, "1.3.0")
+	h.inMode("manual")
+	entry := releaseEntry("v1.3.2", whenAgo(6*time.Hour), completeAssets(t)...)
+	entry["html_url"] = "javascript:alert(1)"
+	h.readTheList(entry)
+	got := h.status()
+	if got.Latest == nil || got.Latest.Tag != "v1.3.2" || got.Latest.URL != "" {
+		t.Errorf("latest = %+v, want v1.3.2 with no link", got.Latest)
 	}
 }

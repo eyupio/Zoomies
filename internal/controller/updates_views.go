@@ -3,8 +3,10 @@ package controller
 import (
 	"context"
 	"fmt"
+	"net/url"
 	"runtime"
 	"time"
+	"unicode"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/updates"
@@ -78,8 +80,10 @@ type UpdatesTarget struct {
 
 // UpdatesView works out the status now.
 func (c *Controller) UpdatesView(ctx context.Context) (*UpdatesView, error) {
+	// Loaded once, so that a settings change between two loads cannot give one
+	// frame the old soak beside the new mode.
 	cfg := c.cfg().Updates
-	mode := c.updateMode()
+	mode := updateModeOf(cfg.Mode)
 	_, fromRelease := version.Release(version.Version)
 	view := &UpdatesView{
 		Mode:    string(mode),
@@ -129,7 +133,7 @@ func (c *Controller) UpdatesView(ctx context.Context) (*UpdatesView, error) {
 	}
 
 	view.Latest = &UpdatesRelease{
-		Tag: target.Release.Tag, URL: target.Release.URL, PublishedAt: target.Release.PublishedAt.UTC(),
+		Tag: target.Release.Tag, URL: releasePageURL(target.Release.URL), PublishedAt: target.Release.PublishedAt.UTC(),
 	}
 	view.Target = &UpdatesTarget{Tag: target.Release.Tag, Newer: target.Newer}
 	if target.Newer && !target.DueAt.IsZero() {
@@ -152,4 +156,25 @@ func unreadReason(interval time.Duration) string {
 	}
 	return fmt.Sprintf("Zoomies has not read the release list yet. It reads it every %s, so the next read is due within that time.",
 		config.TidyDuration(interval))
+}
+
+// releasePageURL is a release's page when it is one a browser can safely be sent
+// to, and blank when it is not.
+//
+// The address arrives as GitHub's html_url and the UI puts it in a link. GitHub
+// is trusted to be GitHub, but a proxy in between, or a mirror somebody pointed
+// github.api_base_url at, is not, and a javascript: address in an href runs in
+// the operator's session. Only an absolute https address with a host and no
+// control characters passes; the page then simply has no link.
+func releasePageURL(raw string) string {
+	for _, r := range raw {
+		if unicode.IsControl(r) {
+			return ""
+		}
+	}
+	u, err := url.Parse(raw)
+	if err != nil || u.Scheme != "https" || u.Host == "" {
+		return ""
+	}
+	return raw
 }
