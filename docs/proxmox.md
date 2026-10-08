@@ -42,16 +42,20 @@ Zoomies created it, knows it did, and is the only thing allowed to delete it.
 
 | | |
 | --- | --- |
-| Proxmox VE | 8.0 or later, reachable from the controller over HTTPS on port 8006 |
+| Proxmox VE | 8.0 or later; automatic setup uses Tailcat to reach the local HTTPS API on port 8006 |
 | A prepared template | a Linux VM template, described [below](#preparing-the-template) |
-| An API token | scoped, described [below](#the-api-token) |
+| An API token | created automatically by the setup command, or [managed manually](#the-api-token) |
 | A VMID range | a block of VM identifiers Zoomies may use and nothing else may |
 | Storage and a bridge | the storage the clone's disk lands on, and the network bridge it attaches to |
 
-Zoomies never needs SSH to the hypervisor, a root password, or a shell on a
-node. Everything below is the Proxmox API and nothing else.
+Run the setup command once as root on the Proxmox node. After setup, Zoomies
+uses the Proxmox API over the private gateway; it needs no SSH connection or
+root password. See [the provider wizard](#the-provider) for automatic setup.
 
 ## The API token
+
+Automatic setup creates this for you. The following steps are for
+**Configure connection manually**.
 
 Create a dedicated user and an API token for it. Do not reuse `root@pam`: the
 whole point of the privilege list below is that a mistake in Zoomies, or a
@@ -174,22 +178,43 @@ are disposable, which is what makes that cheap.
 
 ## The provider
 
-**Providers → Add provider → Proxmox VE**. The form opens with a *Before you
-start* panel — the token, the template, the VMID block, each with the commands
-that make it — and every box has a help icon saying where in the Proxmox
-console its answer is found.
+**Providers → Add provider → Proxmox VE → Generate setup command**.
+Copy the command and run it as root on your Proxmox host. Return to the wizard;
+the connection appears automatically. You do not need to enter a name, API token,
+certificate, endpoint or Tailcat address.
 
-![The first step of the provider wizard: the five steps down the side, and the Before you start panel naming the cluster, the API token and the template, with the pveum commands that create the token and a button to copy them](screenshots/provider-wizard-dark.webp#only-dark){ .zoomies-shot }
-![The first step of the provider wizard: the five steps down the side, and the Before you start panel naming the cluster, the API token and the template, with the pveum commands that create the token and a button to copy them](screenshots/provider-wizard-light.webp#only-light){ .zoomies-shot }
+The command downloads and verifies a separate Zoomies binary, detects the local
+API certificate, creates a dedicated Proxmox user and privilege-separated token,
+and installs a persistent Tailcat gateway to the local API on port 8006. It sends
+the connection back over the controller's private Tailcat listener using a
+connection-bound capability valid for one hour. Credentials and gateway addresses are
+sealed in the controller database and never returned to the browser.
 
-Once the address and the token are in, the form asks the cluster what that
-token can see: the nodes, storages, bridges and templates come from the cluster
-as a menu, not from a text box, anything with one answer is filled in, and the
-consequence of each choice is shown before you commit to it. If the cluster
-cannot be asked yet, the boxes take typed identifiers and the check after
-saving confirms them. The review step shows the same provider as the one
-`zoomies providers add` line it would be in a terminal, for a setup you would
-rather keep in a script.
+An existing Zoomies runner agent keeps its binary, service, state and registration.
+The provider has its own service, `zoomies-proxmox-<controller-key>.service`, and
+state under `/var/lib/zoomies-proxmox/<controller-key>`. Running a new setup command
+for the same controller reuses the saved token and gateway identity. It does not
+join the machine as another runner host. Interrupted setup can be retried; a lost
+controller response is acknowledged when the identical connection is sent again.
+After success, a root-only local receipt lets the original command be run again
+even after its enrolment capability expires, without downloading an older binary.
+
+`sudo zoomies upgrade` on a runner host also updates and restarts its dedicated
+Proxmox gateways, preserving API credentials and Tailcat identities. A provider-only
+host can run `sudo /var/lib/zoomies-proxmox/<controller-key>/zoomies upgrade`.
+`--check` previews these updates without changing gateway files or services.
+Controller upgrades do not remotely upgrade a Proxmox host.
+
+The controller needs private connections enabled. The Proxmox host needs outbound
+internet access and systemd. The setup does not prepare a runner VM template:
+choose the prepared template, storage and network on the Placement step. Choices
+come from the cluster; anything with one answer is already selected. Review the
+machine shape and limits, then save. The initial maximum is zero, so connecting a
+provider does not create any VMs.
+
+For a direct network connection or credentials you manage yourself, choose
+**Configure connection manually**. The tables and terminal command below describe
+that alternative.
 
 | Setting | What it means |
 | --- | --- |

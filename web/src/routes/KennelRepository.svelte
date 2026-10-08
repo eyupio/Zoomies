@@ -280,8 +280,9 @@
         <div class="notice" role="note" data-testid="not-tracked">
           <p>
             <strong>Kennel Club is not looking at this repository.</strong>
-            {current.tracking.by || 'Somebody'} stopped it{#if current.tracking.since}
-              on {formatAbsolute(current.tracking.since)}{/if}.
+            {current.tracking.by || 'Somebody'} stopped it{current.tracking.since
+              ? ` on ${formatAbsolute(current.tracking.since)}`
+              : ''}.
           </p>
           <blockquote class="why">{current.tracking.reason}</blockquote>
           <p>

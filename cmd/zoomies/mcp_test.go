@@ -246,7 +246,7 @@ func TestMCPOffersActionsOnlyWhenAskedTo(t *testing.T) {
 
 	readOnly := startMCP(t, "--url", srv.URL, "--token", "zoo_viewer")
 	names := readOnly.toolNames()
-	for _, want := range []string{"fleet_status", "list_problems", "list_jobs", "get_job", "get_runner_log", "list_runners", "list_pools", "list_hosts", "label_advice"} {
+	for _, want := range []string{"fleet_status", "list_problems", "list_jobs", "get_job", "get_runner_log", "list_runners", "list_pools", "list_hosts", "host_health", "label_advice"} {
 		if !containsString(names, want) {
 			t.Errorf("read-only tools must include %s, got %v", want, names)
 		}

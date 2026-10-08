@@ -857,13 +857,16 @@ func TestWhatTheFleetDidWaitsTenMinutesAndWhatTheOperatorDecidedDoesNot(t *testi
 		t.Error("the facts moved and ten minutes passed, and it was not evaluated")
 	}
 
+	// Give the persisted evaluation timestamp a distinct instant while staying
+	// well inside the ten-minute throttle being tested.
+	f.advance(time.Second)
 	f.c.UpdateConfig(func(c *config.Config) { c.Kennel.DisabledChecks = []string{"exposure"} })
 	f.pass()
 	row := f.row("acme/widgets")
 	if !row.EvaluatedAt.After(second) {
 		t.Error("an area was turned off and the repository was not evaluated at once")
 	}
-	if v := newKennelRepositoryView(row); len(v.Findings) != 0 || len(v.Disabled) != 4 {
+	if v := newKennelRepositoryView(row); len(v.Findings) != 0 || len(v.Disabled) != len(kennel.Checks())-2 {
 		t.Errorf("findings %v, disabled %v: turning exposure off should remove its four checks", findingCodes(v), v.Disabled)
 	}
 	// With one area off the rest still run, and the badge is about those: what is
@@ -871,7 +874,7 @@ func TestWhatTheFleetDidWaitsTenMinutesAndWhatTheOperatorDecidedDoesNot(t *testi
 	// turning off every check withholds it.
 	f.c.UpdateConfig(func(c *config.Config) { c.Kennel.DisabledChecks = []string{"exposure", "capacity"} })
 	f.pass()
-	if v := f.view("acme/widgets"); v.State == kennel.StateBestInShow || len(v.Disabled) != 6 {
+	if v := f.view("acme/widgets"); v.State == kennel.StateBestInShow || len(v.Disabled) != len(kennel.Checks()) {
 		t.Errorf("state %s with %d checks off: a repository with nothing left to check is not best in show", v.State, len(v.Disabled))
 	}
 }
@@ -1609,5 +1612,53 @@ func TestARepositoryThatIsDueNowHasNoDueDateOnItsView(t *testing.T) {
 	}
 	if v := newKennelRepositoryView(f.row("acme/widgets")); v.NextDueAt != nil {
 		t.Errorf("due date = %v for a repository that is due now", v.NextDueAt)
+	}
+}
+
+// The Overview's "Partly checked" card adds partial and pending, so the list it
+// opens has to hold both and nothing else, or the number and the rows disagree.
+// Naming a standing as well is refused: it would be a second answer to the same
+// question, and one of the two would be silently ignored.
+func TestPartlyCheckedListsPartialAndPendingRepositoriesAndNoOthers(t *testing.T) {
+	f := newKennelFixture(t)
+	save := func(name string, id int64, state string) {
+		t.Helper()
+		row, err := f.st.TouchKennelRepository(f.ctx, store.KennelRepositoryRef{
+			GitHubHost: "github.com", RepositoryID: id, InstallationID: f.inst.ID, FullName: name, Visibility: "public",
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if state == string(kennel.StatePending) {
+			return
+		}
+		if err := f.st.SaveKennelEvaluation(f.ctx, row.ID, store.KennelEvaluationRecord{
+			State: state, EvaluatorVersion: 1, EvaluatedAt: f.c.Now(), NextDueAt: f.c.Now().Add(time.Hour),
+			InputsDigest: "d", Coverage: json.RawMessage(`{}`), Evaluation: json.RawMessage(`{"findings":[]}`), Watermark: json.RawMessage(`{}`),
+		}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save("acme/partial", 1, string(kennel.StatePartial))
+	save("acme/pending", 2, string(kennel.StatePending))
+	save("acme/attention", 3, string(kennel.StateAttention))
+	save("acme/best", 4, string(kennel.StateBestInShow))
+
+	rows, total, err := f.c.KennelRepositories(f.ctx, KennelListFilter{Incomplete: true}, store.Page{Limit: 50})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]bool{}
+	for _, r := range rows {
+		got[r.Name] = true
+	}
+	if total != 2 || !got["acme/partial"] || !got["acme/pending"] {
+		t.Errorf("listed %v (total %d), want exactly acme/partial and acme/pending", got, total)
+	}
+
+	_, _, err = f.c.KennelRepositories(f.ctx, KennelListFilter{Incomplete: true, State: "attention"}, store.Page{Limit: 50})
+	var invalid *KennelInvalidError
+	if !errors.As(err, &invalid) || invalid.Fields[0].Field != "incomplete" {
+		t.Errorf("incomplete with a state = %v, want a refusal naming incomplete", err)
 	}
 }

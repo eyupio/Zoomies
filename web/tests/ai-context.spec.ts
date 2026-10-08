@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { expect, test } from '@playwright/test';
+import { expect, test, type APIRequestContext } from '@playwright/test';
 import { browserOverride, chooseTheme, goto } from './support/fixtures';
 
 test.use(browserOverride);
@@ -709,4 +709,253 @@ test('a workflow from an earlier release is badged and offers the repair first',
   await expect(current.getByRole('link', { name: 'Reinstall / repair' })).not.toHaveClass(
     /primary/,
   );
+});
+
+// -- setup opened from a repository's page -------------------------------------------
+//
+// A repository's AI Context tab links to setup with the repository's GitHub ID, and
+// the wizard ticks it once the installation's list arrives. The address is anybody's
+// to write, so the ID is only ever looked for in the list the server returned.
+
+/**
+ * Runs `use` with an installation to set up against: the one the controller has, or
+ * one made here and removed after, because the connect journey uses this same
+ * controller and expects no existing App.
+ */
+async function withInstallation<T>(
+  request: APIRequestContext,
+  use: (installation: string) => Promise<T>,
+): Promise<T> {
+  let created = '';
+  try {
+    const existing = await (await request.get('/api/v1/installations')).json();
+    let installation: string = existing.items[0]?.id ?? '';
+    if (!installation) {
+      const fake = JSON.parse(readFileSync('test-results/fakegithub.json', 'utf8'));
+      const response = await request.post('/api/v1/installations', {
+        data: {
+          app_id: Number(fake.appId),
+          installation_id: Number(fake.installationId),
+          target: 'acme',
+          target_type: 'org',
+          api_base_url: fake.url,
+          private_key: fake.privateKey,
+        },
+      });
+      expect(response.status(), await response.text()).toBe(201);
+      installation = created = (await response.json()).id;
+    }
+    return await use(installation);
+  } finally {
+    if (created) await request.delete(`/api/v1/installations/${created}`);
+  }
+}
+
+interface Discovered {
+  id: number;
+  full_name: string;
+  archived: boolean;
+}
+
+/** The repositories the server lists for an installation, so no ID is written down here. */
+async function discovered(request: APIRequestContext, installation: string): Promise<Discovered[]> {
+  const response = await request.get(
+    `/api/v1/ai-context/discovery?installation_id=${encodeURIComponent(installation)}`,
+  );
+  expect(response.ok(), await response.text()).toBe(true);
+  return (await response.json()).repositories;
+}
+
+const setupAddress = (installation: string, repositoryId?: number | string) =>
+  `/kennel/ai-context/setup?installation_id=${encodeURIComponent(installation)}` +
+  (repositoryId === undefined ? '' : `&repository_id=${repositoryId}`);
+
+test.describe("setup opened from a repository's page", () => {
+  test('arrives with that repository chosen, says why, and leaves the choice to the person', async ({
+    page,
+    request,
+  }) => {
+    await withInstallation(request, async (installation) => {
+      const widgets = (await discovered(request, installation)).find(
+        (r) => r.full_name === 'acme/widgets',
+      )!;
+      await goto(page, setupAddress(installation, widgets.id), 'Enable repositories');
+
+      const chosen = page.getByRole('checkbox', { name: 'acme/widgets', exact: true });
+      await expect(chosen).toBeChecked();
+      await expect(
+        page.getByRole('checkbox', { name: 'acme/site', exact: true }),
+      ).not.toBeChecked();
+      await expect(
+        page.getByText('acme/widgets is selected because you came from its page.'),
+      ).toBeVisible();
+      await expect(page.getByText('No repository is preselected.')).toHaveCount(0);
+      await expect(page.getByText('1 of 20 repositories selected')).toBeVisible();
+      const next = page.getByRole('button', { name: 'Next', exact: true });
+      await expect(next).toBeEnabled();
+
+      // It was ticked for them, once. Unticking it holds, and setup waits for a choice.
+      await chosen.uncheck();
+      await expect(page.getByText('0 of 20 repositories selected')).toBeVisible();
+      await expect(next).toBeDisabled();
+      await expect(chosen).not.toBeChecked();
+    });
+  });
+
+  test('a link without a repository, or with one that is not an ID, selects nothing', async ({
+    page,
+    request,
+  }) => {
+    await withInstallation(request, async (installation) => {
+      for (const address of [setupAddress(installation), setupAddress(installation, 'abc')]) {
+        await goto(page, address, 'Enable repositories');
+        await expect(page.getByText('No repository is preselected.')).toBeVisible();
+        await expect(page.getByText('0 of 20 repositories selected')).toBeVisible();
+        await expect(page.getByRole('checkbox', { checked: true })).toHaveCount(0);
+        // A malformed one is ignored, not complained about: it names nothing to be missing.
+        await expect(page.getByText('none is selected')).toHaveCount(0);
+      }
+    });
+  });
+
+  test('a repository the installation does not list selects nothing, and says so', async ({
+    page,
+    request,
+  }) => {
+    await withInstallation(request, async (installation) => {
+      await goto(page, setupAddress(installation, 2147483647), 'Enable repositories');
+      await expect(
+        page.getByText(/not among this installation's repositories, so none is selected/),
+      ).toBeVisible();
+      await expect(page.getByRole('checkbox', { checked: true })).toHaveCount(0);
+      await expect(page.getByText('0 of 20 repositories selected')).toBeVisible();
+      await expect(page.getByText('No repository is preselected.')).toBeVisible();
+    });
+  });
+
+  test('an archived repository cannot be set up, so it is not chosen, and the page says why', async ({
+    page,
+    request,
+  }) => {
+    await withInstallation(request, async (installation) => {
+      const widgets = (await discovered(request, installation)).find(
+        (r) => r.full_name === 'acme/widgets',
+      )!;
+      await page.route('**/api/v1/ai-context/discovery*', async (route) => {
+        const response = await route.fetch();
+        const body = await response.json();
+        body.repositories = body.repositories.map((r: Discovered) =>
+          r.id === widgets.id ? { ...r, archived: true } : r,
+        );
+        await route.fulfill({ response, json: body });
+      });
+      await goto(page, setupAddress(installation, widgets.id), 'Enable repositories');
+      const archived = page.getByRole('checkbox', { name: 'acme/widgets', exact: true });
+      await expect(archived).toBeDisabled();
+      await expect(archived).not.toBeChecked();
+      await expect(
+        page.getByText('acme/widgets is archived and cannot be set up, so none is selected.'),
+      ).toBeVisible();
+      await expect(page.getByText('0 of 20 repositories selected')).toBeVisible();
+    });
+  });
+
+  // Setup can load again while the person is part-way through it: a failed recheck
+  // shows "Try again", and that reads the installation's list again. The repository
+  // they came from was ticked for them once, and is not ticked over what they chose.
+  test('loading again does not tick the repository over what the person chose', async ({
+    page,
+    request,
+  }) => {
+    await withInstallation(request, async (installation) => {
+      const repositories = await discovered(request, installation);
+      const widgets = repositories.find((r) => r.full_name === 'acme/widgets')!;
+      await goto(page, setupAddress(installation, widgets.id), 'Enable repositories');
+      await expect(page.getByRole('checkbox', { name: 'acme/widgets', exact: true })).toBeChecked();
+
+      await page.getByRole('checkbox', { name: 'acme/widgets', exact: true }).uncheck();
+      await page.getByRole('checkbox', { name: 'acme/site', exact: true }).check();
+      await page.getByRole('button', { name: 'Next', exact: true }).click();
+
+      let failing = true;
+      await page.route('**/api/v1/ai-context/discovery*', (route) =>
+        failing
+          ? route.fulfill({
+              status: 503,
+              json: { error: { code: 'unavailable', message: 'Try again' } },
+            })
+          : route.fallback(),
+      );
+      await page.getByRole('button', { name: 'Recheck permissions' }).click();
+      await expect(page.getByText('Setup could not be loaded')).toBeVisible();
+      failing = false;
+      await page.getByRole('button', { name: 'Try again' }).click();
+      await expect(page.getByText('Setup could not be loaded')).toHaveCount(0);
+
+      await page.getByRole('button', { name: 'Back', exact: true }).click();
+      await expect(page.getByRole('checkbox', { name: 'acme/site', exact: true })).toBeChecked();
+      await expect(
+        page.getByRole('checkbox', { name: 'acme/widgets', exact: true }),
+      ).not.toBeChecked();
+      await expect(page.getByText('1 of 20 repositories selected')).toBeVisible();
+    });
+  });
+
+  // A draft being resumed already says which repository it is for, and an address
+  // that names a different one is not allowed to change that.
+  test("resuming a draft keeps the draft's repository, whatever the address names", async ({
+    page,
+    request,
+  }) => {
+    await withInstallation(request, async (installation) => {
+      const repositories = await discovered(request, installation);
+      const widgets = repositories.find((r) => r.full_name === 'acme/widgets')!;
+      const site = repositories.find((r) => r.full_name === 'acme/site')!;
+      const draft = {
+        id: 'ctx_resume',
+        repository: {
+          github_host: 'github.com',
+          installation_id: installation,
+          repository_id: widgets.id,
+        },
+        full_name: 'acme/widgets',
+        instructions: '',
+        badge_markdown: '',
+        config: {
+          source_branch: 'main',
+          destination: 'repository',
+          exclude: [],
+          keep_snapshots: 5,
+        },
+        revision: 1,
+        workflow_outdated: false,
+        available: false,
+        freshness: { state: 'not_configured' },
+        setup_state: 'draft',
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+      await page.route('**/api/v1/ai-context/repositories/ctx_resume**', (route) => {
+        const path = new URL(route.request().url()).pathname;
+        if (path.endsWith('/members')) return route.fulfill({ json: { user_ids: [] } });
+        if (path.endsWith('/setup'))
+          return route.fulfill({
+            status: 404,
+            json: { error: { code: 'not_found', message: 'Not found' } },
+          });
+        return route.fulfill({ json: draft });
+      });
+      await goto(
+        page,
+        `${setupAddress(installation, site.id)}&draft_id=ctx_resume`,
+        'Enable repositories',
+      );
+      await expect(page.getByRole('checkbox', { name: 'acme/widgets', exact: true })).toBeChecked();
+      await expect(
+        page.getByRole('checkbox', { name: 'acme/site', exact: true }),
+      ).not.toBeChecked();
+      await expect(page.getByText('1 of 20 repositories selected')).toBeVisible();
+      await expect(page.getByText('because you came from its page')).toHaveCount(0);
+    });
+  });
 });

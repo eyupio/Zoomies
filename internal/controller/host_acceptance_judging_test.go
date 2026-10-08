@@ -136,7 +136,9 @@ func TestAHeartbeatFrameKeepsAnAcceptedRowAccepted(t *testing.T) {
 
 	sub := h.c.Events().Subscribe(h.ctx, events.SubscribeOptions{Kinds: []events.Kind{events.KindHostUpdated}})
 	defer sub.Close()
-	next := report(h.c.Now(), check("docker.logs", hosttune.Safe, hosttune.Warn, false))
+	// A report that only moved its own time is not published at all, so this one
+	// also carries a new finding to have a frame to inspect.
+	next := report(h.c.Now(), check("docker.logs", hosttune.Safe, hosttune.Warn, false), check("files.watches", hosttune.Safe, hosttune.OK, false))
 	if _, err := h.c.Heartbeat(h.ctx, host.ID, agent.HeartbeatRequest{ProtocolVersion: agent.ProtocolVersion, Doctor: next}); err != nil {
 		t.Fatal(err)
 	}
