@@ -21,6 +21,7 @@
     AIContextRepository,
     User,
   } from '$lib/api/types';
+  import { archivedNote, installationHint, NOT_FOUND_NOTE } from '$lib/aicontext/preselect';
   import { router } from '$lib/router';
   import { session } from '$lib/state/session.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
@@ -42,8 +43,10 @@
   interface Props {
     draftId?: string;
     installationId?: string;
+    /** GitHub's ID for the repository the person came from, if they came from one. */
+    repositoryId?: number;
   }
-  let { draftId = '', installationId = '' }: Props = $props();
+  let { draftId = '', installationId = '', repositoryId }: Props = $props();
   const steps: readonly WizardStep[] = [
     {
       id: 'repositories',
@@ -84,6 +87,13 @@
   let installations = $state<KnownInstallation[]>([]),
     users = $state<KnownUser[]>([]);
   let selectedInstallation = $state(untrack(() => installationId));
+  // The repository the person came from is ticked once, when the first list arrives,
+  // and from then on the choice is theirs: a different installation, a recheck or a
+  // reload never ticks it again, and unticking it holds.
+  const cameFromId = untrack(() => repositoryId);
+  let cameFrom = $state<string | null>(null);
+  let cameFromNote = $state('');
+  let arrivalHandled = false;
   let discovery = $state<AIContextDiscovery | null>(null);
   let repositoryIds = $state<number[]>([]),
     readerIds = $state<string[]>([]);
@@ -231,6 +241,9 @@
           if (!draft) {
             exclusions = result.default_exclusions.join('\n');
             keep = String(result.default_keep_snapshots);
+            // A draft already says which repository it is for, and an address that
+            // names another is not allowed to change that.
+            arriveAt(result);
           }
         }
       })
@@ -243,6 +256,19 @@
     return () => controller.abort();
   });
 
+  function arriveAt(result: AIContextDiscovery): void {
+    if (arrivalHandled || cameFromId === undefined) return;
+    arrivalHandled = true;
+    const found = (result.repositories ?? []).find((r) => r.id === cameFromId);
+    if (!found) {
+      cameFromNote = NOT_FOUND_NOTE;
+    } else if (found.archived) {
+      cameFromNote = archivedNote(found.full_name);
+    } else {
+      repositoryIds = [found.id];
+      cameFrom = found.full_name;
+    }
+  }
   async function chooseInstallation(id: string): Promise<void> {
     selectedInstallation = id;
     repositoryIds = [];
@@ -556,10 +582,7 @@
     {#snippet children(current)}
       {#if current.id === 'repositories'}
         <div class="form">
-          <Field
-            label="GitHub installation"
-            hint="Choose one installation at a time. No repository is preselected."
-            required
+          <Field label="GitHub installation" hint={installationHint(cameFrom)} required
             >{#snippet children({ id, describedBy })}<Select
                 {id}
                 {describedBy}
@@ -585,6 +608,7 @@
                 administrator to restore access before resuming setup.
               </p>
             {/if}
+            {#if cameFromNote}<p role="status">{cameFromNote}</p>{/if}
             {#if discovery.capped}<p role="status">
                 Showing a bounded selection of 500 repositories. Larger installations may have
                 additional repositories outside this list.
