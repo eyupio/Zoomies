@@ -204,14 +204,42 @@ func TestALostCheckExpiresAndTheHostCanBeAskedAgain(t *testing.T) {
 		t.Fatal(err)
 	}
 	h.c.sweepTasks(h.ctx, h.c.Now())
-	if v := h.view(host.ID); v.HealthCheck == nil || v.HealthCheck.State != "failed" {
-		t.Fatalf("view = %+v, want failed after the lease", v.HealthCheck)
+	// The view gave up at sixty seconds and let the failure go thirty later, so
+	// by the lease there is nothing left to show; what matters is that it is
+	// not "asked" and the queue is clear.
+	if v := h.view(host.ID).HealthCheck; v != nil && v.State == "asked" {
+		t.Fatalf("view = %+v, want the request no longer asked after the lease", v)
 	}
 	if h.c.queues.get(host.ID).depthTotal() != 0 {
 		t.Fatal("the lost check is still outstanding")
 	}
 	if _, queued, err := h.c.RequestHostCheck(h.ctx, host.ID); err != nil || !queued {
 		t.Fatalf("asking again: queued=%v err=%v", queued, err)
+	}
+}
+
+// A task the agent took and never answered is already shown as "did not answer
+// in time" at sixty seconds; the lease sweep at ninety must not bring the line
+// back for a second window with a sentence that says the agent never picked it up.
+func TestALeaseExpiringAfterTheViewGaveUpDoesNotRewriteTheFailure(t *testing.T) {
+	h := newHarness(t)
+	host := h.checkHost("hung")
+	if _, _, err := h.c.RequestHostCheck(h.ctx, host.ID); err != nil {
+		t.Fatal(err)
+	}
+	h.takeChecks(host.ID)
+	h.advance(hostCheckPatience + time.Second)
+	if v := h.view(host.ID).HealthCheck; v == nil || !strings.Contains(v.Message, "did not answer in time") {
+		t.Fatalf("view = %+v, want the patience failure", v)
+	}
+	h.advance(hostCheckKeep)
+	if v := h.view(host.ID).HealthCheck; v != nil {
+		t.Fatalf("view = %+v, want the failure to have dropped off", v)
+	}
+	h.advance(hostCheckLease)
+	h.c.sweepTasks(h.ctx, h.c.Now())
+	if v := h.view(host.ID).HealthCheck; v != nil {
+		t.Fatalf("view = %+v, want the sweep to leave a finished failure alone", v)
 	}
 }
 

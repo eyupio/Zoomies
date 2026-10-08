@@ -214,8 +214,18 @@ func (c *Controller) failHostCheck(ctx context.Context, hostID, taskID, message 
 	}
 }
 
-// expireHostCheck is the sweep's word that a request was never picked up.
+// expireHostCheck is the sweep's word that a request was never answered.
+//
+// It speaks only while the request is still within the patience the view gives
+// it, which is the case of a task that was never delivered. Past that the view
+// already says "did not answer in time" and has started its keep window, and
+// overwriting it here would restart the window and swap in a sentence that is
+// false for a task the agent did take.
 func (c *Controller) expireHostCheck(ctx context.Context, hostID, taskID string) {
+	if e, ok := c.hostChecks.get(hostID); ok && e.TaskID == taskID &&
+		(e.State != hostCheckAsked || c.Now().Sub(e.AskedAt) > hostCheckPatience) {
+		return
+	}
 	c.failHostCheck(ctx, hostID, taskID, fmt.Sprintf("%s did not pick the request up. Check that its agent is running; the last report is still shown.", c.hostName(ctx, hostID)))
 }
 
