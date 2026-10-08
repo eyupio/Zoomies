@@ -86,6 +86,10 @@ TimeoutStartSec=2h
 # Longer than the thirty seconds the helper gives the engine to remove
 # upgrade.lock once told to stop, and to write down that it was stopped.
 TimeoutStopSec=2min
+# Only the helper is told to stop. It stops the engine itself, asking first and
+# killing it thirty seconds later, so that the engine can remove upgrade.lock;
+# the default would signal the engine at the same moment, past that order.
+KillMode=mixed
 # No ProtectSystem: the upgrade writes the binary, the unit files and the
 # deployment's Compose and environment files, and pulls images with the
 # credentials root holds. Home directories stay read-only, which is why the
@@ -311,6 +315,19 @@ func (o InstallHelperOptions) planInstall(ctx context.Context) (helperInstall, e
 	if err := checkUpdateFolderParent(o.StateDir, o.ServiceUID, fileUID); err != nil {
 		return helperInstall{}, err
 	}
+	// Root's folder for the helper is made at the first write, if it is not
+	// there yet; one that is there and that the helper would refuse is refused
+	// now, with everything else.
+	if info, err := os.Lstat(o.helperStateDir); err == nil {
+		if !info.IsDir() {
+			return helperInstall{}, fmt.Errorf("the update helper's state directory %s is not a folder (it is a %s); remove it so the helper can make its own; %s", o.helperStateDir, fileKind(info.Mode()), stateRefusal)
+		}
+		if err := checkStateOwner(o.helperStateDir, info); err != nil {
+			return helperInstall{}, err
+		}
+	} else if !errors.Is(err, fs.ErrNotExist) {
+		return helperInstall{}, fmt.Errorf("cannot look at the update helper's state directory %s: %w", o.helperStateDir, err)
+	}
 	body, err := json.MarshalIndent(p, "", "  ")
 	if err != nil {
 		return helperInstall{}, fmt.Errorf("cannot encode the update helper's pointer: %w", err)
@@ -460,6 +477,21 @@ func (o InstallHelperOptions) checkSharedMount(ctx context.Context) error {
 	case filepath.Clean(source) != o.StateDir:
 		return fmt.Errorf("the %s container mounts %s at the shared folder and not %s, so a request it wrote would not be in the folder the helper watches; mount %s at the same path, as \"sudo zoomies upgrade --yes\" does", container, source, o.StateDir, o.StateDir)
 	}
+	// A daemon that remaps user namespaces, or runs rootless, owns what the
+	// container writes under another uid than the image's, and the helper
+	// refuses every request that is not the image's. Docker says so in its
+	// security options; Podman is left to the helper's own check.
+	if deploymentRuntime(rec, "") == "docker" {
+		info, err := o.run(ctx, "docker", "info", "--format", "{{.SecurityOptions}}")
+		if err != nil {
+			return fmt.Errorf("cannot ask Docker how it runs containers: %w; start it and run this again", err)
+		}
+		for _, option := range []string{"name=userns", "name=rootless"} {
+			if strings.Contains(info, option) {
+				return fmt.Errorf("the Docker daemon on this host runs with %s, which maps the container's account to another uid on the host, so every request would be owned by an account the helper does not serve; update this host by hand with \"sudo zoomies upgrade\"", option)
+			}
+		}
+	}
 	return nil
 }
 
@@ -471,9 +503,14 @@ var protectedHomes = []string{"/home", "/root", "/run/user"}
 // directory, which the upgrade could not write under ProtectHome, and one
 // systemd would read as something other than a path.
 func checkUnitPath(path string) error {
+	resolved := resolvedPath(path)
 	for _, home := range protectedHomes {
-		if path == home || strings.HasPrefix(path, home+"/") {
-			return fmt.Errorf("%s is in %s, which the helper's unit keeps read-only so that an upgrade it runs cannot change a home directory, and the upgrade would need to write there; install Zoomies outside a home directory to use the helper", path, home)
+		if resolved == home || strings.HasPrefix(resolved, home+"/") {
+			where := path
+			if resolved != path {
+				where = path + " (" + resolved + ", once its links are followed)"
+			}
+			return fmt.Errorf("%s is in %s, which the helper's unit keeps read-only so that an upgrade it runs cannot change a home directory, and the upgrade would need to write there; install Zoomies outside a home directory to use the helper", where, home)
 		}
 	}
 	if i := strings.IndexFunc(path, func(r rune) bool {
@@ -484,10 +521,31 @@ func checkUnitPath(path string) error {
 	return nil
 }
 
+// resolvedPath is path with every link in it resolved: a link out of a home
+// directory leads into one all the same. Where the end of the path does not
+// exist yet, the part that does is resolved and the rest kept.
+func resolvedPath(path string) string {
+	rest := ""
+	for dir := path; ; dir = filepath.Dir(dir) {
+		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(resolved, rest)
+		}
+		if dir == filepath.Dir(dir) {
+			return path
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
+	}
+}
+
 // RemoveUpdateHelper stops the helper and removes it: its units, root's state
 // and pointer, the pointer beside the configuration, and what it and the
 // installer wrote in the update folder. The folder itself goes only when that
 // leaves it empty, since anything else in it is not the helper's.
+//
+// Which folder that is, and whose, comes from root's copy of the pointer, or
+// failing that from StateDir and ServiceUID, which the caller takes from what
+// root installed. Never from the copy beside the configuration: the service can
+// replace that one, and would then choose a folder for root to empty.
 func RemoveUpdateHelper(ctx context.Context, opts InstallHelperOptions) error {
 	o := opts.withDefaults()
 	removed, left, err := o.remove(ctx)
@@ -497,7 +555,7 @@ func RemoveUpdateHelper(ctx context.Context, opts InstallHelperOptions) error {
 	for _, line := range left {
 		fmt.Fprintf(o.Out, "Left %s.\n", line)
 	}
-	if err == nil && len(removed) == 0 {
+	if err == nil && len(removed) == 0 && len(left) == 0 {
 		fmt.Fprintln(o.Out, "The update helper is not installed on this host; there was nothing to remove.")
 	}
 	return err
@@ -509,29 +567,41 @@ func removeUpdateHelper(ctx context.Context, opts InstallHelperOptions) (removed
 	return opts.withDefaults().remove(ctx)
 }
 
+// stopUpdateTrigger turns the path unit off, so that no update starts from now
+// on, and then refuses if one is running. In that order, an update that
+// started a moment before is seen; and the running one is never stopped, which
+// would kill the upgrade midway and leave upgrade.lock behind.
+func stopUpdateTrigger(ctx context.Context, opts InstallHelperOptions) error {
+	o := opts.withDefaults()
+	if exists(filepath.Join(o.unitDir, UpdatePathUnit)) {
+		if _, err := o.run(ctx, "systemctl", "disable", "--now", UpdatePathUnit); err != nil {
+			return err
+		}
+	}
+	state, _ := o.run(ctx, "systemctl", "is-active", UpdateServiceUnit)
+	if state = strings.TrimSpace(state); slices.Contains([]string{"active", "activating", "deactivating", "reloading"}, state) {
+		return fmt.Errorf("the update helper is running an update now (%s is %s); its trigger is off, so no other will start, and removing it now would stop this one midway: wait for it to finish (journalctl -u zoomies-update -f) and run this again", UpdateServiceUnit, state)
+	}
+	return nil
+}
+
 func (o InstallHelperOptions) remove(ctx context.Context) (removed, left []string, err error) {
-	// Stopping the helper mid-run kills the upgrade it is running and leaves
-	// upgrade.lock behind, so a running one is let finish.
-	if state, _ := o.run(ctx, "systemctl", "is-active", UpdateServiceUnit); slices.Contains([]string{"active", "activating", "deactivating", "reloading"}, strings.TrimSpace(state)) {
-		return nil, nil, fmt.Errorf("the update helper is running an update now (%s is %s), and removing it would stop the upgrade midway; wait for it to finish (journalctl -u zoomies-update -f) and run this again", UpdateServiceUnit, strings.TrimSpace(state))
+	if err := stopUpdateTrigger(ctx, o); err != nil {
+		return nil, nil, err
 	}
 	// Read before root's copy goes: it says where the folder is and whose.
-	p, havePointer := o.readPointer()
+	p, havePointer := o.rootPointer()
+	configPointer := ""
+	if o.ConfigDir != "" {
+		configPointer = filepath.Join(o.ConfigDir, channel.PointerFile)
+	}
+	installed := havePointer || exists(o.helperStateDir) || (configPointer != "" && exists(configPointer))
 
 	pathUnit, serviceUnit := filepath.Join(o.unitDir, UpdatePathUnit), filepath.Join(o.unitDir, UpdateServiceUnit)
-	if exists(pathUnit) {
-		if _, err := o.run(ctx, "systemctl", "disable", "--now", UpdatePathUnit); err != nil {
-			return nil, nil, err
-		}
-	}
-	if exists(serviceUnit) {
-		if _, err := o.run(ctx, "systemctl", "stop", UpdateServiceUnit); err != nil {
-			return nil, nil, err
-		}
-	}
 	for _, path := range []string{pathUnit, serviceUnit} {
 		if err := os.Remove(path); err == nil {
 			removed = append(removed, path)
+			installed = true
 		} else if !errors.Is(err, fs.ErrNotExist) {
 			return removed, left, fmt.Errorf("cannot remove %s: %w", path, err)
 		}
@@ -541,21 +611,23 @@ func (o InstallHelperOptions) remove(ctx context.Context) (removed, left []strin
 		_, _ = o.run(ctx, "systemctl", "reset-failed", UpdateServiceUnit, UpdatePathUnit)
 	}
 
-	dir, uid := filepath.Join(o.StateDir, updateFolderName), o.ServiceUID
-	if havePointer {
-		dir, uid = p.Dir, p.UID
-	}
-	if havePointer || o.StateDir != "" {
-		r, l := emptyUpdateFolder(dir, uid)
+	switch {
+	case havePointer:
+		r, l := emptyUpdateFolder(p.Dir, p.UID)
 		removed, left = append(removed, r...), append(left, l...)
+	case o.StateDir != "" && o.ServiceUID > 0:
+		r, l := emptyUpdateFolder(filepath.Join(o.StateDir, updateFolderName), o.ServiceUID)
+		removed, left = append(removed, r...), append(left, l...)
+	case installed:
+		left = append(left, fmt.Sprintf("the update folder as it is: root's pointer in %s is gone, and nothing else root wrote says which folder was the helper's; look in the state directory, or the shared folder for a container, and remove update/ by hand if it is there", o.helperStateDir))
 	}
 
-	if o.ConfigDir != "" {
-		path := filepath.Join(o.ConfigDir, channel.PointerFile)
-		if err := os.Remove(path); err == nil {
-			removed = append(removed, path)
+	// By name only: what it says is never read.
+	if configPointer != "" {
+		if err := os.Remove(configPointer); err == nil {
+			removed = append(removed, configPointer)
 		} else if !errors.Is(err, fs.ErrNotExist) {
-			left = append(left, fmt.Sprintf("%s, which could not be removed: %v", path, err))
+			left = append(left, fmt.Sprintf("%s, which could not be removed: %v", configPointer, err))
 		}
 	}
 
@@ -579,19 +651,35 @@ func (o InstallHelperOptions) remove(ctx context.Context) (removed, left []strin
 	return removed, left, nil
 }
 
-// readPointer is root's copy of the pointer, or failing that the one beside the
-// configuration, which root wrote too.
-func (o InstallHelperOptions) readPointer() (channel.Pointer, bool) {
-	paths := []string{filepath.Join(o.helperStateDir, channel.PointerFile)}
-	if o.ConfigDir != "" {
-		paths = append(paths, filepath.Join(o.ConfigDir, channel.PointerFile))
+// rootPointer is root's copy of the pointer, read only from a state directory
+// that is root's and only if root owns the file, as the helper reads it. It
+// creates nothing: an absent directory is no pointer.
+func (o InstallHelperOptions) rootPointer() (channel.Pointer, bool) {
+	if _, err := os.Lstat(o.helperStateDir); err != nil {
+		return channel.Pointer{}, false
 	}
-	for _, path := range paths {
-		if p, err := channel.ReadPointer(path); err == nil {
-			return p, true
-		}
+	root, err := openStateDir(o.helperStateDir)
+	if err != nil {
+		return channel.Pointer{}, false
 	}
-	return channel.Pointer{}, false
+	defer root.Close()
+	f, info, err := openPlainFile(root, channel.PointerFile)
+	if err != nil {
+		return channel.Pointer{}, false
+	}
+	defer f.Close()
+	if checkRootOwns("the update helper's pointer", filepath.Join(o.helperStateDir, channel.PointerFile), info, fileUID) != nil {
+		return channel.Pointer{}, false
+	}
+	body, err := io.ReadAll(io.LimitReader(f, maxPointerBytes+1))
+	if err != nil {
+		return channel.Pointer{}, false
+	}
+	p, err := channel.DecodePointer(channel.PointerFile, body)
+	if err != nil || p.UID <= 0 || !cleanAbs(p.Dir) {
+		return channel.Pointer{}, false
+	}
+	return p, true
 }
 
 // emptyUpdateFolder removes from the update folder what the helper, the

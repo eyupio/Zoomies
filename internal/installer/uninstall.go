@@ -85,11 +85,12 @@ func (o UninstallOptions) updateHelper() InstallHelperOptions {
 	return h
 }
 
-// helperInstalled is whether any part of the update helper is on this host.
+// helperInstalled is whether the update helper is on this host, judged on
+// what only root can write: its units and root's folder for it. The pointer
+// beside the configuration is the service's to replace, so it decides nothing.
 func (o UninstallOptions) helperInstalled() bool {
 	h := o.updateHelper()
-	return exists(filepath.Join(h.unitDir, UpdatePathUnit)) || exists(filepath.Join(h.unitDir, UpdateServiceUnit)) ||
-		exists(h.helperStateDir) || exists(filepath.Join(h.ConfigDir, channel.PointerFile))
+	return exists(filepath.Join(h.unitDir, UpdatePathUnit)) || exists(filepath.Join(h.unitDir, UpdateServiceUnit)) || exists(h.helperStateDir)
 }
 
 // sameDir reports whether two paths are the same directory.
@@ -142,7 +143,7 @@ func UninstallItems(opts UninstallOptions) []RemovalItem {
 			Note: "stopped and disabled first"},
 		{What: "agent service", Path: SystemdUnitPath(UnitAgent), Present: exists(SystemdUnitPath(UnitAgent))},
 		{What: "update helper", Path: filepath.Join(opts.updateHelper().unitDir, UpdatePathUnit), Present: opts.helperInstalled(),
-			Note: "with " + UpdateServiceUnit + ", root's " + opts.updateHelper().helperStateDir + " and the pointers to the update folder; stopped first, unless it is running an update"},
+			Note: "with " + UpdateServiceUnit + ", root's " + opts.updateHelper().helperStateDir + " and the pointers to the update folder; stopped first, and nothing is removed while it is running an update"},
 		{What: "database", Path: filepath.Join(stateDir, "zoomies.db"), Present: exists(filepath.Join(stateDir, "zoomies.db")),
 			Note: "pools, runners, job history and the audit log"},
 		{What: "state directory", Path: stateDir, Present: exists(stateDir)},
@@ -260,6 +261,15 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 		}
 	}
 
+	// Before anything goes: an upgrade the helper is running would have its
+	// binary and units taken from under it. Its trigger is turned off first, so
+	// that no other starts while the operator waits.
+	if opts.helperInstalled() {
+		if err := stopUpdateTrigger(ctx, opts.updateHelper()); err != nil {
+			return fmt.Errorf("installer: nothing was removed, because %w", err)
+		}
+	}
+
 	var done []string
 	var left []string
 	record := func(format string, a ...any) {
@@ -287,15 +297,16 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 			}
 		}
 	}
-	// The update helper first: a request the controller wrote while it stops
-	// would otherwise start an upgrade in the middle of the uninstall. One that
-	// is running an update is left to finish, and says so.
-	if opts.helperInstalled() {
-		removed, left, err := removeUpdateHelper(ctx, opts.updateHelper())
-		for _, line := range removed {
+	// The update helper before the services it updates, so that a request
+	// the controller writes as it stops cannot start an upgrade. The pointer
+	// beside the configuration goes by name even when nothing else of the
+	// helper is left.
+	if opts.helperInstalled() || exists(filepath.Join(opts.configDir(), channel.PointerFile)) {
+		helperRemoved, helperLeft, err := removeUpdateHelper(ctx, opts.updateHelper())
+		for _, line := range helperRemoved {
 			record("removed %s", line)
 		}
-		for _, line := range left {
+		for _, line := range helperLeft {
 			keep("%s", line)
 		}
 		if err != nil {

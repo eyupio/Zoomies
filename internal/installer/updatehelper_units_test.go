@@ -5,6 +5,7 @@ package installer
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"io/fs"
 	"os"
@@ -115,6 +116,7 @@ func TestTheRenderedUnitsWatchTheRealFolderAndCallTheRealBinary(t *testing.T) {
 		"\nExecStart=/opt/zoo%%mies/bin/zoomies updates helper run\n",
 		"\nTimeoutStartSec=2h\n",
 		"\nTimeoutStopSec=2min\n",
+		"\nKillMode=mixed\n",
 		"\nStartLimitIntervalSec=10min\n",
 		"\nStartLimitBurst=5\n",
 		"\nProtectHome=read-only\n",
@@ -184,6 +186,22 @@ func TestInstallingTheHelperWritesTheUnitsThePointerAndTheMarker(t *testing.T) {
 	if reload < 0 || enable < 0 || reload > enable {
 		t.Errorf("systemctl should be reloaded and then the path unit enabled and started: %v", lines)
 	}
+
+	// The folder is given away only by root, so the account here is another
+	// one only when the tests run as root; otherwise this skips and says why.
+	t.Run("the folder is given to another account", func(t *testing.T) {
+		if os.Geteuid() != 0 {
+			t.Skip("only root can give a folder to another account; run the tests as root to check the chown")
+		}
+		h := newInstallHost(t, DeploymentNative)
+		h.opts.ServiceUID = 4242
+		h.install(t)
+		info, err := os.Stat(h.folder())
+		mustDo(t, err)
+		if uid, _, _ := fileOwner(info); uid != 4242 {
+			t.Errorf("the update folder is owned by uid %d, want 4242", uid)
+		}
+	})
 
 	// What the installer wrote is what the helper accepts, read the way the
 	// helper reads it.
@@ -320,8 +338,9 @@ func TestInstallRefusesWhatTheHelperWouldRefuse(t *testing.T) {
 	}
 }
 
-// A folder made by somebody else, or something else in the folder's place, is
-// not the folder the helper would serve; the installer does not take it over.
+// Something other than a folder where the update folder goes, here a link to a
+// folder of root's, is refused and not followed: making the folder through it
+// would give a folder of root's to the service.
 func TestInstallRefusesSomethingElseWhereTheUpdateFolderGoes(t *testing.T) {
 	h := newInstallHost(t, DeploymentNative)
 	mustDo(t, os.Symlink(h.opts.unitDir, h.folder()))
@@ -357,6 +376,60 @@ func TestTheHelperIsRefusedPathsItsUnitCouldNotUse(t *testing.T) {
 		case want != "" && (err == nil || !strings.Contains(err.Error(), want)):
 			t.Errorf("%s: want a refusal saying %q, got: %v", path, want, err)
 		}
+	}
+}
+
+// A link out of a home directory is a path in one, wherever the link is.
+func TestTheHelperIsRefusedAPathThatALinkPutsInAHomeDirectory(t *testing.T) {
+	if _, err := os.Lstat("/root"); err != nil {
+		t.Skip("this host has no /root to point a link at")
+	}
+	link := filepath.Join(t.TempDir(), "state")
+	mustDo(t, os.Symlink("/root", link))
+	err := checkUnitPath(filepath.Join(link, "zoomies-missing", "update"))
+	if err == nil || !strings.Contains(err.Error(), "which the helper's unit keeps read-only") {
+		t.Errorf("want a refusal of a path that is really in /root, got: %v", err)
+	}
+}
+
+// Root's own folder for the helper is checked with everything else, so one the
+// helper would refuse stops the install before the update folder is made.
+func TestInstallRefusesRootsFolderForTheHelperBeforeWritingAnything(t *testing.T) {
+	h := newInstallHost(t, DeploymentNative)
+	mustDo(t, os.Mkdir(h.opts.helperStateDir, 0o700))
+	mustDo(t, os.Chmod(h.opts.helperStateDir, 0o777))
+	err := InstallUpdateHelper(context.Background(), h.opts)
+	if err == nil || !strings.Contains(err.Error(), "writable by its group or the world") {
+		t.Fatalf("want a refusal of root's folder for the helper, got: %v", err)
+	}
+	for _, path := range []string{h.folder(), filepath.Join(h.configDir, channel.PointerFile), filepath.Join(h.opts.unitDir, UpdatePathUnit)} {
+		if exists(path) {
+			t.Errorf("a refused install wrote %s", path)
+		}
+	}
+}
+
+// A daemon that maps the container's uid to another on the host owns every
+// request under that other uid, which the helper refuses; that is said at
+// install and not found out from a request nobody answers.
+func TestAContainerOnARemappingDaemonIsRefusedWithTheReason(t *testing.T) {
+	for _, option := range []string{"name=userns", "name=rootless"} {
+		h := newInstallHost(t, DeploymentCompose)
+		writeContainerRecord(t, h)
+		h.runner.answer = func(args []string) (string, error) {
+			switch {
+			case len(args) > 0 && args[0] == "inspect":
+				return h.stateDir + "\n", nil
+			case len(args) > 0 && args[0] == "info":
+				return "[name=seccomp,profile=builtin " + option + "]\n", nil
+			}
+			return "", nil
+		}
+		err := InstallUpdateHelper(context.Background(), h.opts)
+		if err == nil || !strings.Contains(err.Error(), "maps the container's account") {
+			t.Errorf("%s: want a refusal giving the reason, got: %v", option, err)
+		}
+		h.installedNothing(t)
 	}
 }
 
@@ -420,13 +493,13 @@ func TestRemovingTheHelperStopsDisablesAndDeletesItsUnitsAndFiles(t *testing.T) 
 	}
 	for _, argv := range [][]string{
 		{"systemctl", "disable", "--now", UpdatePathUnit},
-		{"systemctl", "stop", UpdateServiceUnit},
 		{"systemctl", "daemon-reload"},
 	} {
 		if !h.runner.ran(argv...) {
 			t.Errorf("remove did not run %v: %v", argv, h.runner.lines())
 		}
 	}
+	h.neverStoppedTheService(t)
 	for _, path := range []string{
 		filepath.Join(h.opts.unitDir, UpdatePathUnit), filepath.Join(h.opts.unitDir, UpdateServiceUnit),
 		h.opts.helperStateDir, filepath.Join(h.configDir, channel.PointerFile), h.folder(),
@@ -476,23 +549,115 @@ func TestRemovingTheHelperLeavesAStateFolderThatIsNotItsOwn(t *testing.T) {
 	}
 }
 
-// Stopping the helper mid-run would kill the upgrade it is running and leave
-// upgrade.lock behind, so an update in flight is let finish.
-func TestRemovingTheHelperWaitsForAnUpdateItIsRunning(t *testing.T) {
-	h := newInstallHost(t, DeploymentNative)
-	h.install(t)
+// neverStoppedTheService fails the test if zoomies-update.service was ever
+// stopped: that kills the upgrade it is running and leaves upgrade.lock behind.
+func (h *installHost) neverStoppedTheService(t *testing.T) {
+	t.Helper()
+	if slices.ContainsFunc(h.runner.calls, func(c []string) bool {
+		return len(c) > 1 && c[0] == "systemctl" && c[1] == "stop" && slices.Contains(c, UpdateServiceUnit)
+	}) {
+		t.Errorf("remove stopped %s: %v", UpdateServiceUnit, h.runner.lines())
+	}
+}
+
+// updateRunning makes systemctl say the helper is running an update.
+func (h *installHost) updateRunning() {
 	h.runner.answer = func(args []string) (string, error) {
 		if slices.Equal(args, []string{"is-active", UpdateServiceUnit}) {
 			return "activating", errors.New("exit status 3")
 		}
 		return "", nil
 	}
+}
+
+// Stopping the helper mid-run would kill the upgrade it is running and leave
+// upgrade.lock behind, so an update in flight is let finish. The trigger goes
+// first, so that one starting between the look and the refusal is seen, and no
+// other starts while the operator waits.
+func TestRemovingTheHelperWaitsForAnUpdateItIsRunning(t *testing.T) {
+	h := newInstallHost(t, DeploymentNative)
+	h.install(t)
+	h.runner.calls = nil
+	h.updateRunning()
 	err := RemoveUpdateHelper(context.Background(), h.opts)
-	if err == nil || !strings.Contains(err.Error(), "running an update now") {
-		t.Fatalf("want a refusal while an update runs, got: %v", err)
+	if err == nil || !strings.Contains(err.Error(), "running an update now") || !strings.Contains(err.Error(), "trigger is off") {
+		t.Fatalf("want a refusal while an update runs, saying the trigger is off, got: %v", err)
 	}
+	lines := h.runner.lines()
+	disable, look := slices.Index(lines, "systemctl disable --now "+UpdatePathUnit), slices.Index(lines, "systemctl is-active "+UpdateServiceUnit)
+	if disable < 0 || look < 0 || disable > look {
+		t.Errorf("the trigger should be turned off before the service is looked at: %v", lines)
+	}
+	h.neverStoppedTheService(t)
 	if !exists(filepath.Join(h.opts.unitDir, UpdatePathUnit)) || !exists(filepath.Join(h.folder(), channel.MarkerFile)) {
 		t.Error("a refused remove removed something")
+	}
+}
+
+// foreignFolder is a folder that is not the helper's, holding files named as
+// the helper's are, and named by a pointer planted beside the configuration,
+// which the service can write. Its uid is the folder's real owner (root, when
+// the tests run as root), which is what would let the helper's own folder
+// check pass if root believed the planted pointer.
+func foreignFolder(t *testing.T, configDir string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "root-only")
+	mustDo(t, os.Mkdir(dir, 0o750))
+	plant(t, filepath.Join(dir, channel.MarkerFile), "root's")
+	plant(t, filepath.Join(dir, channel.ResultFile), "root's")
+	writeJSONFile(t, filepath.Join(configDir, channel.PointerFile), channel.Pointer{V: 1, Dir: dir, Binary: "/usr/local/bin/zoomies", Account: "root", UID: os.Geteuid(), ConfigDir: configDir})
+	return dir
+}
+
+func writeJSONFile(t *testing.T, path string, v any) {
+	t.Helper()
+	body, err := json.Marshal(v)
+	mustDo(t, err)
+	mustDo(t, os.WriteFile(path, body, 0o644))
+}
+
+func untouched(t *testing.T, dir string) {
+	t.Helper()
+	for _, name := range []string{channel.MarkerFile, channel.ResultFile} {
+		if !exists(filepath.Join(dir, name)) {
+			t.Errorf("root acted on the pointer the service can write and removed %s", filepath.Join(dir, name))
+		}
+	}
+}
+
+// The pointer beside the configuration is the service's to read, and the
+// service can replace it; root deciding what to delete from it would be the
+// service choosing a folder of root's to empty. Only root's own copy says
+// where the folder is, and without it the folder is left, and said to be.
+func TestRemovingTheHelperNeverActsOnThePointerTheServiceCanWrite(t *testing.T) {
+	h := newInstallHost(t, DeploymentNative)
+	h.install(t)
+	mustDo(t, os.RemoveAll(h.opts.helperStateDir))
+	dir := foreignFolder(t, h.configDir)
+	h.opts.StateDir, h.opts.ServiceUID = "", 0
+	if err := RemoveUpdateHelper(context.Background(), h.opts); err != nil {
+		t.Fatalf("RemoveUpdateHelper: %v", err)
+	}
+	untouched(t, dir)
+	if exists(filepath.Join(h.configDir, channel.PointerFile)) {
+		t.Error("the pointer beside the configuration should be removed by name")
+	}
+	if out := h.out.String(); strings.Contains(out, "nothing to remove") || !strings.Contains(out, "Left the update folder") {
+		t.Errorf("remove should say it left the update folder, and not that there was nothing to remove:\n%s", out)
+	}
+}
+
+// Without root's copy, the folder is the one the installed unit says, which is
+// what the command line passes.
+func TestRemovingTheHelperWithoutRootsPointerUsesWhatRootInstalled(t *testing.T) {
+	h := newInstallHost(t, DeploymentNative)
+	h.install(t)
+	mustDo(t, os.RemoveAll(h.opts.helperStateDir))
+	if err := RemoveUpdateHelper(context.Background(), h.opts); err != nil {
+		t.Fatalf("RemoveUpdateHelper: %v", err)
+	}
+	if exists(h.folder()) {
+		t.Errorf("the update folder the installed unit names was left:\n%s", h.out)
 	}
 }
 
@@ -568,4 +733,54 @@ func TestTheHelperIsInstalledForWhatTheInstalledUnitRuns(t *testing.T) {
 			t.Errorf("want a refusal, got: %v", err)
 		}
 	})
+}
+
+// The pointer beside the configuration is the service's to replace, so it
+// does not make the helper look installed, and the folder it names is not
+// root's to empty.
+func TestUninstallNeverActsOnTheHelperPointerTheServiceCanWrite(t *testing.T) {
+	opts := uninstallOpts(t)
+	opts.Yes, opts.NonInteractive = true, true
+	writeFile(t, opts.ConfigDir, "zoomies.yaml", "")
+	dir := foreignFolder(t, opts.ConfigDir)
+	for _, it := range UninstallItems(opts) {
+		if it.What == "update helper" && it.Present {
+			t.Errorf("a pointer the service can write made the helper look installed: %+v", it)
+		}
+	}
+	if err := Uninstall(context.Background(), opts); err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	untouched(t, dir)
+}
+
+// Uninstalling under a running upgrade would take the binary and the units
+// away from it midway, so the whole uninstall waits, with the trigger off so
+// that no other update starts meanwhile.
+func TestUninstallRefusesWhileTheHelperIsRunningAnUpdate(t *testing.T) {
+	opts := uninstallOpts(t)
+	runner := &recordingRunner{answer: func(args []string) (string, error) {
+		if slices.Equal(args, []string{"is-active", UpdateServiceUnit}) {
+			return "activating", errors.New("exit status 3")
+		}
+		return "", nil
+	}}
+	opts.run = runner.run
+	opts.Yes, opts.NonInteractive = true, true
+	config := writeFile(t, opts.ConfigDir, "zoomies.yaml", "")
+	writeFile(t, opts.helperUnitDir, UpdatePathUnit, "[Path]\n")
+	writeFile(t, opts.helperUnitDir, UpdateServiceUnit, "[Service]\n")
+	err := Uninstall(context.Background(), opts)
+	if err == nil || !strings.Contains(err.Error(), "running an update now") {
+		t.Fatalf("want the uninstall refused while an update runs, got: %v", err)
+	}
+	if !exists(config) || !exists(filepath.Join(opts.helperUnitDir, UpdatePathUnit)) {
+		t.Error("a refused uninstall removed something")
+	}
+	if !runner.ran("systemctl", "disable", "--now", UpdatePathUnit) {
+		t.Errorf("the trigger should be off while the operator waits: %v", runner.lines())
+	}
+	if runner.ran("systemctl", "stop", UpdateServiceUnit) {
+		t.Errorf("the running update was stopped: %v", runner.lines())
+	}
 }

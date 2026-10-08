@@ -368,6 +368,12 @@ func printGroupUsage(w io.Writer, parent, summary string, subs []*subcommand) {
 		if s.args != "" {
 			line += " " + s.args
 		}
+		// Two spaces at least before the brief, however long the line: the
+		// reference generator tells the brief from the arguments by them, and a
+		// line with one is left out of it, with everything under it.
+		if len(line) >= 34 {
+			line += " "
+		}
 		fmt.Fprintf(w, "  %-34s %s\n", line, s.brief)
 	}
 	fmt.Fprintf(w, "\nRun \"zoomies %s <subcommand> --help\" for the flags each one takes.\n", parent)

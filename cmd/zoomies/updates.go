@@ -29,7 +29,7 @@ const helperStatusTailLines = 20
 
 func runUpdates(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "updates", `Release updates, and the helper that applies them. To upgrade this host by hand, use "zoomies upgrade".`, []*subcommand{
-		{"helper", "<subcommand>", "The root-owned helper on this host that applies an update", runUpdatesHelper},
+		{"helper", "<install|remove|run|status>", "The root-owned helper on this host that applies an update", runUpdatesHelper},
 	}, args)
 }
 
@@ -69,7 +69,7 @@ func updatesHelperInstall(ctx context.Context, e *env, args []string) error {
 
 func updatesHelperRemove(ctx context.Context, e *env, args []string) error {
 	flags := newFlagSet(e, "zoomies updates helper remove [--config-dir path]",
-		`Stop the update helper and remove it: its units, root's state and pointer in `+installer.UpdateHelperStateDir+`, the pointer beside the configuration, and the files it and the installer put in the update folder. The folder goes too when nothing else is in it. An update the helper is running is let finish: remove refuses until it has. The controller stops offering updates for this host once the helper is gone.`)
+		`Stop the update helper and remove it: its units, root's state and pointer in `+installer.UpdateHelperStateDir+`, the pointer beside the configuration, and the files it and the installer put in the update folder. The folder goes too when nothing else is in it; which folder that is comes from root's copy of the pointer, or from the installed unit, and never from the copy the service can write. The trigger is turned off first, so no new update starts, and an update the helper is already running is let finish: remove refuses until it has, and is run again then. The controller stops offering updates for this host once the helper is gone.`)
 	configDir := flags.String("config-dir", "", "the deployment's configuration directory (default: "+config.ConfigDir()+")")
 	flags.example("sudo zoomies updates helper remove")
 	if err := flags.parse(args); err != nil {
@@ -84,7 +84,15 @@ func updatesHelperRemove(ctx context.Context, e *env, args []string) error {
 	if uid := updatesEUID(); uid != 0 {
 		return fmt.Errorf(`removing the update helper changes systemd units and folders only root may, and this is uid %d; run "sudo zoomies updates helper remove"`, uid)
 	}
-	return installer.RemoveUpdateHelper(ctx, installer.InstallHelperOptions{ConfigDir: orConfigDir(*configDir), Out: e.out})
+	// Where the update folder is comes from root's copy of the pointer; failing
+	// that, from what root installed. A unit that is gone, or that runs as root,
+	// leaves only root's copy to go by.
+	opts, err := installer.ResolveHelperInstall(orConfigDir(*configDir))
+	if err != nil {
+		opts = installer.InstallHelperOptions{ConfigDir: orConfigDir(*configDir)}
+	}
+	opts.Out = e.out
+	return installer.RemoveUpdateHelper(ctx, opts)
 }
 
 // orConfigDir is the configuration directory a flag names, or the default.

@@ -68,3 +68,7 @@ func RemoveUpdateHelper(context.Context, InstallHelperOptions) error { return er
 func removeUpdateHelper(context.Context, InstallHelperOptions) (removed, left []string, err error) {
 	return nil, nil, nil
 }
+
+// stopUpdateTrigger has no trigger to stop where the helper cannot be
+// installed.
+func stopUpdateTrigger(context.Context, InstallHelperOptions) error { return nil }

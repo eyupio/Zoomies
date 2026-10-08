@@ -853,8 +853,8 @@ Usage:
 
 Subcommands:
   list                               Every pin
-  set <owner/repo> --class <small|medium|large> [--workflow <w> --job <j>] Pin a repository, or one job, to a class
-  delete <owner/repo> [--workflow <w> --job <j>] Take a pin away
+  set <owner/repo> --class <small|medium|large> [--workflow <w> --job <j>]  Pin a repository, or one job, to a class
+  delete <owner/repo> [--workflow <w> --job <j>]  Take a pin away
 
 Run "zoomies size-pins <subcommand> --help" for the flags each one takes.
 ```
@@ -876,6 +876,53 @@ Flags:
   --timeout=30s              how long to wait for one request
   --token                    an API token (or ZOOMIES_TOKEN)
   --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+```
+
+#### zoomies size-pins set
+
+Pin a repository, or one job, to a class
+
+```text
+Pin a repository, or one job in it, to a size class. It takes the place of what the job's runs measured, for the jobs that arrive and the ones already waiting.
+
+Usage:
+  zoomies size-pins set <owner/repo> --class <small|medium|large> [--workflow <w> --job <j>]
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --class                    small, medium or large
+  --insecure                 do not verify the controller's certificate
+  --job                      the job's name, with --workflow
+  --output=table             table, json or yaml
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+  --workflow                 the workflow, with --job, to pin one job instead of the whole repository
+
+Examples:
+  zoomies size-pins set acme/widgets --class large
+  zoomies size-pins set acme/widgets --workflow CI --job "Go (controller)" --class large
+```
+
+#### zoomies size-pins delete
+
+Take a pin away
+
+```text
+Take a pin away. The jobs it covered go back to the class their runs say, the ones already waiting included.
+
+Usage:
+  zoomies size-pins delete <owner/repo> [--workflow <w> --job <j>]
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --job                      the job's name, with --workflow
+  --output=table             table, json or yaml
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+  --workflow                 the workflow, with --job, for one job's pin
 ```
 
 ### zoomies auto-pools
@@ -1098,7 +1145,7 @@ Usage:
   zoomies updates <subcommand> [flags]
 
 Subcommands:
-  helper <subcommand>                The root-owned helper on this host that applies an update
+  helper <install|remove|run|status>  The root-owned helper on this host that applies an update
 
 Run "zoomies updates <subcommand> --help" for the flags each one takes.
 ```
