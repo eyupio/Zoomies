@@ -34,17 +34,17 @@ type Connection struct {
 func (c Connection) Validate() error {
 	u, err := url.Parse(c.Endpoint)
 	if err != nil || u.Scheme != "https" || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path != "" {
-		return errors.New("The Proxmox connection needs an HTTPS API address.")
+		return errors.New("proxmox setup: the Proxmox connection needs an HTTPS API address")
 	}
 	if c.Name == "" || len(c.Name) > 128 || c.Credential == "" {
-		return errors.New("The Proxmox host did not supply its name and API credential.")
+		return errors.New("proxmox setup: the Proxmox host did not supply its name and API credential")
 	}
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM([]byte(c.CAPEM)) {
-		return errors.New("The Proxmox host did not supply its trusted certificate.")
+		return errors.New("proxmox setup: the Proxmox host did not supply its trusted certificate")
 	}
 	if _, err := tailcat.ParseAddr(tailcat.Addr(c.TailcatAddress)); err != nil {
-		return errors.New("The Proxmox host did not supply a complete Tailcat address.")
+		return errors.New("proxmox setup: the Proxmox host did not supply a complete Tailcat address")
 	}
 	return nil
 }
@@ -74,22 +74,22 @@ type Host struct {
 func Prepare(ctx context.Context, h Host, dir, key string) (*Connection, error) {
 	ca, err := h.ReadFile("/etc/pve/pve-root-ca.pem")
 	if err != nil {
-		return nil, errors.New("Run this command as root on the Proxmox host; its cluster CA could not be read.")
+		return nil, errors.New("proxmox setup: run this command as root on the Proxmox host; its cluster CA could not be read")
 	}
 	leaf, err := h.ReadFile("/etc/pve/local/pveproxy-ssl.pem")
 	if errors.Is(err, os.ErrNotExist) {
 		leaf, err = h.ReadFile("/etc/pve/local/pve-ssl.pem")
 	}
 	if err != nil {
-		return nil, errors.New("The Proxmox API certificate could not be read.")
+		return nil, errors.New("proxmox setup: the Proxmox API certificate could not be read")
 	}
 	block, _ := pem.Decode(leaf)
 	if block == nil {
-		return nil, errors.New("The Proxmox API certificate is not PEM.")
+		return nil, errors.New("proxmox setup: the Proxmox API certificate is not PEM")
 	}
 	cert, err := x509.ParseCertificate(block.Bytes)
 	if err != nil {
-		return nil, errors.New("The Proxmox API certificate could not be parsed.")
+		return nil, errors.New("proxmox setup: the Proxmox API certificate could not be parsed")
 	}
 	nameBytes, err := h.ReadFile("/etc/hostname")
 	if err != nil {
@@ -97,7 +97,7 @@ func Prepare(ctx context.Context, h Host, dir, key string) (*Connection, error) 
 	}
 	name := strings.Split(strings.TrimSpace(string(nameBytes)), ".")[0]
 	if name == "" {
-		return nil, errors.New("The Proxmox host name is empty.")
+		return nil, errors.New("proxmox setup: the Proxmox host name is empty")
 	}
 	host := ""
 	for _, name := range cert.DNSNames {
@@ -118,7 +118,7 @@ func Prepare(ctx context.Context, h Host, dir, key string) (*Connection, error) 
 		host = cert.IPAddresses[0].String()
 	}
 	if host == "" {
-		return nil, errors.New("The Proxmox API certificate needs a DNS name or IP subject alternative name.")
+		return nil, errors.New("proxmox setup: the Proxmox API certificate needs a DNS name or IP subject alternative name")
 	}
 	c := &Connection{Name: "proxmox-" + name, Endpoint: "https://" + net.JoinHostPort(host, "8006"), CAPEM: string(ca)}
 	// Prefer the cluster CA across certificate renewal. A custom certificate is
@@ -132,7 +132,7 @@ func Prepare(ctx context.Context, h Host, dir, key string) (*Connection, error) 
 	if raw, err := h.ReadFile(tokenPath); err == nil {
 		c.Credential = strings.TrimSpace(string(raw))
 		if c.Credential == "" {
-			return nil, errors.New("The saved Proxmox credential is empty; restore it before retrying setup.")
+			return nil, errors.New("proxmox setup: the saved Proxmox credential is empty; restore it before retrying setup")
 		}
 		return c, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
@@ -147,11 +147,11 @@ func Prepare(ctx context.Context, h Host, dir, key string) (*Connection, error) 
 		}
 		raw, err := h.Run(ctx, "pveum", kind, "list", "--output-format", "json")
 		if err != nil {
-			return fmt.Errorf("Cannot create the dedicated Proxmox %s.", kind)
+			return fmt.Errorf("proxmox setup: cannot create the dedicated Proxmox %s", kind)
 		}
 		var rows []map[string]any
 		if json.Unmarshal(raw, &rows) != nil {
-			return fmt.Errorf("Cannot inspect the dedicated Proxmox %s.", kind)
+			return fmt.Errorf("proxmox setup: cannot inspect the dedicated Proxmox %s", kind)
 		}
 		idField := "userid"
 		if kind == "role" {
@@ -162,7 +162,7 @@ func Prepare(ctx context.Context, h Host, dir, key string) (*Connection, error) 
 				return nil
 			}
 		}
-		return fmt.Errorf("Cannot create the dedicated Proxmox %s.", kind)
+		return fmt.Errorf("proxmox setup: cannot create the dedicated Proxmox %s", kind)
 	}
 	if err := ensure("user", user); err != nil {
 		return nil, err
@@ -177,7 +177,7 @@ func Prepare(ctx context.Context, h Host, dir, key string) (*Connection, error) 
 	tokenID := user + "!" + tokenName
 	for _, path := range []string{"/vms", "/storage", "/nodes"} {
 		if _, err := h.Run(ctx, "pveum", "acl", "modify", path, "--users", user, "--roles", role); err != nil {
-			return nil, errors.New("Cannot grant the dedicated Proxmox user its provider permissions.")
+			return nil, errors.New("proxmox setup: cannot grant the dedicated Proxmox user its provider permissions")
 		}
 	}
 	raw, err := h.Run(ctx, "pveum", "user", "token", "add", user, tokenName, "--privsep", "1", "--output-format", "json")
@@ -192,14 +192,14 @@ func Prepare(ctx context.Context, h Host, dir, key string) (*Connection, error) 
 		tokenID = user + "!" + tokenName
 		raw, err = h.Run(ctx, "pveum", "user", "token", "add", user, tokenName, "--privsep", "1", "--output-format", "json")
 		if err != nil {
-			return nil, errors.New("Cannot create the dedicated Proxmox token; check Proxmox permissions and retry.")
+			return nil, errors.New("proxmox setup: cannot create the dedicated Proxmox token; check Proxmox permissions and retry")
 		}
 	}
 	var token struct {
 		Value string `json:"value"`
 	}
 	if json.Unmarshal(raw, &token) != nil || token.Value == "" {
-		return nil, errors.New("Proxmox did not return the new API token.")
+		return nil, errors.New("proxmox setup: proxmox did not return the new API token")
 	}
 	c.Credential = tokenID + "=" + token.Value
 	if err := h.WriteFile(tokenPath, []byte(c.Credential), 0600); err != nil {
@@ -214,7 +214,7 @@ func Prepare(ctx context.Context, h Host, dir, key string) (*Connection, error) 
 func GrantToken(ctx context.Context, h Host, tokenID, role string) error {
 	for _, path := range []string{"/vms", "/storage", "/nodes"} {
 		if _, err := h.Run(ctx, "pveum", "acl", "modify", path, "--tokens", tokenID, "--roles", role); err != nil {
-			return errors.New("Cannot grant the dedicated Proxmox token its provider permissions.")
+			return errors.New("proxmox setup: cannot grant the dedicated Proxmox token its provider permissions")
 		}
 	}
 	return nil
