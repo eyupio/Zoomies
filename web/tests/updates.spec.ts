@@ -400,6 +400,64 @@ test('a page that could not hear the controller asks again when the stream retur
   }
 });
 
+// The page follows the stream for as long as it is open. One that kept listening
+// after the operator had gone elsewhere would read the status again every time
+// the stream came back, for a page nobody can see, for as long as the tab lived.
+// The control is the same cycle on this page, which must ask: without it, a page
+// that never asked again would pass for one that had stopped.
+test('the page stops listening to the stream when the operator leaves it', async ({ page }) => {
+  let reads = 0;
+  page.on('request', (request) => {
+    if (request.method() === 'GET' && new URL(request.url()).pathname === '/api/v1/updates') {
+      reads += 1;
+    }
+  });
+  let cut = false;
+  await page.route('**/api/v1/events*', (route) =>
+    cut ? route.abort('connectionfailed') : route.fallback(),
+  );
+  const connection = page.locator('.connection');
+  /** The stream drops and comes back, which is when a page that follows it asks again. */
+  const dropAndRestore = async () => {
+    cut = true;
+    await page.evaluate(() => window.dispatchEvent(new Event('offline')));
+    await expect(connection).not.toHaveAttribute('data-state', 'live');
+    cut = false;
+    await page.evaluate(() => window.dispatchEvent(new Event('online')));
+    await expect(connection).toHaveAttribute('data-state', 'live', { timeout: 20_000 });
+  };
+
+  try {
+    await goto(page, PAGE, 'Updates');
+    await expect(connection).toHaveAttribute('data-state', 'live');
+    await expect(mode(page)).toContainText('24 hours');
+    await plantMarker(page);
+
+    reads = 0;
+    await dropAndRestore();
+    await expect.poll(() => reads, { message: 'the open page asks again' }).toBeGreaterThan(0);
+
+    // Leave through the router, as a link does, so nothing reloads and only the
+    // page's own teardown can stop it.
+    await page.evaluate(() => {
+      history.pushState({}, '', '/settings/about');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+    await expect(pageHeading(page, 'About')).toBeVisible();
+    await expect(pageHeading(page, 'Updates')).toBeHidden();
+    await expectNoReload(page);
+
+    reads = 0;
+    await dropAndRestore();
+    // Nothing is awaited that could show a read that did not happen, so give one
+    // that would a moment to be sent.
+    await page.waitForTimeout(1_000);
+    expect(reads, 'reads of the status after the page was left').toBe(0);
+  } finally {
+    await page.unroute('**/api/v1/events*');
+  }
+});
+
 // A read and a frame can cross: the read was sent first and answers last, with
 // a document the frame has already replaced. The frame is the newer of the two.
 test('a read that was in flight when a frame landed does not put its older answer over it', async ({
