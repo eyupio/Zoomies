@@ -829,6 +829,12 @@ test.describe('with Kennel Club on', () => {
       page,
     }) => {
       const row = await repository(page, 'acme/api');
+      // The page reads everything again when the stream first goes live, which
+      // closes the gap between its first read and its subscription. On a page that
+      // has just loaded that can land a moment after the first read and count the
+      // jobs twice, so the stream is refused here: this test is about the page's own
+      // requests, and the Refresh button is the only thing that should add any.
+      await page.route('**/api/v1/events*', (route) => route.abort());
       const counted: URL[] = [];
       const queued: URL[] = [];
       page.on('request', (request) => {
@@ -2148,6 +2154,31 @@ test.describe('with Kennel Club on', () => {
       await expect(bulkBar(page)).toContainText('2 selected');
     });
 
+    // The list learns of a stop from the stream, and from the page asking again
+    // once its own requests are done. With the stream down the second has to be
+    // enough, or the rows a person just stopped would stay in the list they are
+    // looking at until they thought to reload it.
+    test('with no stream to say so, the list is asked again once the stops are done', async ({
+      page,
+    }) => {
+      const row = await repository(page, API);
+      await page.route('**/api/v1/events*', (route) => route.abort());
+      await goto(page, '/kennel/repositories', 'Repositories');
+      await expect(listRows(page).filter({ hasText: API })).toHaveCount(1);
+      await tick(page, API);
+      await bulkBar(page).getByRole('button', { name: 'Stop tracking' }).click();
+      const dialog = bulkDialog(page, 'Stop tracking this repository');
+      await dialog
+        .getByRole('textbox', { name: /Why Kennel Club should not look at/ })
+        .fill(REASON);
+      await dialog.getByRole('button', { name: 'Stop tracking', exact: true }).click();
+
+      await expect(toast(page, 'success', '1 repository no longer tracked')).toBeVisible();
+      await expect(listRows(page).filter({ hasText: API })).toHaveCount(0);
+      await expect(bulkBar(page)).toHaveCount(0);
+      expect((await tracking(page, row.id)).tracking.tracked).toBe(false);
+    });
+
     test('more than eight are named by eight and a count of the rest', async ({ page }) => {
       // The fixture has three repositories, so the list is handed more of them.
       const first = await repository(page, API);
@@ -2161,6 +2192,10 @@ test.describe('with Kennel Club on', () => {
       });
       await goto(page, '/kennel/repositories', 'Repositories');
       const sent = putsToTracking(page);
+      // The header's box is on the page before any row is, and ticking it then
+      // selects nothing, so the rows are waited for first. Without this the test
+      // failed whenever the list was a moment slower than the click.
+      await expect(listRows(page)).toHaveCount(11);
       await page.getByRole('checkbox', { name: /^Select every/ }).check();
       await bulkBar(page).getByRole('button', { name: 'Stop tracking' }).click();
       const dialog = bulkDialog(page, 'Stop tracking 11 repositories');
