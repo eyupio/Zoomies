@@ -128,6 +128,7 @@ func (s *Server) providerWithMachines(w http.ResponseWriter, r *http.Request) (*
 // -- a form that renders a blank password box and then saves would otherwise
 // erase the credential every time somebody fixed a typo elsewhere.
 type providerInput struct {
+	SetupID            *string             `json:"setup_id"`
 	Kind               *store.ProviderKind `json:"kind"`
 	Name               *string             `json:"name"`
 	Endpoint           *string             `json:"endpoint"`
@@ -384,6 +385,9 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
+	if !s.resolveProviderSetup(w, r, &in) {
+		return
+	}
 	p := defaultProvider()
 	errs := in.apply(p)
 	errs = append(errs, s.validateProvider(r, p, "")...)
@@ -418,6 +422,11 @@ func (s *Server) handleCreateProvider(w http.ResponseWriter, r *http.Request) {
 	s.ctrl.PublishProvider(r.Context(), fresh)
 	// A new provider may already be the answer to work that is queued now.
 	s.ctrl.NudgeMachines()
+	if in.SetupID != nil {
+		if err := s.ctrl.Store().DeleteProviderSetup(r.Context(), *in.SetupID); err != nil {
+			s.logger(r).Warn("could not remove completed provider setup", "error", err)
+		}
+	}
 	writeJSON(w, http.StatusCreated, s.ctrl.ProviderView(fresh, nil))
 }
 
@@ -430,6 +439,9 @@ func (s *Server) handleUpdateProvider(w http.ResponseWriter, r *http.Request) {
 	}
 	var in providerInput
 	if !decode(w, r, &in) {
+		return
+	}
+	if !s.resolveProviderSetup(w, r, &in) {
 		return
 	}
 	if s.key == nil && (in.Credential != nil && strings.TrimSpace(*in.Credential) != "" ||
@@ -628,6 +640,9 @@ func (s *Server) handleValidateProvider(w http.ResponseWriter, r *http.Request) 
 	if !decode(w, r, &in) {
 		return
 	}
+	if !s.resolveProviderSetup(w, r, &in) {
+		return
+	}
 	p := defaultProvider()
 	errs := in.apply(p)
 	existingID := strings.TrimSpace(r.URL.Query().Get("id"))
@@ -818,6 +833,9 @@ func (s *Server) handleProviderDiscovery(w http.ResponseWriter, r *http.Request)
 func (s *Server) handleDiscoverDraft(w http.ResponseWriter, r *http.Request) {
 	var in providerInput
 	if !decode(w, r, &in) {
+		return
+	}
+	if !s.resolveProviderSetup(w, r, &in) {
 		return
 	}
 	p := defaultProvider()

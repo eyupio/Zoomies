@@ -44,6 +44,7 @@ type UpgradeOptions struct {
 	Interactive    bool
 	NonInteractive bool
 	AssumeYes      bool
+	proxmoxRoot    string // injected gateway root for tests
 	run            commandRunner
 	runInput       inputRunner
 	// shared stands in for the host's shared folder and the account it
@@ -121,6 +122,9 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	}
 	p.settleSettings(ctx)
 	if opts.Check {
+		if err := p.upgradeProxmoxGateways(ctx); err != nil {
+			return err
+		}
 		ui.Done(opts.Out, "Deployment checks passed; no changes made")
 		if opts.Doctor != nil {
 			opts.Doctor(ctx, p.settings(ctx).cfg)
@@ -160,6 +164,9 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 	}
 	if err != nil {
 		return fmt.Errorf("installer: the upgrade did not finish: %w", err)
+	}
+	if err := p.upgradeProxmoxGateways(ctx); err != nil {
+		return err
 	}
 	if err := p.restartHealthReporter(ctx); err != nil {
 		return err
@@ -470,6 +477,10 @@ func upgradeImage(rec DeploymentRecord, override string) (string, error) {
 
 func (p *upgradePlan) prepareNative(ctx context.Context) error {
 	units := []string{UnitController, UnitAgent}
+	// A provider-only host upgrades through its private executable too.
+	if filepath.Dir(filepath.Dir(p.opts.BinaryPath)) == "/var/lib/zoomies-proxmox" && proxmoxKey.MatchString(filepath.Base(filepath.Dir(p.opts.BinaryPath))) {
+		units = []string{"zoomies-proxmox-" + filepath.Base(filepath.Dir(p.opts.BinaryPath)) + ".service"}
+	}
 	if p.opts.Mode == ModeAgent {
 		units = []string{UnitAgent}
 	} else if p.opts.Mode != "" {

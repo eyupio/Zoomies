@@ -23,11 +23,13 @@ const (
 type Snapshot struct {
 	// At is when the facts were taken. It is data, because this package reads no
 	// clock; waivers are judged against it.
-	At       time.Time
-	Repo     Repo
-	Fleet    Fleet
-	Runs     *RunFacts
-	Coverage Coverage
+	At        time.Time
+	Repo      Repo
+	Fleet     Fleet
+	Workflows *WorkflowFacts
+	Setup     *SetupFacts
+	Runs      *RunFacts
+	Coverage  Coverage
 }
 
 // Repo is what GitHub says about the repository itself.
