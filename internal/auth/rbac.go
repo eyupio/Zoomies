@@ -133,11 +133,18 @@ const (
 // for the reason the policy is one table: an error is a stranger already running
 // code on the fleet, the decision that this is acceptable is an administrator's,
 // and a scoped token has to be able to be given the one without the other.
+//
+// Tracking is split the same way, and for the same reason. Telling Kennel Club to
+// stop looking at a repository silences every error it would have raised there, so
+// it is an administrator's; telling it to start again can only make it stricter, so
+// it is an operator's.
 const (
 	ActionKennelRead       Action = "kennel.read"
 	ActionKennelRecheck    Action = "kennel.recheck"
 	ActionKennelWaive      Action = "kennel.waive"
 	ActionKennelWaiveError Action = "kennel.waive_error"
+	ActionKennelTrack      Action = "kennel.track"
+	ActionKennelUntrack    Action = "kennel.untrack"
 )
 
 // Migrations move a repository's workflows onto this fleet, which means
@@ -215,6 +222,8 @@ var actionRoles = map[Action]store.Role{
 	ActionKennelRecheck:    store.RoleOperator,
 	ActionKennelWaive:      store.RoleOperator,
 	ActionKennelWaiveError: store.RoleAdmin,
+	ActionKennelTrack:      store.RoleOperator,
+	ActionKennelUntrack:    store.RoleAdmin,
 
 	ActionContextRead:      store.RoleViewer,
 	ActionContextConfigure: store.RoleAdmin,
@@ -378,6 +387,9 @@ var impliedBy = map[Action][]Action{
 	// A token minted to waive errors is minted to waive, and the route asks for
 	// kennel.waive first; refusing it that would make the wider scope useless.
 	ActionKennelWaive: {ActionKennelWaiveError},
+	// The same for tracking: the route asks for kennel.track, and a token minted to
+	// stop tracking was minted to be able to use it.
+	ActionKennelTrack: {ActionKennelUntrack},
 }
 
 // scopesAllow reports whether any scope in the list covers a.

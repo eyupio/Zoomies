@@ -185,6 +185,7 @@ func TestKennelClubAnswersItsOverviewWhileOffAndRefusesTheRoutesThatNeedRows(t *
 		{"recheck", "POST", kennelRepository + "kcr_x/recheck", operator, nil},
 		{"waive", "PUT", kennelRepository + "kcr_x/waivers", operator, waiverBody(publicOnFleet, goodReason)},
 		{"unwaive", "DELETE", kennelRepository + "kcr_x/waivers/kcw_x", operator, nil},
+		{"track", "PUT", kennelRepository + "kcr_x/tracking", operator, map[string]any{"tracked": true}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			resp := h.do(request{method: tc.method, path: tc.path, cookie: tc.cookie, body: tc.body})
@@ -197,7 +198,7 @@ func TestKennelClubAnswersItsOverviewWhileOffAndRefusesTheRoutesThatNeedRows(t *
 			}
 		})
 	}
-	for _, action := range []string{"kennel.recheck", "kennel.waive", "kennel.unwaive"} {
+	for _, action := range []string{"kennel.recheck", "kennel.waive", "kennel.unwaive", "kennel.track", "kennel.untrack"} {
 		if row := lastAudit(t, h, action); row != nil {
 			t.Errorf("a refused %s was audited as though it had happened: %+v", action, row)
 		}
@@ -719,6 +720,9 @@ func TestKennelClubsResponsesMatchTheSpecShapes(t *testing.T) {
 	doc := loadSpec(t)
 	s := newKennelStack(t)
 	s.waive(s.rebuilt, s.operator, waiverBody(publicOnFleet, goodReason)).mustStatus(t, http.StatusOK, "waive")
+	// One repository nobody tracks, so the decision's words are in the documents
+	// checked and not only the empty tracking of the ones that are.
+	s.setTracking(s.quiet, request{cookie: s.admin}, stop(sandboxReason)).mustStatus(t, http.StatusOK, "stop")
 
 	each := func(schema string, raws []json.RawMessage) {
 		t.Helper()

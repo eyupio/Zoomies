@@ -222,6 +222,10 @@ func TestFindingsAreAskedForWithTheFiltersGivenAndAPageSmallEnoughToRead(t *test
 		{"a check and a severity", `{"code":"exposure.public_repo_weak_pool","severity":"error"}`,
 			url.Values{"limit": {"25"}, "code": {"exposure.public_repo_weak_pool"}, "severity": {"error"}}},
 		{"the second repository", `{"offset":1}`, url.Values{"limit": {"25"}, "offset": {"1"}}},
+		// false is an answer and not an absence: the repositories it was told not to
+		// look at are what somebody asking this wants.
+		{"only the ones not tracked", `{"tracked":false}`, url.Values{"limit": {"25"}, "tracked": {"false"}}},
+		{"only the ones tracked", `{"tracked":true}`, url.Values{"limit": {"25"}, "tracked": {"true"}}},
 		{"a standing, a name and a page", `{"state":"attention","q":"acme","limit":100,"offset":200}`,
 			url.Values{"limit": {"100"}, "state": {"attention"}, "q": {"acme"}, "offset": {"200"}}},
 	} {
@@ -238,7 +242,7 @@ func TestFindingsAreAskedForWithTheFiltersGivenAndAPageSmallEnoughToRead(t *test
 }
 
 func TestFindingsRefuseWhatTheAPIWouldBeAskedNonsenseAboutBeforeAskingIt(t *testing.T) {
-	for _, args := range []string{`{"limit":101}`, `{"limit":-1}`, `{"offset":-1}`, `{"severity":7}`, `{"id":"kcr_1"}`, `[]`} {
+	for _, args := range []string{`{"limit":101}`, `{"limit":-1}`, `{"offset":-1}`, `{"severity":7}`, `{"tracked":"no"}`, `{"id":"kcr_1"}`, `[]`} {
 		api := &kennelAPI{}
 		if _, err := kennelCall(t, kennelFindings, api, args); err == nil || api.calls != 0 {
 			t.Errorf("%s reached REST (calls=%d, err=%v)", args, api.calls, err)

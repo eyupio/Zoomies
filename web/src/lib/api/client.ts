@@ -675,6 +675,14 @@ export const getKennelRepository = (id: string, signal?: AbortSignal) =>
 export const recheckKennelRepository = (id: string) =>
   api.post<Result<'recheckKennelRepository'>>(`/kennel/repositories/${enc(id)}/recheck`);
 
+/**
+ * Stops Kennel Club looking at a repository, or starts it again. Stopping needs a
+ * reason and the administrator role; starting needs an operator. The answer is the
+ * repository as it now stands.
+ */
+export const setKennelTracking = (id: string, body: Body<'setKennelTracking'>) =>
+  api.put<Result<'setKennelTracking'>>(`/kennel/repositories/${enc(id)}/tracking`, { body });
+
 /** Both answer with the repository, already worked out again. */
 export const waiveKennelFinding = (id: string, body: Body<'waiveKennelFinding'>) =>
   api.put<Result<'waiveKennelFinding'>>(`/kennel/repositories/${enc(id)}/waivers`, { body });
