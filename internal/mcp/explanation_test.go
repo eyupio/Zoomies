@@ -148,6 +148,28 @@ func TestAnExplanationWithNothingUntrustedIsOneBlock(t *testing.T) {
 	})
 }
 
+// With nothing to take, the controller's answer is returned as it came, byte for
+// byte. Rebuilding it would reorder its fields and re-encode its text for no
+// reason, and a change to an answer nothing was wrong with is how a tool that
+// "only adds a block" starts altering what it was asked to relay.
+func TestAnExplanationWithNothingToTakeIsReturnedUntouched(t *testing.T) {
+	for name, body := range map[string]string{
+		"trusted evidence only": `{"summary":"s","waiting":false,"class":"running","evidence":[{"kind":"pool","value":"p"}],"detail":"a   b"}`,
+		"no evidence at all":    `{"summary":"s","waiting":true,"detail":"a   b"}`,
+		"untrusted false":       `{"summary":"s","evidence":[{"kind":"step","value":"x","untrusted":false}],"detail":"a   b"}`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, taken, err := withoutUntrustedText([]byte(body))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(got) != body || len(taken) != 0 {
+				t.Errorf("the answer was changed though nothing was taken:\nwant %s\ngot  %s\ntaken %+v", body, got, taken)
+			}
+		})
+	}
+}
+
 // An answer the tool cannot take apart is not handed on. Passing it through would
 // give the model the text in it as though it were the controller's own words,
 // which is the one thing the separate block exists to prevent.
