@@ -127,6 +127,7 @@ func commands() []*command {
 		{"doctor", groupSetup, "Check host OS health and explain recommended changes", runDoctor},
 		{"healthcheck", groupSetup, "Probe a controller's /healthz; the container HEALTHCHECK", runHealthcheck},
 		{"version", groupSetup, "Print the version", runVersion},
+		{"commands", groupSetup, "Every command, its subcommands and their help, as JSON or Markdown", runCommands},
 	}
 }
 

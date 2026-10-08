@@ -559,6 +559,8 @@ hooks/              the site's build-time metadata: git dates, llms.txt, and the
 ROADMAP.md          the sole active roadmap: scope, order and owner decisions
 roadmap/            supporting status/evidence, decision records, model guidance
                     and historical source material; it does not compete with ROADMAP.md
+skills/             what a coding agent installs: the zoomies skill, with a command
+                    reference generated from the binary
 install.sh          the one-line installer, served from the site root
 mkdocs.yml          how docs/ becomes zoomies.sh
 nixpacks.toml       how a Nixpacks-based PaaS builds and runs the controller
