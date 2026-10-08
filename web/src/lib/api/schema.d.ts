@@ -8245,6 +8245,11 @@ export interface components {
             /** Format: date-time */
             updated_at?: string;
         };
+        ProxmoxSetupTemplate: {
+            vmid: number;
+            name: string;
+            node: string;
+        };
         ProviderSetup: {
             id: string;
             /** Format: date-time */
@@ -8252,6 +8257,8 @@ export interface components {
             ready: boolean;
             name?: string;
             endpoint?: string;
+            /** @description QEMU templates detected by the setup command. */
+            templates?: components["schemas"]["ProxmoxSetupTemplate"][];
             /** @description Returned only at creation; contains the short-lived setup capability. */
             command?: string;
         };
@@ -13783,6 +13790,7 @@ export interface operations {
                     credential: string;
                     ca_pem: string;
                     tailcat_address: string;
+                    templates?: components["schemas"]["ProxmoxSetupTemplate"][];
                 };
             };
         };

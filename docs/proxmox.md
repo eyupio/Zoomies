@@ -214,7 +214,10 @@ internet access and systemd. The setup does not prepare a runner VM template:
 choose the prepared template, storage and network on the Placement step. Choices
 come from the cluster; anything with one answer is already selected. Review the
 machine shape and limits, then save. The initial maximum is zero, so connecting a
-provider does not create any VMs.
+provider does not create any VMs. The setup callback also reports existing QEMU
+templates, with their VMIDs and nodes. A sole template is preselected; with several,
+choose the runner template on Placement. The script prints these identifiers at
+completion. If none exists, prepare a runner template first; setup does not create one.
 
 For a direct network connection or credentials you manage yourself, choose
 **Configure connection manually**. The tables and terminal command below describe

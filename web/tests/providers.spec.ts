@@ -661,7 +661,13 @@ test('Proxmox onboarding waits for one command and fills the connection without 
         id: 'pvs_test',
         expires_at: new Date(Date.now() + 3600000).toISOString(),
         ready: hostConnected,
-        ...(hostConnected ? { name: 'proxmox-pve-1', endpoint: 'https://pve.example:8006' } : {}),
+        ...(hostConnected
+          ? {
+              name: 'proxmox-pve-1',
+              endpoint: 'https://pve.example:8006',
+              templates: [{ vmid: 9000, name: 'Runner template', node: 'pve-1' }],
+            }
+          : {}),
       },
     }),
   );
@@ -672,7 +678,7 @@ test('Proxmox onboarding waits for one command and fills the connection without 
         nodes: [{ value: 'pve-1', label: 'pve-1' }],
         storages: [{ value: 'local-lvm', label: 'local-lvm' }],
         bridges: [{ value: 'vmbr0', label: 'vmbr0' }],
-        templates: [{ value: '9000', label: 'Runner template' }],
+        templates: [],
       },
     });
   });
@@ -696,6 +702,8 @@ test('Proxmox onboarding waits for one command and fills the connection without 
   await expect.poll(() => discoveryBody?.setup_id).toBe('pvs_test');
   expect(discoveryBody).not.toHaveProperty('credential');
   expect(discoveryBody).not.toHaveProperty('tailcat_address');
+  expect(discoveryBody?.settings).toMatchObject({ template_id: '9000', template_node: 'pve-1' });
+  await expect(page.getByRole('option', { name: 'Runner template (9000)' })).toBeAttached();
   await expect(next(page)).toBeEnabled();
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Capacity' })).toBeVisible();
