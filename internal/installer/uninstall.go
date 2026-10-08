@@ -90,7 +90,7 @@ func (o UninstallOptions) updateHelper() InstallHelperOptions {
 // beside the configuration is the service's to replace, so it decides nothing.
 func (o UninstallOptions) helperInstalled() bool {
 	h := o.updateHelper()
-	return exists(filepath.Join(h.unitDir, UpdatePathUnit)) || exists(filepath.Join(h.unitDir, UpdateServiceUnit)) || exists(h.helperStateDir)
+	return helperPresent(h.unitDir, h.helperStateDir)
 }
 
 // sameDir reports whether two paths are the same directory.

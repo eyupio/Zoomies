@@ -184,6 +184,43 @@ the new image up with, so an unattended upgrade stops before it changes
 anything and says so. `--check` lists what the real run will offer and adds
 none of it.
 
+### Updating from the web UI
+
+On a systemd host that has no update helper yet, an upgrade then asks a
+second question, on its own:
+
+```text
+Add the update helper? [y/N]
+```
+
+The [update helper](security.md#what-the-agent-owns-on-a-host) is what lets the
+web UI update the host. It is a pair of root-owned systemd units that run
+`zoomies upgrade` for a request the web UI writes, once the helper has
+validated it; the request names a release and nothing else. You install it as
+the host's owner, and `sudo zoomies updates helper remove` takes it away. It
+is a grant of root, so it is never part of the batch above:
+
+* **`--yes` does not answer it.** `zoomies upgrade --yes` still adds the layout
+  additions and moves the settings, and still leaves this question at its
+  default.
+* **At a terminal**, Enter, `n` and the end of the input all mean no. Only `y`
+  or `yes` installs it.
+* **`--update-helper`** (`zoomies upgrade --update-helper`) installs it without
+  asking.
+* **Unattended** (`--non-interactive`, or no terminal at all) it adds nothing
+  and prints `Add later: sudo zoomies updates helper install`. This includes
+  the upgrade the helper itself runs, which never installs, offers or changes
+  anything of its own.
+
+The question comes after the deployment's additions are reviewed and before
+anything is pulled or restarted, and it is not asked once the helper is
+installed, on a host without systemd, or for a service that runs as root. If
+the install is refused (the binary sits under a folder a group can write, a
+path is under `/home`, Docker remaps user namespaces) the upgrade does not
+fail: it prints the helper's own sentence, says the helper was not added, and
+finishes. Put the refusal right and run `sudo zoomies updates helper install`.
+`--check` asks nothing and adds nothing.
+
 `zoomies upgrade --check` checks the existing deployment without modifying it.
 `zoomies update` is a compatibility alias and accepts the same flags. Both commands
 fetch the newest release (or the rolling `dev` build, for a host running one),

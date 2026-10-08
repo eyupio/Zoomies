@@ -214,6 +214,7 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 	wantVersion := fs.String("version", "", "target a published tag such as v1.4.0, or dev")
 	noDownload := fs.Bool("no-download", false, "apply the binary that is already installed; do not look for a newer one")
 	yes := fs.Bool("yes", false, "approve deployment additions and settings migration; never OS tuning")
+	updateHelper := fs.Bool("update-helper", false, "add the update helper without asking, so the web UI can update this host; --yes never does")
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; optional deployment changes require --yes")
 	noAnimation := fs.Bool("no-animation", false, "skip the short branded terminal splash")
 	fs.example("sudo zoomies upgrade", "zoomies upgrade --check", "sudo zoomies upgrade --yes", "sudo zoomies upgrade --mode agent --version v1.4.0")
@@ -238,7 +239,7 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 		Doctor:    func(ctx context.Context, cfg *config.Config) { upgradeDoctor(ctx, e, cfg) },
 		ConfigDir: *configDir, BinaryPath: *binary, DockerHost: *dockerHost, Runtime: *runtime, Image: *image,
 		Mode: parsed, Check: *check, Out: e.out, Continuation: true,
-		In: e.in, Interactive: interactive, NonInteractive: !interactive, AssumeYes: *yes,
+		In: e.in, Interactive: interactive, NonInteractive: !interactive, AssumeYes: *yes, UpdateHelper: *updateHelper,
 	}
 	ui := installer.PaletteFor(e.out)
 	if os.Getenv("ZOOMIES_UPGRADE_STARTED") == "" {

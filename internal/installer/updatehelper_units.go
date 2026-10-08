@@ -166,7 +166,7 @@ func (o InstallHelperOptions) withDefaults() InstallHelperOptions {
 // is the binary.
 func ResolveHelperInstall(configDir string) (InstallHelperOptions, error) {
 	if _, err := os.Stat("/run/systemd/system"); err != nil {
-		return InstallHelperOptions{}, errors.New(`the update helper is a pair of systemd units, and this host does not run systemd; update it by hand with "sudo zoomies upgrade"`)
+		return InstallHelperOptions{}, errors.New(noSystemdForHelper)
 	}
 	executable, err := os.Executable()
 	if err != nil {
