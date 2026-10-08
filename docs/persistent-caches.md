@@ -1,14 +1,30 @@
 ---
 icon: material/database-clock-outline
-title: Caching for ephemeral GitHub Actions runners
+title: GitHub Actions cache on self-hosted runners
 description: >-
   Keep Go, npm, pip, Maven and Docker build caches between ephemeral runners.
   Configure Zoomies cache scopes and reuse builds safely across jobs and hosts.
 ---
 
-# Persistent caches for ephemeral runners
+# GitHub Actions cache on self-hosted runners
+
+A fresh runner for every job means a fresh, empty disk, so every job downloads
+its dependencies again. This page covers how to stop that on a Zoomies fleet.
 
 Keep runners ephemeral. Retain selected cache data outside the runner's writable filesystem so the next runner can reuse downloads and build outputs. Losing a cache must only make a build slower; workspaces, credentials, runner registration and job state must not depend on it.
+
+## The pool cache and `actions/cache`
+
+They do different jobs, and a workflow can use both.
+
+- **The pool cache** is a directory on the host, mounted at `/opt/zoomies-cache`
+  in every runner the pool starts and kept between them. It saves the download
+  and the rebuild, and it is an accelerator only: nothing guarantees a hit and
+  an operator may empty it at any time.
+- **`actions/cache`** is the step to use for anything a workflow depends on,
+  because the workflow asks for it by key and carries on if it misses.
+
+Either way, a missing cache must make a job slower and never make it fail.
 
 | Data | Lifetime and location | Sharing rule |
 |---|---|---|
