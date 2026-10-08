@@ -305,14 +305,14 @@ func (d deploymentSelector) args() []string {
 
 // candidateTimeout bounds the pre-flight. The candidate under --check also runs
 // the doctor's probes, and a container runtime that accepts a connection and
-// never answers would otherwise hold an upgrade for ever -- with nobody at an
+// never answers would otherwise hold an upgrade for ever, with nobody at an
 // unattended run to press Ctrl-C. Five minutes is far more than any check takes
 // and far less than the helper's own attempt limit.
 var candidateTimeout = 5 * time.Minute
 
 // candidateOutputLimit is how much of the candidate's output an error carries.
-// What matters is the end -- the refusal comes last -- and an error is read by
-// a person, not archived.
+// What matters is the end (the refusal comes last), and an error is read by a
+// person, not archived.
 const candidateOutputLimit = 4096
 
 // candidateRefusal is the downloaded release exiting non-zero from its check:
@@ -380,8 +380,8 @@ var runCandidate = func(ctx context.Context, env []string, name string, args ...
 // candidatePreflight asks the downloaded release to check this deployment with
 // its own expectations, while the binary that is known to work is still the one
 // installed. A release can need something the running one does not know to
-// ask for -- a folder, a setting -- and finding that out after the swap leaves
-// a host on a binary that refuses to upgrade it.
+// ask for (a folder, a setting), and finding that out after the swap leaves a
+// host on a binary that refuses to upgrade it.
 //
 // --installed-binary is what makes this work: without it the candidate would
 // take os.Executable() for the binary the service runs, which is its own
