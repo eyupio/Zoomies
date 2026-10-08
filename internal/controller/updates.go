@@ -61,8 +61,8 @@ const (
 // A state is replaced as a whole and never edited, so one that has been read can
 // be kept, slices and all, without holding the lock.
 type releaseState struct {
-	// Tag is the release's tag, e.g. "v0.2-beta". While updating is on it is the
-	// newest release in Releases that an update could take, always of the form
+	// Tag is the release's tag, e.g. "v0.2-beta". When Releases is non-nil it is
+	// the newest release in it that an update could take, always of the form
 	// vX.Y.Z, and it is empty when the list holds none.
 	Tag string
 	// URL is its release page, so the UI can link to the notes.
@@ -284,8 +284,11 @@ func (c *Controller) CheckForReleases(ctx context.Context) error {
 	}
 	now := c.Now()
 	c.mu.Lock()
-	// The zero time is far enough back that the first press always asks.
-	if now.Sub(c.releaseAsked) < releaseAskCooldown {
+	// The zero time is far enough back that the first press always asks. A clock
+	// stepped backwards leaves the last request in the future; that is long
+	// enough, or the button would stay dead until the clock caught up with a
+	// time that was never real.
+	if elapsed := now.Sub(c.releaseAsked); elapsed >= 0 && elapsed < releaseAskCooldown {
 		c.mu.Unlock()
 		return nil
 	}

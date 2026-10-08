@@ -792,6 +792,98 @@ func TestCheckForReleasesIsLimitedToOneRequestAMinute(t *testing.T) {
 	}
 }
 
+// GitHub refusing the request is the case the limit is for: a rate-limited
+// address that is asked again a second later is asked a second time while it is
+// still refusing. So the minute is spent by asking and not by succeeding, and a
+// press after a failure is held back like any other.
+func TestAFailedRequestStillUsesUpTheMinuteAllowance(t *testing.T) {
+	h := newHarness(t)
+	withVersion(t, "1.3.3")
+	h.inMode("manual")
+	gh := h.stubGitHub(http.StatusForbidden, `{"message":"API rate limit exceeded"}`)
+
+	if err := h.c.CheckForReleases(h.ctx); err == nil {
+		t.Fatal("a press that GitHub refused returned no error")
+	}
+	if len(gh.asked) != 1 {
+		t.Fatalf("asked %d times after the first press, want 1", len(gh.asked))
+	}
+
+	h.advance(10 * time.Second)
+	if err := h.c.CheckForReleases(h.ctx); err != nil {
+		t.Errorf("a press inside the minute returned %v, want it held back without an error", err)
+	}
+	if len(gh.asked) != 1 {
+		t.Errorf("asked %d times after a failure and a second press, want the second held back", len(gh.asked))
+	}
+}
+
+// The request is made with no lock held, or every reader of the controller waits
+// on GitHub for as long as the request takes, and the minute is taken before it
+// is made, or a second press while it is in flight asks again. A request that
+// presses the button and reads the answer from inside itself cannot be written
+// to pass unless both are true: with the lock held it never returns, and with
+// the stamp taken afterwards the inner press makes a second request.
+func TestNoLockIsHeldAcrossTheRequestAndASecondPressDuringItIsHeldBack(t *testing.T) {
+	h := newHarness(t)
+	withVersion(t, "1.3.3")
+	h.inMode("manual")
+
+	asked := 0
+	var innerErr error
+	var innerSaw *releaseState
+	h.c.httpClient = &http.Client{Transport: roundTripFunc(func(*http.Request) *http.Response {
+		asked++
+		if asked == 1 {
+			innerErr = h.c.CheckForReleases(h.ctx)
+			innerSaw = h.c.latestRelease()
+		}
+		return jsonResponse(http.StatusOK, releaseList())
+	})}
+
+	done := make(chan error, 1)
+	go func() { done <- h.c.CheckForReleases(h.ctx) }()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("the press: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("the press never returned: a lock is held across the request")
+	}
+
+	if asked != 1 {
+		t.Errorf("made %d requests, want the press during the first to be held back", asked)
+	}
+	if innerErr != nil {
+		t.Errorf("the press during the request returned %v, want nil", innerErr)
+	}
+	if innerSaw != nil {
+		t.Errorf("a press during the request saw %+v, want nothing learnt yet", innerSaw)
+	}
+}
+
+// A clock that is stepped back leaves the last request in the future. Counted
+// literally that is a negative wait, shorter than the minute, so the button would
+// stay dead until the clock caught up with a time that was never real.
+func TestAClockSteppedBackwardsDoesNotLockTheButton(t *testing.T) {
+	h := newHarness(t)
+	withVersion(t, "1.3.3")
+	h.inMode("manual")
+	gh := h.stubGitHub(http.StatusOK, releaseList())
+
+	if err := h.c.CheckForReleases(h.ctx); err != nil {
+		t.Fatalf("the first press: %v", err)
+	}
+	h.advance(-time.Hour)
+	if err := h.c.CheckForReleases(h.ctx); err != nil {
+		t.Fatalf("a press after the clock moved back: %v", err)
+	}
+	if len(gh.asked) != 2 {
+		t.Errorf("asked %d times, want a press after the clock moved back to ask again", len(gh.asked))
+	}
+}
+
 // The scheduled pass is what asks in production, and it is not told which
 // question to ask: it has to reach the list when updating is on. The harness
 // answers for GitHub with an empty list, which a pass that went to the real
