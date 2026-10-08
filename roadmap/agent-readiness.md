@@ -610,7 +610,9 @@ progress row, per the roadmap's delivery rules.
 `.github/workflows/open code.yml` runs an agent action with `contents: write`,
 `pull-requests: write` and `id-token: write` on any issue or review comment
 containing `/oc` or `/opencode`, with no check of the commenter's association.
-Anyone who can comment can trigger it. That is this repository's own instance
-of the plan's `pull_request_target` concern and should be gated on
-`github.event.comment.author_association` before Kennel Club is taught to flag
-it in other people's repositories.
+Anyone who could comment could trigger it. That is this repository's own
+instance of the plan's `pull_request_target` concern. Fixed alongside this
+record: the job now also requires the commenter's association to be owner,
+member or collaborator, so a stranger's comment is ignored. The shape — a
+comment-triggered job holding write tokens with no association check — is a
+candidate Kennel Club check for other people's repositories.
