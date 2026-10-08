@@ -1,8 +1,10 @@
 # Agent readiness: the refined plan
 
-Version 2 · 8 October 2026 · a review and refinement of the owner's
+Version 2.1 · 8 October 2026 · a review and refinement of the owner's
 *agent-readiness implementation plan* (v1, seven phases), reconciled against
-`main` at `9592ef2`, [kennel-club.md](kennel-club.md) and the active roadmap.
+`main` at `88c41f6`, [kennel-club.md](kennel-club.md) and the active roadmap.
+Version 2.1 reads in #714, which landed the first workflow-file checks while
+version 2 was being written.
 
 This document is a plan, not code. Nothing in it is authorised until the
 packages in section 7 are added to [ROADMAP.md](../ROADMAP.md) section 8 and
@@ -28,7 +30,7 @@ designed:
 | --- | --- | --- |
 | Phase 2: build `zoomies why` with classes, evidence and next steps | `GET /jobs/{id}/explanation` (`internal/controller/explain.go`, 374 lines) already answers "why is this job where it is" for queued, running, waiting and finished jobs, with a summary, detail and fix; the CLI, MCP `get_job` and the job drawer all show it. A closed fault taxonomy (`internal/store/faults.go`) names eleven fleet-side failure kinds, each with its own fix sentence | Phase 2 becomes *sharpening*: a `class`, structured evidence, a bounded log excerpt, a catalog link and ordered next steps on the existing payload, and a `why` verb that reads it. No second explainer |
 | Phase 3: build observed-usage size advice | `GET /label-advice`, `zoomies jobs advice`, MCP `label_advice` and the `SizeAdvice` card already recommend `too_small`, `unguaranteed` or `too_large` from the 90th percentile of at least five measured runs (`internal/scheduler/advice.go`, `history.go`) | Phase 3 becomes a small *exposure* change: show the figures the advice rests on and say "not enough data" out loud |
-| Phase 4: build `zoomies audit`, a standalone workflow auditor with its own rule table | `zoomies audit` **is already the audit-log command** (`cmd/zoomies/audit.go`). Kennel Club (`internal/kennel`) is the repository-standards feature: six checks shipped, a registry with a catalogue endpoint, waivers, coverage, MCP read tools, UI and metrics. Its approved design already specifies the workflow-file checks as Stage 3 (`ci.no_timeout`, `ci.no_concurrency`, `ci.action_not_pinned`, `ci.target_checkout_pr_head`, `token.permissions_unset`, …) and fix-by-pull-request as Stage 5 | Phase 4 **is** Kennel Club Stage 3, plus a local, offline way to run the same checks. The plan's rule IDs become Kennel check codes. There is no second rule table and no second auditor |
+| Phase 4: build `zoomies audit`, a standalone workflow auditor with its own rule table | `zoomies audit` **is already the audit-log command** (`cmd/zoomies/audit.go`). Kennel Club (`internal/kennel`) is the repository-standards feature: a registry with a catalogue endpoint, waivers, coverage, MCP read tools, UI and metrics. Since #714 it **already reads workflow files**: `ci.no_timeout`, `ci.no_concurrency`, `ci.action_not_pinned` and `token.permissions_unset` ship behind `kennel.workflow_checks`, as per-repository counts, plus ten `setup.*` presence checks behind `kennel.repository_setup`. Its design record specifies the rest of Stage 3 and fix-by-pull-request as Stage 5 | Phase 4 **deepens** what #714 shipped — per-file evidence, the security checks the record still owes, and a local, offline way to run the same checks. The plan's rule IDs become Kennel check codes. There is no second rule table and no second auditor |
 | Phase 1: extend "the existing problem-code table" | There is no table. Each of the 377 documented codes is a `Problem{Code: …}` literal where it is raised; the only central maps are the audience map (`problems.go:129-284`) and the status-page sentences. `docs/problem-codes.md` is hand-written and a test keeps it in step with the literals both ways | Phase 1 generates the catalog from what exists — the documented table plus Kennel Club's registry — rather than migrating 377 call sites into a struct nobody asked for |
 | Phase 7.6a: an autonomy ladder over model-generated patches | Kennel Club Stage 5 is a *deterministic* fix planner: line-level edits verified by re-parsing, numbers from the job's own history, no model anywhere | Autonomy, where it is built at all, is built over deterministic fixes first. A model-generated patch is a later rung with its own gate |
 
@@ -288,6 +290,45 @@ boundary tests at the named constants.
 **Goal.** The plan's auditor, delivered as the stage of Kennel Club that was
 already designed for it, plus an offline way to run it.
 
+### 6.0 What #714 shipped, and what it leaves
+
+#714 (8 October) put the registry at `Version = 3` with five areas —
+`exposure`, `capacity`, `setup`, `ci`, `token` — and two opt-in settings, both
+off by default and both needing Contents: read only for private repositories:
+
+* `kennel.workflow_checks` reads up to fifty default-branch workflow files of
+  up to 256 KiB each (`internal/github/kennel_workflows.go`), walks them with a
+  bounded `yaml.Node` inspection, and keeps **counts only** in the snapshot
+  (`kennel.WorkflowFacts`: files, no-timeout jobs, non-cancelling PR workflows,
+  first-party and other unpinned uses, permission-less jobs). Four checks read
+  those counts: `ci.no_timeout` (warning), `ci.no_concurrency` (info),
+  `ci.action_not_pinned` (warning when a third-party action is unpinned, info
+  otherwise) and `token.permissions_unset` (warning on a public repository).
+* `kennel.repository_setup` reads one Git tree per repository and raises ten
+  informational `setup.*` findings for missing community files, CODEOWNERS,
+  an updater configuration or any workflow at all.
+
+What it deliberately does not keep is the thing the plan's auditor is for: a
+finding says *"3 executable job declarations have no timeout-minutes"* and
+cannot say which file or which job, because no path, job name or line enters
+the stored snapshot. That is the right posture for a hostile-input boundary,
+and it is why the per-finding agent prompt (6.4) and the offline check (6.3)
+cannot be built on the counts alone. The remainder of Phase 4 is therefore:
+
+1. **Evidence with a location.** A second, typed evidence kind beside `pool`
+   and `run`: `{file_sha, job_index, line}` — a blob SHA, not a path, so the
+   closed-grammar gate in `refs.go` still holds and the UI resolves the SHA to
+   a path only at render time from the inventory it already has. With it, a
+   finding can name where, and `Recheck` after a fix closes exactly it.
+2. **The checks the record still owes**: `ci.target_checkout_pr_head`,
+   `ci.pins_without_updater` (now partly covered by `setup.dependency_updates`,
+   so it narrows to "pinned but nothing moves the pins"), `ci.workflow_unreadable`
+   (a file over the limits is a coverage gap today, not a finding), and the two
+   new rows in 6.1.
+3. **The parser moves** from `internal/github` to `internal/kennel/workflow`,
+   as the record always intended, so the offline command can use it without a
+   GitHub client, and so the fuzz target lives beside the evaluator.
+
 ### 6.1 The rule set, reconciled
 
 The Kennel Club record's Stage 3 and 4 rows cover most of the plan's list. Each
@@ -295,11 +336,11 @@ of the plan's rules, and where it lands:
 
 | Plan rule | Decision | Kennel code |
 | --- | --- | --- |
-| job-timeout | Stage 3 as designed | `ci.no_timeout` |
-| cancel-superseded | Stage 3 as designed | `ci.no_concurrency` |
-| unpinned-actions | Stage 3 as designed, two codes | `ci.action_not_pinned`, `ci.pins_without_updater` |
-| pull_request_target | Stage 3 as designed | `ci.target_checkout_pr_head` |
-| token-permissions | Stage 3 + Stage 4 | `token.permissions_unset`, `token.default_write` |
+| job-timeout | **Shipped in #714** as a count; gains location evidence (6.0) | `ci.no_timeout` |
+| cancel-superseded | **Shipped in #714** as a count; gains location evidence | `ci.no_concurrency` |
+| unpinned-actions | **Shipped in #714** as a count; gains location evidence and the updater half | `ci.action_not_pinned`, `ci.pins_without_updater` |
+| pull_request_target | Still owed from the record's Stage 3 | `ci.target_checkout_pr_head` |
+| token-permissions | **Shipped in #714** (file half); the repository-default half is Stage 4 | `token.permissions_unset`, `token.default_write` |
 | self-hosted-fork-pr | **Already shipped** from observed runs; Stage 4 sharpens | `exposure.fork_code_ran`, `exposure.public_repo_weak_pool`, `exposure.fork_approval_weak` |
 | label-matches-pool | **Already shipped** for the observed half | `capacity.unserved_label`; the static half (a `runs-on` in a file no pool serves) is a new Stage 3 row, `ci.label_unserved`, info |
 | secret-exposure | New, Stage 3, conservative: a `${{ secrets.* }}` interpolated into a `run:` line or passed as a command-line argument. Never a general "secret-looking string" scan | `ci.secret_on_command_line`, warning |
@@ -310,7 +351,9 @@ Two registry rules to respect: only `exposure` checks may be errors
 (`TestOnlyExposureChecksCanBeErrors`), so `ci.target_checkout_pr_head` on a
 public repository is either placed in the exposure area or the test and the
 `kennel.exposure` problem are revisited by a decision record — recommended: the
-exposure area, because that is what it is. And `kennel.Version` is bumped.
+exposure area, because that is what it is. And `kennel.Version` (3 since #714)
+is bumped again, because adding location evidence changes what a stored
+evaluation holds.
 
 ### 6.2 Security and the plain scenario
 
@@ -323,10 +366,11 @@ designed.
 ### 6.3 Offline: `zoomies kennel check [path]`
 
 The plan's "nothing is sent anywhere" story, which Kennel Club on a controller
-cannot tell because it reads through GitHub. The same `internal/kennel/workflow`
-parser and the same `ci.*` and `token.*` evaluators run over a local
-`.github/workflows`, with the fleet-dependent checks reported as *not checked
-here* rather than silently absent. `--output json`, `--code a,b`, `--severity`,
+cannot tell because it reads through GitHub. The same parser (today
+`InspectKennelWorkflow` in `internal/github`, moved to `internal/kennel/workflow`
+by 6.0) and the same `ci.*` and `token.*` evaluators run over a local
+`.github/workflows`, with the fleet-dependent and `setup.*` checks reported as
+*not checked here* rather than silently absent. `--output json`, `--code a,b`, `--severity`,
 `--prompts`. Exit codes: 0 no findings at the asked severity, 1 error, 4
 findings. The command is the thing the `zoomies-kennel` skill calls, and it
 never talks to a controller unless `--controller` is given, in which case the
@@ -596,7 +640,8 @@ evidence (section 6.1).
 1. ZF-230 catalog, guard, command generator
 2. ZF-231 `why`
 3. ZF-232 size-advice figures
-4. ZF-229c Kennel Club Stage 3, extended, with `zoomies kennel check`
+4. ZF-229c the rest of Kennel Club Stage 3 — location evidence, the owed
+   checks, the parser move — with `zoomies kennel check`
 5. ZF-233 skills
 6. ZF-234 docs, foldable into each of the above
 7. ZF-235 the assistant, 7a → 7j, with Stage 5 and step-up as their own
