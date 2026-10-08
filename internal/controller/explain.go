@@ -46,6 +46,23 @@ type JobExplanation struct {
 	RunnerID   string    `json:"runner_id,omitempty"`
 	HostID     string    `json:"host_id,omitempty"`
 	ComputedAt time.Time `json:"computed_at"`
+
+	// Class is the same answer as the summary, in a form a caller can switch on.
+	// It is always set: a job the explainer cannot narrow is ClassUnknown, and
+	// says what was missing, rather than having no class.
+	Class JobClass `json:"class"`
+	// Confidence is how far to trust Class, and ConfidenceReason says what is
+	// missing whenever it is not high.
+	Confidence       Confidence `json:"confidence"`
+	ConfidenceReason string     `json:"confidence_reason,omitempty"`
+	// Evidence is what the explanation rests on, as facts a person can check.
+	Evidence []Evidence `json:"evidence"`
+	// ProblemCode and CheckCode name the catalog entry that says more, when one
+	// is true of every job in the class. The catalog is catalog.json.
+	ProblemCode string `json:"problem_code,omitempty"`
+	CheckCode   string `json:"check_code,omitempty"`
+	// NextSteps are what to do, in order. The first is Fix when there is one.
+	NextSteps []NextStep `json:"next_steps"`
 }
 
 // ExplainJob works out why a job is where it is.
@@ -67,20 +84,27 @@ func (c *Controller) ExplainJob(ctx context.Context, jobID string) (*JobExplanat
 		RunnerID:   job.RunnerID,
 		ComputedAt: c.Now(),
 	}
+	c.explain(ctx, job, out)
+	out.finish(job)
+	return out, nil
+}
 
+// explain is the half of ExplainJob that has an opinion, split off so that every
+// way out of it passes through finish and none can skip it.
+func (c *Controller) explain(ctx context.Context, job *store.Job, out *JobExplanation) {
 	switch job.State {
 	case store.JobCompleted:
-		c.explainCompleted(job, out)
-		return out, nil
+		c.explainCompleted(ctx, job, out)
+		return
 	case store.JobInProgress:
 		// Ahead of the running explanation, which would otherwise name a
 		// runner this fleet took away when the cancellation landed.
 		if job.Cancelling() {
 			explainCancelling(job, out)
-			return out, nil
+			return
 		}
 		c.explainRunning(ctx, job, out)
-		return out, nil
+		return
 	case store.JobWaiting:
 		// Not this fleet's wait at all, and saying so is the point: a job
 		// sitting still reads as a slow fleet until somebody says otherwise.
@@ -88,16 +112,58 @@ func (c *Controller) ExplainJob(ctx context.Context, jobID string) (*JobExplanat
 		out.Summary = "GitHub is holding this job for a deployment review."
 		out.Detail = "Nothing here can start it until somebody approves it. The wait for a runner begins when they do, so the queue wait below has not started."
 		out.Fix = "approve the deployment on GitHub, or leave it -- nothing in this fleet is wrong."
-		return out, nil
+		out.classify(ClassHeldByGitHub, ConfidenceHigh, "")
+		out.fact(EvidenceConclusion, "GitHub's state", string(job.State))
+		return
 	}
 
 	out.Waiting = true
+	if wait, ok := queueWait(job, c.Now()); ok {
+		out.number(EvidenceQueueWait, "Has waited for a runner", int64(wait.Seconds()), "s")
+	}
+	c.where(ctx, job, out)
 	c.explainQueued(ctx, job, out)
-	return out, nil
 }
 
-func (c *Controller) explainCompleted(job *store.Job, out *JobExplanation) {
+// where adds the pool, runner and host a job is tied to, each with the page that
+// shows it. They are the places an operator goes next, so they are evidence and
+// not decoration.
+func (c *Controller) where(ctx context.Context, job *store.Job, out *JobExplanation) {
+	if job.PoolID != "" {
+		name := job.PoolID
+		if pool, err := c.st.GetPool(ctx, job.PoolID); err == nil {
+			name = pool.Name
+		}
+		out.thing(EvidencePool, "Pool", name, "/pools/"+job.PoolID)
+	}
+	if job.RunnerID != "" {
+		name := job.RunnerName
+		if name == "" {
+			name = job.RunnerID
+		}
+		out.thing(EvidenceRunner, "Runner", name, "/runners/"+job.RunnerID)
+	}
+	if job.HostID != "" {
+		name := job.HostID
+		if host, err := c.st.GetHost(ctx, job.HostID); err == nil {
+			name = host.Name
+		}
+		out.thing(EvidenceHost, "Host", name, "/hosts/"+job.HostID)
+	}
+}
+
+func (c *Controller) explainCompleted(ctx context.Context, job *store.Job, out *JobExplanation) {
 	defer explainOOM(job, out)
+	if wait, ok := queueWait(job, c.Now()); ok {
+		out.number(EvidenceQueueWait, "Waited for a runner", int64(wait.Seconds()), "s")
+	}
+	if ran, ok := ranFor(job, c.Now()); ok {
+		out.number(EvidenceDuration, "Ran for", int64(ran.Seconds()), "s")
+	}
+	if job.Conclusion != "" {
+		out.fact(EvidenceConclusion, "GitHub's conclusion", job.Conclusion)
+	}
+	c.where(ctx, job, out)
 	switch {
 	case job.FleetFailed():
 		out.Summary = "The runner this job was on stopped before the job finished."
@@ -109,11 +175,73 @@ func (c *Controller) explainCompleted(job *store.Job, out *JobExplanation) {
 		if out.Fix == "" {
 			out.Fix = "this is the fleet's failure rather than the workflow's: the runner's page has what it said as it went."
 		}
+		classifyFault(job, out)
 	case store.IsFailedConclusion(job.Conclusion):
 		out.Summary = "This job ran and " + job.Conclusion + "."
 		out.Detail = "The fleet did its part: a conclusion is the workflow's own outcome."
+		if step := job.FailedStep(); step != nil {
+			out.outside(EvidenceStep, "Step it stopped at", step.Name)
+		}
+		if job.Conclusion == "timed_out" {
+			out.Detail = "The fleet did its part: GitHub stopped this job at its time limit, which is the workflow's own."
+			out.Fix = "open the step the job was in when the limit was reached; raise the job's timeout-minutes if the work needs longer, or fix what hung."
+			out.classify(ClassTimeout, ConfidenceHigh, "")
+			break
+		}
+		out.classify(ClassWorkflowFailure, ConfidenceHigh, "")
+	case job.Conclusion == "cancelled":
+		out.Summary = "This job ran and " + job.Conclusion + "."
+		out.Detail = "Somebody or something cancelled it on GitHub; the fleet did not."
+		out.classify(ClassCancelled, ConfidenceHigh, "")
+	case job.Conclusion == "success" || job.Conclusion == "skipped" || job.Conclusion == "neutral":
+		out.Summary = "This job ran and " + job.Conclusion + "."
+		out.classify(ClassSucceeded, ConfidenceHigh, "")
 	default:
 		out.Summary = "This job ran and " + job.Conclusion + "."
+		// Stale is Zoomies' own word for a job GitHub stopped talking about, and the
+		// others are conclusions this build has no rule for. Either way the honest
+		// class is the one that says so.
+		out.classify(ClassUnknown, ConfidenceLow, "GitHub's conclusion for this job, "+quoteConclusion(job.Conclusion)+", is not one the explainer has a rule for, and the fleet recorded no fault against it")
+	}
+}
+
+// quoteConclusion says a conclusion in a sentence, including the empty one.
+func quoteConclusion(conclusion string) string {
+	if conclusion == "" {
+		return "nothing yet"
+	}
+	return `"` + conclusion + `"`
+}
+
+// classifyFault classes a job the fleet itself failed, from the closed set of
+// fault kinds. The kinds already carry the distinction that matters, and this
+// only names it for a caller that switches on a value.
+func classifyFault(job *store.Job, out *JobExplanation) {
+	kind := job.FaultKind.Normalise()
+	if kind != "" {
+		out.fact(EvidenceFault, "Fault the fleet recorded", string(kind))
+	}
+	if job.RunnerFault != "" {
+		// What a runner printed as it failed can carry text from anywhere: an
+		// image's name, a registry's reply, a step's own output.
+		out.outside(EvidenceFaultDetail, "What the runner said", job.RunnerFault)
+	}
+	switch kind {
+	case store.FaultOutOfMemory:
+		out.classify(ClassOOM, ConfidenceHigh, "")
+	case store.FaultHostLost:
+		out.classify(ClassHostLost, ConfidenceHigh, "")
+	case store.FaultOutOfDisk:
+		out.classify(ClassDisk, ConfidenceHigh, "")
+	case store.FaultRemoved:
+		out.classify(ClassCancelled, ConfidenceHigh, "")
+	case store.FaultImage, store.FaultRegistration, store.FaultBackend, store.FaultBackendBusy,
+		store.FaultContainerConflict, store.FaultConfig:
+		out.classify(ClassRunnerStartupFailure, ConfidenceHigh, "")
+	case store.FaultRunnerExited:
+		out.classify(ClassUnknown, ConfidenceLow, "the runner stopped and the agent could not narrow why, so the fleet recorded no more than that")
+	default:
+		out.classify(ClassUnknown, ConfidenceLow, "the fleet recorded a message for the runner's failure but no fault kind, which is what a job from before fault kinds looks like")
 	}
 }
 
@@ -138,6 +266,18 @@ func explainOOM(job *store.Job, out *JobExplanation) {
 	// conclusion GitHub recorded cannot tell anybody.
 	out.Summary = sentence
 	out.Fix = store.FaultOutOfMemory.Fix() + " With scheduler.history_sizing set to on, the next run of this job is placed on a host with room for what it needed."
+	// A kill is the cause whatever the conclusion says, so it outranks a class the
+	// rest of the explanation reached from GitHub's side of the story.
+	out.classify(ClassOOM, ConfidenceHigh, "")
+	if !out.has(EvidenceFault) {
+		out.fact(EvidenceFault, "Fault the fleet recorded", string(store.FaultOutOfMemory))
+	}
+	if job.PeakMemoryMB > 0 {
+		out.number(EvidenceMemoryPeak, "Most memory it was measured using", job.PeakMemoryMB, "MB")
+	}
+	if job.GrantedMemoryMB > 0 {
+		out.number(EvidenceMemoryLimit, "Memory it was given", job.GrantedMemoryMB, "MB")
+	}
 }
 
 // sizeSentence says how a job was classed and where it was sent, as part of an
@@ -168,6 +308,10 @@ func (c *Controller) explainRunning(ctx context.Context, job *store.Job, out *Jo
 	// which is often minutes before GitHub closes the job. Until it does, this
 	// is the function that answers -- and it used to answer "this job is
 	// running on zoomies-x", about a runner the fleet had already written off.
+	if ran, ok := ranFor(job, c.Now()); ok {
+		out.number(EvidenceDuration, "Has run for", int64(ran.Seconds()), "s")
+	}
+	c.where(ctx, job, out)
 	if job.FleetFailed() {
 		out.Blocked = true
 		out.Summary = "The runner this job was on has stopped, and GitHub has not noticed yet."
@@ -176,12 +320,14 @@ func (c *Controller) explainRunning(ctx context.Context, job *store.Job, out *Jo
 		if out.Fix == "" {
 			out.Fix = "this is the fleet's failure rather than the workflow's: the runner's page has what it said as it went."
 		}
+		classifyFault(job, out)
 		return
 	}
 	out.Summary = "This job is running."
 	if job.RunnerName != "" {
 		out.Summary = "This job is running on " + job.RunnerName + "."
 	}
+	out.classify(ClassRunning, ConfidenceHigh, "")
 	// A runner whose host has gone quiet is the case worth catching here: the
 	// job looks healthy and nothing is watching it.
 	if job.RunnerID == "" {
@@ -201,6 +347,10 @@ func (c *Controller) explainRunning(ctx context.Context, job *store.Job, out *Jo
 	out.Detail = fmt.Sprintf("%s last checked in %s ago, and a host silent for %s is presumed gone -- the job will be marked as lost by the fleet.",
 		naming.ForSentence(host.Name), formatAge(c.Now().Sub(host.LastHeartbeat)), store.HeartbeatTimeout)
 	out.Fix = "check that the zoomies agent is running on that host and can reach this controller."
+	// The host has been quiet, and nothing says the job has stopped: the fleet
+	// presumes it gone, which is a reading of silence and not a recorded fault.
+	out.classify(ClassHostLost, ConfidenceMedium, "the host has been silent for longer than the heartbeat timeout, but nothing has reported the job stopped")
+	out.thing(EvidenceHeartbeat, "Host last checked in", formatAge(c.Now().Sub(host.LastHeartbeat))+" ago", "/hosts/"+host.ID)
 }
 
 // explainCancelling covers the window between GitHub accepting a cancellation
@@ -213,6 +363,10 @@ func explainCancelling(job *store.Job, out *JobExplanation) {
 	out.Detail = "GitHub accepted the cancellation; this fleet stopped its queued demand and any runner working on it at that moment. " +
 		"GitHub reports the conclusion in its own time, and until it does the job is recorded as neither waiting nor running."
 	out.Fix = "nothing here: the conclusion arrives with GitHub's completion event. Re-run the workflow on GitHub if the work is still wanted."
+	out.classify(ClassCancelled, ConfidenceHigh, "")
+	if job.CancelRequestedAt != nil {
+		out.fact(EvidenceConclusion, "Cancellation accepted by GitHub", job.CancelRequestedAt.UTC().Format(time.RFC3339))
+	}
 }
 
 // explainQueued is the case the endpoint exists for.
@@ -232,6 +386,8 @@ func (c *Controller) explainQueued(ctx context.Context, job *store.Job, out *Job
 		}
 		out.Detail = "It contributes no new runner demand. Existing runners and the pool's warm capacity can still pick up the GitHub job."
 		out.Fix = "Resume the item in Queue to restore its provisioning demand."
+		out.classify(ClassQueuedBlocked, ConfidenceHigh, "")
+		out.fact(EvidenceScheduler, "Provisioning for this item", job.Provisioning)
 		return
 	}
 	plan, planAt := c.getLastPlan()
@@ -253,6 +409,9 @@ func (c *Controller) explainQueued(ctx context.Context, job *store.Job, out *Job
 			}
 		}
 		out.Fix = "create or enable a pool advertising those labels, or change the workflow's runs-on. If another runner provider takes these jobs, nothing needs doing."
+		out.classify(ClassQueuedUnmatched, ConfidenceHigh, "")
+		// The labels are the workflow's own runs-on, which its author wrote.
+		out.outside(EvidenceLabels, "Labels it asks for", joinLabels(job.Labels))
 		// The scheduler's own reason is the one that is true of this job -- a pool
 		// that carries the label does exist, on another installation -- and the
 		// sentence about a class nobody answers would say the opposite.
@@ -270,6 +429,7 @@ func (c *Controller) explainQueued(ctx context.Context, job *store.Job, out *Job
 	if err != nil {
 		out.Summary = "A pool claimed this job, and that pool is no longer here."
 		out.Fix = "the job will be re-matched on the next pass; if it is not, its labels no longer name a pool."
+		out.classify(ClassUnknown, ConfidenceLow, "the pool that claimed this job has been deleted, so what it was waiting for is gone with it")
 		return
 	}
 	out.Summary = "A runner is on its way for this job."
@@ -299,6 +459,8 @@ func (c *Controller) explainQueued(ctx context.Context, job *store.Job, out *Job
 				if out.Fix == "" {
 					out.Fix = "add a host, raise a host's capacity, uncordon one, or relax the pool's host selector."
 				}
+				out.classify(ClassQueuedBlocked, ConfidenceHigh, "")
+				out.fact(EvidenceScheduler, "The scheduler's reason", pp.Blocked)
 				return
 			}
 			// A pool whose runners keep dying before they register is the case
@@ -313,6 +475,8 @@ func (c *Controller) explainQueued(ctx context.Context, job *store.Job, out *Job
 				out.Summary = pool.Name + " keeps failing to start a runner for this job."
 				out.Detail = pp.Failing
 				out.Fix = startFailureFix(pp.FailingFault)
+				out.classify(ClassRunnerStartupFailure, ConfidenceHigh, "")
+				out.fact(EvidenceScheduler, "The scheduler's reason", pp.Failing)
 				return
 			}
 			// What the jobs waiting are known to need, and what that did to
@@ -327,6 +491,9 @@ func (c *Controller) explainQueued(ctx context.Context, job *store.Job, out *Job
 		}
 	}
 
+	// Until the counts say more, the scheduler has not yet decided: the one answer
+	// that is true of a claimed job nothing has blocked.
+	out.classify(ClassQueuedCapacity, ConfidenceMedium, "the scheduler has not yet decided what to do for this job")
 	counts, err := c.st.CountRunnersByPool(ctx)
 	if err != nil {
 		// The counts are the nicety; the claim above is the answer.
@@ -338,14 +505,21 @@ func (c *Controller) explainQueued(ctx context.Context, job *store.Job, out *Job
 		out.Summary = fmt.Sprintf("%s idle in %s, so GitHub should hand this job over any moment.",
 			runnersAre(pc.Idle), pool.Name)
 		out.Detail = "Which runner takes it is GitHub's choice, not this fleet's."
+		out.classify(ClassQueuedCapacity, ConfidenceMedium, "a runner is idle for it, and GitHub, not this fleet, decides which runner takes a job")
+		out.number(EvidenceRunner, "Idle runners in the pool", int64(pc.Idle), "runners")
 	case pc.Provisioning+pc.Registering > 0:
 		out.Summary = fmt.Sprintf("%s starting for %s.", runnersAre(pc.Provisioning+pc.Registering), pool.Name)
 		out.Detail = "The job goes to the first one GitHub sees."
+		out.classify(ClassQueuedCapacity, ConfidenceHigh, "")
+		out.number(EvidenceRunner, "Runners starting in the pool", int64(pc.Provisioning+pc.Registering), "runners")
 	case pool.MaxRunners > 0 && pc.Live() >= pool.MaxRunners:
 		out.Waiting = true
 		out.Summary = fmt.Sprintf("%s is at its ceiling of %s, all busy.", pool.Name, plural(pool.MaxRunners, "runner"))
 		out.Detail = "The job waits for one of them to finish."
 		out.Fix = "raise this pool's max_runners if the fleet has room for more."
+		out.classify(ClassQueuedCapacity, ConfidenceHigh, "")
+		out.number(EvidenceRunner, "Runners in the pool, all busy", int64(pc.Live()), "runners")
+		out.number(EvidencePool, "The pool's ceiling", int64(pool.MaxRunners), "runners")
 	default:
 		out.Summary = "No runner is free for this job yet, and none is starting."
 		out.Detail = "The scheduler decides on its next pass."
