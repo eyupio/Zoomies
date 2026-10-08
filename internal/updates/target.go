@@ -112,7 +112,8 @@ func Choose(in ChooseInput) Target {
 		return t
 	}
 	t.DueAt = best.PublishedAt.Add(in.Soak)
-	t.Reason = autoReason(t, in.Soak, in.Now)
+	skipped, _ := displaced(in.Releases, in.GOOS, in.GOARCH, best, in.Running)
+	t.Reason = autoReason(t, skipped.Tag, in.Soak, in.Now)
 	return t
 }
 
@@ -129,8 +130,9 @@ func noReleaseReason(goos, goarch string) string {
 }
 
 // autoReason words an auto target that is newer: inside the soak, past it, or
-// dated ahead of the clock.
-func autoReason(t Target, soak time.Duration, now time.Time) string {
+// dated ahead of the clock. skipped is the tag of the release the target pushed
+// aside, or empty when it pushed none.
+func autoReason(t Target, skipped string, soak time.Duration, now time.Time) string {
 	tag := t.Release.Tag
 	age := now.Sub(t.Release.PublishedAt)
 	if age < 0 {
@@ -147,8 +149,16 @@ func autoReason(t Target, soak time.Duration, now time.Time) string {
 	if t.DueBy(now) {
 		return fmt.Sprintf("Ready: %s has been public for %s and %s; it can be taken now.", tag, spanOf(age), wait)
 	}
-	return fmt.Sprintf("Waiting: %s has been public for %s and %s; it can be taken in %s.",
+	waiting := fmt.Sprintf("Waiting: %s has been public for %s and %s; it can be taken in %s.",
 		tag, spanOf(age), wait, spanOf(t.DueAt.Sub(now)))
+	if skipped == "" {
+		return waiting
+	}
+	// A newer release restarts the wait, so an older one that has already been
+	// public for the whole soak is passed over. Without this the operator is left
+	// to work out why it was not taken, and that a project publishing faster than
+	// the soak is never updated by auto.
+	return waiting + fmt.Sprintf(" It replaced %s, which is skipped, and a newer release would start the wait again.", skipped)
 }
 
 // span is a length of time as the sentences say it: whole hours from an hour up,

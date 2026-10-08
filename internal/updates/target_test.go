@@ -287,7 +287,9 @@ func TestChooseAutoIsDueExactlyAtTheBoundary(t *testing.T) {
 // that is the point: v1.3.1 has been public for 25 hours here and would be due,
 // but v1.3.2 landed four and a half hours after it, so the controller waits a
 // day from v1.3.2 instead. v1.3.1 is not the target at any time, whichever way
-// round GitHub lists the two.
+// round GitHub lists the two, and the sentence says it was skipped: an operator
+// looking at a release that has been public for 25 hours will ask why it was
+// not taken.
 func TestANewerReleaseRestartsTheSoak(t *testing.T) {
 	t0 := time.Date(2026, 10, 6, 7, 0, 0, 0, time.UTC)
 	first := published("v1.3.1", t0)
@@ -306,7 +308,7 @@ func TestANewerReleaseRestartsTheSoak(t *testing.T) {
 		if got.DueBy(now) {
 			t.Error("due at 25 hours, which only v1.3.1 had waited for")
 		}
-		const want = "Waiting: v1.3.2 has been public for 20 hours and auto waits for 24; it can be taken in 3 hours."
+		const want = "Waiting: v1.3.2 has been public for 20 hours and auto waits for 24; it can be taken in 3 hours. It replaced v1.3.1, which is skipped, and a newer release would start the wait again."
 		if got.Reason != want {
 			t.Errorf("Reason = %q, want %q", got.Reason, want)
 		}
@@ -320,6 +322,99 @@ func TestANewerReleaseRestartsTheSoak(t *testing.T) {
 			t.Error("v1.3.2 is not due once its own day has passed")
 		}
 	})
+}
+
+// The price of the soak is that a project publishing faster than the wait is
+// never updated by auto, and the sentence has to be the thing that says so. Five
+// releases about five hours apart, 25 hours after the first: only the one just
+// before the target is named, because the earlier ones were pushed aside by it
+// in turn and a list of them would grow with every release.
+func TestOnlyTheReleaseJustBeforeTheTargetIsNamedAsSkipped(t *testing.T) {
+	t0 := time.Date(2026, 10, 6, 7, 0, 0, 0, time.UTC)
+	releases := []Release{
+		published("v1.3.1", t0),
+		published("v1.3.2", t0.Add(5*time.Hour)),
+		published("v1.3.3", t0.Add(10*time.Hour)),
+		published("v1.3.4", t0.Add(15*time.Hour)),
+		published("v1.3.5", t0.Add(19*time.Hour)),
+	}
+	now := t0.Add(25 * time.Hour)
+
+	const want = "Waiting: v1.3.5 has been public for 6 hours and auto waits for 24; it can be taken in 18 hours. It replaced v1.3.4, which is skipped, and a newer release would start the wait again."
+	inEveryRotation(releases, func(rotated []Release) {
+		if got := Choose(asking(ModeAuto, "1.3.0", now, rotated...)); got.Reason != want {
+			t.Errorf("Reason = %q from %s first, want %q", got.Reason, rotated[0].Tag, want)
+		}
+	})
+}
+
+// "It replaced v1.3.4, which is skipped" is true only of a release that could
+// have been taken and was passed over. One that is already installed, older than
+// what is running, or never complete, dated or final was never in the way, and
+// naming it would send an operator looking for a release that cannot exist. In
+// each case the sentence is the plain one, byte for byte.
+func TestAReleaseThatWasNeverInTheWayIsNotCalledSkipped(t *testing.T) {
+	const plain = "Waiting: v1.3.5 has been public for 6 hours and auto waits for 24; it can be taken in 18 hours."
+	target := published("v1.3.5", noon.Add(-6*time.Hour))
+	draft := published("v1.3.4", noon.Add(-20*time.Hour))
+	draft.Draft = true
+	prerelease := published("v1.3.4", noon.Add(-20*time.Hour))
+	prerelease.Prerelease = true
+
+	for _, tc := range []struct {
+		name    string
+		running string
+		others  []Release
+	}{
+		{"nothing else was published", "1.3.4", nil},
+		{"the only other release is the one running", "1.3.4", []Release{published("v1.3.4", noon.Add(-30*time.Hour))}},
+		{"the only other release is older than the one running", "1.3.4", []Release{published("v1.3.2", noon.Add(-30*time.Hour))}},
+		{"the other release is the target's own version, made again", "1.3.4", []Release{published("v1.3.5", noon.Add(-30*time.Hour))}},
+		{"the release between is still uploading", "1.3.3", []Release{without(published("v1.3.4", noon.Add(-20*time.Hour)), "checksums.txt")}},
+		{"the release between is a draft", "1.3.3", []Release{draft}},
+		{"the release between is a prerelease", "1.3.3", []Release{prerelease}},
+		{"the release between has no date", "1.3.3", []Release{published("v1.3.4", time.Time{})}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			inEveryRotation(append([]Release{target}, tc.others...), func(rotated []Release) {
+				if got := Choose(asking(ModeAuto, tc.running, noon, rotated...)); got.Reason != plain {
+					t.Errorf("Reason = %q from %s first, want the plain %q", got.Reason, rotated[0].Tag, plain)
+				}
+			})
+		})
+	}
+}
+
+// The second sentence belongs to a wait that was restarted and to nothing else.
+// Once the wait is over the release is on its way and there is nothing to
+// explain; a release dated in the future has not started a wait at all; and
+// manual has no wait to restart, so a person asking is told what is there
+// without a history of what auto would have done. Each of these has a skipped
+// release in the list, which is what would tempt a careless rule to mention it.
+func TestTheRestartIsOnlyMentionedWhileAutoIsWaiting(t *testing.T) {
+	t0 := time.Date(2026, 10, 6, 7, 0, 0, 0, time.UTC)
+	first := published("v1.3.1", t0)
+	second := published("v1.3.2", t0.Add(4*time.Hour+26*time.Minute))
+	ends := second.PublishedAt.Add(24 * time.Hour)
+
+	for _, tc := range []struct {
+		name string
+		mode Mode
+		now  time.Time
+		want string
+	}{
+		{"the wait is over", ModeAuto, ends, "Ready: v1.3.2 has been public for 24 hours and auto waits for 24; it can be taken now."},
+		{"the release is dated in the future", ModeAuto, t0.Add(time.Hour), "Waiting: v1.3.2 is dated in the future, so it does not count as public yet; it can be taken in 27 hours."},
+		{"manual", ModeManual, t0.Add(25 * time.Hour), "Available: v1.3.2 is newer than the v1.3.0 running now; manual mode waits for someone to update."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			inEveryRotation([]Release{first, second}, func(rotated []Release) {
+				if got := Choose(asking(tc.mode, "1.3.0", tc.now, rotated...)); got.Reason != tc.want {
+					t.Errorf("Reason = %q from %s first, want %q", got.Reason, rotated[0].Tag, tc.want)
+				}
+			})
+		})
+	}
 }
 
 // GitHub's clock and this controller's can disagree, and a release can be

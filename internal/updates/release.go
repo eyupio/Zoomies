@@ -154,3 +154,20 @@ func (r Release) supersedes(other Release) bool {
 	}
 	return false
 }
+
+// displaced is the release that newest pushed aside: the newest release an
+// update could take that is older than newest and still ahead of what is
+// running. Under a soak it is the one an operator asks about -- public as long
+// as the wait, perhaps, and still not taken -- and only that one, because each
+// of the earlier ones was pushed aside by the release after it. It asks Newest
+// rather than restating what makes a release eligible, so the two cannot drift.
+func displaced(releases []Release, goos, goarch string, newest Release, running string) (Release, bool) {
+	between := make([]Release, 0, len(releases))
+	for _, r := range releases {
+		if version.CompareBuilds(r.Tag, newest.Tag) == version.SkewBehind &&
+			version.CompareBuilds(running, r.Tag) == version.SkewBehind {
+			between = append(between, r)
+		}
+	}
+	return Newest(between, goos, goarch)
+}
