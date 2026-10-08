@@ -573,12 +573,18 @@ func (h *harness) problem(t *testing.T, code string) Problem {
 }
 
 // The controller's GitHub API client is already fake. Its independent public
-// release checker uses this client, so intercept those two URLs as well.
+// release checker uses this client, so intercept the three URLs it asks about
+// as well. The list is only asked for when updates.mode is not off, which is a
+// test's own doing; it gets an empty one, so that turning the mode on does not
+// send a housekeeping pass to the real api.github.com.
 type harnessTransport struct{}
 
 func (harnessTransport) RoundTrip(r *http.Request) (*http.Response, error) {
-	if r.URL.String() == latestReleaseURL || r.URL.String() == mainCommitURL {
+	switch r.URL.String() {
+	case latestReleaseURL, mainCommitURL:
 		return jsonResponse(http.StatusNotFound, `{}`), nil
+	case releaseListURL:
+		return jsonResponse(http.StatusOK, `[]`), nil
 	}
 	return http.DefaultTransport.RoundTrip(r)
 }

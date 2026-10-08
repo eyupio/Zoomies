@@ -346,6 +346,10 @@ type Controller struct {
 	// release is what the last update check learned about the current release
 	// of Zoomies, or nil until one has answered.
 	release *releaseState
+	// releaseAsked is when CheckForReleases last let a request through. It is the
+	// button's own clock: the housekeeping pass paces itself with a local of its
+	// own, so a scheduled check neither uses up the minute nor is held by it.
+	releaseAsked time.Time
 	// development is the head of main learned by a controller running the
 	// moving dev channel. Release checks deliberately cannot order that build,
 	// so it needs its own comparison.
