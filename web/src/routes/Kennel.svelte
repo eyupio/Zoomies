@@ -129,10 +129,9 @@
   }
 
   // A card opens the repositories it counts, and only when it counts some: a link
-  // to an empty list is a click that finds nothing. The number on the card and the
-  // rows behind it agree, which is why two cards have no link at all -- "Partly
-  // checked" adds two standings and the list filters by one, and the list has no
-  // waiver filter to open "Waived" on.
+  // to an empty list is a click that finds nothing. "Partly checked" adds two
+  // standings, which the list filters by as one; "Waived" counts findings, and opens
+  // the repositories that have them, as "Errors" does for errors.
   const opens = (count: number, filter?: KennelListFilter) =>
     count > 0 ? { href: kennelListHref({ ...filter, everything: true }) } : {};
 
@@ -147,6 +146,19 @@
         detail: overview.scope === 'served' ? 'This fleet has run jobs for' : 'The App can see',
         ...opens(overview.repositories),
       },
+      // Only when there are some: a card of zero for a feature most fleets never use
+      // is a number to learn to ignore. It opens the ones Kennel Club was told not to
+      // look at, which the list leaves out unless asked.
+      ...(overview.not_tracked > 0
+        ? [
+            {
+              label: 'Not tracked',
+              value: formatNumber(overview.not_tracked),
+              detail: 'Kennel Club was told not to look at these',
+              ...opens(overview.not_tracked, { notTracked: true }),
+            },
+          ]
+        : []),
       {
         label: bestWord,
         value: formatNumber(states.best_in_show),
@@ -165,6 +177,7 @@
         label: 'Partly checked',
         value: formatNumber(states.partial + states.pending),
         detail: 'Something could not be read, or not looked at yet',
+        ...opens(states.partial + states.pending, { incomplete: true }),
       },
       {
         label: 'Errors',
@@ -184,6 +197,7 @@
         label: 'Waived',
         value: formatNumber(counts.waived),
         detail: 'Somebody decided these are acceptable',
+        ...opens(counts.waived, { waived: true }),
       },
     ];
   });
@@ -281,11 +295,26 @@
             </Panel>
           {/if}
         {:else if overview.repositories === 0}
-          <EmptyState
-            icon={Trophy}
-            title="Nothing to look at yet"
-            description="Kennel Club looks at repositories your fleet has run jobs for. None yet."
-          />
+          <!-- Not tracked is a choice, not an absence: say so, and where they are. -->
+          {#if overview.not_tracked > 0}
+            <EmptyState
+              icon={Trophy}
+              title="Kennel Club is not looking at any repository"
+              description="{overview.not_tracked === 1
+                ? 'The one repository it has'
+                : `All ${overview.not_tracked} repositories it has`} been told not to look at."
+            >
+              <Button href={kennelListHref({ notTracked: true, everything: true })}>
+                See {overview.not_tracked === 1 ? 'it' : 'them'}
+              </Button>
+            </EmptyState>
+          {:else}
+            <EmptyState
+              icon={Trophy}
+              title="Nothing to look at yet"
+              description="Kennel Club looks at repositories your fleet has run jobs for. None yet."
+            />
+          {/if}
           <Panel title="What it checks" flush>
             <ChecksTable rows={overview.checks} label="What Kennel Club checks" />
           </Panel>

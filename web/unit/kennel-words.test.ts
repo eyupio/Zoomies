@@ -7,6 +7,9 @@ import {
   openFindingsText,
   reasonHint,
   reasonLength,
+  trackingReasonHint,
+  trackSentence,
+  TRACKING_STOP,
   waiverEndsAt,
   waiverRole,
   WAIVER_EXPIRY_CHOICES,
@@ -119,6 +122,49 @@ test('the reason field says the rule while it is unmet and the count once it is 
   // Ten spaces are not ten characters of reason.
   assert.match(reasonHint(' '.repeat(12)), /At least 10 characters/);
   assert.equal(reasonHint('x'.repeat(10)), `10 of ${WAIVER_REASON_MAX} characters.`);
+});
+
+// Stopping tracking is held to a waiver's length, but it is not asking why a finding
+// is acceptable, and a form that told a person to say so would be asking the wrong thing.
+test('the reason for stopping tracking is asked for in its own words, to the same length', () => {
+  assert.match(
+    trackingReasonHint('too short'),
+    /At least 10 characters: say why Kennel Club should not look at this repository/,
+  );
+  assert.doesNotMatch(trackingReasonHint('too short'), /acceptable/);
+  // The count after the rule is met is the same sentence for both.
+  assert.equal(trackingReasonHint('x'.repeat(10)), `10 of ${WAIVER_REASON_MAX} characters.`);
+  // And a waiver's is still a waiver's.
+  assert.match(reasonHint('too short'), /say why this is acceptable here/);
+});
+
+test('the switch on a repository says its state, and to somebody who cannot change it, who can', () => {
+  const admin = { admin: true, operator: true };
+  const operator = { admin: false, operator: true };
+  const viewer = { admin: false, operator: false };
+
+  // Stopping is an administrator's decision.
+  assert.equal(trackSentence(true, admin), 'Kennel Club reads this repository from GitHub.');
+  assert.equal(
+    trackSentence(true, operator),
+    'Kennel Club reads this repository from GitHub. An administrator can stop that.',
+  );
+  assert.match(trackSentence(true, viewer), /An administrator can stop that\.$/);
+
+  // Starting again is an operator's, so an operator is told nothing they cannot do.
+  assert.equal(trackSentence(false, admin), 'Kennel Club is not looking at this repository.');
+  assert.equal(trackSentence(false, operator), 'Kennel Club is not looking at this repository.');
+  assert.equal(
+    trackSentence(false, viewer),
+    'Kennel Club is not looking at this repository. An operator can start it again.',
+  );
+});
+
+test('stopping tracking says what it does before it is done', () => {
+  const said = TRACKING_STOP.consequences.join(' ');
+  for (const part of ['not read from GitHub', 'no problem', 'counted apart', 'waivers are kept']) {
+    assert.ok(said.includes(part), `the warning does not say "${part}"`);
+  }
 });
 
 test('every way to choose how long a waiver runs is shorter than the controller allows', () => {

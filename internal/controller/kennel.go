@@ -258,12 +258,19 @@ func (c *Controller) kennelInstallation(ctx context.Context, inst *store.Install
 		c.log.Warn("Kennel Club could not read its repositories", "installation", inst.ID, "error", err)
 		return
 	}
+	// Every row is known, an untracked one included: a served repository whose row
+	// is not in this map reads as one that has none, and makes the pass list the
+	// installation from GitHub every minute for a repository nobody is looking at.
+	// Only a tracked row can be due, for the same reason.
 	known := make(map[string]*store.KennelRepository, len(rows))
-	anyDue := false
+	anyDue, anyTracked := false, false
 	for _, r := range rows {
 		known[strings.ToLower(r.FullName)] = r
-		if kennelDue(r, in.now) {
-			anyDue = true
+		if r.Untracked == nil {
+			anyTracked = true
+			if kennelDue(r, in.now) {
+				anyDue = true
+			}
 		}
 	}
 	missing := false
@@ -300,6 +307,10 @@ func (c *Controller) kennelInstallation(ctx context.Context, inst *store.Install
 		if ctx.Err() != nil || !c.mayAct() {
 			return
 		}
+		// Not tracked means not read and not evaluated, and kennelRefresh does both.
+		if r.Untracked != nil {
+			continue
+		}
 		got := c.kennelRefresh(ctx, inst, r, listing, in)
 		if got == kennel.CoverageError {
 			installationState = kennel.CoverageError
@@ -309,6 +320,12 @@ func (c *Controller) kennelInstallation(ctx context.Context, inst *store.Install
 	// one that found nothing due must not clear a failure it never looked at.
 	if listing != nil {
 		c.kennelNoteResult(inst.ID, installationState, in.now)
+	} else if len(rows) > 0 && !anyTracked {
+		// Every repository here has been let go, so nothing on this installation is
+		// read and nothing ever will be until one is tracked again. A failure noted
+		// before that is about reads that are no longer made, and no listing is left
+		// to clear it: it would be raised for as long as the controller ran.
+		c.kennelNoteResult(inst.ID, kennel.CoverageOK, in.now)
 	}
 }
 
@@ -873,7 +890,8 @@ func (c *Controller) publishKennelDeleted(ids []string) {
 // pruneKennel deletes what was last served so long ago nobody is waiting on it.
 // It runs with Kennel Club off, because it only ever deletes Kennel Club's own
 // rows and asks GitHub for nothing: a feature that is off still tidies up after
-// itself, and creates nothing.
+// itself, and creates nothing. A repository somebody told Kennel Club not to look
+// at is not among what it deletes; the store sees to that.
 func (c *Controller) pruneKennel(ctx context.Context, now time.Time) {
 	ids, err := c.st.PruneKennelRepositories(ctx, now.Add(-kennelRetention))
 	if err != nil {

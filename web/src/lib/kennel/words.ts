@@ -7,7 +7,7 @@
  */
 import type { KennelCounts, KennelOverview, Severity } from '../api/types';
 import { joinWords, pluralise } from '../format';
-import { REASON_MAX, REASON_MIN } from '../reason';
+import { REASON_MAX, REASON_MIN, reasonHint, reasonLength } from '../reason';
 
 /** The worst severity that is open, or nothing when nothing is. */
 export function worstSeverity(
@@ -152,6 +152,81 @@ export function waiverRole(severity: Severity): 'admin' | 'operator' {
 
 export const ERROR_WAIVER_SENTENCE =
   'Only an administrator can waive an error. An operator can waive a warning or a note.';
+
+/* -- tracking ------------------------------------------------------------------ */
+
+/** What the switch on a repository is called. */
+export const TRACK_SWITCH_LABEL = 'Track this repository';
+
+/**
+ * What a stopped repository's reason is asked to say. It is read by whoever finds
+ * the repository quiet, which can be a year on and not the person who stopped it.
+ */
+export const TRACKING_REASON_ADVICE =
+  'say why Kennel Club should not look at this repository, for whoever finds it quiet in a year';
+
+/**
+ * What the reason field says about itself when stopping tracking: the rule in this
+ * form's own words while it is unmet, and the shared count once it is met. The
+ * shared rule finishes "say why this is ...", which is a waiver's question, and
+ * asking it here would ask the wrong thing.
+ */
+export function trackingReasonHint(reason: string): string {
+  return reasonLength(reason) < REASON_MIN
+    ? `At least ${REASON_MIN} characters: ${TRACKING_REASON_ADVICE}.`
+    : reasonHint(reason);
+}
+
+/**
+ * The line under the switch: which state the repository is in, and, to somebody
+ * who cannot change it, who can. Stopping is an administrator's decision, because
+ * it silences errors; starting again is an operator's, because it only makes Kennel
+ * Club stricter. A switch that would answer 403 is not offered: the sentence says so.
+ */
+export function trackSentence(
+  tracked: boolean,
+  can: { admin: boolean; operator: boolean },
+): string {
+  if (tracked) {
+    const state = 'Kennel Club reads this repository from GitHub.';
+    return can.admin ? state : `${state} An administrator can stop that.`;
+  }
+  const state = 'Kennel Club is not looking at this repository.';
+  return can.operator ? state : `${state} An operator can start it again.`;
+}
+
+/** What stopping does, said before it is done. Starting again needs no such warning. */
+export const TRACKING_STOP = {
+  title: 'Stop tracking this repository',
+  description:
+    'Kennel Club stops looking at it, and says so on its page, with your name and your reason.',
+  consequences: [
+    'It is not read from GitHub, and nothing is evaluated for it.',
+    'Its findings are cleared, and it raises no finding and no problem.',
+    'It is counted apart, as not tracked, and stays in the list.',
+    'Its waivers are kept, and do nothing until it is tracked again.',
+  ],
+} as const;
+
+/**
+ * What the Overview's summary of Kennel Club says about a repository it has been
+ * told not to look at. The row stopping resets reads as "pending, no findings", and
+ * a summary built from it would say so under a notice that says nothing is evaluated.
+ */
+export const TRACKING_OVERVIEW = {
+  description: 'Somebody told it not to look at this repository.',
+  detail: 'Nothing is read for it, so it has no findings, and that is not an all clear.',
+} as const;
+
+export const TRACKING_NOW_STOPPED = {
+  title: 'Repository no longer tracked',
+  detail: 'Kennel Club has stopped looking at it. It stays in the list as not tracked.',
+} as const;
+
+export const TRACKING_NOW_STARTED = {
+  title: 'Repository tracked again',
+  detail: 'Kennel Club reads it on its next pass.',
+} as const;
 
 /* -- the on/off switch ----------------------------------------------------- */
 

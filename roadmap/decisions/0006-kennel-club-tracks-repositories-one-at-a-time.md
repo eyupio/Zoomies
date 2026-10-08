@@ -2,9 +2,10 @@
 
 **Status**: accepted. Taken on 7 October 2026 on the owner's instruction, in
 answer to the question whether Kennel Club should be able to look at some
-repositories and not others. The split of roles under *Decision* — an
-administrator stops tracking, an operator starts it again — is the proposer's,
-and the owner has not yet ratified it.
+repositories and not others. The two things it first left open were settled by
+the owner the same day, by question: the split of roles under *Decision* — an
+administrator stops tracking, an operator starts it again — stands, and an
+untracked repository is **not** pruned after ninety days (see *Consequences*).
 
 ## Context
 
@@ -44,7 +45,7 @@ only makes Kennel Club stricter. Waivers stay, for a single finding.
 
 ## Consequences
 
-One new table in migration `0081`, `kennel_untracked`, with a row for each
+One new table in migration `0082`, `kennel_untracked`, with a row for each
 untracked repository (who, name, when, why) and no row meaning tracked. It is
 additive, so `TestKennelMigrationsOnlyAddTables` still holds, and a controller
 that never uses the switch behaves exactly as before.
@@ -63,7 +64,19 @@ and always counted somewhere. It does not settle exclusion by pattern; a fleet o
 hundreds of repositories may want one, and that is a decision for when somebody
 has the problem. A bulk action in the list is the most it promises.
 
-One edge is left open on purpose: a repository row is pruned ninety days after
-it was last served, and its untracking goes with it, so a repository that was
-quiet for a quarter comes back tracked. Whether an untracked row should outlive
-that is for the owner to say.
+A repository row is pruned ninety days after it was last served, and it used to
+take its untracking with it, so a repository that was quiet for a quarter came back
+tracked, and was read, the day somebody next pushed to it. The owner decided that
+an untracked row outlives that: the prune leaves a repository that is not tracked
+alone, and forgets it like any other once it is tracked again. A decision somebody
+took is not undone by a quiet quarter. The cost is a row for an archived
+repository that stays until somebody tracks it, and it is a small one.
+
+How it is built follows from that and from what an untracked repository must not
+be: the row is put back to what it was before anything evaluated it (no findings,
+counts or coverage, `pending`, due for nothing), so there is nothing for a count, a
+problem or a severity filter to remember is stale. Its waivers and the fleet's
+record of runs already read are kept. A request to stop or start it again that
+changes nothing is answered and not audited, and does not replace who made the
+first decision. Rechecking it, and making or ending a waiver on it, are refused:
+there are no findings to read again or call acceptable.

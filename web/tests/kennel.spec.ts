@@ -42,6 +42,7 @@ async function patchSettings(page: Page, settings: Record<string, unknown>): Pro
 interface Overview {
   enabled: boolean;
   repositories: number;
+  not_tracked: number;
   states: { attention: number; best_in_show: number; partial: number; pending: number };
   counts: { error: number; warning: number; waived: number };
 }
@@ -493,7 +494,7 @@ test.describe('with Kennel Club on', () => {
     await expect(page.getByRole('article')).toHaveCount(2, { timeout: 20_000 });
   });
 
-  test('a repository that stops being tracked says so instead of showing what it had', async ({
+  test('a repository Kennel Club lets go says so instead of showing what it had', async ({
     page,
   }) => {
     const row = await repository(page, PUBLIC_REPO);
@@ -512,7 +513,7 @@ test.describe('with Kennel Club on', () => {
       window.dispatchEvent(new Event('offline'));
       window.dispatchEvent(new Event('online'));
     });
-    await expect(page.getByText('Kennel Club no longer tracks this repository')).toBeVisible({
+    await expect(page.getByText('Kennel Club has let this repository go')).toBeVisible({
       timeout: 10_000,
     });
     await expect(page.getByRole('article')).toHaveCount(0);
@@ -1533,6 +1534,358 @@ test.describe('with Kennel Club on', () => {
       }
     });
   });
+
+  test.describe('telling Kennel Club to stop looking at a repository', () => {
+    const REASON = 'A sandbox nobody keeps up, and its jobs are not ours to judge.';
+    const trackSwitch = (page: Page) => page.getByRole('switch', { name: 'Track this repository' });
+    const stopDialog = (page: Page) =>
+      page.getByRole('dialog', { name: 'Stop tracking this repository' });
+    const toast = (page: Page, tone: 'success' | 'error', text: string) =>
+      page.locator(`.toast[data-tone="${tone}"]`, { hasText: text });
+
+    interface Tracking {
+      tracking: { tracked: boolean; reason: string; by: string; since: string | null };
+      state: string;
+    }
+    async function tracking(page: Page, id: string): Promise<Tracking> {
+      return (await page.request
+        .get(`/api/v1/kennel/repositories/${id}`)
+        .then((r) => r.json())) as Tracking;
+    }
+    async function setTracking(page: Page, id: string, data: Record<string, unknown>) {
+      const res = await page.request.put(`/api/v1/kennel/repositories/${id}/tracking`, { data });
+      expect(res.ok(), `tracking was set to ${JSON.stringify(data)}`).toBeTruthy();
+    }
+
+    // Stopping puts a repository back to before anything evaluated it, so what this
+    // block did is undone, and then waited out: the next block asks for findings.
+    test.afterEach(async ({ page }) => {
+      const stopped = (await page.request
+        .get('/api/v1/kennel/repositories?tracked=false')
+        .then((r) => r.json())) as { items: Row[] };
+      for (const row of stopped.items) await setTracking(page, row.id, { tracked: true });
+      await expect
+        .poll(async () => (await overview(page)).states.pending, {
+          message: 'the fleet is read again after tracking was put back',
+          timeout: 30_000,
+        })
+        .toBe(0);
+    });
+
+    // The fixture controller has authentication off, so everybody there is an
+    // administrator. The page is told who it is talking to.
+    async function actAs(page: Page, role: 'viewer' | 'operator'): Promise<void> {
+      await page.route('**/api/v1/meta', async (route) => {
+        const response = await route.fetch();
+        const body = (await response.json()) as Record<string, unknown>;
+        return route.fulfill({
+          response,
+          json: { ...body, auth_disabled: false, bootstrap_required: false },
+        });
+      });
+      await page.route('**/api/v1/auth/session', (route) =>
+        route.fulfill({ json: { kind: 'token', id: 'tok_pretend', name: 'a token', role } }),
+      );
+    }
+
+    test('an administrator stops it with a reason, the page says who and why, and starts it again', async ({
+      page,
+    }) => {
+      const row = await quietRepository(page);
+      await goto(page, `/kennel/repositories/${row.id}`, row.name);
+
+      await expect(trackSwitch(page)).toBeChecked();
+      await expect(page.locator('#track-state')).toHaveText(
+        'Kennel Club reads this repository from GitHub.',
+      );
+      await expect(page.locator('p.meta')).not.toContainText('Not tracked');
+      const standing = page.locator('p.standing');
+      await expect(standing).toContainText('No open findings');
+      await expect(standing.getByRole('link', { name: 'Open the CI tab' })).toBeVisible();
+
+      await trackSwitch(page).click();
+      const dialog = stopDialog(page);
+      await expect(dialog).toContainText(
+        'Its waivers are kept, and do nothing until it is tracked again.',
+      );
+      const stop = dialog.getByRole('button', { name: 'Stop tracking', exact: true });
+      const reason = dialog.getByRole('textbox', { name: /Why Kennel Club should not look at it/ });
+
+      // The rule is said before it is broken, in this form's own words, and the
+      // switch has not moved: nothing is stopped until the form is sent.
+      await expect(stop).toBeDisabled();
+      await reason.fill('too short');
+      await expect(dialog).toContainText(
+        'At least 10 characters: say why Kennel Club should not look',
+      );
+      await expect(stop).toBeDisabled();
+      await expect(trackSwitch(page)).toBeChecked();
+
+      await auditThePage(page, 'the stop tracking dialog');
+      const box = await dialog.boundingBox();
+      const viewport = page.viewportSize();
+      expect(box, 'the dialog is drawn').toBeTruthy();
+      expect(box!.x).toBeGreaterThanOrEqual(0);
+      expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width);
+
+      await reason.fill(`  ${REASON}  `);
+      await expect(stop).toBeEnabled();
+      // The controller trims what it is sent as well, so the stored reason cannot
+      // tell whether the page did; what the page sends is the page's to answer for.
+      const sent = page.waitForRequest(
+        (request) => request.method() === 'PUT' && request.url().endsWith('/tracking'),
+      );
+      await stop.click();
+      expect((await sent).postDataJSON(), 'the words around the reason are not sent').toEqual({
+        tracked: false,
+        reason: REASON,
+      });
+
+      await expect(toast(page, 'success', 'Repository no longer tracked')).toBeVisible();
+      await expect(dialog).toBeHidden();
+
+      // It says so in the header and on the page, with who, and why, and what that means.
+      await expect(trackSwitch(page)).not.toBeChecked();
+      await expect(page.locator('p.meta')).toContainText('Not tracked');
+      await expect(page.locator('p.meta')).toContainText('Since');
+      const notice = page.getByTestId('not-tracked');
+      await expect(notice).toContainText('Kennel Club is not looking at this repository.');
+      await expect(notice).toContainText('stopped it');
+      await expect(notice).toContainText(REASON);
+      await expect(notice).toContainText('Its waivers are kept');
+      await expect(page.getByRole('button', { name: 'Recheck' })).toHaveCount(0);
+      // The Overview's own summary of what Kennel Club says is made from the row that
+      // stopping reset, and it does not read it: "Pending" and "No open findings" under
+      // a notice that nothing is evaluated would be Kennel Club contradicting itself.
+      await expect(standing).toContainText('Not tracked');
+      await expect(standing).toContainText('that is not an all clear');
+      await expect(
+        page.getByText('Somebody told it not to look at this repository.'),
+      ).toBeVisible();
+      await expect(standing).not.toContainText('Pending');
+      await expect(standing).not.toContainText('No open findings');
+      await expect(standing.getByRole('link', { name: 'Open the CI tab' })).toHaveCount(0);
+
+      const now = await tracking(page, row.id);
+      expect(now.tracking.tracked).toBe(false);
+      expect(now.tracking.reason, 'the words around the reason are not kept').toBe(REASON);
+      expect(now.state, 'nothing is evaluated for it').toBe('pending');
+      expect(now.tracking.by, 'the controller says who stopped it').toBeTruthy();
+      await expect(notice).toContainText(now.tracking.by);
+      const counts = await overview(page);
+      expect(counts.repositories, 'it is out of the totals').toBe(FIXTURE.repos.length - 1);
+      expect(counts.not_tracked).toBe(1);
+
+      // The CI tab has nothing to show, and says that is not an all clear. The AI
+      // Context tab is not Kennel Club's to stop and carries on.
+      await page.getByRole('tab', { name: 'CI' }).click();
+      await expect(
+        page.getByText('Nothing to show for a repository that is not tracked'),
+      ).toBeVisible();
+      await page.getByRole('tab', { name: 'AI Context' }).click();
+      await expect(notice).toHaveCount(0);
+      await page.getByRole('tab', { name: 'Overview' }).click();
+      await expect(notice).toBeVisible();
+
+      // Starting again asks for nothing.
+      await trackSwitch(page).click();
+      await expect(toast(page, 'success', 'Repository tracked again')).toBeVisible();
+      await expect(trackSwitch(page)).toBeChecked();
+      await expect(notice).toHaveCount(0);
+      await expect(page.getByRole('button', { name: 'Recheck' })).toBeVisible();
+      await expect(standing).not.toContainText('Not tracked');
+      expect((await tracking(page, row.id)).tracking.tracked).toBe(true);
+    });
+
+    test('what the controller says is wrong sits beside the field it is about', async ({
+      page,
+    }) => {
+      const row = await quietRepository(page);
+      // The form will not send a reason that is too short, so the controller's
+      // field answer is handed back by the test, in the shape its 422 has.
+      await page.route(`**/api/v1/kennel/repositories/${row.id}/tracking`, (route) =>
+        route.fulfill({
+          status: 422,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: { code: 'invalid', message: 'the request was refused' },
+            errors: [
+              {
+                field: 'reason',
+                message: 'may not contain control or direction-changing characters',
+              },
+            ],
+          }),
+        }),
+      );
+      await goto(page, `/kennel/repositories/${row.id}`, row.name);
+      await trackSwitch(page).click();
+      const dialog = stopDialog(page);
+      await dialog
+        .getByRole('textbox', { name: /Why Kennel Club should not look at it/ })
+        .fill(REASON);
+      await dialog.getByRole('button', { name: 'Stop tracking', exact: true }).click();
+      await expect(dialog).toContainText(
+        'may not contain control or direction-changing characters',
+      );
+      await expect(dialog).toBeVisible();
+      await expect(trackSwitch(page)).toBeChecked();
+      expect((await tracking(page, row.id)).tracking.tracked, 'nothing was stopped').toBe(true);
+    });
+
+    // The page learns of a change from the stream, and from the answer to the request
+    // that made it. With the stream down the answer has to be enough.
+    test('with no stream to say so, the answer to the press repaints the page', async ({
+      page,
+    }) => {
+      const row = await quietRepository(page);
+      await page.route('**/api/v1/events*', (route) => route.abort());
+      await goto(page, `/kennel/repositories/${row.id}`, row.name);
+      await trackSwitch(page).click();
+      const dialog = stopDialog(page);
+      await dialog
+        .getByRole('textbox', { name: /Why Kennel Club should not look at it/ })
+        .fill(REASON);
+      await dialog.getByRole('button', { name: 'Stop tracking', exact: true }).click();
+      await expect(page.getByTestId('not-tracked')).toContainText(REASON);
+      await expect(trackSwitch(page)).not.toBeChecked();
+
+      await trackSwitch(page).click();
+      await expect(page.getByTestId('not-tracked')).toHaveCount(0);
+      await expect(trackSwitch(page)).toBeChecked();
+    });
+
+    test('an operator is told that stopping is an administrator’s and may start it again', async ({
+      page,
+    }) => {
+      const row = await quietRepository(page);
+      await actAs(page, 'operator');
+      await goto(page, `/kennel/repositories/${row.id}`, row.name);
+      // A switch that would answer 403 is not offered: the sentence says who can.
+      await expect(trackSwitch(page)).toBeDisabled();
+      await expect(page.locator('#track-state')).toContainText('An administrator can stop that.');
+      await expect(page.getByRole('button', { name: 'Recheck' })).toBeVisible();
+
+      await setTracking(page, row.id, { tracked: false, reason: REASON });
+      await expect(page.getByTestId('not-tracked')).toBeVisible();
+      await expect(trackSwitch(page)).toBeEnabled();
+      await expect(page.locator('#track-state')).not.toContainText(
+        'An operator can start it again',
+      );
+      await expect(page.getByRole('button', { name: 'Recheck' })).toHaveCount(0);
+
+      await trackSwitch(page).click();
+      await expect(toast(page, 'success', 'Repository tracked again')).toBeVisible();
+      await expect(page.getByTestId('not-tracked')).toHaveCount(0);
+    });
+
+    test('a viewer reads the state and is told who can change it', async ({ page }) => {
+      const row = await quietRepository(page);
+      await setTracking(page, row.id, { tracked: false, reason: REASON });
+      await actAs(page, 'viewer');
+      await goto(page, `/kennel/repositories/${row.id}`, row.name);
+      await expect(trackSwitch(page)).toBeDisabled();
+      await expect(page.locator('#track-state')).toContainText('An operator can start it again.');
+      await expect(page.getByTestId('not-tracked')).toContainText(REASON);
+      await auditThePage(page, 'a repository that is not tracked, as a viewer');
+    });
+
+    test('the list leaves out what is not tracked, a filter brings it back, and a card counts it apart', async ({
+      page,
+    }) => {
+      const row = await quietRepository(page);
+      const rows = dataRows(grid(page, 'Repositories'));
+
+      // A fleet that has stopped looking at nothing has no card for it: a zero for a
+      // feature most fleets never use is a number to learn to ignore.
+      await goto(page, '/kennel', 'Kennel Club');
+      await expect(tile(page, 'Repositories')).toContainText(String(FIXTURE.repos.length));
+      await expect(tile(page, 'Not tracked')).toHaveCount(0);
+      await setTracking(page, row.id, { tracked: false, reason: REASON });
+
+      // The Overview counts the repositories Kennel Club is looking at, and the
+      // others on a card of their own, so a number is never a repository nothing
+      // has looked at yet.
+      await goto(page, '/kennel', 'Kennel Club');
+      await expect(tile(page, 'Repositories')).toContainText(String(FIXTURE.repos.length - 1));
+      await expect(tile(page, 'Not tracked')).toContainText('1');
+
+      // The card opens exactly those, and says so as a filter that can be taken off.
+      await page.getByRole('link', { name: /^Not tracked: / }).click();
+      await expect(page).toHaveURL(/tracked=false/);
+      await expect(page).toHaveURL(/active=all/);
+      await expect(page.getByRole('combobox', { name: 'Filter by tracking' })).toHaveValue('false');
+      await expect(rows).toHaveCount(1);
+      await expect(rows.first()).toContainText(row.name);
+      await expect(rows.first()).toContainText('Not tracked');
+      await expect(rows.first()).toContainText('Not evaluated');
+      await expect(rows.first()).toContainText('Stopped');
+      await expect(
+        page.getByRole('button', { name: 'Remove the Tracking filter Not tracked' }),
+      ).toBeVisible();
+
+      // Without the filter the list is of the ones being looked at, as many as the card said.
+      await page.getByRole('button', { name: 'Remove the Tracking filter Not tracked' }).click();
+      await expect(rows).toHaveCount(FIXTURE.repos.length - 1);
+      await expect(grid(page, 'Repositories')).not.toContainText(row.name);
+
+      // Clearing every filter is the same way back to the default.
+      await page
+        .getByRole('combobox', { name: 'Filter by tracking' })
+        .selectOption({ label: 'Not tracked' });
+      await expect(rows).toHaveCount(1);
+      await page.getByRole('button', { name: 'Clear all' }).click();
+      await expect(rows).toHaveCount(FIXTURE.repos.length - 1);
+      await expect(page).not.toHaveURL(/tracked=/);
+
+      // And a person can ask for both.
+      await page
+        .getByRole('combobox', { name: 'Filter by tracking' })
+        .selectOption({ label: 'Tracked and not tracked' });
+      await expect(rows).toHaveCount(FIXTURE.repos.length);
+      await expect(grid(page, 'Repositories')).toContainText(row.name);
+      await auditThePage(page, 'the list with a repository that is not tracked');
+    });
+
+    test('with nothing tracked the Overview says so, and where the repositories are', async ({
+      page,
+    }) => {
+      const listed = (await page.request
+        .get('/api/v1/kennel/repositories')
+        .then((r) => r.json())) as { items: Row[] };
+      for (const row of listed.items)
+        await setTracking(page, row.id, { tracked: false, reason: REASON });
+
+      await goto(page, '/kennel', 'Kennel Club');
+      // The title of an empty state is a paragraph and not a heading.
+      const empty = page.getByText('Kennel Club is not looking at any repository', { exact: true });
+      await expect(empty).toBeVisible();
+      // A choice is not an absence, and the sentence does not say there is nothing.
+      await expect(page.getByText('Nothing to look at yet')).toHaveCount(0);
+      await expect(page.locator('#main')).toContainText(
+        `All ${FIXTURE.repos.length} repositories it has been told not to look at.`,
+      );
+      await page.getByRole('link', { name: 'See them' }).click();
+      await expect(page).toHaveURL(/tracked=false/);
+      // They are not all active ones, and the card counted them all.
+      await expect(page).toHaveURL(/active=all/);
+      await expect(dataRows(grid(page, 'Repositories'))).toHaveCount(FIXTURE.repos.length);
+    });
+
+    test('a page that is open follows a change made somewhere else', async ({ page }) => {
+      const row = await quietRepository(page);
+      await goto(page, `/kennel/repositories/${row.id}`, row.name);
+      await expect(page.getByTestId('not-tracked')).toHaveCount(0);
+
+      await setTracking(page, row.id, { tracked: false, reason: REASON });
+      await expect(page.getByTestId('not-tracked')).toContainText(REASON);
+      await expect(trackSwitch(page)).not.toBeChecked();
+
+      await setTracking(page, row.id, { tracked: true });
+      await expect(page.getByTestId('not-tracked')).toHaveCount(0);
+      await expect(trackSwitch(page)).toBeChecked();
+    });
+  });
 });
 
 /* -- the side menu and the switch ---------------------------------------------- */
@@ -2080,9 +2433,7 @@ test.describe('the cards on the Overview', () => {
     );
   });
 
-  test('a card is judged by its own count, and two cards have no link to give', async ({
-    page,
-  }) => {
+  test('a card is judged by its own count', async ({ page }) => {
     // The stream is cut so that only this document is ever on the page: a frame
     // of the real summary would replace it, and a "has no link" check made after
     // that would be about the real fleet and not about the card.
@@ -2097,6 +2448,9 @@ test.describe('the cards on the Overview', () => {
       ['Warnings', '/kennel/repositories?severity=warning&active=all'],
     ] as const;
     let alone = 0;
+    // "Partly checked" and "Waived" are judged by their own counts as well, so they
+    // have something to count except when this says they do not.
+    let nothing = false;
     await page.route('**/api/v1/kennel', async (route) => {
       const response = await route.fetch();
       const body = (await response.json()) as Overview;
@@ -2105,15 +2459,14 @@ test.describe('the cards on the Overview', () => {
         response,
         json: {
           ...body,
-          // "Partly checked" and "Waived" always have something to count.
           states: {
             ...body.states,
             best_in_show: some(0),
             attention: some(1),
-            partial: 1,
-            pending: 1,
+            partial: nothing ? 0 : 1,
+            pending: nothing ? 0 : 1,
           },
-          counts: { ...body.counts, error: some(2), warning: some(3), waived: 1 },
+          counts: { ...body.counts, error: some(2), warning: some(3), waived: nothing ? 0 : 1 },
         },
       });
     });
@@ -2131,16 +2484,79 @@ test.describe('the cards on the Overview', () => {
         if (n === only) await expect(card(page, label), where).toHaveAttribute('href', href);
         else await expect(card(page, label), `${where}: no link`).toHaveCount(0);
       }
-      // These two have no list to open whatever they count. "Partly checked" adds
-      // two standings and the list filters by one; the list has no waiver filter.
-      for (const [label, value] of [
-        ['Partly checked', '2'],
-        ['Waived', '1'],
+      // "Partly checked" adds two standings, which the list narrows by as one, and
+      // "Waived" counts findings and opens the repositories that hold them. Each has
+      // something to count here, so each is a link.
+      for (const [label, value, href] of [
+        ['Partly checked', '2', '/kennel/repositories?incomplete=true&active=all'],
+        ['Waived', '1', '/kennel/repositories?waived=true&active=all'],
       ] as const) {
         await expect(tile(page, label), `${label} is on the page`).toBeVisible();
-        await expect(tile(page, label).locator('a'), `${label} is not a link`).toHaveCount(0);
+        await expect(
+          card(page, label),
+          `${label} opens the repositories it counts`,
+        ).toHaveAttribute('href', href);
         await expect(tile(page, label), `${label} says ${value}`).toContainText(value);
       }
+    }
+
+    // And when they count nothing there is nothing to open, as for every other card.
+    nothing = true;
+    await goto(page, '/kennel', 'Kennel Club');
+    for (const label of ['Partly checked', 'Waived']) {
+      await expect(tile(page, label), `${label} is on the page`).toBeVisible();
+      await expect(tile(page, label).locator('a'), `${label} counts nothing: no link`).toHaveCount(
+        0,
+      );
+    }
+  });
+
+  // A repository Kennel Club has been told not to look at is put back to "pending",
+  // which is one of the two standings "Partly checked" adds up. The card counts only
+  // what is being tracked, so the list it opens has to as well, or the click finds
+  // one row more than the number it came from. Nothing in the fixture is partly
+  // checked, so the stopped repository is the only pending row there is.
+  test('the list Partly checked opens is as long as its number, and leaves out what is not tracked', async ({
+    page,
+  }) => {
+    const before = await overview(page);
+    const partly = before.states.partial + before.states.pending;
+
+    const quiet = await (
+      await page.request.get('/api/v1/kennel/repositories?state=best_in_show&tracked=true')
+    ).json();
+    const sandbox = (quiet.items as Array<{ id: string; name: string }>)[0]!;
+    const stopped = await page.request.put(`/api/v1/kennel/repositories/${sandbox.id}/tracking`, {
+      data: { tracked: false, reason: 'a sandbox nobody keeps, stopped for this test' },
+    });
+    expect(stopped.ok(), await stopped.text()).toBeTruthy();
+    try {
+      const after = await overview(page);
+      expect(after.states.partial + after.states.pending, 'the card does not count it').toBe(
+        partly,
+      );
+
+      // The rows are asked of the list's own answer, which cannot be satisfied before
+      // it has arrived: a count of nothing is also what a page that has not loaded has.
+      const answered = page.waitForResponse(
+        (response) =>
+          response.url().includes('/api/v1/kennel/repositories?') &&
+          response.url().includes('incomplete=true'),
+      );
+      await goto(page, '/kennel/repositories?incomplete=true&active=all', 'Repositories');
+      const list = (await (await answered).json()) as {
+        total: number;
+        items: Array<{ name: string }>;
+      };
+      expect(list.total, 'as many as the number on the card').toBe(partly);
+      expect(
+        list.items.map((item) => item.name),
+        'the stopped one is not among them',
+      ).not.toContain(sandbox.name);
+    } finally {
+      await page.request.put(`/api/v1/kennel/repositories/${sandbox.id}/tracking`, {
+        data: { tracked: true },
+      });
     }
   });
 
