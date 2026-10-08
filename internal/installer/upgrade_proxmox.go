@@ -52,10 +52,11 @@ func (p *upgradePlan) upgradeProxmoxGateways(ctx context.Context) error {
 			return err
 		}
 		defer lock.Close()
-		if err := TryLockExclusive(lock); err != nil {
+		unlock, err := tryLockSetup(lock)
+		if err != nil {
 			return fmt.Errorf("installer: %s is being configured; retry the upgrade when setup finishes", unit)
 		}
-		defer UnlockFile(lock)
+		defer unlock()
 		binary, err := os.ReadFile(p.opts.BinaryPath)
 		if err != nil {
 			return err
