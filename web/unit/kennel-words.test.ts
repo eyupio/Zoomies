@@ -1,13 +1,17 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  alreadyStoppedSentence,
   countsAreAFloor,
   coverageStatesText,
   floorSentence,
   openFindingsText,
+  planStop,
   reasonHint,
   reasonLength,
+  stopOutcome,
   trackingReasonHint,
+  trackingStopMany,
   trackSentence,
   TRACKING_STOP,
   waiverEndsAt,
@@ -132,6 +136,12 @@ test('the reason for stopping tracking is asked for in its own words, to the sam
     /At least 10 characters: say why Kennel Club should not look at this repository/,
   );
   assert.doesNotMatch(trackingReasonHint('too short'), /acceptable/);
+  // Beside several repositories the rule is in the plural, because each of their pages says it.
+  assert.match(
+    trackingReasonHint('too short', true),
+    /say why Kennel Club should not look at these repositories, for whoever finds them quiet/,
+  );
+  assert.doesNotMatch(trackingReasonHint('too short', true), /this repository/);
   // The count after the rule is met is the same sentence for both.
   assert.equal(trackingReasonHint('x'.repeat(10)), `10 of ${WAIVER_REASON_MAX} characters.`);
   // And a waiver's is still a waiver's.
@@ -243,4 +253,77 @@ test('without the setting in the answer the request is taken at its word, and th
     kennelSwitchOutcome(true, { value: false }).message,
     /ZOOMIES_KENNEL_ENABLED is set/,
   );
+});
+
+/* -- stopping several at once ---------------------------------------------- */
+
+// A selection is ids, and the page knows what it last loaded. What stopping can do
+// to it is a question with three answers: stop it, it is already stopped, and the
+// page never loaded it.
+test('a selection is split into what to stop, what is already stopped and what the page does not know', () => {
+  const known = new Map([
+    ['kcr_a', { id: 'kcr_a', name: 'acme/a', tracking: { tracked: true } }],
+    ['kcr_b', { id: 'kcr_b', name: 'acme/b', tracking: { tracked: false } }],
+    ['kcr_c', { id: 'kcr_c', name: 'acme/c', tracking: { tracked: true } }],
+  ]);
+  const plan = planStop(['kcr_c', 'kcr_b', 'kcr_a', 'kcr_zzz'], known);
+  // In the order they were ticked, because that is the order they are stopped and named.
+  assert.deepEqual(
+    plan.stop.map((r) => r.id),
+    ['kcr_c', 'kcr_a'],
+  );
+  assert.equal(plan.alreadyStopped, 1);
+  assert.equal(plan.unknown, 1);
+});
+
+test('a repository ticked twice is stopped once', () => {
+  const known = new Map([['kcr_a', { id: 'kcr_a', name: 'acme/a', tracking: { tracked: true } }]]);
+  const plan = planStop(['kcr_a', 'kcr_a'], known);
+  assert.equal(plan.stop.length, 1);
+  assert.equal(plan.alreadyStopped, 0);
+});
+
+test('stopping one repository says what the single dialog says, and several say it in the plural', () => {
+  assert.equal(trackingStopMany(1), TRACKING_STOP);
+  const many = trackingStopMany(3);
+  assert.equal(many.title, 'Stop tracking 3 repositories');
+  assert.equal(many.consequences.length, TRACKING_STOP.consequences.length);
+  // None of the four may read as one repository's.
+  for (const sentence of many.consequences) assert.doesNotMatch(sentence, /\b(It|Its|it)\b/);
+  assert.match(many.description, /them/);
+  assert.match(many.description, /your name and your reason/);
+});
+
+test('what was left alone is said as a count, in the right number', () => {
+  assert.equal(
+    alreadyStoppedSentence(1),
+    '1 repository that is already not tracked is left as it is.',
+  );
+  assert.equal(
+    alreadyStoppedSentence(4),
+    '4 repositories that are already not tracked are left as they are.',
+  );
+  assert.equal(alreadyStoppedSentence(0), '');
+});
+
+test('the outcome of stopping several is one sentence, and says what to do when some were not stopped', () => {
+  const ok = stopOutcome(3, []);
+  assert.equal(ok.failed, false);
+  assert.equal(ok.title, '3 repositories no longer tracked');
+  assert.equal(stopOutcome(1, []).title, '1 repository no longer tracked');
+
+  const partly = stopOutcome(5, [{ name: 'acme/x', message: 'Kennel Club is off.' }]);
+  assert.equal(partly.failed, true);
+  assert.equal(partly.title, '1 of 5 could not be stopped');
+  // The rest went through, which is what somebody reading a red toast most wants to know,
+  // and the first reason is the controller's own.
+  assert.match(partly.detail, /The other 4 were stopped\./);
+  assert.match(partly.detail, /acme\/x: Kennel Club is off\./);
+
+  const none = stopOutcome(2, [
+    { name: 'acme/a', message: 'no' },
+    { name: 'acme/b', message: 'no' },
+  ]);
+  assert.equal(none.title, 'None of the 2 could be stopped');
+  assert.doesNotMatch(none.detail, /were stopped/);
 });

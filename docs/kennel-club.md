@@ -307,6 +307,36 @@ The repository list leaves untracked repositories out unless you ask for them,
 so that a card's number and the rows behind it agree. The **Tracking** filter
 brings them back.
 
+### Stopping several at once
+
+A fleet that has a dozen sandboxes to leave alone does not have to open a dozen
+pages. On the **Repositories** list an administrator ticks the rows and presses
+**Stop tracking** in the bar that appears. The dialog names what is about to be
+stopped (eight names, then a count of the rest), asks for one reason in the same
+length as above, and says the same four things it says for one repository.
+
+* **Each repository is its own decision.** The reason is written once and sent
+  for each, so every repository has its own request and its own audit entry,
+  naming the person who stopped it.
+* **The requests go one after another**, in the order the rows were ticked, and
+  not all together. A failure is then attributable: when one is refused the page
+  names it, instead of saying that some were, and the audit log reads in the
+  order the person chose.
+* **A repository that is already not tracked is left as it is**, keeping the
+  reason it was stopped with and the person who stopped it, so this is not a way
+  to rewrite what a colleague wrote. The dialog says how many it is leaving, and
+  if everything ticked was already stopped it says there is nothing to stop
+  instead of asking for a reason to do nothing.
+* **What was refused stays ticked.** If some could not be stopped, the page says
+  how many, names them and says why, and the ones that did stop leave the list;
+  the rest are still selected, so pressing the button again tries only those.
+* **A reason the controller refuses is said beside the field**, and nothing has
+  been stopped, because the same reason would be refused for every one of them.
+
+Only an administrator is offered the tick boxes, since stopping is theirs. There
+is no bulk start: starting again is one press on a repository's own page, and
+nobody has asked for a hundred repositories to be made stricter at once.
+
 ## Where it shows up
 
 The Repositories list opens on the tracked repositories that have run a job in
