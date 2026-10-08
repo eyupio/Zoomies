@@ -76,7 +76,7 @@
     {#if uncovered}
       <p class="detail">
         Zoomies holds no credential for <span class="mono">{repo}</span>, so it cannot register a
-        runner there and no pool here can claim this job — whatever labels that pool advertises. If
+        runner there and no pool here can claim this job, whatever labels that pool advertises. If
         this fleet is meant to run it, install the GitHub App on that organisation or repository and
         add the installation here. If another runner provider serves it, this is expected.
       </p>

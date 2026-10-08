@@ -518,13 +518,13 @@
         </p>{/if}
       <p class="lede">
         One line, in a shell on that machine. It downloads the Zoomies binary and verifies it, joins
-        this instance with the token, and installs the agent as a service — which is the part that
+        this instance with the token, and installs the agent as a service, which is the part that
         needs root or sudo.
       </p>
       <p class="fine">
-        What the agent will own on that machine — its service, its work directory, the containers it
+        What the agent will own on that machine, its service, its work directory, the containers it
         labels, its pools' caches and the one daemon-wide thing it does, pruning unused Docker
-        builder cache — is
+        builder cache, is
         <a href={AGENT_OWNS_URL} target="_blank" rel="noopener noreferrer"
           >written down in the security guide</a
         >.
@@ -551,7 +551,7 @@
         <div class="command-actions">
           <CopyButton value={installCommand} label="Copy the install command" size="md" showLabel />
           <span class="fine">
-            The token in it is shown once — only its hash is stored — and works once.
+            The token in it is shown once, only its hash is stored, and works once.
           </span>
         </div>
         {#if versionNote}
@@ -683,7 +683,7 @@
             <Check size={14} aria-hidden="true" />
             {pluralise(placeable.length, 'pool')} can place runners here: {joinWords(
               placeable.map((p) => p.name ?? p.id ?? ''),
-            )}. Nothing more to do — the next queued job one of them matches may land on this host.
+            )}. Nothing more to do, the next queued job one of them matches may land on this host.
           </p>
         {:else if fleet.pools.length === 0}
           <p>

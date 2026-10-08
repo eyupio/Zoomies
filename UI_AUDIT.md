@@ -1,4 +1,4 @@
-# UI audit — conversion, first run and mobile
+# UI audit: conversion, first run and mobile
 
 Audited at commit `0b4734c`, 1 October 2026. The findings below are as they
 were written, with the corrections made after fact-checking marked
@@ -15,7 +15,7 @@ the page that sells it breaks on the phone it is most likely to be opened on
 first. Fix the funnel, not the dashboard.
 
 > **Part 2** audits one feature in the same format: [host OS health
-> (Zoomies Doctor) in the web UI](#part-2--host-os-health-zoomies-doctor-in-the-web-ui),
+> (Zoomies Doctor) in the web UI](#part-2-host-os-health-zoomies-doctor-in-the-web-ui),
 > at `df596c9`. Its findings are numbered `DC`, `DH` and `DN`, after the
 > appendices below.
 
@@ -111,10 +111,10 @@ and ran axe-core against WCAG 2.0 to 2.2 A and AA.
 
 Each finding carries an evidence tag:
 
-* **Reproduced** — I made it happen in a running build.
-* **Measured** — a number from the browser.
-* **Code-verified** — read in the source, not executed end to end.
-* **Judgement** — my opinion; argue with it.
+* **Reproduced**: I made it happen in a running build.
+* **Measured**: a number from the browser.
+* **Code-verified**: read in the source, not executed end to end.
+* **Judgement**: my opinion; argue with it.
 
 I did not test with people, and the repository has no analytics (see H13), so
 nothing here is a conversion *rate*. It is where the funnel is narrow.
@@ -142,7 +142,7 @@ By users affected × severity ÷ effort, so the cheap, certain wins come first.
 | High impact | 13 |
 | Nice to have | 12 |
 
-## What is already good — do not "fix" it
+## What is already good: do not "fix" it
 
 * **The populated Overview.** Clear hierarchy, honest status colours, sparklines
   that earn their space, and a feed that says `scaled zoomies-demo-linux-x64
@@ -220,7 +220,7 @@ the pool wizard's header miscounts its own steps in both modes (H2).
   `"1"`, and it stays gone after a reload. At that instant `GET /api/v1/stats`
   says `queued_jobs: 1` but `fleet.queued_jobs: 0`, and there are no pools.
 
-  Any organisation with other CI activity — nearly every organisation you want —
+  Any organisation with other CI activity, nearly every organisation you want,
   loses its guide the first time any other workflow queues a job after GitHub is
   connected, before a host, pool or workflow exists, and lands on an Overview of
   zeros with no next step, at the moment of highest intent. The component's own
@@ -307,7 +307,7 @@ the pool wizard's header miscounts its own steps in both modes (H2).
   5. Gate it: in `web/tests/first-run.spec.ts` assert the submit button's bottom
      edge is inside the viewport at 1440×900 and at 375×812.
 
-## C3. Connect GitHub refuses the home lab the landing page courts — and the browser is stricter than the terminal
+## C3. Connect GitHub refuses the home lab the landing page courts: and the browser is stricter than the terminal
 
 * **Pass:** First-time user
 * **Evidence:** Reproduced.
@@ -329,7 +329,7 @@ the pool wizard's header miscounts its own steps in both modes (H2).
   The block offers a config *key* rather than a UI label, no link, no override,
   and no mention of the tunnel advice that exists. The terminal installer, in
   the same state, offers three answers: enter another address; "Create it
-  anyway — I will fix the App's webhook URL on GitHub" (poller mode); or skip
+  anyway, I will fix the App's webhook URL on GitHub" (poller mode); or skip
   GitHub for now. The dialog's own comment says "The terminal installer refuses
   this; so does this", which is not what the installer does.
 
@@ -378,7 +378,7 @@ the pool wizard's header miscounts its own steps in both modes (H2).
   through, and the App would be created with an address GitHub cannot reach
   either. Nothing in `install.sh` was changed for this.
 
-## C4. There is no "first job" moment — the product never helps you run one
+## C4. There is no "first job" moment: the product never helps you run one
 
 * **Pass:** First-time user
 * **Evidence:** Code-verified (a search of `web/src` for smoke, test job, dispatch
@@ -388,7 +388,7 @@ the pool wizard's header miscounts its own steps in both modes (H2).
   (a single `runs-on:` line); `docs/quickstart.md:215-250` (§5).
 * **Problem:** Activation is the moment a job runs on your runner and you watch
   it in the UI. Today that needs you to pick a repo, edit a real workflow and
-  push to a real branch — or to run the Migrate wizard, which opens pull
+  push to a real branch, or to run the Migrate wizard, which opens pull
   requests on real repositories, and which is the checklist's only button.
   Nothing is safe, complete and one click: no full workflow, no
   `workflow_dispatch`, no test button, and no celebration when it works.
@@ -422,7 +422,7 @@ the pool wizard's header miscounts its own steps in both modes (H2).
   `web/src/lib/migrate/StepRepositories.svelte`.
 
   When `fleet.stats.fleet.completed > 0`, replace the card with a success state:
-  "Your first job ran on *{runner}* — waited *{wait}*, started in *{startup}*"
+  "Your first job ran on *{runner}*, waited *{wait}*, started in *{startup}*"
   with a link to the job; only then retire the checklist (C1). Make the Quick
   start's §5 a complete file. Phase two: the App already holds `contents`,
   `workflows` and `actions: write` (quickstart permission table), so Zoomies
@@ -477,7 +477,7 @@ the pool wizard's header miscounts its own steps in both modes (H2).
   inset: -3rem -2rem 30% }`, no clipping), `:906` (`.zoomies-install pre >
   code`: `padding: .95em 4.4em .95em 1.1em; font-size: .78rem`);
   `docs/index.md:20-30`; docs-site route `/` at 375×812.
-* **Problem:** `document.scrollWidth` is **399px in a 375px window** — 24px of
+* **Problem:** `document.scrollWidth` is **399px in a 375px window**: 24px of
   sideways scroll. I bisected it to `.zoomies-hero`: the decorative glow bleeds
   `2rem` past the gutter. The install command renders as
   `curl -fsSL https://zoomies.sh/i[copy chip]`, with the chip covering
@@ -524,8 +524,8 @@ the pool wizard's header miscounts its own steps in both modes (H2).
   capacity chart with a dozen toggles and a time slider over no data.
 
   The same instruction is repeated by the checklist, the post-sign-up toast
-  ("Next: connect a GitHub App. The checklist on the Overview says what is left"
-  — shown on the page that *is* the checklist) and the Pools empty state: three
+  ("Next: connect a GitHub App. The checklist on the Overview says what is left",
+  shown on the page that *is* the checklist) and the Pools empty state: three
   prompts on a clean install, five whenever the controller has any advisory,
   because the warnings bar and the bell badge join in. Two filled primary buttons
   compete inside the checklist ("Connect GitHub" and "Add a host"; after
@@ -583,8 +583,8 @@ the pool wizard's header miscounts its own steps in both modes (H2).
 
 * **Pass:** First-time user
 * **Evidence:** Code-verified (inventory in Appendix B).
-* **Where:** `install.sh:668-713` (build channel, external URL — `:692` exits on
-  an empty answer — and port), `:1686` (Continue?);
+* **Where:** `install.sh:668-713` (build channel, external URL (`:692` exits on
+  an empty answer) and port), `:1686` (Continue?);
   `internal/installer/installer.go:381,419,1513,1791,1831,1869,1985,1998,2002,2035`;
   `internal/installer/manifest.go:121,361,414`.
 * **Problem:** `curl | sh` itself asks two things before it has downloaded
@@ -604,7 +604,7 @@ the pool wizard's header miscounts its own steps in both modes (H2).
      `--mode single` asks accept Enter with the same `http://localhost:<port>`
      `zoomies init` proposes. (Not a hostname: see the correction under C3.)
   2. Add `zoomies init --express`, offered as the first choice ("Express: single
-     host, detected runtime, loopback, systemd — asks for an administrator and a
+     host, detected runtime, loopback, systemd, asks for an administrator and a
      GitHub organisation, nothing else"). It skips backend, capacity, listener,
      service and review when detection has one sensible answer.
   3. Print the elapsed install time in the closing summary, and publish it (C5).
@@ -619,8 +619,8 @@ the pool wizard's header miscounts its own steps in both modes (H2).
 * **Problem:** The title promises "about five minutes". The only step that
   produces value is §5, on line 215 of 339. Before it come a deployment chooser,
   an eight-row permission table, a nine-row pool-defaults table, and four
-  paragraphs on Size per runner, Elastic CPU, Operating system and Docker in jobs
-  — reference material for someone who has not yet seen a job run.
+  paragraphs on Size per runner, Elastic CPU, Operating system and Docker in jobs,
+  reference material for someone who has not yet seen a job run.
 * **Fix:** Reorder to Install → Connect GitHub → Create the default pool (three
   lines; defaults table collapsed in a `??? note`) → **Run a test job** (the C4
   workflow) → "Make it yours". Move Elastic CPU, Operating system and Docker in
@@ -695,7 +695,7 @@ the pool wizard's header miscounts its own steps in both modes (H2).
   with nested clauses and two semicolons ("… exercised on every pull request, on the `process` backend
   against a fake GitHub, on amd64 and on arm64; the Docker backend is unit-tested
   against a fake Engine API, and while no *test* here starts a container, this
-  repository's own CI does — …"), sits mid-page. On a phone it is about 20 lines. The
+  repository's own CI does, …"), sits mid-page. On a phone it is about 20 lines. The
   README opens with "Read it before you put anything precious on this." *above the
   badges and the screenshot*. The honesty is an asset; the presentation reads as
   "not production-ready, good luck", and it appears three times (this section,
@@ -728,8 +728,8 @@ the pool wizard's header miscounts its own steps in both modes (H2).
   list (segmented choices, chips, sliders, column grips and the sign-in form's
   `lg`; `docs/ui-guidelines.md:442-447`). That clears WCAG 2.2 AA's 24px floor
   but is under the 44px that Apple and Google recommend. And WCAG 2.2
-  `target-size` (2.5.8, AA) still fails on every grid page — Pools 25 nodes,
-  Jobs 22, Runners 18, Queue 14, Audit 8, Hosts 7 on desktop — from the grid's
+  `target-size` (2.5.8, AA) still fails on every grid page (Pools 25 nodes,
+  Jobs 22, Runners 18, Queue 14, Audit 8, Hosts 7 on desktop) from the grid's
   resize and reposition buttons (measured 12×40 and 20×24 despite the coarse
   block at `DataGrid.svelte:1639`), the select-all checkbox (15×15) and link rows
   20px tall; plus the 22×22 logo link on the phone's top bar.
@@ -803,7 +803,7 @@ the pool wizard's header miscounts its own steps in both modes (H2).
 * **Where:** `web/src/routes/Bootstrap.svelte:34,145,335-351`;
   `web/src/lib/settings/UsersPanel.svelte:536,635`; no mail sender anywhere in
   `internal/` or `cmd/`.
-* **Problem:** "Email — Optional. Used only to identify the account." It is stored
+* **Problem:** "Email: Optional. Used only to identify the account." It is stored
   (`users.email`), shown as a grey second line in the Users table, and filled from
   OIDC claims. But there is no SMTP, no mail provider and no feature that sends
   or reads it: not password reset ("Forgotten it? An administrator can reset
@@ -889,7 +889,7 @@ the pool wizard's header miscounts its own steps in both modes (H2).
 * **Where:** `web/src/lib/overview/EventsFeed.svelte:150-155`; route `/`, first run.
 * **Problem:** The title switches on `everything` (whether any kinds are hidden),
   not on whether hidden kinds hold entries. On a brand-new fleet, two kinds are
-  hidden by default, so the panel says "Nothing in the kinds you are watching —
+  hidden by default, so the panel says "Nothing in the kinds you are watching,
   2 kinds of event are switched off for this browser. Choose above turns them back
   on." The last sentence is also garbled.
 * **Fix:** Title "Nothing has happened yet" whenever the unfiltered feed is empty;
@@ -913,11 +913,11 @@ the pool wizard's header miscounts its own steps in both modes (H2).
 * **Where:** `web/src/lib/installations/ConnectDialog.svelte` (the `Tabs` and the
   stepper); `web/src/lib/components/Tabs.svelte`; route `/installations` → Connect
   GitHub; 375px.
-* **Problem:** The second tab reads "Use an App you already h" — clipped mid-word
-  with no ellipsis, no wrap and no scroll cue — and the three-step indicator wraps,
+* **Problem:** The second tab reads "Use an App you already h" (clipped mid-word
+  with no ellipsis, no wrap and no scroll cue) and the three-step indicator wraps,
   leaving "3 Install it" alone on a row.
 * **Fix:** Shorten the label to "Existing App", or let `Tabs` scroll with an edge
-  fade. Under 480px collapse the stepper to "Step 1 of 3 — Describe the App".
+  fade. Under 480px collapse the stepper to "Step 1 of 3, Describe the App".
 
 ## N4. The Connect dialog's first step front-loads advanced options and gives no reason for a disabled button
 
@@ -994,7 +994,7 @@ the pool wizard's header miscounts its own steps in both modes (H2).
 * **Pass:** Designer
 * **Where:** `web/src/lib/overview/FirstRun.svelte:167` (an empty
   `<div class="action">`) with the phone rule at `:412-423`.
-* **Problem:** The "Create an administrator — Done" row renders an empty action
+* **Problem:** The "Create an administrator: Done" row renders an empty action
   cell that takes `min-height` plus a top margin on narrow screens, leaving a blank
   band of roughly 60px before the divider.
 * **Fix:** Do not render the empty div, or add `.action:empty { display: none }`.
@@ -1019,7 +1019,7 @@ the pool wizard's header miscounts its own steps in both modes (H2).
 
 ---
 
-# Appendix A — measurements
+# Appendix A: measurements
 
 All at the audited commit, in Chromium. "Screens" is page height ÷ viewport height.
 
@@ -1078,7 +1078,7 @@ All at the audited commit, in Chromium. "Screens" is page height ÷ viewport hei
 | Submit button top | y = 1171 (271px below the fold) | y = 1172 (1.4 screens) |
 | Logo tile | 298×298 | 298×298 |
 
-# Appendix B — the installer's prompts, default path
+# Appendix B: the installer's prompts, default path
 
 The default is a native single host, Docker present, organisation target.
 Conditional prompts (certificate files, trusted proxies, a port clash) add more;
@@ -1115,7 +1115,7 @@ or `--mode controller` is passed; the bare one-liner never reaches them, and
 rows 8 and 9 are the ones it meets, both with defaults. Line numbers throughout
 are those of the audited commit.
 
-# Appendix C — reproducing the three that need setup
+# Appendix C: reproducing the three that need setup
 
 Everything uses the project's own fixtures; nothing was changed in the repo.
 
@@ -1155,17 +1155,17 @@ binaries out of the repository; the recipes above regenerate any of them.
 
 ---
 
-# Part 2 — Host OS health (Zoomies Doctor) in the web UI
+# Part 2: Host OS health (Zoomies Doctor) in the web UI
 
 Audited at commit `df596c9`, 6 October 2026. Scope: the OS checks the native
-Zoomies binary runs, and everything the web UI does with them — what it lets an
+Zoomies binary runs, and everything the web UI does with them, what it lets an
 operator **see**, what it lets them **control**, and what it **automates**. The
 findings are numbered `DC` (critical), `DH` (high impact) and `DN` (nice to have)
 so they cannot be confused with Part 1's `C`, `H` and `N`.
 
 **Verdict.** The collector is the best-engineered part of this feature and the
 web UI throws most of it away. Every host runs a careful read-only check every
-minute, in three tiers, with reasons for every skip — and the operator is shown
+minute, in three tiers, with reasons for every skip, and the operator is shown
 a 16-pixel pill that counts the wrong things, ranks a reboot above a disk-space
 error, sits three screens down a phone, and feeds nothing else in the product.
 Zoomies has a complete attention system (Problems, the bell, the Overview feed,
@@ -1195,7 +1195,7 @@ has no billing, plan, pricing, trial or upsell logic (the hits for "checkout" ar
 Part 1, the conversion that exists is mapped like this:
 
 * "Start a free trial" becomes **an operator reaches a host that is tuned for CI
-  and stays that way** — which needs them to *trust* the signal and *act* on it.
+  and stays that way**, which needs them to *trust* the signal and *act* on it.
 * "Paywall" becomes **anything that discredits the signal or interrupts that
   path**: a number that disagrees with the CLI, a warning the docs say to ignore,
   an instruction the page cannot help with.
@@ -1225,8 +1225,8 @@ in light and dark, against a real controller with authentication off.
   `dedicated.go`. The counts quoted below ("15 warnings") are **my fixtures'**.
   The *mechanism* is not: I verified it by running the real engine (below).
 * **The real engine.** On this sandbox (Ubuntu 24.04) `zoomies doctor` prints
-  **1 warning**, while `zoomies doctor --tier dedicated --json` — what the monitor
-  publishes and what the installed host-health service runs — contains **3**:
+  **1 warning**, while `zoomies doctor --tier dedicated --json` (what the monitor
+  publishes and what the installed host-health service runs) contains **3**:
   `cgroup.version` (safe), `tmp.tmpfs` (aggressive, optional) and `journal.size`
   (dedicated).
 * **The seeded demo.** `ZOOMIES_SEED_DEMO=true` gives three hosts and **zero**
@@ -1253,7 +1253,7 @@ did not measure the `host.updated` frame rate; DH7 rests on payload size and the
 code. Colour contrast, the focus ring and page-level overflow all passed; see the
 next section.
 
-### What is already good — do not "fix" it
+### What is already good: do not "fix" it
 
 * **The read-only boundary and the consent model.** Right call; keep it.
 * **Honest edges.** A 3-minute staleness rule, a `container` flag for partial
@@ -1511,7 +1511,7 @@ should ship first; DC3 is the largest and the most valuable.
 * **Problem:** At 1440×900 the first card's health pill is at **y = 1,395**; on a
   375×812 phone it is at **y = 2,659** of a 9,189px page, 3.3 screens down, behind
   five tiles and a day-long chart. Everything above it says the fleet is fine:
-  "8 hosts · 8 healthy", and a tile titled "Hosts reporting healthy 8 / 8 — Live
+  "8 hosts · 8 healthy", and a tile titled "Hosts reporting healthy 8 / 8, Live
   fleet health".
 
   "Healthy" there means *the agent sent a heartbeat in 90 seconds*
@@ -1550,7 +1550,7 @@ should ship first; DC3 is the largest and the most valuable.
   Drain the host before rebooting manually." Cordoning is a real, existing,
   one-call operation (`cordonHost`), but it lives in a card menu on another page,
   so the operator must go back, find the card among eight, open "…" and cordon,
-  then return — and the page never shows runners active, cordoned state, or the
+  then return, and the page never shows runners active, cordoned state, or the
   one fact they need: *is it safe to reboot now?*
 
   The second instruction, "Review changes locally with `sudo zoomies doctor
@@ -1716,7 +1716,7 @@ should ship first; DC3 is the largest and the most valuable.
 * **Pass:** First-time user
 * **Evidence:** Reproduced.
 * **Where:** `web/src/routes/HostDetail.svelte:71-76`; `web/src/lib/hosts/health.ts:9-15`.
-* **Problem:** `old-agent-07` lands on "No health report yet — Check
+* **Problem:** `old-agent-07` lands on "No health report yet: Check
   zoomies-host-health.service for a container deployment, or update the native
   agent. Run zoomies doctor directly on the host for an immediate report." with a
   body of one line: "No tuning can be applied from this page." That is a
@@ -1873,7 +1873,7 @@ should ship first; DC3 is the largest and the most valuable.
   `/hosts/:id#disk.space` when the doctor has a result for it, and drop the
   doctor row's duplicate "current" when both read the same filesystem.
 
-## Appendix D — measurements
+## Appendix D: measurements
 
 | Fixture | Safe | Aggressive | Dedicated | Pill (today) | Counted by the CLI |
 | --- | --- | --- | --- | --- | --- |
@@ -1881,10 +1881,10 @@ should ship first; DC3 is the largest and the most valuable.
 | `build-02` safe all passing | 0 | 2 warn | 7 warn | **9 warnings** | 0 |
 | `build-03` clean | 0 | 0 | 0 | Health OK | 0 |
 | `build-04` disk error † | 1 error | 2 warn | 7 warn | **Reboot pending** | 1 error |
-| `mac-mini` | 1 skip | — | — | Checks unavailable | 0 |
-| `edge-container` partial | 12 skip, 2 ok | — | — | **Health OK** | 0 |
+| `mac-mini` | 1 skip | - | - | Checks unavailable | 0 |
+| `edge-container` partial | 12 skip, 2 ok | - | - | **Health OK** | 0 |
 | `stale-06` 12 min old | 1 warn | 2 warn | 7 warn | Health stale | n/a |
-| `old-agent-07` | no report | — | — | Health unavailable | n/a |
+| `old-agent-07` | no report | - | - | Health unavailable | n/a |
 
 † **Correction.** The first draft's `build-04` disk error is a fixture, and not
 a state the engine produces: a nearly full disk is a warning (see the
@@ -1909,7 +1909,7 @@ Real engine, Ubuntu 24.04 sandbox: `zoomies doctor` reports 1 warning
 (`cgroup.version`); `zoomies doctor --tier dedicated --json` reports 3
 (`cgroup.version`, `tmp.tmpfs`, `journal.size`).
 
-## Appendix E — reproducing
+## Appendix E: reproducing
 
 ```sh
 make build

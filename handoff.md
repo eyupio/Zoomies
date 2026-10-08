@@ -178,7 +178,7 @@ Next: authorised compact REST/MCP source retrieval must check explicit caller gr
 
 Published implementation commit: `b562a552a13906a774d6473bf5e2322240564466`; implementation tree: `8e8ced4832bbfb66266ff8a64f0884fa8224cc9b`, exactly matching the validated local implementation tree. CI was queued when publication was checked; no remote CI success is claimed. This publication note is a documentation-only follow-up.
 
-## Compact authorised REST/MCP retrieval checkpoint — 3 October 2026
+## Compact authorised REST/MCP retrieval checkpoint: 3 October 2026
 
 PR #576 is merged at `5e633cd6fed4b69b038cda859747b442298a2c04`. The local baseline was compared with the attachment and the merged remote tree; the merged dependency lock updates were synchronised before testing. Baseline tree: `7cf72bb4c8efcf67846b79697113bed2951a436f`. This continuation is a new branch, `feature/ai-context-source-retrieval`.
 
@@ -203,7 +203,7 @@ Next concrete action: implement repository-only transient retrieval through the 
 
 Published in [PR #577](https://github.com/eyupio/zoomies/pull/577), based on merged main `5e633cd6fed4b69b038cda859747b442298a2c04`. Implementation commit: `8000fd5f54e680ed9ebdcbfc11fcc8f41dd4e55e`; implementation tree: `85842edd68c1a9b46b3b57449618ad78d9ddb4d8`, exactly matching the validated local tree. The user explicitly approved publication on 3 October 2026. The final focused source race recheck passed (8.863s). This publication note is a documentation-only follow-up; remote CI and live acceptance success are not claimed.
 
-## Live Zoomies setup failure and assistant guidance checkpoint — 3 October 2026
+## Live Zoomies setup failure and assistant guidance checkpoint: 3 October 2026
 
 The user enabled AI Context on eyupio/zoomies through PR #578, merged at d35fb6189e47d6411fe3fb31b58da3d54df380b2. Actions run 37110107009 failed in Generate bounded source context and never reached publication. Reproduced the first refusal locally: the initial generator checked a 2,223,635-byte brand PDF against the text-file limit before binary classification. Fix reads at most 1 MiB + 1 byte from each immutable blob, skips NUL/non-UTF-8 binary data first, then retains the 1 MiB text-file limit. Oversized UTF-8 samples use an incremental decoder, so a sample boundary cannot misclassify text as binary. An oversized asset whose bounded sample looks like text is conservatively refused rather than reading an unbounded blob.
 
@@ -217,7 +217,7 @@ Product correction still outstanding: user-level repository enablement is requir
 
 Published this checkpoint by updating PR #577, based on main after the live setup merge. Remote implementation commit: 7a0328c8794c5589cbd87155098c6b00ecf132f4. Tree: 3303c86754195867ef82fa79117860a52878a590, exactly matching the validated local implementation. The installed workflow's final local pilot generated 1,508 files, 18,545,226 source bytes and 19,724,376 encoded bytes. Both final browser journeys passed (8.2s). Remote CI and the repaired live Actions run remain unverified. User-level enablement is still the next product requirement to implement safely.
 
-## Automatic badge and maintenance checkpoint — 3 October 2026
+## Automatic badge and maintenance checkpoint: 3 October 2026
 
 User correction: the README AI Context badge is automatic, like the CI migration badge. Removed the setup checkbox and always add/update the marked badge on GitHub's rendered Markdown README. The legacy readme_badge field remains decodable to preserve earlier configuration hashes; new wizard saves and maintenance clear it. Existing user text is preserved. A missing/non-Markdown README remains untouched, matching CI migration behaviour.
 
@@ -233,7 +233,7 @@ Still outstanding from the product correction: safely scoped user-level enableme
 
 Published the maintenance checkpoint in PR #579: https://github.com/eyupio/zoomies/pull/579. Implementation commit 2ec3829f1e7c05d57b86379af10037dc4bf47a59 has tree bde4e5cccc80dff32303a32c65f941f28e81c361, exactly matching the validated local code. The PR is open; merge/deployment and remote CI completion are not claimed.
 
-## Repository-only transient retrieval checkpoint — 3 October 2026
+## Repository-only transient retrieval checkpoint: 3 October 2026
 
 Repository-only output now serves source through the same four REST/MCP routes. `Controller.verifyAIContext` (behind `RefreshAIContext` and `VerifiedAIContextSnapshot`) runs the unchanged live access, merge, workflow and publication checks. For Both it still stores the snapshot. For Repository it returns the verified snapshot in memory for that request only and calls the new `store.ConfirmAIContextTransient`, which marks the repository available and writes freshness (commit and digest) but no payload row. The digest is the hash of the marshalled snapshot, so page identity matches Both. Zoomies-only still reports unavailable. A failed check closes availability and says no copy is kept.
 
@@ -245,7 +245,7 @@ Validation: `go test -race -count=1 -run 'TestRepositoryOnlyRetrieval|TestContex
 
 Next concrete action: user-level enablement/ownership (see the product correction above), then Zoomies-only OIDC upload, the context browser and the live assistant pilot.
 
-## Installation owners checkpoint — 3 October 2026
+## Installation owners checkpoint: 3 October 2026
 
 User decision: non-admins enable repositories through **installation ownership** delegated by an administrator. There is no GitHub identity link yet. Migration 0066 adds `ai_context_installation_owners`, which cascades on installation or user deletion; a disabled user owns nothing. The new `context.manage` action is viewer-level and only a coarse gate. Every configuration handler then calls `contextInstallationAccess` / `contextRepositoryAccess` (`internal/api/handlers_ai_context_owners.go`): administrators pass, signed-in owners pass for their own installation, and everyone else, including all tokens and OAuth connections, gets a 404. The 404 does not reveal whether an installation or draft exists. Owners list only their own installations' repositories. They may add or remove only themselves as readers: the members GET shows them only themselves, and a PUT keeps everyone else's membership. Ownership grants no source access or connection consent. Admin-only `GET/PUT /ai-context/installations/{id}/owners` (max 50, explicit array) and `GET /ai-context/installations` (manageable list) are new. `TestRoleAuthority` has an explicit `ownershipChecked` exemption for `context.manage`.
 
@@ -260,7 +260,7 @@ Validation:
 
 Next: user-facing docs for AI Context (setup, ownership, readers, connecting assistants, screenshots), then Zoomies-only OIDC upload and the live pilot.
 
-## User documentation checkpoint — 3 October 2026
+## User documentation checkpoint: 3 October 2026
 
 `docs/ai-context.md` is the user guide. It covers:
 - why a runner controller now does this, which answers the user's concern that the product is moving beyond runners
@@ -282,7 +282,7 @@ Validation:
 - `internal/docs` and `internal/controller` tests passed.
 - Playwright migrate, ai-context and navigation: 42 passed.
 
-## Zoomies-only OIDC upload checkpoint — 3 October 2026
+## Zoomies-only OIDC upload checkpoint: 3 October 2026
 
 Phase 5 is implemented. A Zoomies-only repository's workflow keeps the read-only generate job. Its last job is now `upload` rather than `publish`: it has `id-token: write` and no other permission, mints a GitHub Actions OIDC token whose audience is this controller's upload address, and POSTs `snapshot.json` to `POST /api/v1/ai-context/uploads` (`internal/aicontext/templates/upload.py`; no redirects followed, artifact identity re-checked before any token is requested). Both/Repository workflows are byte-identical to before (checked by diffing the rendered templates), so installed repositories do not drift.
 
@@ -315,13 +315,13 @@ Limits and next steps:
 - Uploads are verified only for `github.com` (GHES still unsupported).
 - After that: the live assistant pilot, and phase 6 (assistant-written artifacts).
 
-## Since the Zoomies-only checkpoint — 4 October 2026
+## Since the Zoomies-only checkpoint: 4 October 2026
 
 PR #584 (repository-only retrieval, installation owners, user docs, Zoomies-only uploads) and #585 are merged.
 
 Also merged, outside AI Context:
-- **#584 — `zoomies upgrade` mounts size-limited cache folders.** For Compose and `docker run`, it now offers to mount each size-limited pool cache folder at its own path. These are folders outside the shared folder and not already under a same-path bind. Without the mount, the containerised agent cannot measure them, so the limit was silently never enforced. The wizard now suggests `/var/lib/zoomies/shared/cache/pools`.
-- **#585 — Overview setup checklist.** It now waits for `fleet.stats` before deciding the fleet has no jobs. A fleet with jobs was being congratulated on its "first job".
+- **#584: `zoomies upgrade` mounts size-limited cache folders.** For Compose and `docker run`, it now offers to mount each size-limited pool cache folder at its own path. These are folders outside the shared folder and not already under a same-path bind. Without the mount, the containerised agent cannot measure them, so the limit was silently never enforced. The wizard now suggests `/var/lib/zoomies/shared/cache/pools`.
+- **#585: Overview setup checklist.** It now waits for `fleet.stats` before deciding the fleet has no jobs. A fleet with jobs was being congratulated on its "first job".
 
 This checkpoint: when the controller cannot fetch GitHub's Actions signing keys, an upload now gets a **503** naming `token.actions.githubusercontent.com`, not a 401 that blames the workflow. go-oidc formats key-set errors with `%v`, so `fetchRecordingKeys` wraps the key set to record a fetch failure. `TestAnUnreachableIssuerIsNotABadToken` pins go-oidc's `fetching keys` prefix. The API test, the OpenAPI 503 response, the generated clients and a troubleshooting line in `docs/ai-context.md` are updated.
 
@@ -333,9 +333,9 @@ Still open:
 1. **Live phase-5 acceptance:** a real GitHub Actions upload to an https controller. It needs a deployed controller, which this environment cannot reach.
 2. **Live assistant pilot:** Claude reading a verified repository over `/mcp`.
 3. **GHES** for managed workflows and uploads.
-4. ~~Phase 6, assistant-written artifacts~~ — see the next checkpoint.
+4. ~~Phase 6, assistant-written artifacts~~: see the next checkpoint.
 
-## Phase 6 checkpoint: assistant notes — 4 October 2026
+## Phase 6 checkpoint: assistant notes: 4 October 2026
 
 Decision (owner): **Markdown notes per repository.** An assistant publishes versioned Markdown reports, plans or notes about a verified repository over MCP. Publishing needs a separate permission. Notes live in SQLite, are attributed and marked AI-written, are readable by the repository's readers, and are shown as escaped text.
 
@@ -381,7 +381,7 @@ Next concrete action: the live assistant pilot, now including a `context_publish
 
 The local `-race` run of all of `internal/store` takes about 22 minutes in this environment. It passed with `-timeout 25m`. The 10-minute default timeout is not a hang.
 
-## GitHub Enterprise Server checkpoint — 4 October 2026
+## GitHub Enterprise Server checkpoint: 4 October 2026
 
 Decision (owner): **artifact v3 on GHES**. A GHES variant of the managed workflow keeps the two-job privilege separation. Zoomies-only uploads trust the server's own OIDC issuer. Docs mark it unpiloted.
 
@@ -409,7 +409,7 @@ Decision (owner): **artifact v3 on GHES**. A GHES variant of the managed workflo
 
 Still open: a real GHES pilot (setup PR, Both run, Zoomies-only upload), GHE.com, and the live assistant pilot and phase-5 upload on github.com.
 
-## PR #586 merged — 4 October 2026
+## PR #586 merged: 4 October 2026
 
 PR #586 merged as `33c0b2b`. It carries the phase 6 and GHES checkpoints above, plus:
 
@@ -429,7 +429,7 @@ Still open, all needing a real deployment:
 
 Next concrete action: run one of the live pilots above against a deployed controller. Code work, if wanted first: `t.Parallel()` for the store and controller suites.
 
-## Failed-run diagnosis checkpoint — 6 October 2026
+## Failed-run diagnosis checkpoint: 6 October 2026
 
 Every run of the managed workflow on `eyupio/rea` since 5 October failed, and Zoomies said only "stale" while starting the workflow again every half hour. Three different things had gone wrong over the repository's history, and the card could not tell them apart:
 

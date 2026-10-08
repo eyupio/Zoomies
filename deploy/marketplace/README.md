@@ -44,7 +44,7 @@ token. A Cloudflare Tunnel token is the single exception, and it is optional:
 leave it out and the instance still boots ready for you to paste it over SSH. Everything a provider's
 form collects becomes instance metadata, which is readable by anything on the
 instance that can reach the metadata service, kept in the provider's own
-database, and printed in cloud-init's log — and a credential that has been
+database, and printed in cloud-init's log, and a credential that has been
 copied to all three places cannot be rotated out of them. `render.sh` refuses an
 inputs file that sets one.
 
@@ -53,8 +53,8 @@ connection the operator already trusts. The first administrator is created with
 the setup token the controller prints while no account exists; GitHub is
 connected from the UI by an administrator who is already signed in.
 
-**It offers no plain-HTTP public endpoint.** The origin often speaks HTTP —
-that is what three of the five arrangements do — but something in front always
+**It offers no plain-HTTP public endpoint.** The origin often speaks HTTP
+(that is what three of the five arrangements do) but something in front always
 holds a certificate for the public name: a Cloudflare Tunnel dialling out from
 this instance, Cloudflare in front of a published origin, a proxy here with a
 certificate from Let's Encrypt, Zoomies itself with one you supply, or a load

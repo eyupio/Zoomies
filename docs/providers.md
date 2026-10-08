@@ -51,19 +51,19 @@ is a method the reconciler will keep calling.
 
 ### Allocate is separate from Create on purpose
 
-`Allocate` picks the identity a machine will have — which zone, which native
-identifier, which name — and **creates nothing**. Zoomies writes that identity
+`Allocate` picks the identity a machine will have (which zone, which native
+identifier, which name) and **creates nothing**. Zoomies writes that identity
 into its own database before it calls `Create`.
 
 That ordering is the single most important thing in this design, and the whole
 reason the two are separate calls. When `Create` times out, or the connection
 drops after the request went out, the machine may or may not exist. Zoomies then
 has a name and an identifier it chose in advance, so the answer is to go and
-look — `Inspect`, then `List` — rather than to ask for a second machine.
+look (`Inspect`, then `List`) rather than to ask for a second machine.
 
 **A timeout is not evidence that creation failed.** A provider that makes this
-untrue — by allocating identity only after creation, with no way to find the
-result again — cannot be made safe by the reconciler. If your identity is only
+untrue (by allocating identity only after creation, with no way to find the
+result again) cannot be made safe by the reconciler. If your identity is only
 knowable after the fact, return a ref carrying `Name` alone from `Allocate` and
 make that name findable through `List`.
 
@@ -83,7 +83,7 @@ retries nothing.
 | `permission` | The credential is valid and not allowed to do this. | Fails, naming the privilege and the path. |
 | `unreachable` | We could not talk to the provider. | Backs off. **Never** evidence about a resource. |
 | `quota` | Refused for want of resources or a limit. | Retries slowly; never by asking for more. |
-| `conflict` | Something else holds the resource — a lock, an identifier taken. | Waits and observes. |
+| `conflict` | Something else holds the resource; a lock, an identifier taken. | Waits and observes. |
 | `not_found` | The resource is not there. | For a delete, that is success. |
 | `refused` | A definite refusal, in the provider's own words. | Retries with backoff, then fails. |
 | `ambiguous` | **We do not know whether it happened.** | Resolves it by looking. Never retries the operation. |
@@ -103,8 +103,8 @@ answer: `ambiguous`.
 
 Get this wrong in the safe direction and a machine waits. Get it wrong in the
 unsafe direction and you rent two machines and pay for the one nobody is
-tracking. Classify at the point where the answer is known — inside the HTTP
-client — and never above it.
+tracking. Classify at the point where the answer is known, inside the HTTP
+client, and never above it.
 
 An `ambiguous` failure is **never retryable**. Its only legal next move is
 observation.
@@ -132,14 +132,14 @@ machine's, a per-machine fingerprint minted with the row, and a creation time.
 None of it is authenticated. Anyone with write access to your infrastructure can
 forge the lot, and the contract says so out loud: **the marks are
 tamper-evidence, not authorisation.** The database is the authority. What the
-marks catch is the realistic accident — a recycled identifier, another
-controller's resource, one somebody made by hand — rather than an attacker.
+marks catch is the realistic accident (a recycled identifier, another
+controller's resource, one somebody made by hand) rather than an attacker.
 
 A delete therefore needs four facts to agree: the row, a **fresh** inspection
 (a cached sweep result is not evidence), this controller holding the fleet's
 lease, and a state that permits it. Any disagreement quarantines the machine for
 a person to look at. Nothing is deleted on a guess, and an untracked resource
-wearing our marks is reported and never removed — it might be another live
+wearing our marks is reported and never removed; it might be another live
 fleet's.
 
 `List` must return both the machines carrying this owner's controller mark and
@@ -151,7 +151,7 @@ where the API allows one.
 
 Every method takes a context and must honour its deadline. A provider declares
 its own honest budgets in `Capabilities().Deadlines`, and the reconciler applies
-the larger of those and the operator's configuration — so a provider may ask for
+the larger of those and the operator's configuration, so a provider may ask for
 longer, and never for less supervision than the operator asked for.
 
 A provider does not retry, back off, or read a clock for its own decisions.
@@ -165,7 +165,7 @@ written for the previous version behave *wrongly* does.
 
 A provider declares the range it speaks. The controller refuses to build one
 whose range does not contain this build's version, names both numbers, and says
-which side to upgrade — and the machines that provider already owns stay
+which side to upgrade, and the machines that provider already owns stay
 visible, drainable and deletable, because a version mismatch must never strand a
 running VM.
 

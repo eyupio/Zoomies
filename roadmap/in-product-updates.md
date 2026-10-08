@@ -8,9 +8,9 @@ An operator should not have to run `sudo zoomies upgrade` by hand on the
 controller and then on every agent host. Updating becomes a choice with three
 settings:
 
-* **off** — as today: a notice that a release exists, and a command to copy;
-* **manual** — an Update button in the web UI, for the controller and for hosts;
-* **auto** — Zoomies does it, within limits an operator can read.
+* **off**: as today: a notice that a release exists, and a command to copy;
+* **manual**: an Update button in the web UI, for the controller and for hosts;
+* **auto**: Zoomies does it, within limits an operator can read.
 
 It is mostly orchestration. The engine already exists. What is missing is a way
 to act with the right privilege, and a policy on top.
@@ -37,7 +37,7 @@ to act with the right privilege, and a policy on top.
   `installer.Upgrade`. The first downloads a release, checks its sha256 against
   the release's `checksums.txt`, runs the candidate once, replaces the binary
   atomically and refuses a downgrade. The second reviews the deployment's
-  layout, restarts the service — systemd, launchd, Compose or Docker — and, for
+  layout, restarts the service (systemd, launchd, Compose or Docker) and, for
   a controller, waits for `/healthz`.
 * **The host command.** A remote host's card shows
   `sudo zoomies upgrade --mode agent --version <tag>`
@@ -88,8 +88,8 @@ to act with the right privilege, and a policy on top.
 **Settings**, both platform-scoped and live, so only the `platform` role changes
 them:
 
-* `updates.mode` — `off | manual | auto`, default `off`.
-* `updates.soak` — a duration, default `24h`, `0` allowed. It applies to `auto`
+* `updates.mode`: `off | manual | auto`, default `off`.
+* `updates.soak`: a duration, default `24h`, `0` allowed. It applies to `auto`
   only: a person pressing the button is the soak.
 
 `updates.check_interval` is unchanged and is still the air-gap switch. With `0`
@@ -161,8 +161,8 @@ service's hardening is as tight as an upgrade allows. It must write the binary,
 unit files and Compose files, and pull images with the credentials root holds,
 so it cannot use `ProtectSystem=strict` and sets `ProtectHome=read-only`, but it
 keeps `NoNewPrivileges`, `PrivateTmp` and the kernel protections. The two hours
-are a backstop. The engine's own worst case is fifty minutes — twenty to stop
-the old service and thirty to wait for the controller to answer — and a limit
+are a backstop. The engine's own worst case is fifty minutes (twenty to stop
+the old service and thirty to wait for the controller to answer) and a limit
 shorter than that would kill the run midway and leave `upgrade.lock` behind. The
 helper consumes the request, removing the file once it has been read, so the path
 unit fires once per request.
@@ -205,8 +205,8 @@ less privileged party, so the helper treats everything in the folder as hostile.
 
 * The update folder is opened with `os.OpenRoot` and the request is read once
   through one descriptor. It must be a regular file, at most 4 KiB, owned by the
-  account recorded when the helper was installed — the state directory's owner on
-  a native install, uid 65532 in the images — with known fields only. What was
+  account recorded when the helper was installed (the state directory's owner on
+  a native install, uid 65532 in the images) with known fields only. What was
   read is validated, not the path, so there is nothing to swap between the check
   and the use. A rootless or user-namespace-remapped container host owns files
   under another uid, so the check fails closed there and the helper does not
@@ -224,7 +224,7 @@ less privileged party, so the helper treats everything in the folder as hostile.
 * It looks for `upgrade.lock` and refuses while one exists, so a manual upgrade
   in progress is not run over. It never takes the lock itself, because the
   `zoomies upgrade` it starts does.
-* It keeps its own state — the ids it has seen and the attempts per tag — in a
+* It keeps its own state (the ids it has seen and the attempts per tag) in a
   root-owned directory outside the update folder, as `zoomies-host-tune` does,
   so the service cannot reset it. At most two attempts per tag and one per ten
   minutes; a repeated id is refused.
@@ -390,14 +390,14 @@ reconciler do, and every action it takes first checks `mayAct`.
 
 Two small tables, written only by `internal/store`:
 
-* `update_attempts` — id (`store.NewID` with the prefix `upd`), scope
+* `update_attempts`: id (`store.NewID` with the prefix `upd`), scope
   (`controller` or `host`), host, from_version, to_version, trigger (`manual` or
   `auto`), requested_by, state (`requested`, `succeeded`, `failed`, `timed_out`,
   `cancelled`), error, requested_at, finished_at. A partial unique index allows
   one `requested` row per target, so a button and the planner cannot both open
   one. The host column has no foreign key: a re-join deletes and recreates the
   host row, and a cascade would erase the history it belongs to.
-* `update_rollouts` — id (prefix `rol`), target, trigger, state (`running`,
+* `update_rollouts`: id (prefix `rol`), target, trigger, state (`running`,
   `halted`, `done`, `cancelled`), started_by, halted_reason, started_at,
   finished_at.
 

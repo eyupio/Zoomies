@@ -2404,7 +2404,7 @@ func (c *Controller) cleanupProblems(ctx context.Context, out *[]Problem) error 
 		Code:     "runners.cleanup_failed",
 		Severity: config.SeverityWarning,
 		Title:    fmt.Sprintf("%s could not be cleaned up", plural(len(stuck), "runner")),
-		Detail: fmt.Sprintf("%s, %s: %s. Something is left behind — a container on its host, or a "+
+		Detail: fmt.Sprintf("%s, %s: %s. Something is left behind, a container on its host, or a "+
 			"registration on GitHub. Housekeeping will recheck and retry safe cleanup automatically.",
 			example.Name, progress, example.CleanupError),
 		Fix:        fix,

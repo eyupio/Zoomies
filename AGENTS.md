@@ -12,7 +12,7 @@ use injected filesystems and commands. Preserve reversal records on uninstall.
 
 Repository: `eyupio/zoomies` on `github.com`. Source branch: `main`. Destination: `both`.
 
-### Use repository context first — no MCP required
+### Use repository context first: no MCP required
 
 Repository context lives on the `zoomies-ai-context` branch under `.zoomies/ai-context/`, not on the source branch. Use this prepared context as your first source reference before browsing individual source files. GitHub Actions regenerates it after pushes to the source branch. Use your existing authorised GitHub access; no Zoomies connection is required.
 

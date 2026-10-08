@@ -201,7 +201,7 @@
       <Checkbox
         bind:checked={draft.tmpfs_daemon}
         label="Keep the Docker image store in memory"
-        description="The Docker-in-Docker sidecar writes every image a job pulls and every layer it builds here, which is usually most of this pool's disk traffic. It is charged to the sidecar's own memory limit, and an image bigger than the store does not pull — so size it for the largest image your jobs use."
+        description="The Docker-in-Docker sidecar writes every image a job pulls and every layer it builds here, which is usually most of this pool's disk traffic. It is charged to the sidecar's own memory limit, and an image bigger than the store does not pull, so size it for the largest image your jobs use."
         onchange={() => touch('tmpfs.daemon.enabled')}
       />
       {#if draft.tmpfs_daemon}
@@ -279,7 +279,7 @@
             <ul class="plan">
               {#if plan.share}
                 <li>
-                  Give the sidecar {plan.share.percent}% of a slot's memory — {plan.share.in_memory} of
+                  Give the sidecar {plan.share.percent}% of a slot's memory, {plan.share.in_memory} of
                   {plan.total}
                   folders in memory, no runners lost.
                   <Button
@@ -341,7 +341,7 @@
       <p class="echo">
         This pool's runners are each given a share of their host{hasSidecar
           ? ', split between the runner and its Docker sidecar'
-          : ''}, and the folders are fitted into half of the container's part — so they cannot take
+          : ''}, and the folders are fitted into half of the container's part, so they cannot take
         the memory a job needs. Choose a fixed size to set the limit yourself{hasSidecar
           ? ', which gives each container the whole of it'
           : ''}.
@@ -353,8 +353,8 @@
 <fieldset class="group">
   <legend>Performance cache</legend>
   <p class="hint">
-    Mounted at <code>/opt/zoomies-cache</code> and kept between runners. This is disposable build acceleration
-    — dependencies and build outputs — not persistent workflow storage, and it may be evicted at any time.
+    Mounted at <code>/opt/zoomies-cache</code> and kept between runners. This is disposable build acceleration,
+    dependencies and build outputs, not persistent workflow storage, and it may be evicted at any time.
   </p>
 
   <Checkbox
@@ -447,7 +447,7 @@
           <p>
             {room?.smallest_disk_host} has {formatMegabytes(room?.smallest_disk_mb ?? 0)} free behind
             its work directory, and this cache may grow to {gbLabel(cacheLimitGb)}. Eviction happens
-            between one runner and the next, so the disk fills first — and a host at or below its
+            between one runner and the next, so the disk fills first, and a host at or below its
             disk reserve takes no runner of any pool, not just this one.
           </p>
         </div>
@@ -475,7 +475,7 @@
       <Field
         label="Cache repository (owner/name)"
         error={errors['cache.repository']}
-        hint="Leave it empty when the pool's installation is scoped to a single repository — it already says which one."
+        hint="Leave it empty when the pool's installation is scoped to a single repository, it already says which one."
       >
         {#snippet children({ id, describedBy, invalid })}
           <Input
@@ -493,7 +493,7 @@
 
     {#if roomTotal > 0 && draft.cache_scope === 'pool'}
       <p class="echo">
-        One cache per host, shared by every runner of this pool on it — up to {pluralise(
+        One cache per host, shared by every runner of this pool on it, up to {pluralise(
           roomTotal,
           'runner',
         )} across the fleet.

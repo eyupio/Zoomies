@@ -418,7 +418,7 @@
       <p class="echo">
         One runner asks for <strong>{cpuLabel(cpus)}</strong> and
         <strong>{memoryLabel(memoryMb)}</strong>{charged.pair
-          ? `, and is charged ${cpuLabel(charged.cpus)} and ${memoryLabel(charged.memoryMb)} on a host — a docker-in-docker slot is two containers at a size you typed, and the daemon its builds run in is given the same`
+          ? `, and is charged ${cpuLabel(charged.cpus)} and ${memoryLabel(charged.memoryMb)} on a host, a docker-in-docker slot is two containers at a size you typed, and the daemon its builds run in is given the same`
           : ''}.
       </p>
       <Button

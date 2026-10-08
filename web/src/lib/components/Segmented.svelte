@@ -38,7 +38,7 @@
     <button
       type="button"
       aria-pressed={value === option.value}
-      aria-label={option.name ? `${option.label} — ${option.name}` : undefined}
+      aria-label={option.name ? `${option.label}, ${option.name}` : undefined}
       title={option.name}
       onclick={() => onchange(option.value)}>{option.label}</button
     >

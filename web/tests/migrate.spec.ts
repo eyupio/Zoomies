@@ -197,7 +197,7 @@ test('a repository nothing could be opened against cannot be chosen', async ({ p
   // results before saying no: GitHub refuses every write to it.
   await expect(archived).toBeDisabled();
   await expect(archived).not.toBeChecked();
-  await expect(page.getByText('Archived — accepts no pull requests')).toBeVisible();
+  await expect(page.getByText('Archived, accepts no pull requests')).toBeVisible();
 
   // Already migrated is a different answer from "nothing to move", and the
   // list says which it is rather than leaving an operator to guess. Anchored,
@@ -265,10 +265,10 @@ test('the exceptions step offers a pool for one job without touching the rest', 
   const build = buildJob(page);
   await expect(build).toHaveValue('');
   await expect(
-    build.getByRole('option', { name: `Use the label mapping — ${FIXTURE.linuxPool}` }),
+    build.getByRole('option', { name: `Use the label mapping, ${FIXTURE.linuxPool}` }),
   ).toHaveCount(1);
   // Every pool is a choice for this one job, and so is staying on GitHub.
-  await expect(build.getByRole('option', { name: `${FIXTURE.armPool} — the` })).toHaveCount(1);
+  await expect(build.getByRole('option', { name: `${FIXTURE.armPool}, the` })).toHaveCount(1);
   await expect(build.getByRole('option', { name: 'Leave this job where it is' })).toHaveCount(1);
 
   // The matrix job cannot be pointed anywhere from here: what it resolves to is

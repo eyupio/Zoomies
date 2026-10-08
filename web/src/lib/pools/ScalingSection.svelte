@@ -152,7 +152,7 @@
 
   function placeholder(setting: Setting): string {
     const value = fleetDefaults?.[setting.key];
-    return value ? `${value} — this fleet's` : "this fleet's";
+    return value ? `${value}, this fleet's` : "this fleet's";
   }
 
   /*
@@ -202,7 +202,7 @@
     const because = givesDaemon
       ? `${CREATE_BUDGET_MINUTES}m for the create and ${wait}m waiting for Docker`
       : `${CREATE_BUDGET_MINUTES}m for the create`;
-    return `A runner of this pool may legitimately take ${start}m to start — ${because} — so a ${draft.provision_timeout.trim()} timeout fails runners that are still coming up, and the replacement pulls the same image again.`;
+    return `A runner of this pool may legitimately take ${start}m to start, ${because}, so a ${draft.provision_timeout.trim()} timeout fails runners that are still coming up, and the replacement pulls the same image again.`;
   });
 
   // Open already when something in it is in use, or refused: a setting that is
@@ -368,7 +368,7 @@
 
   <p class="echo">
     Every runner timing has a fleet-wide answer on the Settings page, and this pool follows it
-    unless you say otherwise here. Leave a field empty to keep following — including after the
+    unless you say otherwise here. Leave a field empty to keep following, including after the
     fleet's own figure is changed.
   </p>
 

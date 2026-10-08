@@ -1,4 +1,4 @@
-# OpenSSF Scorecard hardening — 12 September 2026
+# OpenSSF Scorecard hardening: 12 September 2026
 
 Baseline: **4.6/10**, commit `c74735aa3a7525bd184f27f5568a9d3b6a9a4c23`,
 [scan at 14:02 UTC](https://api.scorecard.dev/projects/github.com/eyupio/zoomies).

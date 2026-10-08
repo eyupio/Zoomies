@@ -219,8 +219,8 @@
       <p class="scope">
         <ShieldCheck size={16} aria-hidden="true" />
         <span>
-          It works on <span class="mono">/mcp</span> only — not the API or this interface — and never
-          with more than your own role. Disconnect it any time under Settings, MCP connections.
+          It works on <span class="mono">/mcp</span> only, not the API or this interface, and never with
+          more than your own role. Disconnect it any time under Settings, MCP connections.
         </span>
       </p>
 

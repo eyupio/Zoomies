@@ -132,7 +132,7 @@ func (r *Record) addCase(row CaseRow) { r.Cases = append(r.Cases, row) }
 // Markdown renders the tables the qualification record holds, filled in.
 func (r *Record) Markdown() string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Proxmox VE qualification — evidence from run %s\n\n", r.RunID)
+	fmt.Fprintf(&b, "# Proxmox VE qualification, evidence from run %s\n\n", r.RunID)
 	fmt.Fprintf(&b, "Produced by `test/e2e/proxmox` at %s, on commit %s",
 		r.FinishedAt.Format(time.RFC3339), r.Commit)
 	if r.RunLink != "" {
@@ -161,7 +161,7 @@ func (r *Record) Markdown() string {
 	for _, phase := range phaseOrder {
 		p50, p95, n := r.timings.stat(phase)
 		if n == 0 {
-			fmt.Fprintf(&b, "| %s | — | — | 0 (never measured) |\n", phase)
+			fmt.Fprintf(&b, "| %s | - | - | 0 (never measured) |\n", phase)
 			continue
 		}
 		fmt.Fprintf(&b, "| %s | %s | %s | %d |\n", phase, round(p50), round(p95), n)
@@ -260,7 +260,7 @@ func round(d time.Duration) string { return d.Round(100 * time.Millisecond).Stri
 
 func orDash(s string) string {
 	if strings.TrimSpace(s) == "" {
-		return "—"
+		return "-"
 	}
 	return s
 }

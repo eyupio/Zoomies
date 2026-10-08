@@ -9,7 +9,7 @@ cannot be a description of whatever happened to work. Every row below is
 roadmap's own sentence applies until then: **fixture success is not live
 qualification.**
 
-What *has* been run is the fixture suite — the whole machine lifecycle against
+What *has* been run is the fixture suite; the whole machine lifecycle against
 `provider.Fake` with no network, and the Proxmox client against an
 `httptest` server speaking `/api2/json`. That proves the logic and the wire
 format. It proves nothing whatever about a hypervisor.
@@ -33,7 +33,7 @@ exactly like a pass.
 
 It writes its evidence into a copy of this page named for the commit and the
 run, so the figures below are filled in from a file the harness produced rather
-than typed from memory — and it writes every resource it is about to create to
+than typed from memory, and it writes every resource it is about to create to
 a ledger first, so a run that dies part-way still names what it left behind.
 
 ## Setup, to be recorded
@@ -43,16 +43,16 @@ setup that produced it is not evidence.
 
 | | |
 | --- | --- |
-| Zoomies commit | — |
-| Proxmox VE version | — (`pveversion -v`, verbatim) |
-| Node(s) | — |
-| Template VMID, OS and image | — |
-| Storage and its type | — |
-| Network bridge | — |
-| VMID range | — |
-| Machine shape | — cpus / memory / disk |
-| Fleet and provider limits | — |
-| Runner backend in the guest | — |
+| Zoomies commit | - |
+| Proxmox VE version | (`pveversion -v`, verbatim) |
+| Node(s) | - |
+| Template VMID, OS and image | - |
+| Storage and its type | - |
+| Network bridge | - |
+| VMID range | - |
+| Machine shape | cpus / memory / disk |
+| Fleet and provider limits | - |
+| Runner backend in the guest | - |
 
 ## The runs
 
@@ -62,13 +62,13 @@ means nothing written as "usually about".
 
 | # | Case | Outcome | Timings | What was observed | Human action needed |
 | --- | --- | --- | --- | --- | --- |
-| 1 | 20 full cycles | `not run` | — | — | — |
-| 2 | Scale from zero — no hosts at all, then queued work | `not run` | — | — | — |
-| 3 | Multi-pool burst — two pools demanding at once | `not run` | — | — | — |
-| 4 | Controller restart mid-create | `not run` | — | — | — |
-| 5 | Bootstrap failure — a deliberately broken template | `not run` | — | — | — |
-| 6 | Deletion retry — a delete that fails once | `not run` | — | — | — |
-| 7 | Closing inventory reconciliation | `not run` | — | — | — |
+| 1 | 20 full cycles | `not run` | - | - | - |
+| 2 | Scale from zero; no hosts at all, then queued work | `not run` | - | - | - |
+| 3 | Multi-pool burst, two pools demanding at once | `not run` | - | - | - |
+| 4 | Controller restart mid-create | `not run` | - | - | - |
+| 5 | Bootstrap failure; a deliberately broken template | `not run` | - | - | - |
+| 6 | Deletion retry; a delete that fails once | `not run` | - | - | - |
+| 7 | Closing inventory reconciliation | `not run` | - | - | - |
 
 Timings to record across the 20 cycles, each with p50 and p95 and the count
 they came from: queue to create issued; create to resource running; running to
@@ -83,18 +83,18 @@ This is the one that decides qualification, and it is deliberately last.
 After the runs, list every VM and every disk in the configured VMID range and
 on the configured storage, and account for each one against the `machines`
 table. **No owned resource may be left unexplained.** Record the query used,
-the counts on both sides, and each discrepancy with its explanation — an
+the counts on both sides, and each discrepancy with its explanation; an
 orphan found and deliberately left is a finding, not a failure, but an orphan
 nobody noticed is a failure of this procedure rather than of the code.
 
 | | Count | Notes |
 | --- | --- | --- |
-| VMs in the range at the start | — | — |
-| Machines created during the runs | — | — |
-| Machines confirmed deleted | — | — |
-| VMs in the range at the end | — | — |
-| Disks left on the storage | — | — |
-| Unexplained owned resources | — | **must be zero** |
+| VMs in the range at the start | - | - |
+| Machines created during the runs | - | - |
+| Machines confirmed deleted | - | - |
+| VMs in the range at the end | - | - |
+| Disks left on the storage | - | - |
+| Unexplained owned resources | - | **must be zero** |
 
 ## What is deliberately not covered
 

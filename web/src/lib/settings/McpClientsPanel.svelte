@@ -381,7 +381,7 @@
   description="{rotating?.name ??
     'This client'} gets a new secret, shown once. The old one stops working now."
   consequences={[
-    `Anything still holding the old secret cannot sign anybody in or refresh a connection until it is given the new one${rotating?.connections ? ` — ${rotating.connections} connection${rotating.connections === 1 ? '' : 's'} will stop at their next refresh` : ''}.`,
+    `Anything still holding the old secret cannot sign anybody in or refresh a connection until it is given the new one${rotating?.connections ? `, ${rotating.connections} connection${rotating.connections === 1 ? '' : 's'} will stop at their next refresh` : ''}.`,
   ]}
   confirmLabel="Rotate"
   onconfirm={rotate}
@@ -394,7 +394,7 @@
   name={revoking?.name}
   description="{revoking?.name ?? 'This client'} can no longer ask anybody to connect."
   consequences={[
-    `Every connection made with it ends now${revoking?.connections ? ` — ${revoking.connections} of them` : ''}.`,
+    `Every connection made with it ends now${revoking?.connections ? `, ${revoking.connections} of them` : ''}.`,
   ]}
   confirmLabel="Revoke"
   onconfirm={revoke}

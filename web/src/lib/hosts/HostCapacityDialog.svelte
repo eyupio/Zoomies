@@ -308,10 +308,10 @@
           A runner here asks for <strong>{ask.cpus} {ask.cpus === 1 ? 'core' : 'cores'}</strong>
           and <strong>{gb(ask.memoryMb)}</strong>{ask.source === 'pools'
             ? ask.pool
-              ? `, the largest ask across your enabled pools — ${ask.pool}'s`
+              ? `, the largest ask across your enabled pools, ${ask.pool}'s`
               : ', the largest ask across your enabled pools'
             : ', the default a new pool gets'}{ask.pair
-            ? ', counting both containers of a docker-in-docker slot — its runner and the daemon, which is given the same limits because the build runs there'
+            ? ', counting both containers of a docker-in-docker slot, its runner and the daemon, which is given the same limits because the build runs there'
             : ''}. On {shape.cpus > 0 ? `${shape.cpus} cores` : 'an unknown number of cores'}
           and {shape.memoryMb > 0 ? gb(shape.memoryMb) : 'unknown memory'}, that is room for
           <strong>{pluralise(recCapacity, 'runner')}</strong> once the reserve is kept.
@@ -371,8 +371,8 @@
     {#if hasStandard}
       <p class="note" data-testid="capacity-standard-note">
         This host has a standard runner size of {standardText}, so it takes as many runners as its
-        machine holds of that size — {pluralise(host?.slots ?? 0, 'runner')} now — and this figure is
-        only the most it may take. Change the size under “Set runner sizes” on its card.
+        machine holds of that size, {pluralise(host?.slots ?? 0, 'runner')} now, and this figure is only
+        the most it may take. Change the size under “Set runner sizes” on its card.
       </p>
     {/if}
     {#if aboveCapacity}
@@ -399,7 +399,7 @@
         <legend>Held back for the machine</legend>
         <p class="note">
           What the scheduler will not promise away: the room this host needs to be a working machine
-          rather than a pool of capacity. It is arithmetic rather than a fence — the room is kept by
+          rather than a pool of capacity. It is arithmetic rather than a fence, the room is kept by
           placing less here, and nothing stops a job that runs away from taking it. A floor applies
           even at none: half a core or a twentieth of the machine, whichever is larger, 512 MB of
           memory and 2 GB of disk.

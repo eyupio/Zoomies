@@ -3717,7 +3717,7 @@ export interface paths {
         put?: never;
         /**
          * Apply retention now
-         * @description Deletes the copies beyond `backup.keep` from the backup directory, and the ones beyond each destination's own `keep` from its bucket. Retention otherwise runs as part of taking a backup, which leaves a fleet that has just lowered `backup.keep` holding the old number until the next one — and on a fleet with `backup.interval` off, holding it forever. A copy that was uploaded here or fetched back out of a bucket is never counted and never removed. The answer lists what went, per destination, and a bucket that refused is reported against its own name while the others are still pruned. Refused with 409 while a backup or an offsite pass is running.
+         * @description Deletes the copies beyond `backup.keep` from the backup directory, and the ones beyond each destination's own `keep` from its bucket. Retention otherwise runs as part of taking a backup, which leaves a fleet that has just lowered `backup.keep` holding the old number until the next one, and on a fleet with `backup.interval` off, holding it forever. A copy that was uploaded here or fetched back out of a bucket is never counted and never removed. The answer lists what went, per destination, and a bucket that refused is reported against its own name while the others are still pruned. Refused with 409 while a backup or an offsite pass is running.
          */
         post: operations["pruneBackups"];
         delete?: never;
@@ -3737,7 +3737,7 @@ export interface paths {
         put?: never;
         /**
          * Add a backup remote
-         * @description Stores an S3-compatible destination this fleet copies every backup to. The secret key and the passphrase are sealed with the instance encryption key before anything else happens to them, and no response ever carries them back — the page is told whether each is set, which is the only thing it can act on. A destination `backup.remotes` in `zoomies.yaml` already names is refused: the file has the last word, and two rows that disagree would be worse than one that cannot be added.
+         * @description Stores an S3-compatible destination this fleet copies every backup to. The secret key and the passphrase are sealed with the instance encryption key before anything else happens to them, and no response ever carries them back; the page is told whether each is set, which is the only thing it can act on. A destination `backup.remotes` in `zoomies.yaml` already names is refused: the file has the last word, and two rows that disagree would be worse than one that cannot be added.
          */
         post: operations["createBackupRemote"];
         delete?: never;
@@ -3788,7 +3788,7 @@ export interface paths {
         head?: never;
         /**
          * Change a stored backup remote
-         * @description Only the fields the body carries are changed. The two secrets follow the credential convention: absent leaves what is stored, a value replaces it, and an explicit empty string clears it — which is how a passphrase is removed from a destination that should send the plain archive. A destination described in `zoomies.yaml` answers `409`: it is changed in the file.
+         * @description Only the fields the body carries are changed. The two secrets follow the credential convention: absent leaves what is stored, a value replaces it, and an explicit empty string clears it, which is how a passphrase is removed from a destination that should send the plain archive. A destination described in `zoomies.yaml` answers `409`: it is changed in the file.
          */
         patch: operations["updateBackupRemote"];
         trace?: never;
@@ -4028,13 +4028,13 @@ export interface paths {
          *     default says.
          *
          *     Every key is checked before any is written, and the whole request is
-         *     refused if one fails — including when the result would be a controller
+         *     refused if one fails, including when the result would be a controller
          *     that will not start, which the validator is asked about before anything
          *     is stored.
          *
          *     An accepted change is always kept. One the running process can apply
-         *     does so at once; one it cannot — rebinding the listener, rebuilding the
-         *     backends — is stored and named in `pending_restart`.
+         *     does so at once; one it cannot (rebinding the listener, rebuilding the
+         *     backends) is stored and named in `pending_restart`.
          *
          *     Refused: a key that is read before the database opens, one that belongs
          *     to a standalone agent's own host, and one an environment variable is
@@ -5871,8 +5871,8 @@ export interface components {
              * @description Where the history each figure is computed from begins, given what
              *     retention has already pruned. Job counts, execution time and
              *     queue waits come from job rows. Allocated runner time and cost
-             *     come from the usage ledger — a daily roll-up for the whole UTC
-             *     days it covers, and runner rows and sessions for the rest — so
+             *     come from the usage ledger (a daily roll-up for the whole UTC
+             *     days it covers, and runner rows and sessions for the rest) so
              *     `runners` is where the ledger begins rather than where
              *     retention.runners cuts the rows. A report whose `from` is earlier
              *     than one of these is complete only from that instant on. Null
@@ -6546,7 +6546,7 @@ export interface components {
             last_idle_at?: string | null;
             /** Format: date-time */
             finished_at?: string | null;
-            /** @description Why Zoomies could not finish taking this runner away: a stop or remove the agent could not complete, or a registration GitHub would not delete. Empty is the normal case. A non-empty value means something is left behind — a container on its host, or a registration on the organisation — and it will not go away on its own. Zoomies retries, and this clears when it succeeds. */
+            /** @description Why Zoomies could not finish taking this runner away: a stop or remove the agent could not complete, or a registration GitHub would not delete. Empty is the normal case. A non-empty value means something is left behind (a container on its host, or a registration on the organisation) and it will not go away on its own. Zoomies retries, and this clears when it succeeds. */
             cleanup_error?: string;
             /** Format: date-time */
             cleanup_failed_at?: string | null;
@@ -6704,7 +6704,7 @@ export interface components {
             path_style: boolean | null;
             /** @description A stored destination the file overrides by name. Nothing is sent to it; it is listed so that a row which quietly does nothing is visible rather than mysterious. */
             shadowed: boolean;
-            /** @description Why this destination cannot be used at all — almost always that this instance's encryption key does not open its stored secrets. */
+            /** @description Why this destination cannot be used at all, almost always that this instance's encryption key does not open its stored secrets. */
             problem?: string;
             /** @description A secret key is stored for this destination. */
             has_secret_key?: boolean;
@@ -11793,7 +11793,7 @@ export interface operations {
                             /** @example 0s */
                             scale_up_delay: string;
                             /**
-                             * @description The wait that actually happens rather than the one configured — zero in the setting means the runner image chooses, and the image waits two minutes.
+                             * @description The wait that actually happens rather than the one configured, zero in the setting means the runner image chooses, and the image waits two minutes.
                              * @example 2m0s
                              */
                             docker_wait: string;
@@ -11888,11 +11888,11 @@ export interface operations {
                         selected_hosts?: number;
                         /** @description Every host the selector reaches that the fleet could not run this pool on, with the reason. It is what turns "2 hosts match" followed by "1 host can run this pool" from a contradiction into an explanation. */
                         excluded_hosts?: components["schemas"]["HostExclusion"][];
-                        /** @description Hosts that can run this pool, and are counted in matching_hosts, but give its runners less than a larger machine would — the pool's minimum at work, with code `reduced` and a sentence saying how much. Information, not a warning. */
+                        /** @description Hosts that can run this pool, and are counted in matching_hosts, but give its runners less than a larger machine would; the pool's minimum at work, with code `reduced` and a sentence saying how much. Information, not a warning. */
                         reduced_hosts?: components["schemas"]["HostExclusion"][];
-                        /** @description The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. Empty for a pool that names no image, where nothing is stored — `effective_image` is the answer there. */
+                        /** @description The image the pool would actually run, which for a pool that gives its jobs a daemon is the stock image's Docker variant rather than the image the request named. Empty for a pool that names no image, where nothing is stored, `effective_image` is the answer there. */
                         image?: string;
-                        /** @description The image a pool that names none would boot — the variant its platform picks, or the fleet's default, with the Docker swap applied. It is what the pool editor shows for the pool written out at the foot of the page, where the pool being described has no image of its own. */
+                        /** @description The image a pool that names none would boot; the variant its platform picks, or the fleet's default, with the Docker swap applied. It is what the pool editor shows for the pool written out at the foot of the page, where the pool being described has no image of its own. */
                         effective_image?: string;
                         /** @description The size the pool would run at on every host. Empty for a pool that leaves the size to its host, where the per-host share is in `room.hosts[].charge_cpus` and `charge_memory_mb` instead. */
                         resources?: components["schemas"]["Resources"];

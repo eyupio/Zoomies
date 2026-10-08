@@ -130,7 +130,7 @@
   title="Sign out other sessions"
   description="Every other browser signed in as you is signed out. This one stays signed in."
   consequences={[
-    'Every MCP connection you have made — Claude, or any other client — ends too, and has to be approved again.',
+    'Every MCP connection you have made, Claude, or any other client, ends too, and has to be approved again.',
   ]}
   confirmLabel="Sign out the others"
   onconfirm={signOutOthers}

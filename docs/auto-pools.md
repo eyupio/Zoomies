@@ -41,10 +41,10 @@ There are two switches, and each takes `off`, `shadow` or `on`.
 | [`scheduler.size_routing`](configuration.md) | No job is classed. | Classes each job and records where it ran, and sends nothing anywhere. | Sends each job to the pool of its class. |
 
 Nothing changes on upgrade. The sensible order is to set both to `shadow`, let a
-week of jobs go by, and read what they would have done — `zoomies auto-pools` for
+week of jobs go by, and read what they would have done (`zoomies auto-pools` for
 the pools, the Jobs page and `zoomies jobs advice` for the jobs, and the
 `zoomies_jobs_ran_by_class_total` metric for how often a job ran on a class other
-than the one it was put in — then set `scheduler.auto_pools` to `on`, and
+than the one it was put in) then set `scheduler.auto_pools` to `on`, and
 `scheduler.size_routing` after it. With routing on and automatic pools off there is
 no pool kept for a class, so jobs are only answered by a pool of yours that carries
 the class label, and the validator says so.
@@ -82,7 +82,7 @@ pending and when it will take effect. A runner already running is never touched 
 a host changing class: only the runners made afterwards go to its new pool.
 
 **Tags.** The labels on a host are its tags, and a pool's `host_selector` asks for
-them — `host_selector: {rack: b4}` runs a pool only on hosts with that tag. A host's
+them, `host_selector: {rack: b4}` runs a pool only on hosts with that tag. A host's
 card and `zoomies hosts list` show them, and each is marked as yours or as one the
 controller works out from the machine and never stores: `os`, `arch` and, while
 either switch is on, `size`.
@@ -92,7 +92,7 @@ zoomies hosts edit hst_k3f9qz2m --tag rack=b4 --tag gpu     # gpu is gpu=true
 zoomies hosts edit hst_k3f9qz2m --untag rack
 ```
 
-`size` is the class. Writing it yourself — `--tag size=large` — puts the host in
+`size` is the class. Writing it yourself, `--tag size=large`, puts the host in
 that class whatever its machine measures, and the host says so, and what it would
 have been. While either switch is on it has to be exactly `small`, `medium` or
 `large`, in lower case and without spaces, because a pool's host selector compares
@@ -106,7 +106,7 @@ A host that joins again keeps the tags an operator added, and the class it held.
 The order of authority is the join token's, then what its agent declares now, then
 what was stored: a label the token pins or the agent declares is taken from there,
 so an edit of the agent's configuration is heard at the next join, and a tag the
-agent never declared — a rack, a `size` — survives a rebuilt machine. Two
+agent never declared (a rack, a `size`) survives a rebuilt machine. Two
 consequences are worth knowing. An operator's edit of a label the agent also
 declares is put back at a re-join, which is what *declares* means; and a label
 dropped from the agent's configuration stays until it is removed with
@@ -116,14 +116,14 @@ a re-join discarded every label edited since the host first joined.
 ## Automatic pools
 
 With `scheduler.auto_pools` on, the controller keeps one pool for each architecture
-and class that has a host in it, for one GitHub App installation — the only one, or
+and class that has a host in it, for one GitHub App installation; the only one, or
 the one named in `scheduler.auto_pools_installation` where there are several. A pool
 is made when the first host of its kind arrives, and kept after its last one leaves.
 
 | | An automatic pool |
 | --- | --- |
 | Name | `zoomies-medium`; for arm64, `zoomies-arm64-medium`. |
-| Labels | `zoomies`, `zoomies-medium`, `linux` and `x64` or `arm64` — the class label is what a workflow writes to ask for it by name. |
+| Labels | `zoomies`, `zoomies-medium`, `linux` and `x64` or `arm64`; the class label is what a workflow writes to ask for it by name. |
 | Hosts | Those in its class, and of its architecture. A host is in exactly one. |
 | Runner size | The standard of the host's own [runner profile](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host), or where it has none the runner of the class: 1 CPU and 2 GB, 2 CPUs and 4 GB, 4 CPUs and 8 GB (`runners.small_*`, `runners.medium_*`, `runners.large_*`). |
 | Docker | `none`, or `dind` with `scheduler.auto_pools_docker_mode`. The host's own socket is never offered to a pool the controller makes. A `dind` pool divides its slot evenly between the runner and its daemon. |
@@ -133,7 +133,7 @@ is made when the first host of its kind arrives, and kept after its last one lea
 | Minimum | The warm runners an operator asked for, and never more than the maximum. |
 
 **The maximum follows the hosts.** It is the sum of what each host that counts holds
-of the pool's runner — the host's slots as the scheduler counts them, so a throttle
+of the pool's runner; the host's slots as the scheduler counts them, so a throttle
 that has stepped a host down lowers it, and a host's own capacity is its ceiling.
 A host counts unless it is cordoned, on an agent the controller cannot place work
 on, in no class, of an architecture other than amd64 and arm64, without Docker or
@@ -144,8 +144,8 @@ again.
 
 A host's free disk does not move the maximum. A host below its disk reserve is one
 the scheduler places nothing on until it has room again, but it is still a host of
-the pool, and a maximum that followed the free space would change — and be written to
-the audit log — every time a host dipped below the reserve and came back. Silence is
+the pool, and a maximum that followed the free space would change (and be written to
+the audit log) every time a host dipped below the reserve and came back. Silence is
 counted from the later of a host's last heartbeat and the moment the controller began
 listening, so a controller that was down for an hour does not drop every host, and put
 every pool out of use, on its first pass.
@@ -160,7 +160,7 @@ every pool out of use, on its first pass.
 | A host moves class | It leaves one pool's count and joins another's, once it has held the new class. |
 
 Every one of those is a row in the audit log, under the system identity, with the
-sentence that says why — *maximum runners 5 → 10: host build-2 joined* — and the
+sentence that says why (*maximum runners 5 → 10: host build-2 joined*) and the
 Overview's feed shows the sentence. The controller recomputes every figure from the
 hosts as they are once a minute and whenever a host joins, leaves, is edited or
 cordoned, so a missed event costs at most a minute, and running it twice changes
@@ -173,11 +173,11 @@ pool's page, with `zoomies pools edit <pool-id> --warm 2 --cap 6`, or with `auto
 `PATCH /api/v1/pools/{id}`; `pools enable` and `pools disable` are the pause. Any
 other field is refused, naming it: the ones the controller works out are said to be
 worked out, and the rest are set up one way for every automatic pool, so for those you
-make a pool of your own — a different split of a Docker-in-Docker slot, or folders kept
+make a pool of your own; a different split of a Docker-in-Docker slot, or folders kept
 in memory, for example. The advice on how such a pool divides its slot is not given for
-an automatic pool for the same reason. It cannot be deleted while the controller is keeping it —
-`scheduler.auto_pools` is `on` and the pool belongs to the installation the pools are
-kept for — because it would make the pool again: pause it, or set the switch to
+an automatic pool for the same reason. It cannot be deleted while the controller is keeping it
+(`scheduler.auto_pools` is `on` and the pool belongs to the installation the pools are
+kept for) because it would make the pool again: pause it, or set the switch to
 `shadow` or `off`. A pool it is not keeping is a leftover that nothing would make
 again, and is deleted like any other. An export of pools leaves it out, and an import
 refuses to write over it.
@@ -200,8 +200,8 @@ collision is reported and nothing else.
 so when `scheduler.auto_pools_installation` is changed the pools kept for the old
 installation still hold the names the new ones need. They are put out of use and
 left, as a pool with no hosts is, and the controller says which pool stands in the
-way (`auto_pool.name_taken`, in the panel and as `pool.auto_blocked`). Delete it — it
-is no longer kept, so nothing makes it again — and the pool for the new installation
+way (`auto_pool.name_taken`, in the panel and as `pool.auto_blocked`). Delete it (it
+is no longer kept, so nothing makes it again) and the pool for the new installation
 is made on the next pass.
 
 ## Job classes
@@ -218,7 +218,7 @@ organisation sends.
    waiting, and those GitHub is holding for a deployment review.
 3. **What its earlier runs used.** The smallest class whose runner holds the ninetieth
    percentile of the job's peak memory over its newest twenty measured runs, within
-   fourteen days, with a fifth added — the margin history sizing already uses. A kill
+   fourteen days, with a fifth added; the margin history sizing already uses. A kill
    for memory moves it up at once, because a percentile of twenty runs ignores the
    two largest and a kill is exactly one of them. Being held back by its CPU limit for
    a quarter of the time or more in at least half of its sampled runs, of at least
@@ -240,9 +240,9 @@ organisation sends.
    nothing is known about. It is the size of the fleet's own default runner, so a
    job with no history gets the runner it had before there were classes.
 
-The class and the sentence that says why — *classed large because its memory needs
+The class and the sentence that says why, *classed large because its memory needs
 about 6.2 GB (the 90th percentile of 12 runs, with a fifth added), which a large
-runner holds* — are on the job, in the drawer, in `zoomies jobs get`, in the API and
+runner holds*, are on the job, in the drawer, in `zoomies jobs get`, in the API and
 in the MCP tools, with the class of the host that took it. The class is kept between
 runs of a job, which is what lets moving down be slower than moving up, and is
 pruned with the job history: a job that has not finished a measured run for
@@ -255,7 +255,7 @@ A workflow can ask for a class in two ways, and they are not equally strong.
 | The workflow writes | What is guaranteed |
 | --- | --- |
 | `runs-on: [self-hosted, zoomies, zoomies-large]` | The job can only run on a runner that carries `zoomies-large`, because GitHub gives a job only to a runner that has every label it asks for. Zoomies never moves it to another class: if no host of that class is enrolled, it waits, and `jobs.unmatched` says why. |
-| `runs-on: [self-hosted, zoomies]` | Best effort. Zoomies puts the job in a class and makes the runner for it in a pool of that class — but GitHub decides which waiting job a runner takes, so the job can still land on a runner that was made for another. |
+| `runs-on: [self-hosted, zoomies]` | Best effort. Zoomies puts the job in a class and makes the runner for it in a pool of that class, but GitHub decides which waiting job a runner takes, so the job can still land on a runner that was made for another. |
 
 A job that names no architecture is answered by x64 pools; write `arm64` to ask for
 arm. The sentence on the job says which of the two it had.
@@ -273,7 +273,7 @@ run on a large host writes `zoomies-large`.
 
 * **No pool.** No host of the class is enrolled, so no pool exists. The job is sent
   at once to the next size up that has a pool, or, where no larger class has one
-  either, to the nearest smaller class — and the note says it may be too small,
+  either, to the nearest smaller class, and the note says it may be too small,
   because a job waiting for a host that does not exist waits for ever, and one that
   runs and is killed for memory says why.
 * **No room.** The pool exists and its hosts are full. A job that has waited
@@ -295,7 +295,7 @@ at most one entry in the problems drawer pointing at them (`jobs.label_advice`):
 | --- | --- | --- |
 | `too_small` | It names a class smaller than its runs need, so it can only run on hosts too small for it, and is killed when it needs more than they have. | The class its runs call for. |
 | `unguaranteed` | It names none and needs more than the default class, so it is routed there best effort. | Add the class label, which makes it a guarantee. |
-| `too_large` | It names a class larger than it uses, so it occupies a host another job needs. | The smaller class — unless the job needs the host for something that is not measured, such as its disk or its network. |
+| `too_large` | It names a class larger than it uses, so it occupies a host another job needs. | The smaller class, unless the job needs the host for something that is not measured, such as its disk or its network. |
 
 It is given only for a job with at least five measured runs, never for a job an
 operator has pinned, and never for a job that names a label of a pool of its own. The
@@ -321,7 +321,7 @@ Five machines, each with a capacity of eight: a 32-CPU, 128 GB machine, two 12-C
 
 | Host | Allocatable | Class | Runner | Slots |
 | --- | --- | --- | --- | --- |
-| `big-1` | 30.4 CPUs, 121 GB | large | 4 CPUs, 8 GB | 7 — its cores run out first |
+| `big-1` | 30.4 CPUs, 121 GB | large | 4 CPUs, 8 GB | 7; its cores run out first |
 | `build-1`, `build-2` | 11.4 CPUs, 30 GB | medium | 2 CPUs, 4 GB | 5 each |
 | `tiny-1`, `tiny-2` | 3.5 CPUs, 15 GB | small | 1 CPU, 2 GB | 3 each |
 

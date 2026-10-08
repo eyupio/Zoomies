@@ -963,16 +963,16 @@ func cpuResourceView(r *store.Runner, p *store.Pool, h *store.Host) *CPUResource
 	// reduce that guarantee. Keep the displayed ceiling truthful while the
 	// next runner creation adopts the new policy.
 	ceiling = max(ceiling, guaranteed)
-	state, label, reason := "guaranteed", "Steady paws — guaranteed pace", "base_allocation"
+	state, label, reason := "guaranteed", "Steady paws, guaranteed pace", "base_allocation"
 	switch {
 	case factor < .99:
-		state, label, reason = "throttled", "Leash tightened — host under pressure", "host_pressure"
+		state, label, reason = "throttled", "Leash tightened, host under pressure", "host_pressure"
 	case factor >= 1.75:
-		state, label, reason = "maximum_zoomies", "Squirrel spotted — maximum zoomies", "spare_cpu_lent"
+		state, label, reason = "maximum_zoomies", "Squirrel spotted, maximum zoomies", "spare_cpu_lent"
 	case factor > 1.01:
-		state, label, reason = "zoomies", "Rabbit spotted — extra zoomies", "spare_cpu_lent"
+		state, label, reason = "zoomies", "Rabbit spotted, extra zoomies", "spare_cpu_lent"
 	case p.CPUBurst.Mode == store.CPUBurstObserve:
-		state, label, reason = "observing", "Nose to the wind — watching spare CPU", "observe_only"
+		state, label, reason = "observing", "Nose to the wind, watching spare CPU", "observe_only"
 	case !p.CPUBurst.Observes():
 		// A pool with elasticity off holds every runner at its share, and a
 		// runner doing exactly that is not at "guaranteed pace" -- that is the
@@ -982,7 +982,7 @@ func cpuResourceView(r *store.Runner, p *store.Pool, h *store.Host) *CPUResource
 		// as a quota nobody measured, which a held one is not. Host-pressure
 		// throttling still applies to any limited container, so the cases
 		// above keep the lead on a runner of this pool visible too.
-		state, label, reason = "sit_and_stay", "Sit and stay — CPU held at its share", "elastic_off"
+		state, label, reason = "sit_and_stay", "Sit and stay, CPU held at its share", "elastic_off"
 	}
 	return &CPUResourceView{
 		State: state, Label: label, Reason: reason, GuaranteedCPUs: guaranteed,

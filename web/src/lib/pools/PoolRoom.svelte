@@ -215,7 +215,7 @@
         <p class="body">
           {overcommitted.length === 1 ? 'That host promises' : 'Those hosts promise'} more slots than
           the machine can back at this size. The extra slots are counted as free capacity on every page
-          that shows them, and every create for one of them is refused for want of cores or memory — so
+          that shows them, and every create for one of them is refused for want of cores or memory, so
           jobs wait on runners nothing will make.
         </p>
       {:else if total === 0 && placeable.length === 0}
@@ -234,8 +234,8 @@
       {#if above && maxRunners !== undefined}
         <p class="body">
           This pool's maximum is {maxRunners}, which is {pluralise(maxRunners - total, 'runner')} more
-          than the fleet can place. The maximum is a backstop rather than a target, so it is not wrong
-          — but those runners are ones the scheduler will never create.
+          than the fleet can place. The maximum is a backstop rather than a target, so it is not wrong,
+          but those runners are ones the scheduler will never create.
         </p>
         {#if onusemax}
           <div class="actions">

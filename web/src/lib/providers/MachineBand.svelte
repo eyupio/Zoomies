@@ -98,8 +98,8 @@
       <span>
         {pluralise(review.length, 'machine')}
         {review.length === 1 ? 'needs' : 'need'} review. Nothing here will delete
-        {review.length === 1 ? 'it' : 'them'} on its own — a resource we cannot prove is ours is left
-        exactly where it is.
+        {review.length === 1 ? 'it' : 'them'} on its own, a resource we cannot prove is ours is left exactly
+        where it is.
         <a href="/providers">Open providers</a>
       </span>
     </p>

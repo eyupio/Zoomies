@@ -39,14 +39,14 @@ Written by `make measure` on 2026-09-08T21:38:54Z.
 threshold in the test would either be so loose it never fires or so tight that a
 slower runner fails a pull request that changed nothing. What the test does
 assert is that every read still answers `200` with a month of history under it,
-and that a deep page is still a page of rows — a query that got fast by
+and that a deep page is still a page of rows; a query that got fast by
 stopping short would look excellent in this table.
 
 Three things came out of running it.
 
 **The audit log's action filter had no index.** Filtering by action cost about
 twice an unfiltered page (1.4 ms against 0.7 ms at five thousand rows), and the
-plan said why: `SCAN audit_events USING INDEX idx_audit_created` — the whole
+plan said why: `SCAN audit_events USING INDEX idx_audit_created`; the whole
 table in date order, discarding what does not match. Audit rows are the one
 history Zoomies deliberately never prunes, so this is the table that grows
 without limit and the scan that gets worse for ever. Migration `0021` adds
@@ -58,13 +58,13 @@ month. It is not an index problem: the range already uses `idx_jobs_queued_at`,
 and the cost is the concurrency accounting in Go over every job in the window,
 which is what the report is. It is a report page rather than a dashboard, it is
 not on the event stream, and 30 ms is not worth changing the shape of the data
-for — but it is the first figure to watch if the retention window grows, because
+for, but it is the first figure to watch if the retention window grows, because
 it scales with the jobs in the range rather than with the rows returned.
 
 **The problems drawer is the slowest thing on the Overview**, at about 18 ms
 against a millisecond or two for everything else on that page. It is a series of
 queries rather than one, it runs on every page load and again on every
-`problems.updated` frame, and it is worth a look — but it is not on this
+`problems.updated` frame, and it is worth a look, but it is not on this
 package's list, and changing it on the strength of one measurement without a
 test that pins each problem's meaning would be trading a known cost for an
 unknown one. Recorded here so the next person has the number.

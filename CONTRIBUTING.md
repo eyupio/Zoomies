@@ -107,7 +107,7 @@ mkdocs build --strict
 ```
 
 The build must produce `site/sitemap.xml`, `site/llms.txt` and `site/badge.svg`,
-and the header must name the latest release — `hooks/source.py` asks the GitHub
+and the header must name the latest release, `hooks/source.py` asks the GitHub
 API for it at build time, so set `GITHUB_TOKEN` if the anonymous rate limit is
 in the way. These checks catch broken links and missing published assets before
 a PR is merged.
@@ -138,7 +138,7 @@ top of `.github/workflows/ci.yml`, on a pull request and on `main` alike:
 
 | A change to | Runs |
 | --- | --- |
-| Markdown, `docs/`, the site, the workflows | the `internal/docs` and `internal/naming` checks, which hold the prose to the code — about a minute |
+| Markdown, `docs/`, the site, the workflows | the `internal/docs` and `internal/naming` checks, which hold the prose to the code, about a minute |
 | `install.sh` | the `install.sh` checks and the upgrade test; no binaries or images |
 | `web/` | the UI and Playwright jobs, and the docs checks |
 | `deploy/` | the image builds and the tests that read those files |
@@ -148,15 +148,15 @@ top of `.github/workflows/ci.yml`, on a pull request and on `main` alike:
 The Go suite is split by package across four runners; `make test
 TEST_PKGS=./internal/store/` runs one shard the way CI does. Coverage is
 measured on `main`, when the whole Go suite ran. `main` publishes the dev
-channel's binaries and images only from a commit that changes what ships — Go,
-the UI or `deploy/` — so a documentation merge leaves `--version dev` where it
+channel's binaries and images only from a commit that changes what ships (Go,
+the UI or `deploy/`) so a documentation merge leaves `--version dev` where it
 was. A manual dispatch runs everything. CodeQL, govulncheck, the fuzz targets
 and Scorecard run only when their own inputs change, and weekly regardless.
 
 A pull request's checks stop when the pull request does. Pushing to it replaces
 the run in flight, and closing or merging it starts a run that takes over the
 pull request's concurrency group, cancels the one still going and skips every
-job — so a merged pull request does not keep its fleet slots while the commit
+job, so a merged pull request does not keep its fleet slots while the commit
 on `main` queues behind them. Only a pull request is ever cancelled: runs on
 `main` queue instead, because they publish the dev channel. A new workflow that
 runs on `pull_request` needs the same three parts, and `internal/docs` fails

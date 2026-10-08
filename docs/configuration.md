@@ -39,8 +39,8 @@ each value came from, so "I changed it and nothing happened" is a question the
 page answers rather than one you have to work out.
 
 **The environment is deliberately last.** It is the way back in when a stored
-setting has locked you out of the interface that would fix it — a bind address
-nothing can reach, an external URL that breaks the login redirect — and it is
+setting has locked you out of the interface that would fix it (a bind address
+nothing can reach, an external URL that breaks the login redirect) and it is
 what keeps every containerised deployment working, since those ship their
 configuration as environment variables. The cost is that a value typed on the
 settings page can be silently overridden, so it is not left silent: a setting an
@@ -55,14 +55,14 @@ deployment's environment file and restart.
 
 On the first start after the upgrade, the settings your `zoomies.yaml` actually
 spells are copied into the database, attributed to the file, and the file stays
-as the layer underneath them. Nothing about what the controller runs changes —
+as the layer underneath them. Nothing about what the controller runs changes;
 you simply gain the ability to change them. It happens once, so a setting you
 later clear back to its default is not poured back in at the next restart, and
 an info finding (`settings.imported_from_file`) says it happened.
 
 A key the file never mentioned is left alone. The defaults are worked out on the
-host that reads them — the database path from its state directory, the agent's
-capacity from its cores — so a row claiming to be "the default" would freeze one
+host that reads them (the database path from its state directory, the agent's
+capacity from its cores) so a row claiming to be "the default" would freeze one
 machine's answers for every machine after it.
 
 ## From a terminal
@@ -86,7 +86,7 @@ either to find out.
 This is the failure the layers make possible: a value saved on the settings page
 that the validator refuses at the next start. The page that would fix it is
 behind the controller that will not start, and editing `zoomies.yaml` does
-nothing — the database sits above the file, so the file cannot win.
+nothing; the database sits above the file, so the file cannot win.
 
 Zoomies says so at the moment it refuses. Every finding that names a setting
 carries the layer holding it, and a refusal prints the command that takes it
@@ -102,7 +102,7 @@ configuration is not valid:
 ```
 
 The same sentence appears on the problems drawer and the Configuration tab, for
-the settings that are merely unwise rather than fatal — so "I changed it and
+the settings that are merely unwise rather than fatal, so "I changed it and
 nothing happened" is answered before it is asked.
 
 A value the environment is pinning gets the other instruction, because there is
@@ -117,7 +117,7 @@ The parser is strict. A misspelled key is an error naming the line, not a
 setting that silently does nothing.
 
 If no file exists and none was named explicitly, the database plus the
-environment plus the defaults are used — which is what makes the container image
+environment plus the defaults are used, which is what makes the container image
 work with nothing but environment variables.
 
 ## Where things live
@@ -134,19 +134,19 @@ system and on whether the process is running as root.
 | Windows | `%ProgramData%\zoomies` | same |
 
 The configuration directory holds `zoomies.yaml` and the encryption key; the
-state directory holds the database — which is where the settings themselves
-live — and the agents' work areas. Every default
+state directory holds the database (which is where the settings themselves
+live) and the agents' work areas. Every default
 path below that begins `<config dir>` or `<state dir>` resolves through this
 table, and `zoomies config print` says what they came out as on this host.
 
 `ZOOMIES_STATE_DIR` is the one to reach for when the database belongs on a
-different disk from everything else — it moves the database and the work
+different disk from everything else; it moves the database and the work
 directories together, so the two do not have to be set separately.
 
 Every finding carries a code, and the code is the stable half: it is what you
 search for and alert on, while the sentence beside it is written for whoever is
-reading and may improve. [Problem codes](problem-codes.md) lists all of them —
-the validator's and the running controller's — with severities and what to do.
+reading and may improve. [Problem codes](problem-codes.md) lists all of them
+(the validator's and the running controller's) with severities and what to do.
 
 ---
 
@@ -157,7 +157,7 @@ values the settings page edits; the block below is the same list in the shape
 `zoomies.yaml` takes, for the deployments that still configure from a file.
 
 The defaults below are the actual defaults. A file containing only the settings
-you want to change is the normal case — and a fresh install's file contains only
+you want to change is the normal case, and a fresh install's file contains only
 the two or three keys that have to be in one.
 
 ```yaml
@@ -388,33 +388,33 @@ settings page reports rather than refusing the edit.
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `agent.agent_token` | `ZOOMIES_AGENT_TOKEN` | on the agent's own host | Agent token — The credential a standalone agent carries afterwards. It is configured on that agent's own host. |
-| `agent.allow_insecure_http` | `ZOOMIES_AGENT_ALLOW_INSECURE_HTTP` | on the agent's own host | Allow plain HTTP to the controller — Let a standalone agent use a plain http:// controller URL off loopback, which puts its token and every runner credential on the wire in the clear. It is configured on that agent's own host. |
-| `agent.allow_unverified_runner_download` | `ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD` | next restart | Allow unverified runner downloads — Let the process backend install a runner archive whose digest it cannot check. The alternative to checking is executing whatever the network handed over. |
-| `agent.backend` | `ZOOMIES_AGENT_BACKEND` | next restart | Runner backend — What a runner runs in: a Docker container, a Podman container, or a bare process on this host. |
-| `agent.ca_file` | `ZOOMIES_AGENT_CA_FILE` | on the agent's own host | Controller certificate — The certificate a standalone agent pins for its controller. It is configured on that agent's own host. |
-| `agent.capacity` | `ZOOMIES_AGENT_CAPACITY` | next restart | Runners per host — How many runners this host will hold at once when it first enrols. It defaults to one per two cores, which leaves the machine room to breathe. Afterwards the host's own row holds it: change it on the host's card, or with `zoomies hosts edit --capacity`. |
-| `agent.client_cert_file` | `ZOOMIES_AGENT_CLIENT_CERT_FILE` | on the agent's own host | Client certificate — A standalone agent's client certificate, for mutual TLS. It is configured on that agent's own host. |
-| `agent.client_key_file` | `ZOOMIES_AGENT_CLIENT_KEY_FILE` | on the agent's own host | Client private key — The key for that client certificate. It is configured on that agent's own host. |
-| `agent.controller_url` | `ZOOMIES_CONTROLLER_URL` | on the agent's own host | Controller URL — The controller a standalone agent connects to. It is configured on that agent's own host. |
-| `agent.docker_build_cache_mb` | `ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB` | next restart | Docker build cache target — The target size for unused Docker builder cache. 0 leaves a shared or externally managed daemon alone. |
-| `agent.docker_host` | `ZOOMIES_DOCKER_HOST` | next restart | Docker socket — The Docker or Podman socket. Empty finds one, preferring a rootless socket over the root one. |
-| `agent.extra_ca_file` | `ZOOMIES_AGENT_EXTRA_CA_FILE` | next restart | Extra CA for runners — A PEM bundle on this host that container runners and their Docker sidecars trust as well as the image's own, for a network whose proxy re-signs TLS. |
-| `agent.embedded` | `ZOOMIES_AGENT_EMBEDDED` | next restart | Run an agent in this controller — Run an agent inside this controller, so a single machine needs one process. Off makes a controller that schedules runners onto other hosts and starts none itself. |
+| `agent.agent_token` | `ZOOMIES_AGENT_TOKEN` | on the agent's own host | Agent token: The credential a standalone agent carries afterwards. It is configured on that agent's own host. |
+| `agent.allow_insecure_http` | `ZOOMIES_AGENT_ALLOW_INSECURE_HTTP` | on the agent's own host | Allow plain HTTP to the controller: Let a standalone agent use a plain http:// controller URL off loopback, which puts its token and every runner credential on the wire in the clear. It is configured on that agent's own host. |
+| `agent.allow_unverified_runner_download` | `ZOOMIES_AGENT_ALLOW_UNVERIFIED_RUNNER_DOWNLOAD` | next restart | Allow unverified runner downloads: Let the process backend install a runner archive whose digest it cannot check. The alternative to checking is executing whatever the network handed over. |
+| `agent.backend` | `ZOOMIES_AGENT_BACKEND` | next restart | Runner backend: What a runner runs in: a Docker container, a Podman container, or a bare process on this host. |
+| `agent.ca_file` | `ZOOMIES_AGENT_CA_FILE` | on the agent's own host | Controller certificate: The certificate a standalone agent pins for its controller. It is configured on that agent's own host. |
+| `agent.capacity` | `ZOOMIES_AGENT_CAPACITY` | next restart | Runners per host: How many runners this host will hold at once when it first enrols. It defaults to one per two cores, which leaves the machine room to breathe. Afterwards the host's own row holds it: change it on the host's card, or with `zoomies hosts edit --capacity`. |
+| `agent.client_cert_file` | `ZOOMIES_AGENT_CLIENT_CERT_FILE` | on the agent's own host | Client certificate: A standalone agent's client certificate, for mutual TLS. It is configured on that agent's own host. |
+| `agent.client_key_file` | `ZOOMIES_AGENT_CLIENT_KEY_FILE` | on the agent's own host | Client private key: The key for that client certificate. It is configured on that agent's own host. |
+| `agent.controller_url` | `ZOOMIES_CONTROLLER_URL` | on the agent's own host | Controller URL: The controller a standalone agent connects to. It is configured on that agent's own host. |
+| `agent.docker_build_cache_mb` | `ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB` | next restart | Docker build cache target: The target size for unused Docker builder cache. 0 leaves a shared or externally managed daemon alone. |
+| `agent.docker_host` | `ZOOMIES_DOCKER_HOST` | next restart | Docker socket: The Docker or Podman socket. Empty finds one, preferring a rootless socket over the root one. |
+| `agent.extra_ca_file` | `ZOOMIES_AGENT_EXTRA_CA_FILE` | next restart | Extra CA for runners: A PEM bundle on this host that container runners and their Docker sidecars trust as well as the image's own, for a network whose proxy re-signs TLS. |
+| `agent.embedded` | `ZOOMIES_AGENT_EMBEDDED` | next restart | Run an agent in this controller: Run an agent inside this controller, so a single machine needs one process. Off makes a controller that schedules runners onto other hosts and starts none itself. |
 | `agent.prewarm_timeout` | `ZOOMIES_AGENT_PREWARM_TIMEOUT` | next restart | Background image preparation budget; default 5m, range 1s–15m. Foreground create budgets are independent. |
 | `agent.prewarm_jitter` | `ZOOMIES_AGENT_PREWARM_JITTER` | next restart | Random delay before background preparation; default 30s, range 0s–5m. Foreground work can pass during the delay. |
-| `agent.bootstrap_cpu_grace` | `ZOOMIES_AGENT_BOOTSTRAP_CPU_GRACE` | next restart | Startup CPU grace — Keep new runners at their normal CPU quota for 2m before applying host-pressure throttling. Range 0s–10m; 0s disables the grace. Memory and CPU limits remain enforced. |
-| `agent.finished_retention` | `ZOOMIES_AGENT_FINISHED_RETENTION` | next restart | Keep finished containers for — How long a finished runner's container stays on the host before the agent deletes it. It is the window for reading a finished runner's log, and it is host disk: 0 deletes on the next pass. |
-| `agent.heartbeat_interval` | `ZOOMIES_HEARTBEAT_INTERVAL` | next restart | Heartbeat interval — How often an agent reports in. A host that goes quiet for 90 seconds is counted lost, so this has to be comfortably under that. |
-| `agent.insecure_skip_verify` | `ZOOMIES_AGENT_INSECURE_SKIP_VERIFY` | on the agent's own host | Skip certificate verification — Let a standalone agent skip verifying its controller's certificate. It is configured on that agent's own host. |
-| `agent.join_token` | `ZOOMIES_JOIN_TOKEN` | on the agent's own host | Join token — The single-use token a standalone agent redeems to enrol. It is configured on that agent's own host. |
-| `agent.labels` | `ZOOMIES_AGENT_LABELS` | next restart | Host labels — Key=value labels describing this host, which a pool can require of the hosts it runs on. |
-| `agent.name` | `ZOOMIES_AGENT_NAME` | next restart | Host name — What this host is called in the fleet. Empty names it after the machine it is on. At most 128 characters, with no backtick or control character: the controller refuses a join that breaks that, before the join token is redeemed. |
-| `agent.network` | `ZOOMIES_AGENT_NETWORK` | next restart | Container network — An existing container network to attach runners to. Empty uses the daemon's default bridge. |
-| `agent.registry_auth` | `ZOOMIES_REGISTRY_AUTH` | next restart | Registry credentials — A base64 X-Registry-Auth value the container backends send when they pull. Without it a pool on a private registry cannot use pinned-only pulls at all. |
-| `agent.runner_download_url` | `ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL` | next restart | Runner download mirror — Where the process backend fetches runner archives from, for hosts that mirror releases internally. The path below it is the same. |
-| `agent.runner_sha256` | `ZOOMIES_AGENT_RUNNER_SHA256` | next restart | Runner archive digest — The expected digest of the actions/runner archive the process backend downloads. Zoomies ships the digest for the release it pins; supply one when you pin another. |
-| `agent.work_dir` | `ZOOMIES_WORK_DIR` | next restart | Working directory — Where runner working directories and the agent's own credentials live. |
+| `agent.bootstrap_cpu_grace` | `ZOOMIES_AGENT_BOOTSTRAP_CPU_GRACE` | next restart | Startup CPU grace: Keep new runners at their normal CPU quota for 2m before applying host-pressure throttling. Range 0s–10m; 0s disables the grace. Memory and CPU limits remain enforced. |
+| `agent.finished_retention` | `ZOOMIES_AGENT_FINISHED_RETENTION` | next restart | Keep finished containers for: How long a finished runner's container stays on the host before the agent deletes it. It is the window for reading a finished runner's log, and it is host disk: 0 deletes on the next pass. |
+| `agent.heartbeat_interval` | `ZOOMIES_HEARTBEAT_INTERVAL` | next restart | Heartbeat interval: How often an agent reports in. A host that goes quiet for 90 seconds is counted lost, so this has to be comfortably under that. |
+| `agent.insecure_skip_verify` | `ZOOMIES_AGENT_INSECURE_SKIP_VERIFY` | on the agent's own host | Skip certificate verification: Let a standalone agent skip verifying its controller's certificate. It is configured on that agent's own host. |
+| `agent.join_token` | `ZOOMIES_JOIN_TOKEN` | on the agent's own host | Join token: The single-use token a standalone agent redeems to enrol. It is configured on that agent's own host. |
+| `agent.labels` | `ZOOMIES_AGENT_LABELS` | next restart | Host labels: Key=value labels describing this host, which a pool can require of the hosts it runs on. |
+| `agent.name` | `ZOOMIES_AGENT_NAME` | next restart | Host name: What this host is called in the fleet. Empty names it after the machine it is on. At most 128 characters, with no backtick or control character: the controller refuses a join that breaks that, before the join token is redeemed. |
+| `agent.network` | `ZOOMIES_AGENT_NETWORK` | next restart | Container network: An existing container network to attach runners to. Empty uses the daemon's default bridge. |
+| `agent.registry_auth` | `ZOOMIES_REGISTRY_AUTH` | next restart | Registry credentials: A base64 X-Registry-Auth value the container backends send when they pull. Without it a pool on a private registry cannot use pinned-only pulls at all. |
+| `agent.runner_download_url` | `ZOOMIES_AGENT_RUNNER_DOWNLOAD_URL` | next restart | Runner download mirror: Where the process backend fetches runner archives from, for hosts that mirror releases internally. The path below it is the same. |
+| `agent.runner_sha256` | `ZOOMIES_AGENT_RUNNER_SHA256` | next restart | Runner archive digest: The expected digest of the actions/runner archive the process backend downloads. Zoomies ships the digest for the release it pins; supply one when you pin another. |
+| `agent.work_dir` | `ZOOMIES_WORK_DIR` | next restart | Working directory: Where runner working directories and the agent's own credentials live. |
 
 ### `backup`
 
@@ -424,16 +424,16 @@ otherwise: the same keys, the same environment overrides, the same export.
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `backup.directory` | `ZOOMIES_BACKUP_DIRECTORY` | at once | Backup directory — Where backups are kept. Empty is a `backups` directory beside the database, which on a container deployment is the mounted volume. A relative path is relative to the database's directory. |
-| `backup.interval` | `ZOOMIES_BACKUP_INTERVAL` | at once | Scheduled backup interval — How often the controller takes a copy of its own database. 0 switches scheduled backups off; one can still be taken on demand from the Backups tab or with `zoomies backup`. |
-| `backup.keep` | `ZOOMIES_BACKUP_KEEP` | at once | Backups to keep — How many of the controller's own backups are kept; the oldest beyond it go after each new one. 0 keeps every one. Backups somebody uploaded or fetched back from a remote are never counted and never deleted by this. |
+| `backup.directory` | `ZOOMIES_BACKUP_DIRECTORY` | at once | Backup directory: Where backups are kept. Empty is a `backups` directory beside the database, which on a container deployment is the mounted volume. A relative path is relative to the database's directory. |
+| `backup.interval` | `ZOOMIES_BACKUP_INTERVAL` | at once | Scheduled backup interval: How often the controller takes a copy of its own database. 0 switches scheduled backups off; one can still be taken on demand from the Backups tab or with `zoomies backup`. |
+| `backup.keep` | `ZOOMIES_BACKUP_KEEP` | at once | Backups to keep: How many of the controller's own backups are kept; the oldest beyond it go after each new one. 0 keeps every one. Backups somebody uploaded or fetched back from a remote are never counted and never deleted by this. |
 
 #### `backup.remotes`
 
 Where each copy goes after it is taken: a list of S3-compatible buckets, empty
 by default, so nothing leaves the host until somebody says where it goes. Any
-implementation of the S3 API does — AWS, MinIO, Ceph, Backblaze B2, Cloudflare
-R2, Garage — and what lands there is exactly the archive the Backups tab
+implementation of the S3 API does (AWS, MinIO, Ceph, Backblaze B2, Cloudflare
+R2, Garage) and what lands there is exactly the archive the Backups tab
 downloads, so a copy pulled out of a bucket in three years opens with `zoomies
 restore` and nothing else. [Backup and restore](backup-and-restore.md) is the
 whole story; this is the reference.
@@ -448,7 +448,7 @@ Destinations can also be **added on the Backups page**, where they are stored
 as rows with their secrets sealed under the instance encryption key. A fleet
 normally uses one or the other. A name described in both places is the file's,
 and the stored row is shown as ignored rather than left to disagree in
-silence — see [Backup and restore](backup-and-restore.md#copies-that-leave-the-machine).
+silence, see [Backup and restore](backup-and-restore.md#copies-that-leave-the-machine).
 
 | Key | Environment | What it is |
 | --- | --- | --- |
@@ -471,7 +471,7 @@ in the list, which is how a compose file hands over only the secret key of a
 bucket `zoomies.yaml` describes.
 
 The permissions a remote needs on its bucket and prefix are `s3:PutObject`,
-`s3:GetObject`, `s3:DeleteObject` and `s3:ListBucket` — the last two only for
+`s3:GetObject`, `s3:DeleteObject` and `s3:ListBucket`; the last two only for
 retention and for the Backups tab's listing, so a write-only credential works
 if you set `keep: 0` and never expect the page to say what is there.
 
@@ -479,67 +479,67 @@ if you set `keep: 0` and never expect the page to say what is there.
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `capacity_demand.cooldown` | `ZOOMIES_CAPACITY_DEMAND_COOLDOWN` | at once | Cooldown — How long to wait before asking for capacity for the same pool again. |
-| `capacity_demand.destination_url` | `ZOOMIES_CAPACITY_DEMAND_URL` | at once | Destination URL — Where signed requests for host capacity are posted. Empty disables the integration. |
-| `capacity_demand.pools` | `ZOOMIES_CAPACITY_DEMAND_POOLS` | at once | Pools to publish for — Which pools to publish demand for. Empty publishes for all of them. |
-| `capacity_demand.signing_secret` | `ZOOMIES_CAPACITY_DEMAND_SIGNING_SECRET` | at once | Signing secret — The secret those requests are signed with. Anyone holding it can forge one, so it is stored sealed. |
-| `capacity_demand.timeout` | `ZOOMIES_CAPACITY_DEMAND_TIMEOUT` | at once | Request timeout — How long one of those requests may take. |
+| `capacity_demand.cooldown` | `ZOOMIES_CAPACITY_DEMAND_COOLDOWN` | at once | Cooldown: How long to wait before asking for capacity for the same pool again. |
+| `capacity_demand.destination_url` | `ZOOMIES_CAPACITY_DEMAND_URL` | at once | Destination URL: Where signed requests for host capacity are posted. Empty disables the integration. |
+| `capacity_demand.pools` | `ZOOMIES_CAPACITY_DEMAND_POOLS` | at once | Pools to publish for: Which pools to publish demand for. Empty publishes for all of them. |
+| `capacity_demand.signing_secret` | `ZOOMIES_CAPACITY_DEMAND_SIGNING_SECRET` | at once | Signing secret: The secret those requests are signed with. Anyone holding it can forge one, so it is stored sealed. |
+| `capacity_demand.timeout` | `ZOOMIES_CAPACITY_DEMAND_TIMEOUT` | at once | Request timeout: How long one of those requests may take. |
 
 ### `database`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `database.path` | `ZOOMIES_DB_PATH` | file or environment only | Database file — The SQLite file holding this fleet, including every setting below. It is named in the configuration file or the environment because nothing can read it from inside itself. |
+| `database.path` | `ZOOMIES_DB_PATH` | file or environment only | Database file: The SQLite file holding this fleet, including every setting below. It is named in the configuration file or the environment because nothing can read it from inside itself. |
 
 ### `github`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `github.allow_workflow_cancellation` | `ZOOMIES_ALLOW_WORKFLOW_CANCELLATION` | at once | Allow cancelling workflow runs — Let operators ask GitHub to cancel the workflow run that owns a job. Turning it off is what a read-only Actions grant wants. |
-| `github.api_base_url` | `ZOOMIES_GITHUB_API_BASE_URL` | at once | GitHub API base URL — https://api.github.com for github.com, your Enterprise Server's /api/v3, or a GHE.com tenant's address. It is the default for a new installation; each existing one keeps the base it was added with. |
-| `github.poll_fallback` | `ZOOMIES_POLL_FALLBACK` | next restart | Poll for queued jobs — List queued jobs on a timer as well as waiting for webhooks. On by default: a controller that silently stops scaling because a webhook was misconfigured is worse than a few extra API calls. |
-| `github.toolchain_scan_interval` | `ZOOMIES_TOOLCHAIN_SCAN_INTERVAL` | at once | Toolchain scan interval — How often every workflow is read for the toolchain versions each pool's jobs install. 0, the default, scans only when asked: a scan reads every workflow file in every repository, from the GitHub quota the scheduler shares. |
-| `github.poll_interval` | `ZOOMIES_POLL_INTERVAL` | at once | Poll interval — How often the fallback poller looks for queued jobs. |
-| `github.runner_image` | `ZOOMIES_RUNNER_IMAGE` | at once | Default runner image — The container image a new pool runs when it names neither an image nor an operating system. |
-| `github.runner_version` | `ZOOMIES_RUNNER_VERSION` | at once | Pinned runner release — Pin the actions/runner release. Empty tracks whatever the image carries. |
-| `github.upload_base_url` | `ZOOMIES_GITHUB_UPLOAD_BASE_URL` | at once | GitHub upload base URL — The upload endpoint, when your Enterprise Server puts it somewhere other than beside the API. |
-| `github.webhook_path` | `ZOOMIES_WEBHOOK_PATH` | next restart | Webhook path — The path GitHub posts deliveries to. Changing it means changing the App's webhook URL too. |
+| `github.allow_workflow_cancellation` | `ZOOMIES_ALLOW_WORKFLOW_CANCELLATION` | at once | Allow cancelling workflow runs: Let operators ask GitHub to cancel the workflow run that owns a job. Turning it off is what a read-only Actions grant wants. |
+| `github.api_base_url` | `ZOOMIES_GITHUB_API_BASE_URL` | at once | GitHub API base URL, https://api.github.com for github.com, your Enterprise Server's /api/v3, or a GHE.com tenant's address. It is the default for a new installation; each existing one keeps the base it was added with. |
+| `github.poll_fallback` | `ZOOMIES_POLL_FALLBACK` | next restart | Poll for queued jobs: List queued jobs on a timer as well as waiting for webhooks. On by default: a controller that silently stops scaling because a webhook was misconfigured is worse than a few extra API calls. |
+| `github.toolchain_scan_interval` | `ZOOMIES_TOOLCHAIN_SCAN_INTERVAL` | at once | Toolchain scan interval: How often every workflow is read for the toolchain versions each pool's jobs install. 0, the default, scans only when asked: a scan reads every workflow file in every repository, from the GitHub quota the scheduler shares. |
+| `github.poll_interval` | `ZOOMIES_POLL_INTERVAL` | at once | Poll interval: How often the fallback poller looks for queued jobs. |
+| `github.runner_image` | `ZOOMIES_RUNNER_IMAGE` | at once | Default runner image: The container image a new pool runs when it names neither an image nor an operating system. |
+| `github.runner_version` | `ZOOMIES_RUNNER_VERSION` | at once | Pinned runner release: Pin the actions/runner release. Empty tracks whatever the image carries. |
+| `github.upload_base_url` | `ZOOMIES_GITHUB_UPLOAD_BASE_URL` | at once | GitHub upload base URL: The upload endpoint, when your Enterprise Server puts it somewhere other than beside the API. |
+| `github.webhook_path` | `ZOOMIES_WEBHOOK_PATH` | next restart | Webhook path: The path GitHub posts deliveries to. Changing it means changing the App's webhook URL too. |
 
 ### `images`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `images.refresh_interval` | `ZOOMIES_IMAGE_REFRESH_INTERVAL` | at once | Image refresh interval — How often every pool's image is prewarmed again, so a moving tag reaches the hosts. 0 switches it off, which is what an air-gapped fleet wants. |
+| `images.refresh_interval` | `ZOOMIES_IMAGE_REFRESH_INTERVAL` | at once | Image refresh interval: How often every pool's image is prewarmed again, so a moving tag reaches the hosts. 0 switches it off, which is what an air-gapped fleet wants. |
 
 ### `kennel`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `kennel.api_budget_percent` | `ZOOMIES_KENNEL_API_BUDGET_PERCENT` | at once | GitHub request budget — The share, from 5 to 50, of an installation's hourly GitHub request limit that Kennel Club may spend. Scaling, registration and polling come first, and Kennel Club stops altogether when less than half the limit is left. |
-| `kennel.disabled_checks` | `ZOOMIES_KENNEL_DISABLED_CHECKS` | at once | Checks turned off — Checks to turn off, by code (exposure.fork_code_ran) or by area (exposure, capacity, setup, ci, token). A check that is turned off is listed as turned off in Settings, not hidden, and a repository with none left to run is not given the badge. |
-| `kennel.enabled` | `ZOOMIES_KENNEL_ENABLED` | at once | Check repository standards — Whether Kennel Club runs. Off by default, and off means off: no request to GitHub, nothing stored, and AI Context carries on as it was. On, it reads facts about the repositories this fleet serves and keeps what it concludes. |
-| `kennel.refresh_interval` | `ZOOMIES_KENNEL_REFRESH_INTERVAL` | at once | Refresh interval — How stale what Kennel Club reads from GitHub may get before it is read again. What the fleet observed for itself is re-checked as the fleet changes, whatever this says. The smallest useful value is 1h. |
-| `kennel.repository_setup` | `ZOOMIES_KENNEL_REPOSITORY_SETUP` | at once | Check repository setup — Whether Kennel Club reads the default-branch file inventory for advisory setup checks. Off by default. Needs Contents read for private repositories; reads no file contents and changes no App permissions. |
-| `kennel.workflow_checks` | `ZOOMIES_KENNEL_WORKFLOW_CHECKS` | at once | Check workflow best practices — Whether Kennel Club reads default-branch workflow contents for timeouts, concurrency, action pins and token permission declarations. Off by default. Needs Contents read for private repositories; changes no files or App permissions. |
-| `kennel.scope` | `ZOOMIES_KENNEL_SCOPE` | at once | Repositories to check — served checks the repositories this fleet has run a job for; installation checks every repository the GitHub App can see, up to 500. installation multiplies the requests Kennel Club makes, so it is a choice and not the default. |
+| `kennel.api_budget_percent` | `ZOOMIES_KENNEL_API_BUDGET_PERCENT` | at once | GitHub request budget: The share, from 5 to 50, of an installation's hourly GitHub request limit that Kennel Club may spend. Scaling, registration and polling come first, and Kennel Club stops altogether when less than half the limit is left. |
+| `kennel.disabled_checks` | `ZOOMIES_KENNEL_DISABLED_CHECKS` | at once | Checks turned off: Checks to turn off, by code (exposure.fork_code_ran) or by area (exposure, capacity, setup, ci, token). A check that is turned off is listed as turned off in Settings, not hidden, and a repository with none left to run is not given the badge. |
+| `kennel.enabled` | `ZOOMIES_KENNEL_ENABLED` | at once | Check repository standards: Whether Kennel Club runs. Off by default, and off means off: no request to GitHub, nothing stored, and AI Context carries on as it was. On, it reads facts about the repositories this fleet serves and keeps what it concludes. |
+| `kennel.refresh_interval` | `ZOOMIES_KENNEL_REFRESH_INTERVAL` | at once | Refresh interval: How stale what Kennel Club reads from GitHub may get before it is read again. What the fleet observed for itself is re-checked as the fleet changes, whatever this says. The smallest useful value is 1h. |
+| `kennel.repository_setup` | `ZOOMIES_KENNEL_REPOSITORY_SETUP` | at once | Check repository setup: Whether Kennel Club reads the default-branch file inventory for advisory setup checks. Off by default. Needs Contents read for private repositories; reads no file contents and changes no App permissions. |
+| `kennel.workflow_checks` | `ZOOMIES_KENNEL_WORKFLOW_CHECKS` | at once | Check workflow best practices: Whether Kennel Club reads default-branch workflow contents for timeouts, concurrency, action pins and token permission declarations. Off by default. Needs Contents read for private repositories; changes no files or App permissions. |
+| `kennel.scope` | `ZOOMIES_KENNEL_SCOPE` | at once | Repositories to check, served checks the repositories this fleet has run a job for; installation checks every repository the GitHub App can see, up to 500. installation multiplies the requests Kennel Club makes, so it is a choice and not the default. |
 
 ### `limits`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `limits.event_subscribers` | `ZOOMIES_LIMITS_EVENT_SUBSCRIBERS` | at once | Most live-update streams — The most live-update streams open at once. Every open tab of the UI holds one, so leave room for every operator's browser. 0 is unlimited. |
-| `limits.hosts` | `ZOOMIES_LIMITS_HOSTS` | at once | Most hosts — The most hosts that may be enrolled at once; a join beyond it is refused. 0 is unlimited. A host joining again under its own name is not counted twice. |
-| `limits.job_stats_window` | `ZOOMIES_LIMITS_JOB_STATS_WINDOW` | at once | Longest job statistics window — The longest span of jobs one job statistics request may cover, from the API, the CLI or the MCP job_stats tool. A longer request is refused with this number in the message. 0 is the default of 90 days, not unlimited: the statistics are computed from the job rows on each request. Jobs older than retention.jobs no longer exist to be counted. |
-| `limits.join_tokens` | `ZOOMIES_LIMITS_JOIN_TOKENS` | at once | Most outstanding join tokens — The most join tokens that may be outstanding at once, counting those neither used nor expired; minting one beyond it is refused. 0 is unlimited. |
-| `limits.pools` | `ZOOMIES_LIMITS_POOLS` | at once | Most pools — The most pools this instance holds; creating one beyond it is refused. 0 is unlimited. |
-| `limits.runners` | `ZOOMIES_LIMITS_RUNNERS` | at once | Most runners — The most live runners across every pool. At the ceiling the scheduler creates no more, and each pool it held back says so in its scaling reason. 0 is unlimited. |
+| `limits.event_subscribers` | `ZOOMIES_LIMITS_EVENT_SUBSCRIBERS` | at once | Most live-update streams: The most live-update streams open at once. Every open tab of the UI holds one, so leave room for every operator's browser. 0 is unlimited. |
+| `limits.hosts` | `ZOOMIES_LIMITS_HOSTS` | at once | Most hosts: The most hosts that may be enrolled at once; a join beyond it is refused. 0 is unlimited. A host joining again under its own name is not counted twice. |
+| `limits.job_stats_window` | `ZOOMIES_LIMITS_JOB_STATS_WINDOW` | at once | Longest job statistics window: The longest span of jobs one job statistics request may cover, from the API, the CLI or the MCP job_stats tool. A longer request is refused with this number in the message. 0 is the default of 90 days, not unlimited: the statistics are computed from the job rows on each request. Jobs older than retention.jobs no longer exist to be counted. |
+| `limits.join_tokens` | `ZOOMIES_LIMITS_JOIN_TOKENS` | at once | Most outstanding join tokens: The most join tokens that may be outstanding at once, counting those neither used nor expired; minting one beyond it is refused. 0 is unlimited. |
+| `limits.pools` | `ZOOMIES_LIMITS_POOLS` | at once | Most pools: The most pools this instance holds; creating one beyond it is refused. 0 is unlimited. |
+| `limits.runners` | `ZOOMIES_LIMITS_RUNNERS` | at once | Most runners: The most live runners across every pool. At the ceiling the scheduler creates no more, and each pool it held back says so in its scaling reason. 0 is unlimited. |
 
 Every limit is platform-scoped: it is how much of the controller's machine a
 fleet may spend, so on an instance several teams use, the account that runs the
 process sets it and the fleet's administrators do not. A request that would
 cross one is refused with a `409` whose code is `limit_reached` and whose
 message and `field` name the setting. The runner ceiling has no request to
-refuse — runners are the scheduler's to create — so the scheduler stops at it
+refuse (runners are the scheduler's to create) so the scheduler stops at it
 and each pool it held back says `limits.runners` in its scaling reason.
 
 A ceiling on a controller only its own machine can reach protects nothing, and
@@ -549,159 +549,159 @@ the validator says so with `limits.loopback`.
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `log.format` | `ZOOMIES_LOG_FORMAT` | next restart | Log format — json for a log collector, text for a person reading a terminal. |
-| `log.level` | `ZOOMIES_LOG_LEVEL` | at once | Log level — How much detail the controller logs. |
+| `log.format` | `ZOOMIES_LOG_FORMAT` | next restart | Log format, json for a log collector, text for a person reading a terminal. |
+| `log.level` | `ZOOMIES_LOG_LEVEL` | at once | Log level: How much detail the controller logs. |
 
 ### `metrics`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `metrics.enabled` | `ZOOMIES_METRICS_ENABLED` | next restart | Prometheus endpoint — Serve the Prometheus endpoint. |
-| `metrics.path` | `ZOOMIES_METRICS_PATH` | next restart | Metrics path — Where it is served. |
-| `metrics.public` | `ZOOMIES_METRICS_PUBLIC` | next restart | Serve metrics without authentication — Serve it without authentication. Off by default, because job and repository names are visible in the label set. |
+| `metrics.enabled` | `ZOOMIES_METRICS_ENABLED` | next restart | Prometheus endpoint: Serve the Prometheus endpoint. |
+| `metrics.path` | `ZOOMIES_METRICS_PATH` | next restart | Metrics path: Where it is served. |
+| `metrics.public` | `ZOOMIES_METRICS_PUBLIC` | next restart | Serve metrics without authentication: Serve it without authentication. Off by default, because job and repository names are visible in the label set. |
 
 ### `status`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `status.mode` | `ZOOMIES_STATUS_MODE` | at once | Fleet status page — Who may read the fleet's status at `/status`, `/status.svg` and `/api/v1/status`: nobody (`off`, the default), anyone signed in (`authenticated`), or anyone who can reach this controller (`public`). It carries no names: a state, banded counts, rounded waits and problem codes. `public` raises the `status.public` warning, and is refused with `status.public_no_tls` on a public bind without TLS. |
+| `status.mode` | `ZOOMIES_STATUS_MODE` | at once | Fleet status page: Who may read the fleet's status at `/status`, `/status.svg` and `/api/v1/status`: nobody (`off`, the default), anyone signed in (`authenticated`), or anyone who can reach this controller (`public`). It carries no names: a state, banded counts, rounded waits and problem codes. `public` raises the `status.public` warning, and is refused with `status.public_no_tls` on a public bind without TLS. |
 
 ### `oidc`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `oidc.admin_groups` | `ZOOMIES_OIDC_ADMIN_GROUPS` | next restart | Administrator groups — Provider groups whose members get the administrator role. |
-| `oidc.allow_signup` | `ZOOMIES_OIDC_ALLOW_SIGNUP` | next restart | Create accounts on first sign-in — Create an account on a first successful single sign-on, rather than refusing anyone not already here. |
-| `oidc.client_id` | `ZOOMIES_OIDC_CLIENT_ID` | next restart | Client ID — The client this controller identifies itself as. |
-| `oidc.client_secret` | `ZOOMIES_OIDC_CLIENT_SECRET` | next restart | Client secret — The client secret that goes with it. |
-| `oidc.enabled` | `ZOOMIES_OIDC_ENABLED` | next restart | Single sign-on — Offer single sign-on as well as local accounts. |
-| `oidc.hide_password_login` | `ZOOMIES_OIDC_HIDE_PASSWORD_LOGIN` | at once | Hide the password form — Show only the single sign-on button while single sign-on is working, and refuse password sign-in below administrator. An administrator can still sign in with a password from /login?password. |
-| `oidc.groups_claim` | `ZOOMIES_OIDC_GROUPS_CLAIM` | next restart | Groups claim — The token claim listing the groups a user is in. |
-| `oidc.issuer` | `ZOOMIES_OIDC_ISSUER` | next restart | Issuer URL — The identity provider's issuer URL, from which its endpoints are discovered. |
-| `oidc.label` | `ZOOMIES_OIDC_LABEL` | at once | Sign-in button text — The words on the single sign-on button. Empty says "Sign in with" and the issuer's host. |
-| `oidc.link_by_username` | `ZOOMIES_OIDC_LINK_BY_USERNAME` | next restart | Link sign-on to local accounts — Let a first single sign-on take over an existing local account with the same username. Turn it on for the one migration where that is the intention, then turn it off again. |
-| `oidc.platform_groups` | `ZOOMIES_OIDC_PLATFORM_GROUPS` | next restart | Platform groups — Provider groups whose members get the platform role, above administrator. |
-| `oidc.operator_groups` | `ZOOMIES_OIDC_OPERATOR_GROUPS` | next restart | Operator groups — Provider groups whose members get the operator role. A user in no mapped group is a viewer. |
-| `oidc.redirect_url` | `ZOOMIES_OIDC_REDIRECT_URL` | next restart | Redirect URL — Where the provider sends the browser back to. Empty derives it from the external URL. |
-| `oidc.scopes` | `ZOOMIES_OIDC_SCOPES` | next restart | Scopes — The scopes asked for at sign-in. |
-| `oidc.username_claim` | `ZOOMIES_OIDC_USERNAME_CLAIM` | next restart | Username claim — The token claim that becomes a Zoomies username. |
+| `oidc.admin_groups` | `ZOOMIES_OIDC_ADMIN_GROUPS` | next restart | Administrator groups: Provider groups whose members get the administrator role. |
+| `oidc.allow_signup` | `ZOOMIES_OIDC_ALLOW_SIGNUP` | next restart | Create accounts on first sign-in: Create an account on a first successful single sign-on, rather than refusing anyone not already here. |
+| `oidc.client_id` | `ZOOMIES_OIDC_CLIENT_ID` | next restart | Client ID: The client this controller identifies itself as. |
+| `oidc.client_secret` | `ZOOMIES_OIDC_CLIENT_SECRET` | next restart | Client secret: The client secret that goes with it. |
+| `oidc.enabled` | `ZOOMIES_OIDC_ENABLED` | next restart | Single sign-on: Offer single sign-on as well as local accounts. |
+| `oidc.hide_password_login` | `ZOOMIES_OIDC_HIDE_PASSWORD_LOGIN` | at once | Hide the password form: Show only the single sign-on button while single sign-on is working, and refuse password sign-in below administrator. An administrator can still sign in with a password from /login?password. |
+| `oidc.groups_claim` | `ZOOMIES_OIDC_GROUPS_CLAIM` | next restart | Groups claim: The token claim listing the groups a user is in. |
+| `oidc.issuer` | `ZOOMIES_OIDC_ISSUER` | next restart | Issuer URL: The identity provider's issuer URL, from which its endpoints are discovered. |
+| `oidc.label` | `ZOOMIES_OIDC_LABEL` | at once | Sign-in button text: The words on the single sign-on button. Empty says "Sign in with" and the issuer's host. |
+| `oidc.link_by_username` | `ZOOMIES_OIDC_LINK_BY_USERNAME` | next restart | Link sign-on to local accounts: Let a first single sign-on take over an existing local account with the same username. Turn it on for the one migration where that is the intention, then turn it off again. |
+| `oidc.platform_groups` | `ZOOMIES_OIDC_PLATFORM_GROUPS` | next restart | Platform groups: Provider groups whose members get the platform role, above administrator. |
+| `oidc.operator_groups` | `ZOOMIES_OIDC_OPERATOR_GROUPS` | next restart | Operator groups: Provider groups whose members get the operator role. A user in no mapped group is a viewer. |
+| `oidc.redirect_url` | `ZOOMIES_OIDC_REDIRECT_URL` | next restart | Redirect URL: Where the provider sends the browser back to. Empty derives it from the external URL. |
+| `oidc.scopes` | `ZOOMIES_OIDC_SCOPES` | next restart | Scopes: The scopes asked for at sign-in. |
+| `oidc.username_claim` | `ZOOMIES_OIDC_USERNAME_CLAIM` | next restart | Username claim: The token claim that becomes a Zoomies username. |
 
 ### `provider`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `provider.ambiguity_timeout` | `ZOOMIES_PROVIDER_AMBIGUITY_TIMEOUT` | next restart | Unknown-outcome timeout — How long an operation whose outcome is unknown is reconciled by looking before a person is asked instead. It must outlast the creation timeout: a create that is merely slow is not an unknown outcome. |
-| `provider.bootstrap_timeout` | `ZOOMIES_PROVIDER_BOOTSTRAP_TIMEOUT` | next restart | Agent install timeout — How long installing the agent inside a machine that is already up may take. |
-| `provider.call_timeout` | `ZOOMIES_PROVIDER_CALL_TIMEOUT` | next restart | Provider request timeout — How long one API request to a provider may take. |
-| `provider.create_timeout` | `ZOOMIES_PROVIDER_CREATE_TIMEOUT` | next restart | Machine creation timeout — How long the whole asynchronous creation of a machine may take, rather than the request that starts it. |
-| `provider.delete_grace` | `ZOOMIES_PROVIDER_DELETE_GRACE` | next restart | Grace before a silent machine is lost — How long a machine whose host has gone silent is left alone before it is treated as lost. It has to outlast the controller's own judgement that a host is gone, or a network blip would destroy a machine in the middle of a job. |
-| `provider.delete_timeout` | `ZOOMIES_PROVIDER_DELETE_TIMEOUT` | next restart | Deletion timeout — How long an asynchronous deletion may take. |
-| `provider.enabled` | `ZOOMIES_PROVIDER_ENABLED` | next restart | Rent machines — Whether the machine loop runs at all. Off by default: renting a machine spends money, and nothing here should start doing that because a release added the ability to. |
-| `provider.enrol_timeout` | `ZOOMIES_PROVIDER_ENROL_TIMEOUT` | next restart | Enrolment timeout — How long a bootstrapped machine has to appear as a host. It has to outlast a heartbeat timeout, or a machine that joined and went briefly quiet would be given up on. |
-| `provider.idle_timeout` | `ZOOMIES_PROVIDER_IDLE_TIMEOUT` | at once | Idle before draining — How long a machine's host must have had no runner on it before the machine is drained. |
-| `provider.interval` | `ZOOMIES_PROVIDER_INTERVAL` | next restart | Machine loop interval — How often the machine loop runs. It is slower than the scheduler's on purpose: a clone takes minutes, and the pass that watches one gains nothing from a ten-second tick. |
-| `provider.max_creates_in_flight` | `ZOOMIES_PROVIDER_MAX_CREATES_IN_FLIGHT` | at once | Machines built at once — How many machines may be being built at once across the fleet, so a burst of queued jobs cannot ask a hypervisor for fifty clones in one pass. |
-| `provider.max_machines` | `ZOOMIES_PROVIDER_MAX_MACHINES` | at once | Machines the fleet may rent — The ceiling across every provider. Zero rents nothing, exactly as a pool's max_runners of zero runs nothing: a maximum of none is none. |
-| `provider.paused` | `ZOOMIES_PROVIDER_PAUSED` | at once | Pause new machines — Stop creating machines while leaving draining, deleting, recovering and verifying ownership running. A switch that stopped those too would strand running machines nobody is watching. |
-| `provider.scale_down_cooldown` | `ZOOMIES_PROVIDER_SCALE_DOWN_COOLDOWN` | next restart | Cooldown before deleting — How long that idleness must hold continuously before anything is deleted, so a quiet minute between two bursts does not destroy the machines the second burst is about to want. |
-| `provider.scale_up_delay` | `ZOOMIES_PROVIDER_SCALE_UP_DELAY` | next restart | Delay before renting — How long a pool's demand must stand before a machine is bought for it. Zero, unlike the scheduler's: a machine that takes four minutes to arrive has already spent the delay by being slow. |
-| `provider.sweep_interval` | `ZOOMIES_PROVIDER_SWEEP_INTERVAL` | next restart | Ownership sweep interval — How often each provider is asked for everything it believes it is running, which is how an orphaned machine and one that vanished underneath us are both found. |
+| `provider.ambiguity_timeout` | `ZOOMIES_PROVIDER_AMBIGUITY_TIMEOUT` | next restart | Unknown-outcome timeout: How long an operation whose outcome is unknown is reconciled by looking before a person is asked instead. It must outlast the creation timeout: a create that is merely slow is not an unknown outcome. |
+| `provider.bootstrap_timeout` | `ZOOMIES_PROVIDER_BOOTSTRAP_TIMEOUT` | next restart | Agent install timeout: How long installing the agent inside a machine that is already up may take. |
+| `provider.call_timeout` | `ZOOMIES_PROVIDER_CALL_TIMEOUT` | next restart | Provider request timeout: How long one API request to a provider may take. |
+| `provider.create_timeout` | `ZOOMIES_PROVIDER_CREATE_TIMEOUT` | next restart | Machine creation timeout: How long the whole asynchronous creation of a machine may take, rather than the request that starts it. |
+| `provider.delete_grace` | `ZOOMIES_PROVIDER_DELETE_GRACE` | next restart | Grace before a silent machine is lost: How long a machine whose host has gone silent is left alone before it is treated as lost. It has to outlast the controller's own judgement that a host is gone, or a network blip would destroy a machine in the middle of a job. |
+| `provider.delete_timeout` | `ZOOMIES_PROVIDER_DELETE_TIMEOUT` | next restart | Deletion timeout: How long an asynchronous deletion may take. |
+| `provider.enabled` | `ZOOMIES_PROVIDER_ENABLED` | next restart | Rent machines: Whether the machine loop runs at all. Off by default: renting a machine spends money, and nothing here should start doing that because a release added the ability to. |
+| `provider.enrol_timeout` | `ZOOMIES_PROVIDER_ENROL_TIMEOUT` | next restart | Enrolment timeout: How long a bootstrapped machine has to appear as a host. It has to outlast a heartbeat timeout, or a machine that joined and went briefly quiet would be given up on. |
+| `provider.idle_timeout` | `ZOOMIES_PROVIDER_IDLE_TIMEOUT` | at once | Idle before draining: How long a machine's host must have had no runner on it before the machine is drained. |
+| `provider.interval` | `ZOOMIES_PROVIDER_INTERVAL` | next restart | Machine loop interval: How often the machine loop runs. It is slower than the scheduler's on purpose: a clone takes minutes, and the pass that watches one gains nothing from a ten-second tick. |
+| `provider.max_creates_in_flight` | `ZOOMIES_PROVIDER_MAX_CREATES_IN_FLIGHT` | at once | Machines built at once: How many machines may be being built at once across the fleet, so a burst of queued jobs cannot ask a hypervisor for fifty clones in one pass. |
+| `provider.max_machines` | `ZOOMIES_PROVIDER_MAX_MACHINES` | at once | Machines the fleet may rent: The ceiling across every provider. Zero rents nothing, exactly as a pool's max_runners of zero runs nothing: a maximum of none is none. |
+| `provider.paused` | `ZOOMIES_PROVIDER_PAUSED` | at once | Pause new machines: Stop creating machines while leaving draining, deleting, recovering and verifying ownership running. A switch that stopped those too would strand running machines nobody is watching. |
+| `provider.scale_down_cooldown` | `ZOOMIES_PROVIDER_SCALE_DOWN_COOLDOWN` | next restart | Cooldown before deleting: How long that idleness must hold continuously before anything is deleted, so a quiet minute between two bursts does not destroy the machines the second burst is about to want. |
+| `provider.scale_up_delay` | `ZOOMIES_PROVIDER_SCALE_UP_DELAY` | next restart | Delay before renting: How long a pool's demand must stand before a machine is bought for it. Zero, unlike the scheduler's: a machine that takes four minutes to arrive has already spent the delay by being slow. |
+| `provider.sweep_interval` | `ZOOMIES_PROVIDER_SWEEP_INTERVAL` | next restart | Ownership sweep interval: How often each provider is asked for everything it believes it is running, which is how an orphaned machine and one that vanished underneath us are both found. |
 
 ### `retention`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `retention.jobs` | `ZOOMIES_RETENTION_JOBS` | at once | Keep job history for — How long job history is kept. |
-| `retention.machines` | `ZOOMIES_RETENTION_MACHINES` | at once | Keep deleted machines for — How long a deleted machine's row is kept, so what the fleet rented and gave back is still answerable after the machine itself is gone. |
-| `retention.runner_sessions` | `ZOOMIES_RETENTION_RUNNER_SESSIONS` | at once | Keep runner sessions for — How long the usage ledger keeps each finished runner's session — who it ran for, where, and for how long — after the runner's own row has been pruned. |
-| `retention.runners` | `ZOOMIES_RETENTION_RUNNERS` | at once | Keep finished runners for — How long finished runners are kept. |
-| `retention.samples` | `ZOOMIES_RETENTION_SAMPLES` | at once | Keep Overview samples for — How long the Overview's samples are kept. |
-| `retention.scaling_events` | `ZOOMIES_RETENTION_SCALING_EVENTS` | at once | Keep scaling history for — How long scaling decisions are kept. Audit rows are not covered by this, or by anything: they are never deleted. |
-| `retention.webhooks` | `ZOOMIES_RETENTION_WEBHOOKS` | at once | Keep webhook deliveries for — How long webhook deliveries are kept. |
+| `retention.jobs` | `ZOOMIES_RETENTION_JOBS` | at once | Keep job history for: How long job history is kept. |
+| `retention.machines` | `ZOOMIES_RETENTION_MACHINES` | at once | Keep deleted machines for: How long a deleted machine's row is kept, so what the fleet rented and gave back is still answerable after the machine itself is gone. |
+| `retention.runner_sessions` | `ZOOMIES_RETENTION_RUNNER_SESSIONS` | at once | Keep runner sessions for: How long the usage ledger keeps each finished runner's session (who it ran for, where, and for how long) after the runner's own row has been pruned. |
+| `retention.runners` | `ZOOMIES_RETENTION_RUNNERS` | at once | Keep finished runners for: How long finished runners are kept. |
+| `retention.samples` | `ZOOMIES_RETENTION_SAMPLES` | at once | Keep Overview samples for: How long the Overview's samples are kept. |
+| `retention.scaling_events` | `ZOOMIES_RETENTION_SCALING_EVENTS` | at once | Keep scaling history for: How long scaling decisions are kept. Audit rows are not covered by this, or by anything: they are never deleted. |
+| `retention.webhooks` | `ZOOMIES_RETENTION_WEBHOOKS` | at once | Keep webhook deliveries for: How long webhook deliveries are kept. |
 
 ### `runners`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `runners.default_cpus` | `ZOOMIES_RUNNER_DEFAULT_CPUS` | at once | Standard CPUs per runner — Where a pool's CPU slider opens when somebody chooses to set a fixed size, in cores; fractions are allowed. It is not what a pool with no size becomes: such a pool is given one slot's share of whichever host each runner lands on. 0 means nothing has been said and the built-in 2 cores answers. |
-| `runners.default_memory_mb` | `ZOOMIES_RUNNER_DEFAULT_MEMORY_MB` | at once | Standard memory per runner — How much memory one runner gets on a pool that has not said otherwise, in megabytes. It is the figure a new pool opens on, and the one a host's recommended capacity is worked out from. 0 means nothing has been said and the built-in 4096 answers. |
-| `runners.minimum_cpus` | `ZOOMIES_RUNNER_MINIMUM_CPUS` | at once | Minimum CPUs per runner — The fleet's minimum CPU per runner, in cores: the least a runner may be given when no host has room for its standard size — a fixed pool's figures, or an automatic pool's whole slot share — so a host a little short still runs the job. An automatic pool's runner is never given less: a slot share below it is raised to it, and the host holds fewer runners. Every pool that sets no minimum of its own follows it, live; a pool's own minimum wins. 0 is none. |
-| `runners.minimum_memory_mb` | `ZOOMIES_RUNNER_MINIMUM_MEMORY_MB` | at once | Minimum memory per runner — The fleet's minimum memory per runner, in megabytes: the least a runner may be given when no host has room for its standard size, fixed or automatic. An automatic pool's runner is never given less: a slot share below it is raised to it, and the host holds fewer runners. Every pool that sets no minimum of its own follows it, live; a pool's own minimum wins. 0 is none; anything set is held to 512. |
-| `runners.small_cpus` | `ZOOMIES_RUNNER_SMALL_CPUS` | at once | Small runner, CPUs — The size of one runner in the small class where a host's runner profile says nothing: what an automatic pool gives it, and what a job is measured against when it is classed. Default `1`. |
-| `runners.small_memory_mb` | `ZOOMIES_RUNNER_SMALL_MEMORY_MB` | at once | Small runner, memory — Default `2048`. |
-| `runners.medium_cpus` | `ZOOMIES_RUNNER_MEDIUM_CPUS` | at once | Medium runner, CPUs — Default `2`, the size of the fleet's own default runner. |
-| `runners.medium_memory_mb` | `ZOOMIES_RUNNER_MEDIUM_MEMORY_MB` | at once | Medium runner, memory — Default `4096`. |
-| `runners.large_cpus` | `ZOOMIES_RUNNER_LARGE_CPUS` | at once | Large runner, CPUs — Default `4`. |
-| `runners.large_memory_mb` | `ZOOMIES_RUNNER_LARGE_MEMORY_MB` | at once | Large runner, memory — Default `8192`. |
-| `runners.docker_wait` | `ZOOMIES_DOCKER_WAIT` | at once | Docker daemon wait — How long DinD provisioning waits for a healthy daemon, and a Docker runner waits before registering. Default 3m. Whole seconds, up to an hour; 0 leaves the runner image's own default. A pool's env can set ZOOMIES_DOCKER_WAIT to override it for that pool. |
-| `runners.env` | `ZOOMIES_RUNNER_ENV` | at once | Runner environment — Key=value variables every runner starts with, such as a proxy or a package mirror. A pool's own env wins where the two name the same variable. Every job can read these, so a credential does not belong here: give it to the pool, or to the workflow as a GitHub secret. |
+| `runners.default_cpus` | `ZOOMIES_RUNNER_DEFAULT_CPUS` | at once | Standard CPUs per runner: Where a pool's CPU slider opens when somebody chooses to set a fixed size, in cores; fractions are allowed. It is not what a pool with no size becomes: such a pool is given one slot's share of whichever host each runner lands on. 0 means nothing has been said and the built-in 2 cores answers. |
+| `runners.default_memory_mb` | `ZOOMIES_RUNNER_DEFAULT_MEMORY_MB` | at once | Standard memory per runner: How much memory one runner gets on a pool that has not said otherwise, in megabytes. It is the figure a new pool opens on, and the one a host's recommended capacity is worked out from. 0 means nothing has been said and the built-in 4096 answers. |
+| `runners.minimum_cpus` | `ZOOMIES_RUNNER_MINIMUM_CPUS` | at once | Minimum CPUs per runner: The fleet's minimum CPU per runner, in cores: the least a runner may be given when no host has room for its standard size (a fixed pool's figures, or an automatic pool's whole slot share) so a host a little short still runs the job. An automatic pool's runner is never given less: a slot share below it is raised to it, and the host holds fewer runners. Every pool that sets no minimum of its own follows it, live; a pool's own minimum wins. 0 is none. |
+| `runners.minimum_memory_mb` | `ZOOMIES_RUNNER_MINIMUM_MEMORY_MB` | at once | Minimum memory per runner: The fleet's minimum memory per runner, in megabytes: the least a runner may be given when no host has room for its standard size, fixed or automatic. An automatic pool's runner is never given less: a slot share below it is raised to it, and the host holds fewer runners. Every pool that sets no minimum of its own follows it, live; a pool's own minimum wins. 0 is none; anything set is held to 512. |
+| `runners.small_cpus` | `ZOOMIES_RUNNER_SMALL_CPUS` | at once | Small runner, CPUs: The size of one runner in the small class where a host's runner profile says nothing: what an automatic pool gives it, and what a job is measured against when it is classed. Default `1`. |
+| `runners.small_memory_mb` | `ZOOMIES_RUNNER_SMALL_MEMORY_MB` | at once | Small runner, memory: Default `2048`. |
+| `runners.medium_cpus` | `ZOOMIES_RUNNER_MEDIUM_CPUS` | at once | Medium runner, CPUs: Default `2`, the size of the fleet's own default runner. |
+| `runners.medium_memory_mb` | `ZOOMIES_RUNNER_MEDIUM_MEMORY_MB` | at once | Medium runner, memory: Default `4096`. |
+| `runners.large_cpus` | `ZOOMIES_RUNNER_LARGE_CPUS` | at once | Large runner, CPUs: Default `4`. |
+| `runners.large_memory_mb` | `ZOOMIES_RUNNER_LARGE_MEMORY_MB` | at once | Large runner, memory: Default `8192`. |
+| `runners.docker_wait` | `ZOOMIES_DOCKER_WAIT` | at once | Docker daemon wait: How long DinD provisioning waits for a healthy daemon, and a Docker runner waits before registering. Default 3m. Whole seconds, up to an hour; 0 leaves the runner image's own default. A pool's env can set ZOOMIES_DOCKER_WAIT to override it for that pool. |
+| `runners.env` | `ZOOMIES_RUNNER_ENV` | at once | Runner environment: Key=value variables every runner starts with, such as a proxy or a package mirror. A pool's own env wins where the two name the same variable. Every job can read these, so a credential does not belong here: give it to the pool, or to the workflow as a GitHub secret. |
 
 ### `scheduler`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `scheduler.auto_rerun` | `ZOOMIES_AUTO_RERUN` | at once | Re-run jobs the fleet broke — Ask GitHub to run a job again when this fleet is what broke it, never a test that failed. Off by default: it spends GitHub minutes without asking. |
-| `scheduler.auto_rerun_limit` | `ZOOMIES_AUTO_RERUN_LIMIT` | at once | Automatic re-runs per workflow run — How many times one run may be re-run automatically (1–5), counted from GitHub's own run attempt. |
-| `scheduler.default_runner_limits` | `ZOOMIES_DEFAULT_RUNNER_LIMITS` | at once | Default runner limits — Give a runner whose pool sets no CPU or memory limit one slot's share of its host as a real limit. Off, a host's worth of them can each take every core. |
-| `scheduler.drain_timeout` | `ZOOMIES_DRAIN_TIMEOUT` | at once | Drain timeout — Fail a runner that has been draining this long with no job left on it. A runner still finishing a job is never touched by it. |
-| `scheduler.host_throttling` | `ZOOMIES_HOST_THROTTLING` | at once | Throttle hosts under pressure — Let the controller throttle a host its measurements say is overwhelmed, and step it back up after a stretch of calm. |
-| `scheduler.host_order` | `ZOOMIES_HOST_ORDER` | at once | Host placement order — Which host a runner prefers when several can take it. `headroom` (default) picks the one with the most CPU and memory left afterwards, which spreads work. `largest_standard` picks the one whose runner of the pool is biggest, which suits a mixed fleet sized by runner profile. `best_fit` picks the one with the least left, filling one host before starting the next. It only ever chooses among hosts that already fit, so it moves where runners go and never whether they start. |
-| `scheduler.history_sizing` | `ZOOMIES_HISTORY_SIZING` | at once | Job-history placement — `shadow` (default) records where it would place differently, `on` places each runner only on a host with room for what the jobs waiting on its pool used on their recent runs (the ninetieth percentile of their peaks, memory with a fifth more) and sizes it up to that where the pool leaves its size to the host, `off` ignores history. See [Sizing from job history](hosts-and-pools.md#sizing-from-job-history). |
-| `scheduler.size_routing` | `ZOOMIES_SIZE_ROUTING` | at once | Route jobs by size class — `off` (default) classes nothing. `shadow` classes each job small, medium or large from what its recent runs used and records the class and where the job ran, and sends nothing anywhere. `on` sends each job to the pool for its class. A workflow that writes `zoomies-large` in `runs-on` is always honoured and never moved; a job that writes only `zoomies` is routed best effort, because GitHub decides which waiting job a runner takes. Changing it puts the jobs already waiting through the new mode. See [size classes and automatic pools](auto-pools.md). |
-| `scheduler.auto_pools` | `ZOOMIES_AUTO_POOLS` | at once | Automatic pools — `off` (default) leaves pools as you made them. `shadow` says what would change and still gives each host its class. `on` makes and keeps one pool for each architecture and size class among the hosts the fleet has, sized by the hosts in it. A pool you made is never touched. See [size classes and automatic pools](auto-pools.md). |
-| `scheduler.auto_pools_installation` | `ZOOMIES_AUTO_POOLS_INSTALLATION` | at once | Installation for automatic pools — The organisation or repository whose GitHub App installation the pools belong to. Empty means the only installation; a fleet with several has to say which. |
-| `scheduler.auto_pools_docker_mode` | `ZOOMIES_AUTO_POOLS_DOCKER_MODE` | at once | Docker mode of automatic pools — `none` (default) gives jobs no daemon, `dind` gives each runner a private one. The host socket is not offered. |
-| `scheduler.auto_pools_host_grace` | `ZOOMIES_AUTO_POOLS_HOST_GRACE` | at once | Grace before a silent host stops counting — How long a host may go without a heartbeat and still count towards its pool's maximum. Default `10m`; it has to be longer than the five minutes after which the fleet gives a silent host's runners up. |
-| `scheduler.size_class_hold` | `ZOOMIES_SIZE_CLASS_HOLD` | at once | Hold before a host changes class — How long a host's measurements must name a different class, without a break, before it moves. Default `10m`; `0` moves it at once. |
-| `scheduler.size_default_class` | `ZOOMIES_SIZE_DEFAULT_CLASS` | at once | Class of a job with no history — `medium` (default), the size of the fleet's own default runner. |
-| `scheduler.size_fallback_wait` | `ZOOMIES_SIZE_FALLBACK_WAIT` | at once | Wait for room in a job's class — How long a job waits before another class may take it. Default `2m`; a class with no pool is not waited on. |
-| `scheduler.size_small_max_cpus` | `ZOOMIES_SIZE_SMALL_MAX_CPUS` | at once | Largest small host, CPUs — Allocatable CPUs, after the reserve. Default `4`. A host is in the lower of the classes its CPU and memory each name. |
-| `scheduler.size_small_max_memory_mb` | `ZOOMIES_SIZE_SMALL_MAX_MEMORY_MB` | at once | Largest small host, memory — Allocatable megabytes. Default `16384`. |
-| `scheduler.size_medium_max_cpus` | `ZOOMIES_SIZE_MEDIUM_MAX_CPUS` | at once | Largest medium host, CPUs — Default `12`. A host with more is large. |
-| `scheduler.size_medium_max_memory_mb` | `ZOOMIES_SIZE_MEDIUM_MAX_MEMORY_MB` | at once | Largest medium host, memory — Default `49152`. A host with more is large. |
-| `scheduler.placement_mode` | `ZOOMIES_PLACEMENT_MODE` | at once | Host placement — `headroom` (default), `shadow` to compare startup-history placement, or `readiness` to enable it. See [rollout and evidence](development/stability-performance.md#placement-rollout). |
-| `scheduler.interval` | `ZOOMIES_SCHEDULER_INTERVAL` | at once | Scheduler interval — How often the scheduler runs a pass even with nothing to react to. |
+| `scheduler.auto_rerun` | `ZOOMIES_AUTO_RERUN` | at once | Re-run jobs the fleet broke: Ask GitHub to run a job again when this fleet is what broke it, never a test that failed. Off by default: it spends GitHub minutes without asking. |
+| `scheduler.auto_rerun_limit` | `ZOOMIES_AUTO_RERUN_LIMIT` | at once | Automatic re-runs per workflow run: How many times one run may be re-run automatically (1–5), counted from GitHub's own run attempt. |
+| `scheduler.default_runner_limits` | `ZOOMIES_DEFAULT_RUNNER_LIMITS` | at once | Default runner limits: Give a runner whose pool sets no CPU or memory limit one slot's share of its host as a real limit. Off, a host's worth of them can each take every core. |
+| `scheduler.drain_timeout` | `ZOOMIES_DRAIN_TIMEOUT` | at once | Drain timeout: Fail a runner that has been draining this long with no job left on it. A runner still finishing a job is never touched by it. |
+| `scheduler.host_throttling` | `ZOOMIES_HOST_THROTTLING` | at once | Throttle hosts under pressure: Let the controller throttle a host its measurements say is overwhelmed, and step it back up after a stretch of calm. |
+| `scheduler.host_order` | `ZOOMIES_HOST_ORDER` | at once | Host placement order: Which host a runner prefers when several can take it. `headroom` (default) picks the one with the most CPU and memory left afterwards, which spreads work. `largest_standard` picks the one whose runner of the pool is biggest, which suits a mixed fleet sized by runner profile. `best_fit` picks the one with the least left, filling one host before starting the next. It only ever chooses among hosts that already fit, so it moves where runners go and never whether they start. |
+| `scheduler.history_sizing` | `ZOOMIES_HISTORY_SIZING` | at once | Job-history placement, `shadow` (default) records where it would place differently, `on` places each runner only on a host with room for what the jobs waiting on its pool used on their recent runs (the ninetieth percentile of their peaks, memory with a fifth more) and sizes it up to that where the pool leaves its size to the host, `off` ignores history. See [Sizing from job history](hosts-and-pools.md#sizing-from-job-history). |
+| `scheduler.size_routing` | `ZOOMIES_SIZE_ROUTING` | at once | Route jobs by size class, `off` (default) classes nothing. `shadow` classes each job small, medium or large from what its recent runs used and records the class and where the job ran, and sends nothing anywhere. `on` sends each job to the pool for its class. A workflow that writes `zoomies-large` in `runs-on` is always honoured and never moved; a job that writes only `zoomies` is routed best effort, because GitHub decides which waiting job a runner takes. Changing it puts the jobs already waiting through the new mode. See [size classes and automatic pools](auto-pools.md). |
+| `scheduler.auto_pools` | `ZOOMIES_AUTO_POOLS` | at once | Automatic pools, `off` (default) leaves pools as you made them. `shadow` says what would change and still gives each host its class. `on` makes and keeps one pool for each architecture and size class among the hosts the fleet has, sized by the hosts in it. A pool you made is never touched. See [size classes and automatic pools](auto-pools.md). |
+| `scheduler.auto_pools_installation` | `ZOOMIES_AUTO_POOLS_INSTALLATION` | at once | Installation for automatic pools: The organisation or repository whose GitHub App installation the pools belong to. Empty means the only installation; a fleet with several has to say which. |
+| `scheduler.auto_pools_docker_mode` | `ZOOMIES_AUTO_POOLS_DOCKER_MODE` | at once | Docker mode of automatic pools, `none` (default) gives jobs no daemon, `dind` gives each runner a private one. The host socket is not offered. |
+| `scheduler.auto_pools_host_grace` | `ZOOMIES_AUTO_POOLS_HOST_GRACE` | at once | Grace before a silent host stops counting: How long a host may go without a heartbeat and still count towards its pool's maximum. Default `10m`; it has to be longer than the five minutes after which the fleet gives a silent host's runners up. |
+| `scheduler.size_class_hold` | `ZOOMIES_SIZE_CLASS_HOLD` | at once | Hold before a host changes class: How long a host's measurements must name a different class, without a break, before it moves. Default `10m`; `0` moves it at once. |
+| `scheduler.size_default_class` | `ZOOMIES_SIZE_DEFAULT_CLASS` | at once | Class of a job with no history, `medium` (default), the size of the fleet's own default runner. |
+| `scheduler.size_fallback_wait` | `ZOOMIES_SIZE_FALLBACK_WAIT` | at once | Wait for room in a job's class: How long a job waits before another class may take it. Default `2m`; a class with no pool is not waited on. |
+| `scheduler.size_small_max_cpus` | `ZOOMIES_SIZE_SMALL_MAX_CPUS` | at once | Largest small host, CPUs: Allocatable CPUs, after the reserve. Default `4`. A host is in the lower of the classes its CPU and memory each name. |
+| `scheduler.size_small_max_memory_mb` | `ZOOMIES_SIZE_SMALL_MAX_MEMORY_MB` | at once | Largest small host, memory: Allocatable megabytes. Default `16384`. |
+| `scheduler.size_medium_max_cpus` | `ZOOMIES_SIZE_MEDIUM_MAX_CPUS` | at once | Largest medium host, CPUs: Default `12`. A host with more is large. |
+| `scheduler.size_medium_max_memory_mb` | `ZOOMIES_SIZE_MEDIUM_MAX_MEMORY_MB` | at once | Largest medium host, memory: Default `49152`. A host with more is large. |
+| `scheduler.placement_mode` | `ZOOMIES_PLACEMENT_MODE` | at once | Host placement, `headroom` (default), `shadow` to compare startup-history placement, or `readiness` to enable it. See [rollout and evidence](development/stability-performance.md#placement-rollout). |
+| `scheduler.interval` | `ZOOMIES_SCHEDULER_INTERVAL` | at once | Scheduler interval: How often the scheduler runs a pass even with nothing to react to. |
 | `scheduler.registration_concurrency` | `ZOOMIES_REGISTRATION_CONCURRENCY` | at once | Bound concurrent credential requests per installation; default 1, range 1–16. Excess demand waits for a later scheduling pass. Existing calls finish when lowered. |
-| `scheduler.max_creates_per_tick` | `ZOOMIES_MAX_CREATES_PER_TICK` | at once | Runners created per pass — How many runners may be created in one pass, so a thundering herd of queued jobs cannot exhaust a host in one go. |
-| `scheduler.max_runner_lifetime` | `ZOOMIES_MAX_RUNNER_LIFETIME` | at once | Maximum runner lifetime — Drain a runner that has lived this long, next time it is not busy. It bounds how long a runner's credentials live; it never ends a job. |
-| `scheduler.provision_timeout` | `ZOOMIES_PROVISION_TIMEOUT` | at once | Provision timeout — Fail a runner that never finishes registering, so a bad image does not hold a host slot for ever. |
-| `scheduler.scale_up_delay` | `ZOOMIES_SCALE_UP_DELAY` | at once | Scale-up delay — How long a job must have been queued before it counts as demand. It damps churn when jobs arrive in bursts; 0 reacts at once. |
+| `scheduler.max_creates_per_tick` | `ZOOMIES_MAX_CREATES_PER_TICK` | at once | Runners created per pass: How many runners may be created in one pass, so a thundering herd of queued jobs cannot exhaust a host in one go. |
+| `scheduler.max_runner_lifetime` | `ZOOMIES_MAX_RUNNER_LIFETIME` | at once | Maximum runner lifetime: Drain a runner that has lived this long, next time it is not busy. It bounds how long a runner's credentials live; it never ends a job. |
+| `scheduler.provision_timeout` | `ZOOMIES_PROVISION_TIMEOUT` | at once | Provision timeout: Fail a runner that never finishes registering, so a bad image does not hold a host slot for ever. |
+| `scheduler.scale_up_delay` | `ZOOMIES_SCALE_UP_DELAY` | at once | Scale-up delay: How long a job must have been queued before it counts as demand. It damps churn when jobs arrive in bursts; 0 reacts at once. |
 
 ### `security`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `security.cookie_secure` | `ZOOMIES_COOKIE_SECURE` | next restart | Secure session cookies — Force the Secure attribute on session cookies. Unset derives it from the external URL and the TLS mode, which is right unless a proxy in front makes it wrong. |
-| `security.allow_private_egress` | `ZOOMIES_ALLOW_PRIVATE_EGRESS` | live | Allow private outbound addresses — Let the URLs this controller dials — the OIDC issuer, the GitHub API, the capacity-demand destination, the runner download mirror, a backup remote and a provider — name this machine, a link-local address or a private network. Off, writing one through the API is refused and one in the file or environment is warned about, as `egress.private_target`. Turn it on when one of them really lives on a network you own. |
-| `security.disable_auth` | `ZOOMIES_DISABLE_AUTH` | next restart | Disable authentication — Remove all authentication. It exists for local development, and it is refused wherever this controller looks reachable. |
-| `security.docker_in_docker_expected` | `ZOOMIES_DOCKER_IN_DOCKER_EXPECTED` | live | Docker-in-Docker is expected here — Stop a pool that gives its jobs their own Docker daemon being listed as a dangerous setting. The daemon still runs in a privileged container; this is a fleet saying it knows, so that the settings still worth a second look are not buried under one it has already decided. The host socket and persistent runners keep warning. |
-| `security.encryption_key` | `ZOOMIES_ENCRYPTION_KEY` | file or environment only | Encryption key — The 32-byte key, base64 or hex, that seals GitHub App private keys, webhook secrets and the stored credentials below. Prefer the key file or the environment variable: a key written into zoomies.yaml is a key in your configuration management system. |
-| `security.encryption_key_file` | `ZOOMIES_ENCRYPTION_KEY_FILE` | file or environment only | Encryption key file — Where that key is read from, and written to on a first run. Back it up beside the database: without it the sealed rows cannot be read. |
-| `security.mcp_oauth` | `ZOOMIES_MCP_OAUTH` | live | Sign in to MCP with OAuth — Let an MCP client such as Claude be added by this controller's `/mcp` address alone and sign a person in through the browser, with this controller as its own OAuth authorisation server. The token it receives works on `/mcp` and nowhere else, at a role the person chooses and no higher than their own. Unset turns it on when authentication is on and the controller is reached over https. See [Connect Claude to Zoomies](connect-claude.md). |
-| `security.mcp_open_registration` | `ZOOMIES_MCP_OPEN_REGISTRATION` | live | Let MCP clients register themselves — Let an MCP client register itself — by dynamic client registration or a client ID metadata document — rather than only use a client an administrator created under Settings, MCP clients. A client that registers itself can do nothing until a person signs in and approves it. Off, only the clients an administrator created can ask. |
-| `security.mcp_admin_tools` | `ZOOMIES_MCP_ADMIN_TOOLS` | live | Offer administrator tools over MCP — Let an MCP token or connection whose role is administrator edit a host's name, labels and reserve, cordon it and lift its throttle, and read and change the tuning settings (scheduler, retention, runners, limits, logging, metrics, images, status, UI and the update check interval — never security, sign-in, GitHub, providers, the database, or the update mode and soak). Off, those tools are not offered and an agent that asks is told to turn this on. It changes nothing for a role below administrator. |
-| `security.auto_apply_remedies` | `ZOOMIES_AUTO_APPLY_REMEDIES` | live | Apply suggested changes automatically — Let the controller make the change a problem proposes -- a sidecar share, a smallest runner, a warm runner -- without anyone clicking it. A change is made only after the same proposal has stood unchanged for two hours, at most once a day for any one pool or host, and never one an administrator has undone. It runs as the pool's or host's own update, so every refusal that route makes still holds, and each change is recorded with what it replaced and can be undone from the problems page. Shadow, the default, works out what it would have changed and when, and records that without changing anything, so what turning it on would do can be read first (`would_apply` in `GET /problems/auto-applied`, and under Problems); off, the controller only proposes. `true` and `false` are still read as `on` and `off`. |
-| `security.rate_limit_logins` | `ZOOMIES_RATE_LIMIT_LOGINS` | next restart | Login attempts per minute — Password attempts allowed per source address per minute, and five times that per account. |
-| `security.require_two_step` | `ZOOMIES_REQUIRE_TWO_STEP` | next restart | Require two-step verification — Make every account that signs in with a password set up an authenticator app at its next sign-in. Accounts that use single sign-on are not asked — their identity provider owns their second factor — and API tokens are unaffected. See [Two-step verification](two-step.md). |
-| `security.session_ttl` | `ZOOMIES_SESSION_TTL` | next restart | Session lifetime — How long a browser login lasts before it has to be made again. |
+| `security.cookie_secure` | `ZOOMIES_COOKIE_SECURE` | next restart | Secure session cookies: Force the Secure attribute on session cookies. Unset derives it from the external URL and the TLS mode, which is right unless a proxy in front makes it wrong. |
+| `security.allow_private_egress` | `ZOOMIES_ALLOW_PRIVATE_EGRESS` | live | Allow private outbound addresses: Let the URLs this controller dials (the OIDC issuer, the GitHub API, the capacity-demand destination, the runner download mirror, a backup remote and a provider) name this machine, a link-local address or a private network. Off, writing one through the API is refused and one in the file or environment is warned about, as `egress.private_target`. Turn it on when one of them really lives on a network you own. |
+| `security.disable_auth` | `ZOOMIES_DISABLE_AUTH` | next restart | Disable authentication: Remove all authentication. It exists for local development, and it is refused wherever this controller looks reachable. |
+| `security.docker_in_docker_expected` | `ZOOMIES_DOCKER_IN_DOCKER_EXPECTED` | live | Docker-in-Docker is expected here: Stop a pool that gives its jobs their own Docker daemon being listed as a dangerous setting. The daemon still runs in a privileged container; this is a fleet saying it knows, so that the settings still worth a second look are not buried under one it has already decided. The host socket and persistent runners keep warning. |
+| `security.encryption_key` | `ZOOMIES_ENCRYPTION_KEY` | file or environment only | Encryption key: The 32-byte key, base64 or hex, that seals GitHub App private keys, webhook secrets and the stored credentials below. Prefer the key file or the environment variable: a key written into zoomies.yaml is a key in your configuration management system. |
+| `security.encryption_key_file` | `ZOOMIES_ENCRYPTION_KEY_FILE` | file or environment only | Encryption key file: Where that key is read from, and written to on a first run. Back it up beside the database: without it the sealed rows cannot be read. |
+| `security.mcp_oauth` | `ZOOMIES_MCP_OAUTH` | live | Sign in to MCP with OAuth: Let an MCP client such as Claude be added by this controller's `/mcp` address alone and sign a person in through the browser, with this controller as its own OAuth authorisation server. The token it receives works on `/mcp` and nowhere else, at a role the person chooses and no higher than their own. Unset turns it on when authentication is on and the controller is reached over https. See [Connect Claude to Zoomies](connect-claude.md). |
+| `security.mcp_open_registration` | `ZOOMIES_MCP_OPEN_REGISTRATION` | live | Let MCP clients register themselves: Let an MCP client register itself (by dynamic client registration or a client ID metadata document) rather than only use a client an administrator created under Settings, MCP clients. A client that registers itself can do nothing until a person signs in and approves it. Off, only the clients an administrator created can ask. |
+| `security.mcp_admin_tools` | `ZOOMIES_MCP_ADMIN_TOOLS` | live | Offer administrator tools over MCP: Let an MCP token or connection whose role is administrator edit a host's name, labels and reserve, cordon it and lift its throttle, and read and change the tuning settings (scheduler, retention, runners, limits, logging, metrics, images, status, UI and the update check interval, never security, sign-in, GitHub, providers, the database, or the update mode and soak). Off, those tools are not offered and an agent that asks is told to turn this on. It changes nothing for a role below administrator. |
+| `security.auto_apply_remedies` | `ZOOMIES_AUTO_APPLY_REMEDIES` | live | Apply suggested changes automatically: Let the controller make the change a problem proposes -- a sidecar share, a smallest runner, a warm runner -- without anyone clicking it. A change is made only after the same proposal has stood unchanged for two hours, at most once a day for any one pool or host, and never one an administrator has undone. It runs as the pool's or host's own update, so every refusal that route makes still holds, and each change is recorded with what it replaced and can be undone from the problems page. Shadow, the default, works out what it would have changed and when, and records that without changing anything, so what turning it on would do can be read first (`would_apply` in `GET /problems/auto-applied`, and under Problems); off, the controller only proposes. `true` and `false` are still read as `on` and `off`. |
+| `security.rate_limit_logins` | `ZOOMIES_RATE_LIMIT_LOGINS` | next restart | Login attempts per minute: Password attempts allowed per source address per minute, and five times that per account. |
+| `security.require_two_step` | `ZOOMIES_REQUIRE_TWO_STEP` | next restart | Require two-step verification: Make every account that signs in with a password set up an authenticator app at its next sign-in. Accounts that use single sign-on are not asked (their identity provider owns their second factor) and API tokens are unaffected. See [Two-step verification](two-step.md). |
+| `security.session_ttl` | `ZOOMIES_SESSION_TTL` | next restart | Session lifetime: How long a browser login lasts before it has to be made again. |
 
 ### `server`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `server.allow_indexing` | `ZOOMIES_ALLOW_INDEXING` | next restart | Allow search engine indexing — Invite search engines into the UI. Off by default: a controller is somebody's infrastructure rather than somebody's website. |
-| `server.allowed_origins` | `ZOOMIES_ALLOWED_ORIGINS` | next restart | Allowed browser origins — Extra browser origins allowed to make state-changing requests. Empty means same-origin only, which is what the built-in UI needs. |
-| `server.bind` | `ZOOMIES_BIND` | next restart | Listen address — The address the controller listens on. 127.0.0.1:8080 is this machine only; 0.0.0.0:8080 is every interface. |
-| `server.external_url` | `ZOOMIES_EXTERNAL_URL` | next restart | External URL — How GitHub and browsers reach this controller. It forms the webhook URL, so webhooks need it. |
-| `server.idle_timeout` | `ZOOMIES_IDLE_TIMEOUT` | next restart | Idle timeout — How long an idle keep-alive connection is held open. |
-| `server.read_timeout` | `ZOOMIES_READ_TIMEOUT` | next restart | Read timeout — How long a client may take to send its request. |
-| `server.tailcat_enabled` | `ZOOMIES_TAILCAT_ENABLED` | next restart | Private agent network — Permit private agent connections, started on first enrolment. |
-| `server.tls.cert_file` | `ZOOMIES_TLS_CERT_FILE` | next restart | Certificate file — The certificate the listener serves, when the mode is files. |
-| `server.tls.hosts` | `ZOOMIES_TLS_HOSTS` | next restart | Certificate host names — The names baked into a generated self-signed certificate. |
-| `server.tls.key_file` | `ZOOMIES_TLS_KEY_FILE` | next restart | Private key file — The private key for that certificate. The file stays on disk; only its path is stored here. |
-| `server.tls.mode` | `ZOOMIES_TLS_MODE` | next restart | TLS mode — How the listener terminates TLS: off behind a reverse proxy, self-signed for a generated certificate, files for one of your own. |
-| `server.trusted_proxies` | `ZOOMIES_TRUSTED_PROXIES` | next restart | Trusted proxies — CIDRs whose X-Forwarded-For header is believed, or the word cloudflare for Cloudflare's published ranges. Empty takes client addresses from the socket, which is the safe answer. |
-| `server.write_timeout` | `ZOOMIES_WRITE_TIMEOUT` | next restart | Write timeout — How long a response may take. It is 0, and should stay 0: the event stream and a followed log are responses that never end. |
+| `server.allow_indexing` | `ZOOMIES_ALLOW_INDEXING` | next restart | Allow search engine indexing: Invite search engines into the UI. Off by default: a controller is somebody's infrastructure rather than somebody's website. |
+| `server.allowed_origins` | `ZOOMIES_ALLOWED_ORIGINS` | next restart | Allowed browser origins: Extra browser origins allowed to make state-changing requests. Empty means same-origin only, which is what the built-in UI needs. |
+| `server.bind` | `ZOOMIES_BIND` | next restart | Listen address: The address the controller listens on. 127.0.0.1:8080 is this machine only; 0.0.0.0:8080 is every interface. |
+| `server.external_url` | `ZOOMIES_EXTERNAL_URL` | next restart | External URL: How GitHub and browsers reach this controller. It forms the webhook URL, so webhooks need it. |
+| `server.idle_timeout` | `ZOOMIES_IDLE_TIMEOUT` | next restart | Idle timeout: How long an idle keep-alive connection is held open. |
+| `server.read_timeout` | `ZOOMIES_READ_TIMEOUT` | next restart | Read timeout: How long a client may take to send its request. |
+| `server.tailcat_enabled` | `ZOOMIES_TAILCAT_ENABLED` | next restart | Private agent network: Permit private agent connections, started on first enrolment. |
+| `server.tls.cert_file` | `ZOOMIES_TLS_CERT_FILE` | next restart | Certificate file: The certificate the listener serves, when the mode is files. |
+| `server.tls.hosts` | `ZOOMIES_TLS_HOSTS` | next restart | Certificate host names: The names baked into a generated self-signed certificate. |
+| `server.tls.key_file` | `ZOOMIES_TLS_KEY_FILE` | next restart | Private key file: The private key for that certificate. The file stays on disk; only its path is stored here. |
+| `server.tls.mode` | `ZOOMIES_TLS_MODE` | next restart | TLS mode: How the listener terminates TLS: off behind a reverse proxy, self-signed for a generated certificate, files for one of your own. |
+| `server.trusted_proxies` | `ZOOMIES_TRUSTED_PROXIES` | next restart | Trusted proxies: CIDRs whose X-Forwarded-For header is believed, or the word cloudflare for Cloudflare's published ranges. Empty takes client addresses from the socket, which is the safe answer. |
+| `server.write_timeout` | `ZOOMIES_WRITE_TIMEOUT` | next restart | Write timeout: How long a response may take. It is 0, and should stay 0: the event stream and a followed log are responses that never end. |
 
 ### `ui`
 
@@ -709,25 +709,25 @@ What the web UI opens with. The capacity map layouts are each a starting
 point: the page itself lets an operator pick the other answer, and remembers
 the pick in that browser, so what is set here is what somebody who has never
 chosen sees. The two pages that carry it are set separately, because they are
-opened for different reasons — the Overview to glance at a fleet, the Hosts
-page to look into a machine — and a fleet may want each to open on its own
+opened for different reasons (the Overview to glance at a fleet, the Hosts
+page to look into a machine) and a fleet may want each to open on its own
 answer. The queue warning threshold is not a per-page starting point: there is
 nothing to move away from on the page, so what is set here is what every
 operator's browser sees.
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `ui.capacity_map.hosts_layout` | `ZOOMIES_UI_CAPACITY_MAP_HOSTS_LAYOUT` | at once | Hosts capacity map layout — The same choice for the map on the Hosts page, which can open differently from the Overview's: split suits the page a machine is looked into on, overlay the page a fleet is glanced at. |
-| `ui.capacity_map.overview_layout` | `ZOOMIES_UI_CAPACITY_MAP_OVERVIEW_LAYOUT` | at once | Overview capacity map layout — How the host capacity map on the Overview opens: overlay draws every host on one chart, split draws a chart for each. An operator who picks the other one on the page keeps their pick in that browser. |
-| `ui.queue_warning_threshold` | `ZOOMIES_UI_QUEUE_WARNING_THRESHOLD` | at once | Queue depth warning threshold — How many jobs must be queued before the queue tiles on the Overview, Jobs and Pools pages turn to their warning colour. 1, the default, warns as soon as anything is waiting; a fleet whose queue is normally busy can raise it so the colour still means something. |
+| `ui.capacity_map.hosts_layout` | `ZOOMIES_UI_CAPACITY_MAP_HOSTS_LAYOUT` | at once | Hosts capacity map layout: The same choice for the map on the Hosts page, which can open differently from the Overview's: split suits the page a machine is looked into on, overlay the page a fleet is glanced at. |
+| `ui.capacity_map.overview_layout` | `ZOOMIES_UI_CAPACITY_MAP_OVERVIEW_LAYOUT` | at once | Overview capacity map layout: How the host capacity map on the Overview opens: overlay draws every host on one chart, split draws a chart for each. An operator who picks the other one on the page keeps their pick in that browser. |
+| `ui.queue_warning_threshold` | `ZOOMIES_UI_QUEUE_WARNING_THRESHOLD` | at once | Queue depth warning threshold: How many jobs must be queued before the queue tiles on the Overview, Jobs and Pools pages turn to their warning colour. 1, the default, warns as soon as anything is waiting; a fleet whose queue is normally busy can raise it so the colour still means something. |
 
 ### `updates`
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
-| `updates.check_interval` | `ZOOMIES_UPDATE_CHECK_INTERVAL` | at once | Update check interval — How often github.com is asked which release of Zoomies is current. 0 never asks, and is the one request that is not about your fleet. Nothing is ever downloaded by it. |
-| `updates.mode` | `ZOOMIES_UPDATE_MODE` | at once | Release update mode — What this controller does about a newer release of Zoomies. `off` (default) says that one exists and nothing more. `manual` adds Update buttons for the controller and its hosts, and nothing moves without a click. `auto` takes the newest release once it has been public for `updates.soak`, and the hosts that have opted in then follow it, one at a time. In this release it only shows what the mode would take on Settings → Updates; it installs nothing yet. Only the `platform` role changes it, and an assistant connected over MCP cannot. A mode other than `off` beside `updates.check_interval: 0` raises the `updates.mode_without_check` warning, and `auto` raises the `updates.auto` notice so that unattended updating is never silent. |
-| `updates.soak` | `ZOOMIES_UPDATE_SOAK` | at once | Release update soak — How long a release must have been public before `auto` takes it, counted from when GitHub published it. A newer release restarts the wait, so one that is replaced quickly is never installed. `24h` is the default. `0` removes the wait, which under `auto` raises the `updates.auto_without_soak` warning. `manual` ignores it, because a person pressing the button is the soak. |
+| `updates.check_interval` | `ZOOMIES_UPDATE_CHECK_INTERVAL` | at once | Update check interval: How often github.com is asked which release of Zoomies is current. 0 never asks, and is the one request that is not about your fleet. Nothing is ever downloaded by it. |
+| `updates.mode` | `ZOOMIES_UPDATE_MODE` | at once | Release update mode: What this controller does about a newer release of Zoomies. `off` (default) says that one exists and nothing more. `manual` adds Update buttons for the controller and its hosts, and nothing moves without a click. `auto` takes the newest release once it has been public for `updates.soak`, and the hosts that have opted in then follow it, one at a time. In this release it only shows what the mode would take on Settings → Updates; it installs nothing yet. Only the `platform` role changes it, and an assistant connected over MCP cannot. A mode other than `off` beside `updates.check_interval: 0` raises the `updates.mode_without_check` warning, and `auto` raises the `updates.auto` notice so that unattended updating is never silent. |
+| `updates.soak` | `ZOOMIES_UPDATE_SOAK` | at once | Release update soak: How long a release must have been public before `auto` takes it, counted from when GitHub published it. A newer release restarts the wait, so one that is replaced quickly is never installed. `24h` is the default. `0` removes the wait, which under `auto` raises the `updates.auto_without_soak` warning. `manual` ignores it, because a person pressing the button is the soak. |
 
 ## The settings that matter most
 
@@ -753,7 +753,7 @@ identity. See [Private hosts](private-hosts.md).
 ### `server.bind`
 
 Defaults to loopback. If you change it to `0.0.0.0` and leave TLS off, you get a
-warning — which is correct behaviour if a reverse proxy terminates TLS, and a
+warning, which is correct behaviour if a reverse proxy terminates TLS, and a
 problem otherwise. When you do run behind a proxy, also set
 `server.trusted_proxies` so audit entries and login rate limiting see the real
 client address instead of your proxy's.
@@ -761,14 +761,14 @@ client address instead of your proxy's.
 It governs `X-Forwarded-Proto` as well as `X-Forwarded-For`. Without it the
 controller reads every request as plain `http`, whatever the header says,
 because nothing distinguishes your proxy from anyone else who can reach the
-listener — so it will not send `Strict-Transport-Security`, and an `https://`
+listener, so it will not send `Strict-Transport-Security`, and an `https://`
 `Origin` is same-origin only by way of `server.external_url`. Set both and
 neither applies.
 
 ### The setup token
 
 While the instance has no accounts, the controller prints a **setup token** at
-startup — on the banner and on a log line beginning `setup token` — and the
+startup (on the banner and on a log line beginning `setup token`) and the
 first-run page asks for it. It is what stops a controller you have just deployed
 from being claimed by whoever loads the page first; an empty database is not, by
 itself, proof that you are its owner.
@@ -796,11 +796,11 @@ something the controller keeps doing.
 | --- | --- |
 | `ZOOMIES_BOOTSTRAP_ADMIN` | The username of the first account. It holds the `platform` role, as the one the first-run page makes does. |
 | `ZOOMIES_BOOTSTRAP_PASSWORD_FILE` | A file holding that account's password, at least 12 characters. A trailing newline is ignored. |
-| `ZOOMIES_BOOTSTRAP_TOKEN_FILE` | A file holding an API token you generated — at least 32 characters, no whitespace, for example `openssl rand -hex 32`. The controller registers it as a `platform` API token named `bootstrap` for the account, and prints nothing: the secret is the one you already hold. The account has no password, so it is automation's identity and cannot sign in to the UI; create people their own accounts with it. |
+| `ZOOMIES_BOOTSTRAP_TOKEN_FILE` | A file holding an API token you generated, at least 32 characters, no whitespace, for example `openssl rand -hex 32`. The controller registers it as a `platform` API token named `bootstrap` for the account, and prints nothing: the secret is the one you already hold. The account has no password, so it is automation's identity and cannot sign in to the UI; create people their own accounts with it. |
 
 Set the username and exactly one of the two files; anything else is
 `bootstrap.incomplete` and the controller does not start. Each file must be
-mode 0600 or tighter — a file group or other can read is refused, as the
+mode 0600 or tighter; a file group or other can read is refused, as the
 encryption key file is. Docker's `secrets:` mounts files 0444 unless the long
 syntax sets `mode: 0400`.
 
@@ -820,8 +820,8 @@ search result is a way of being found that nobody asked for. The page itself
 carries `noindex, nofollow` to say the same thing to a crawler that arrived from
 a link without reading `robots.txt`.
 
-Turn it on and `robots.txt` invites crawlers to the UI's own pages — never
-`/api/`, `/metrics` or the webhook path — advertises the sitemap, and the page
+Turn it on and `robots.txt` invites crawlers to the UI's own pages (never
+`/api/`, `/metrics` or the webhook path) advertises the sitemap, and the page
 switches to `index, follow`. Zoomies warns at startup when it is on, because the
 sign-in page and this controller's address then become public knowledge.
 
@@ -834,8 +834,8 @@ addresses are gone by tomorrow.
 32 bytes, base64 or hex. Generate one with `openssl rand -base64 32`.
 
 Supply it through `ZOOMIES_ENCRYPTION_KEY` or a `0600` key file. Putting it in
-`zoomies.yaml` produces a warning, because anything that can read your config —
-backups, configuration management, a support bundle — can then decrypt every
+`zoomies.yaml` produces a warning, because anything that can read your config
+(backups, configuration management, a support bundle) can then decrypt every
 stored secret.
 
 Zoomies refuses to read a key file that is group- or world-readable.
@@ -843,21 +843,21 @@ Zoomies refuses to read a key file that is group- or world-readable.
 **Back it up, separately from the database.** Losing it means re-entering the
 GitHub App private key and webhook secret.
 
-### `github.api_base_url` — GitHub Enterprise Server
+### `github.api_base_url`: GitHub Enterprise Server
 
 ```yaml
 github:
   api_base_url: https://ghes.example.com/api/v3
 ```
 
-A bare hostname is accepted and `/api/v3` appended. Everything else — App auth,
-JIT configs, webhooks, runner groups — works the same.
+A bare hostname is accepted and `/api/v3` appended. Everything else (App auth,
+JIT configs, webhooks, runner groups) works the same.
 
 GitHub Enterprise Cloud with data residency (GHE.com) is laid out like
 github.com rather than like Enterprise Server: the API is the root of its own
-`api.` host, with no `/api/v3`. Give the tenant's address in any of its forms —
-`octocorp.ghe.com`, `https://octocorp.ghe.com` or
-`https://api.octocorp.ghe.com` — and Zoomies uses
+`api.` host, with no `/api/v3`. Give the tenant's address in any of its forms
+(`octocorp.ghe.com`, `https://octocorp.ghe.com` or
+`https://api.octocorp.ghe.com`) and Zoomies uses
 `https://api.octocorp.ghe.com/` for the API and `https://octocorp.ghe.com` for
 runner registration and the links it shows.
 
@@ -866,7 +866,7 @@ github:
   api_base_url: octocorp.ghe.com
 ```
 
-### `github.toolchain_scan_interval` — what each pool's jobs install
+### `github.toolchain_scan_interval`: what each pool's jobs install
 
 ```yaml
 github:
@@ -907,7 +907,7 @@ scan replaces, and a restart loses nothing a scan cannot rebuild.
 A finished scan also [fills the tool cache](#filling-the-tool-cache) of every
 pool that keeps one, with the versions it found that pool's jobs asking for.
 
-### `github.allow_workflow_cancellation` — cancel runs from Zoomies
+### `github.allow_workflow_cancellation`: cancel runs from Zoomies
 
 ```yaml
 github:
@@ -929,7 +929,7 @@ existing App, change the permission in GitHub and accept the permission update
 on every installation before using the action. Set the option to `false` if you
 prefer to keep Actions read-only and hide cancellation from Zoomies.
 
-### `github.runner_image` — the fallback runner image
+### `github.runner_image`: the fallback runner image
 
 ```yaml
 github:
@@ -950,8 +950,8 @@ Five images are published to GHCR:
 | `ghcr.io/eyupio/zoomies` | the controller |
 | `ghcr.io/eyupio/zoomies-agent` | an agent, for a host that runs one in a container |
 | `ghcr.io/eyupio/zoomies-runner` | the runner a pool starts |
-| `ghcr.io/eyupio/zoomies-runner-docker` | the same, plus a Docker CLI — a pool is switched to it when its `docker_mode` gives jobs a daemon, see [Jobs that build container images](#jobs-that-build-container-images) |
-| `ghcr.io/eyupio/zoomies-runner-full` | `zoomies-runner-docker` plus the language toolchains the `setup-*` actions would otherwise download, for the Ubuntu variants — a pool opts in by naming it, see [The full image](#the-full-image) |
+| `ghcr.io/eyupio/zoomies-runner-docker` | the same, plus a Docker CLI; a pool is switched to it when its `docker_mode` gives jobs a daemon, see [Jobs that build container images](#jobs-that-build-container-images) |
+| `ghcr.io/eyupio/zoomies-runner-full` | `zoomies-runner-docker` plus the language toolchains the `setup-*` actions would otherwise download, for the Ubuntu variants; a pool opts in by naming it, see [The full image](#the-full-image) |
 
 They share their tag names and release/development channels.
 
@@ -967,13 +967,13 @@ They share their tag names and release/development channels.
 
 An operator pulling `latest` gets a release, which is what it reads as. It used
 to mean the tip of `main`, and both workflows wrote it, so whichever ran last
-won — and a controller pulled from it could be an unreleased build stamped
+won, and a controller pulled from it could be an unreleased build stamped
 `main-sha-abc1234`. That is worse than a stale tag: an agent is installed from a
 release asset and no release carries a `main-` version, so such a controller
 cannot match any agent it enrols, and shows every host as a different build for
 as long as it runs. Run `dev` when you want `main`; it says so.
 
-A **prerelease** — a tag with a hyphen in it, `v0.1-alpha`, `v1.0-rc1` — is
+A **prerelease** (a tag with a hyphen in it, `v0.1-alpha`, `v1.0-rc1`) is
 published under its own tag and does not move `latest`. Name it to run it.
 
 **The runner images** use the same explicit channels:
@@ -1005,9 +1005,9 @@ fallback for pools without a platform. Leave these unset to follow the build.
 Existing saved `:latest` values are treated as explicit overrides; clear the
 pool image and remove any fallback setting to restore automatic selection.
 
-Both runner images are also published with one tag per operating system —
-`ubuntu-2404`, `ubuntu-2604`, `ubuntu-2204`, `debian-12`, `debian-13`,
-`fedora-42`, `rocky-9`, each built for amd64 and arm64 — plus `<os>-<version>-dev`, `<os>-<version>-main` and
+Both runner images are also published with one tag per operating system
+(`ubuntu-2404`, `ubuntu-2604`, `ubuntu-2204`, `debian-12`, `debian-13`,
+`fedora-42`, `rocky-9`, each built for amd64 and arm64) plus `<os>-<version>-dev`, `<os>-<version>-main` and
 `<os>-<version>-<tag>` for
 pinning one operating system without pinning the controller. `latest` is the
 `ubuntu-2404` variant. Set this key to a specific variant to change what an
@@ -1041,7 +1041,7 @@ action first does not fail.
 
 Deliberately absent: a JDK, and the other language runtimes with a good
 `setup-*` action. Those install the version the workflow asked for, where this
-image could only guess — at a cost of hundreds of megabytes of probably-wrong
+image could only guess, at a cost of hundreds of megabytes of probably-wrong
 version.
 
 A large image is no longer cold-start time. A pool's image is prewarmed on
@@ -1057,8 +1057,8 @@ only requires that it can run the entrypoint contract described in
 
 `setup-python`, `setup-node`, `setup-go` and the other setup actions unpack
 what they download into the runner's tool cache. Both images set
-`AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache` — the path GitHub's own runners
-use — and give that directory to the runner account. Left to its default, the
+`AGENT_TOOLSDIRECTORY=/opt/hostedtoolcache` (the path GitHub's own runners
+use) and give that directory to the runner account. Left to its default, the
 cache would sit under `_work/_tool` and go with the runner at the end of every
 job.
 
@@ -1093,7 +1093,7 @@ cache holds, and the newest patch there wins. `setup-dotnet` still asks the
 network which patch is current before it finds the SDK already installed, so
 .NET saves the download, not the round trip.
 
-It is published for the Ubuntu variants — 24.04, 26.04 and 22.04 — on both
+It is published for the Ubuntu variants (24.04, 26.04 and 22.04) on both
 architectures, under the same tags as `zoomies-runner`. The Python builds
 `setup-python` installs are made for Ubuntu and nothing else, and an image
 without them would be missing the toolchain most jobs ask for first. Point a
@@ -1114,7 +1114,7 @@ It is several gigabytes larger than `zoomies-runner`. That is disk on each host
 that runs the pool, not queue time: the image is prewarmed on those hosts before
 a job needs it, like any other pool image.
 
-### `updates.check_interval` — knowing the controller is behind
+### `updates.check_interval`: knowing the controller is behind
 
 ```yaml
 updates:
@@ -1132,7 +1132,7 @@ which is `off` until a person who runs the process changes it. The upgrade stays
 a decision you make.
 
 The notice appears **only on a controller built from a release tag**. One built
-from `main` — which is what the `:dev` and `:main` images are — is normally
+from `main` (which is what the `:dev` and `:main` images are) is normally
 *ahead* of the newest release, so telling it that a release is available would
 be telling it to downgrade. It says nothing rather than something wrong.
 
@@ -1140,10 +1140,10 @@ This is the one request Zoomies makes to github.com that is not about your
 fleet, and it goes there whatever `github.api_base_url` is set to, because the
 releases of this software live on github.com whichever GitHub your runners talk
 to. An air-gapped deployment, or a GitHub Enterprise Server one with no route
-out, wants `check_interval: 0` — which switches off the check and the notice
+out, wants `check_interval: 0`, which switches off the check and the notice
 together.
 
-### `updates.mode` — what is done about a newer release
+### `updates.mode`: what is done about a newer release
 
 ```yaml
 updates:
@@ -1209,12 +1209,12 @@ before the container first starts, the installer stores the external URL, bind
 address, TLS mode, trusted proxies, backend, capacity, work directory and log
 settings through `zoomies config import-env` in a one-off container of the same
 image, so the Settings page can change every one of them. The `.env` holds only
-what opens the database — a freshly generated encryption key, the database and
-state paths — and what Compose or `docker run` reads itself: the image tag, the
+what opens the database (a freshly generated encryption key, the database and
+state paths) and what Compose or `docker run` reads itself: the image tag, the
 published port and the host's real docker group id. An agent, which has no
 database, keeps its settings in its `.env`. Every variable carries a comment.
 The file is `0600`, written atomically, and a re-run **reuses the existing
-encryption key** rather than minting a new one — which would render every
+encryption key** rather than minting a new one, which would render every
 stored secret undecryptable. A deployment an older release wrote them into
 `.env` for has them moved by [`zoomies upgrade`](upgrading.md#settings-that-were-in-env).
 
@@ -1256,8 +1256,8 @@ than loud:
   Without them the origin sees Cloudflare's address on every connection, so
   the audit log records Cloudflare for every action and the login rate limiter
   throttles the whole internet as one client. With them, Zoomies takes the
-  address from `CF-Connecting-IP` — which Cloudflare sets and a client cannot
-  override — falling back to the right-most non-proxy entry of
+  address from `CF-Connecting-IP` (which Cloudflare sets and a client cannot
+  override) falling back to the right-most non-proxy entry of
   `X-Forwarded-For`. The ranges move when the binary does, and `zoomies init`
   offers a "Cloudflare in front" choice that writes the token for you.
 * **Only Cloudflare should be able to reach the origin.** Publishing port 80
@@ -1391,7 +1391,7 @@ writes, base64url-encoded. Empty means anonymous pulls, which is right for
 public images.
 
 Set it when a pool's image lives in a private registry. Without it such a pool
-cannot use `pull_policy: pinned-only` at all — the pull it needs is the one the
+cannot use `pull_policy: pinned-only` at all; the pull it needs is the one the
 registry refuses, and the runner never starts.
 
 It is a credential, so prefer `ZOOMIES_REGISTRY_AUTH` in the service's
@@ -1439,8 +1439,8 @@ host_selector: { gpu: "true" }
 ```
 
 A join token can carry labels too, and those win. Labels decide which pools'
-work a host is offered — and therefore which pools' runner registrations it is
-handed — so what the operator minting the token pinned is not something the
+work a host is offered (and therefore which pools' runner registrations it is
+handed) so what the operator minting the token pinned is not something the
 machine being enrolled can talk its way out of. Keys the token says nothing
 about are still the agent's to declare.
 
@@ -1459,11 +1459,11 @@ zoomies hosts delete host_xxxxxxxx
 zoomies agent join https://zoomies.example.com --token <join-token>
 ```
 
-A join token on its own is deliberately not enough — otherwise anyone trusted to
+A join token on its own is deliberately not enough, otherwise anyone trusted to
 enrol one machine could seize any other machine by naming itself after it.
 
 An empty selector matches any host, so once a specialised machine joins, give
-the general pools a selector of their own — otherwise they are eligible for the
+the general pools a selector of their own, otherwise they are eligible for the
 GPU box too. [Hosts and pools](hosts-and-pools.md) works that shape through.
 
 ### `agent.runner_sha256` and the process backend's download
@@ -1498,8 +1498,8 @@ workflow's `timeout-minutes` is for. A runner that never finished registering is
 ### `scheduler.provision_timeout`
 
 Fails a runner that has been starting up this long without registering. It
-covers `provisioning` and `registering` together — there is no second
-"registration timeout" — and the `runners.not_progressing` problem is raised at
+covers `provisioning` and `registering` together (there is no second
+"registration timeout") and the `runners.not_progressing` problem is raised at
 half of it, so the fleet says something while there is still time to look.
 
 It is the last of three bounds on a runner's start and the only one that gives
@@ -1508,14 +1508,14 @@ minutes to materialise a runner, because a first pull of a large image on a slow
 link is minutes rather than seconds, and a runner on a pool that provides Docker
 then waits up to `runners.docker_wait` for that daemon before it registers at
 all. Set inside those two, the scheduler condemns runners the rest of the system
-is patiently still making — and the pool replaces each one, which puts a second
+is patiently still making, and the pool replaces each one, which puts a second
 pull of the same image on the link that was slow to begin with. A cold fleet is
 where that bites, and a cold fleet is the one least able to absorb it. The
 validator warns when the number is inside them.
 
 The default of `20m` is not the cost of a broken runner. A create that actually
-fails — a missing image, a registry that refuses, a backend that will not
-start — is reported by the agent and fails the row the moment the report lands.
+fails (a missing image, a registry that refuses, a backend that will not
+start) is reported by the agent and fails the row the moment the report lands.
 This is the backstop for the create that is never reported at all, which is
 worth being patient about because nothing else will notice it.
 
@@ -1528,7 +1528,7 @@ that out. The queue those instructions live in is in memory on purpose, so a
 controller restart drops one that had already been issued. The row is left in
 draining, which is a state nothing else counts against: it holds its slot on the
 host, its pool sits one runner short, and both stay that way for as long as the
-controller runs. This bounds it — the runner is failed, so an operator sees it
+controller runs. This bounds it; the runner is failed, so an operator sees it
 and its slot is taken back.
 
 It does not touch a runner still finishing a job, however long that takes.
@@ -1543,15 +1543,15 @@ existed.
 
 Whether a runner whose pool leaves `cpus` or `memory_mb` unset is created with
 one slot's share of its host's allocatable machine as a cgroup limit on that
-field — the same share the scheduler already charges it. On by default.
+field; the same share the scheduler already charges it. On by default.
 
 The charge was always there; what was missing was the limit. A pool with no
 limits was charged a slot's worth of the host, so the books balanced, and its
 runners were created with no cgroup limit at all, so eight of them could each
 take every core while the books said everything fitted. That is how a host's
 Docker daemon stops answering, and it is what this setting prevents. The share
-is given only where it would bind — a container backend whose daemon has said
-it can apply the limit, on a host that has reported its size — and a pool's
+is given only where it would bind (a container backend whose daemon has said
+it can apply the limit, on a host that has reported its size) and a pool's
 own limits win on every field it set. Where a runner's limits came from is on
 its page as `allocation_source`, and an out-of-memory kill on a defaulted
 limit says so, with the two ways out. [Default
@@ -1590,12 +1590,12 @@ hosts' load.
 Whether a job this fleet broke is sent back to GitHub without anybody asking.
 **Off by default**, and the default is the recommendation for most
 deployments: the button on the job does the same thing when a person
-has looked at the failure and decided —
+has looked at the failure and decided,
 [whose failure was it?](troubleshooting.md#ci-is-flaky-is-it-or-is-it-us)
 has it.
 
-A runner that dies under a job — the host rebooted, the container was killed
-for its memory limit, the daemon stopped answering — fails that job in a way
+A runner that dies under a job (the host rebooted, the container was killed
+for its memory limit, the daemon stopped answering) fails that job in a way
 that is, on GitHub, indistinguishable from a test failure. The job did not
 fail on its merits, and the ordinary remedy is to run it again. With
 `auto_rerun` on, Zoomies asks as soon as GitHub reports the job over.
@@ -1605,8 +1605,8 @@ It is narrow on purpose:
 * **Only the fleet's own failures.** The same split the Jobs page shows: a job
   Zoomies has confessed to breaking. A test that failed is never re-run.
 * **Only while GitHub's attempt number is at or below `auto_rerun_limit`.**
-  That is what bounds a fault the fleet causes every time — a host out of
-  disk, an image that will not pull — rather than re-running the same job
+  That is what bounds a fault the fleet causes every time (a host out of
+  disk, an image that will not pull) rather than re-running the same job
   until somebody notices the bill. The count is GitHub's own run attempt, so
   a controller restart does not reset it, and a re-run an operator asked for
   by hand counts against it too.
@@ -1621,9 +1621,9 @@ Turning it on raises `scheduler.auto_rerun_on`, which is a warning rather than
 an error: it is not a weaker security posture, it is a standing permission to
 spend the installation's GitHub minutes. A job that got as far as running may
 also have had side effects outside GitHub that its author expected to happen
-once — a deployment, a published package — and Zoomies cannot know which.
+once (a deployment, a published package) and Zoomies cannot know which.
 
-### `runners.default_cpus` and `runners.default_memory_mb` — how big a runner is
+### `runners.default_cpus` and `runners.default_memory_mb`: how big a runner is
 
 ```yaml
 runners:
@@ -1648,8 +1648,8 @@ for. A pool the controller keeps for a [size class](auto-pools.md) is not named
 there: its runner on such a host is the class's.
 
 The distinction matters because the two behave differently as a fleet grows. A
-share follows the machine — 3.8 cores on a 16-core box with four slots, 7.6 on
-a 32-core one — so one pool is sized correctly on every host it reaches. A
+share follows the machine (3.8 cores on a 16-core box with four slots, 7.6 on
+a 32-core one) so one pool is sized correctly on every host it reaches. A
 figure typed here is the same everywhere, so it fits the host it was chosen for
 and strands the machine on the ones that joined later.
 
@@ -1663,11 +1663,11 @@ given nothing, and the controller says so (`pool.size_unlimited`).
 
 Two cores and four gigabytes suits most fleets, and a fleet of small boxes or
 of compilers is entitled to say otherwise once here rather than on every pool
-it creates. Changing them does not touch the pools that already exist — their
-figures are their own — and the recommended capacity on the Hosts page follows
+it creates. Changing them does not touch the pools that already exist, their
+figures are their own, and the recommended capacity on the Hosts page follows
 whichever is larger: what the enabled pools ask for, or this.
 
-### `runners.minimum_cpus` and `runners.minimum_memory_mb` — the least a runner will take
+### `runners.minimum_cpus` and `runners.minimum_memory_mb`: the least a runner will take
 
 ```yaml
 runners:
@@ -1682,12 +1682,12 @@ standard was chosen for. A pool that asks for 32 GB has nowhere to run on a
 30 GB host, and its jobs wait for a machine that is never coming. A **minimum**
 is the size the pool will still accept: when no host has room for the standard,
 the runner goes on the host that can spare the most, and is given as much of the
-standard as that host can spare — never less than the minimum. On the 30 GB host
+standard as that host can spare, never less than the minimum. On the 30 GB host
 above it gets 30 GB, not 24.
 
 An **automatic** pool has a standard too: one slot's share of whichever host a
-runner lands on. A host with a free slot but less than a whole share left —
-because other pools' runners hold more than a slot's worth of it — used to leave
+runner lands on. A host with a free slot but less than a whole share left
+(because other pools' runners hold more than a slot's worth of it) used to leave
 an automatic pool's job queued however much of the machine was idle. With a
 minimum, the runner takes what that host can spare instead, never less than the
 minimum; without one, an automatic pool still waits for a whole share, and the
@@ -1699,11 +1699,11 @@ profile](hosts-and-pools.md#runner-profiles-how-big-a-runner-is-on-one-host), an
 the larger of the two applies to each field on that host: the host's figure is a
 floor under the pool's, and this setting is only what a pool and a host that say
 nothing follow. A host never lowers a minimum, and never raises one past a size a
-pool states — that pool is not used on the host at all.
+pool states; that pool is not used on the host at all.
 
 The minimum is the least a runner is given, never the most. Where a host's slot
 share is larger, an automatic runner gets the whole share. Where the share is
-smaller — a 16 GB host cut into eight slots is 2 GB a runner — the runner is
+smaller (a 16 GB host cut into eight slots is 2 GB a runner) the runner is
 given the minimum instead, and charged it, so the host holds as many runners as
 its machine covers rather than as many as it has slots: four of a 4 GB minimum
 there, not eight thin ones and not none. A runner killed for want of memory on
@@ -1713,14 +1713,14 @@ minimum is per container, so its slot is raised to twice it and split.
 
 The standard still wins wherever it fits. A minimum never shrinks a runner the
 fleet could have given the full size to; it only turns "no host has room" into a
-job that runs. Such a runner is recorded as *reduced* — the Runners page says
+job that runs. Such a runner is recorded as *reduced* (the Runners page says
 what it was given against what its pool asks for, and its create's reason says
-why — and its host is charged what it was given, not the standard.
+why) and its host is charged what it was given, not the standard.
 
 A host a pool runs on only at its minimum counts as one of the pool's hosts
 everywhere a host is judged. The pool's room counts the runners the scheduler
-really places there — as many at the standard as fit, then one more given what
-is left if that covers the minimum — at the size they are given, so
+really places there (as many at the standard as fit, then one more given what
+is left if that covers the minimum) at the size they are given, so
 `pool.max_above_room` and `pool.host_overcommitted` do not warn about room the
 pool is using. `host.overprovisioned` judges a slot against the smallest
 minimum every pool that reaches the host accepts, rather than a core and 2 GB,
@@ -1728,7 +1728,7 @@ and a pool that cannot be placed is told which resource is short of its
 minimum, not of its standard.
 
 These two settings are the fleet's minimum, and every pool that has not set one
-of its own follows them — live. A pool's own minimum, set in the **Size** section of the pool editor or
+of its own follows them, live. A pool's own minimum, set in the **Size** section of the pool editor or
 as `resources.min_cpus` and `resources.min_memory_mb`, wins on the field it
 sets; where it is 0, the pool's minimum is the fleet's, so changing these
 settings moves every such pool on the next scheduling pass, with nothing
@@ -1736,14 +1736,14 @@ rewritten. The two fields are independent: a pool can set its own memory
 minimum and still take the fleet's CPU one.
 
 A fleet minimum at or above a fixed pool's own standard means nothing for that
-pool and is ignored there — a minimum is only a minimum below the size it is a
+pool and is ignored there; a minimum is only a minimum below the size it is a
 floor under. On an automatic pool it applies as it stands: below a host's slot
 share it is the floor a runner there can be reduced to, and above it, it is what
 each runner there is given.
 
 A pool's `0` therefore means *the fleet's*, not *none*. There is no per-pool
 "no minimum" while the fleet sets one: a pool that must never run below some
-size gives its own figure — its standard, if it should never be reduced at all.
+size gives its own figure; its standard, if it should never be reduced at all.
 Both settings default to 0, so a fleet that has never set them behaves exactly
 as it did before they existed. The pool's page shows the minimum in force and
 marks an inherited one *(fleet default)*; the API returns it as
@@ -1754,7 +1754,7 @@ MB.
 [How big a runner is](hosts-and-pools.md#how-big-a-runner-is-and-how-many-there-are)
 has what the pool editor does with them, and what it checks the answer against.
 
-### `agent.extra_ca_file` — behind a proxy that re-signs TLS
+### `agent.extra_ca_file`: behind a proxy that re-signs TLS
 
 ```yaml
 agent:
@@ -1764,7 +1764,7 @@ agent:
 A network whose proxy intercepts TLS presents its own certificate for every
 site, signed by the organisation's root CA. Until a runner trusts that CA,
 nothing in a job reaches GitHub, a registry or a package mirror. This names a
-PEM file on the agent's host holding that CA — it is a host setting, not a
+PEM file on the agent's host holding that CA; it is a host setting, not a
 pool one, because the proxy belongs to the network the host sits on.
 
 When it is set, the Docker and Podman backends mount the file read-only into
@@ -1772,8 +1772,8 @@ every runner, and the runner image's entrypoint adds it to the system trust
 store before the runner starts listening: `update-ca-certificates` on Ubuntu
 and Debian images, `update-ca-trust` on the DNF family, using the passwordless
 `sudo` the image already gives the runner user. That covers git, curl, OpenSSL
-and the package managers. The entrypoint also sets `NODE_EXTRA_CA_CERTS` — the
-runner and every JavaScript action are Node, which carries its own roots — and
+and the package managers. The entrypoint also sets `NODE_EXTRA_CA_CERTS` (the
+runner and every JavaScript action are Node, which carries its own roots) and
 points `REQUESTS_CA_BUNDLE` and `SSL_CERT_FILE` at the updated system bundle
 unless a pool already set them. A docker-in-docker sidecar, which is what
 pulls a dind job's images, gets the same mount and trusts it through
@@ -1792,12 +1792,12 @@ so add the CA there.
 
 The setting is about runners. The controller and agent processes themselves
 are Go, and reach GitHub through the proxy by trusting its CA the standard Go
-way — `SSL_CERT_FILE=/etc/zoomies/acme-root-ca.pem` replaces the system roots,
-`SSL_CERT_DIR` adds a directory to them — or simply through the host's trust
+way (`SSL_CERT_FILE=/etc/zoomies/acme-root-ca.pem` replaces the system roots,
+`SSL_CERT_DIR` adds a directory to them) or simply through the host's trust
 store, which Go reads by default. The runner image's settings are not needed
 for that and do not provide it.
 
-### `runners.docker_wait` and `runners.env` — what every runner starts with
+### `runners.docker_wait` and `runners.env`: what every runner starts with
 
 ```yaml
 runners:
@@ -1814,8 +1814,8 @@ Settings page is in the next runner without anything restarting. A pool's own
 what is different.
 
 A value can contain a comma, as `NO_PROXY` does. In YAML or JSON nothing needs
-escaping. Where the setting is written as one line of text — `ZOOMIES_RUNNER_ENV`,
-`zoomies config set`, and the row the database keeps — items are separated by
+escaping. Where the setting is written as one line of text (`ZOOMIES_RUNNER_ENV`,
+`zoomies config set`, and the row the database keeps) items are separated by
 commas, so write a comma inside a value as `\,` and a literal backslash as `\\`:
 `ZOOMIES_RUNNER_ENV="HTTPS_PROXY=http://proxy:3128,NO_PROXY=localhost\,.internal"`.
 The same rule applies to every other list or key=value setting, such as
@@ -1837,16 +1837,16 @@ image's default.
 
 Setting `ZOOMIES_DOCKER_WAIT` on the controller itself overrides
 `runners.docker_wait` the way any `ZOOMIES_*` variable overrides its setting,
-and a bare number there — `120`, not `120s` — is read as whole seconds rather
+and a bare number there (`120`, not `120s`) is read as whole seconds rather
 than refused: that spelling named the runner image's own wait for years
 before this setting existed, on a pool's `env` and often on the controller's
 too, and an upgrade should not stop over a value that already meant something.
 
-`runners.env` is for the variables every job on every pool needs — a proxy, a
+`runners.env` is for the variables every job on every pool needs; a proxy, a
 package mirror, a `GOFLAGS`. Every job can read them, so a credential does not
 belong there: a pool's `env` narrows the audience to that pool's jobs, and a
 GitHub secret narrows it to the workflow. The variables the controller writes
-for each runner individually — its name, labels, group and credentials — are
+for each runner individually (its name, labels, group and credentials) are
 refused (`runners.env_reserved`), because one value for the whole fleet is
 wrong for every runner in it. A pool's `env` is held to the same rule, and
 the pools API answers a `422` on `env` when one of those names is set or
@@ -1855,15 +1855,15 @@ its value cannot be changed.
 
 #### How a runner picks up a proxy
 
-A runner inherits `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` — in both
-spellings, since curl reads only the lowercase ones — from the agent that
+A runner inherits `HTTP_PROXY`, `HTTPS_PROXY` and `NO_PROXY` (in both
+spellings, since curl reads only the lowercase ones) from the agent that
 starts it. That holds on every backend: the bare-process runner, the Docker and
 Podman runner container, and a pool's docker-in-docker sidecar, whose daemon
 pulls the images a job's builds name and needs the proxy as much as the runner
 does. Nothing else from the agent's environment reaches a runner.
 
 A host that can reach GitHub only through a proxy has its agent configured with
-one already — it could not reach the controller or pull an image otherwise — so
+one already (it could not reach the controller or pull an image otherwise) so
 setting the proxy on the agent's service is usually all a proxied host needs.
 Where that is not what the runners should use, the more specific setting wins,
 variable by variable:
@@ -1882,7 +1882,7 @@ controller, and the docker-in-docker daemon is reached on `127.0.0.1`, which
 proxy-aware clients already go to direct. Add your own internal registries and
 package mirrors to it as you would for any other machine behind the proxy.
 
-### `images.refresh_interval` — keeping a moving tag current
+### `images.refresh_interval`: keeping a moving tag current
 
 ```yaml
 images:
@@ -1892,8 +1892,8 @@ images:
 Every pool's image is prepared on a host by *prewarming* it, and prewarming is
 otherwise triggered by exactly three things: creating a pool, editing one, and
 `POST /pools/{id}/prewarm`. None of those happen on their own, so a pool that
-names a tag which moves — and the default
-`ghcr.io/eyupio/zoomies-runner:dev` moves on every merge to `main` — would
+names a tag which moves (and the default
+`ghcr.io/eyupio/zoomies-runner:dev` moves on every merge to `main`) would
 reach a host once, at the first job it ever ran, and keep that image for as long
 as the host lived.
 
@@ -1912,7 +1912,7 @@ So the pairing that gets both a fast start and a current image is the default
 one: `if-not-present` on the pool, and an hourly refresh here.
 
 Runners that already exist are never touched, and neither is the image any of
-them was created from — a container keeps the image it started with until it is
+them was created from; a container keeps the image it started with until it is
 replaced. What changes is the image the *next* runner is created from.
 
 Set it to `0` to switch it off. That is the right answer for an air-gapped
@@ -1921,7 +1921,7 @@ startup rather than leaving you to wonder.
 
 ---
 
-### `provider.max_machines` — the ceiling on what the fleet may rent
+### `provider.max_machines`: the ceiling on what the fleet may rent
 
 ```yaml
 provider:
@@ -1936,7 +1936,7 @@ behind it is a bill.
 `max_machines` is the ceiling across every provider put together, and it is the
 one number to set in the same edit as `enabled`. Each provider row carries its
 own limit as well, but those bound one hypervisor each; this is what bounds a
-mistake — a provider configured twice, a demand signal that never settles, a
+mistake; a provider configured twice, a demand signal that never settles, a
 pool whose jobs nothing can run so the shortfall never closes.
 
 **Zero rents nothing**, exactly as a pool's `max_runners` of zero runs nothing,
@@ -1949,7 +1949,7 @@ invoice behind a value somebody can forget.
 at once. A burst of two hundred queued jobs should not become two hundred
 simultaneous clone requests, whatever the ceiling allows in total.
 
-### `provider.paused` — the kill switch
+### `provider.paused`: the kill switch
 
 ```yaml
 provider:
@@ -1964,11 +1964,11 @@ deletion too would leave VMs running with nothing tending them, which is the
 opposite of what somebody reaching for a kill switch wants.
 
 The same switch exists per provider, as a row, and that is the one the Hosts
-page presses — so one misbehaving hypervisor can be held without stopping the
+page presses, so one misbehaving hypervisor can be held without stopping the
 rest. This setting is the fleet-wide version, in the file, for the case where a
 restart should come back held.
 
-### `provider.delete_grace` — how long a quiet machine is left alone
+### `provider.delete_grace`: how long a quiet machine is left alone
 
 ```yaml
 provider:
@@ -1977,7 +1977,7 @@ provider:
 
 A machine's host is counted unhealthy after 90 seconds without a heartbeat and
 lost after five minutes. This is how much longer still a machine is left alone
-before the fleet treats it as gone, and it must comfortably outlast both — a
+before the fleet treats it as gone, and it must comfortably outlast both; a
 machine destroyed for a network blip takes the job it was running with it, and
 that job's owner sees a failure with no cause. The validator warns when it is
 set at or below the 90 seconds, which is the setting most likely to be tuned
@@ -1989,7 +1989,7 @@ and how long that emptiness must hold continuously before anything is deleted.
 Set the cooldown below one idle period and a fleet pays the creation cost again
 in every gap between two bursts.
 
-### `kennel.enabled` — what Kennel Club reads and what it spends
+### `kennel.enabled`: what Kennel Club reads and what it spends
 
 ```yaml
 kennel:
@@ -2011,7 +2011,7 @@ changed is free. A private repository costs no read beyond the repository
 listing Zoomies already makes.
 
 `refresh_interval` is how stale what it read may get. What your own fleet
-observed — which pool ran a job, which label nothing served — is not subject to
+observed (which pool ran a job, which label nothing served) is not subject to
 it: that is re-checked as the fleet changes, and costs GitHub nothing.
 
 `disabled_checks` turns off a check by its code, such as
@@ -2115,7 +2115,7 @@ alone cannot establish those properties.
 
 ## Pool settings
 
-Pools live in the database, not in the config file — they are created in the UI,
+Pools live in the database, not in the config file; they are created in the UI,
 the CLI or the API. These are their fields:
 
 | Field | Meaning |
@@ -2130,28 +2130,28 @@ the CLI or the API. These are their fields:
 | `platform` | The machine these runners need: `os` (a distribution, not a kernel), `os_version` and `arch`. It picks the runner image, and it keeps the pool off hosts running something else. Every field is optional; an empty one constrains nothing. See [Naming and platforms](naming.md). |
 | `runner_version` | Pin an `actions/runner` release instead of tracking the latest. |
 | `min_runners` | Kept warm even with nothing queued. `0` is usually right. |
-| `max_runners` | Hard ceiling. **Always set this** — it is your backstop against a runaway workflow. |
+| `max_runners` | Hard ceiling. **Always set this**; it is your backstop against a runaway workflow. |
 | `repository_scale_up_limit` | Best-effort limit on new capacity attributed to one repository; `0` disables it. This is a creation throttle, **not** a strict concurrency or isolation boundary: GitHub can assign any matching queued job to an existing compatible idle runner. Strict isolation requires repository-specific pools and corresponding repository-specific `runs-on` labels in workflows. |
 | `priority` | Higher-priority pools are given creation capacity first when the fleet cannot satisfy every pool at once. Pools at the same priority share it fairly. Under `scheduler.max_creates_per_tick`, a lower-priority pool whose oldest queued job has waited a full `scheduler.interval` is first given one create, so a busy top tier cannot starve it; the higher pool's scaling reason then says it was deferred for fairness across priorities. |
 | `idle_timeout` | How long an idle runner waits before being drained. |
 | `ephemeral` | One job per runner. Leave it on. |
-| `no_default_labels` | Off. On, runners register with only the pool's `labels` — no `self-hosted`, operating system or architecture — as `config.sh --no-default-labels` does, and a job asking for one of those no longer matches the pool unless it lists it. Only a non-ephemeral pool may set it: GitHub adds those labels to every just-in-time runner itself. See [Leaving out the default labels](hosts-and-pools.md#leaving-out-the-default-labels). |
-| `docker_mode` | `none`, `dind`, or `host-socket`. Anything but `none` switches a pool on the stock runner image to its Docker variant, under the same tag — see [below](#jobs-that-build-container-images) and [security.md](security.md). |
+| `no_default_labels` | Off. On, runners register with only the pool's `labels` (no `self-hosted`, operating system or architecture) as `config.sh --no-default-labels` does, and a job asking for one of those no longer matches the pool unless it lists it. Only a non-ephemeral pool may set it: GitHub adds those labels to every just-in-time runner itself. See [Leaving out the default labels](hosts-and-pools.md#leaving-out-the-default-labels). |
+| `docker_mode` | `none`, `dind`, or `host-socket`. Anything but `none` switches a pool on the stock runner image to its Docker variant, under the same tag, see [below](#jobs-that-build-container-images) and [security.md](security.md). |
 | `resources` | `cpus`, `memory_mb`, `disk_gb`, `pids_limit` per runner. Leaving `cpus` and `memory_mb` out is how a pool says “the host decides”: each runner is then given one slot's share of whichever machine it lands on, charged against that host and applied as a real cgroup limit. Set them for the same size on every host. `disk_gb` is advisory, enforced only where the backend can, and independent of that choice. |
 | `cpu_burst` | The elastic CPU policy: `mode` is `off`, `observe` (decide and publish metrics, move nothing) or `automatic` (lend the host's spare CPU to a busy runner above its guarantee), and `max_cpus` is the most one runner may be lent up to, with `0` meaning the host's allocatable CPU. Needs automatic sizing on `docker` or `podman`; a new pool that qualifies starts on `observe`, an existing one stays `off`. See [Elastic CPU zoomies](elastic-cpu.md). |
 | `memory_burst` | The [elastic memory](elastic-memory.md) policy: `mode` is `off`, `observe` (decide what would be lent and record it, change nothing) or `automatic` (raise a running container's memory limit out of memory the host has not promised to a runner), `max_memory_mb` is the most one runner may hold, its own share and what it is lent together, with `0` meaning half as much again as it starts with, and `spill_mb` is the swap each container may use as the last resort, with `0` allowing none. Needs the `docker` or `podman` backend; a new pool on one starts on `observe`, an existing one stays `off`. The only setting of a pool the controller keeps that is yours beyond its warm count, cap, pause and idle timeout. A host's `runner_profile.standard.burst_max_memory_mb` can lower the ceiling and never raise it. |
-| `runner_settings` | The fleet timings this pool overrides: `provision_timeout`, `drain_timeout`, `max_runner_lifetime`, `scale_up_delay` and `docker_wait`. Every field is optional and a pool follows the fleet on the ones it leaves alone — including after the fleet's own figure changes. Zero is an answer in each rather than an absence, so an absent field, an explicit `null` and `"0s"` are three different things. See [Runner settings a pool can override](hosts-and-pools.md#runner-settings-a-pool-can-override). |
-| `tmpfs` | Keeps the runner's `work` folder, and `tmp` if asked, in memory instead of on the host's disk. Off for every pool. Each is `{enabled, size_mb}`; `size_mb: 0` fits the folder to the memory limit. `daemon` is a Docker-in-Docker pool's image store. A tmpfs is charged to that limit, so it is proposed raised rather than raised for you — see [Keeping the work folder in memory](hosts-and-pools.md#keeping-the-work-folder-in-memory). Docker and Podman only. |
-| `cache` | A disposable accelerator directory mounted at `/opt/zoomies-cache`, scoped `pool` or `repository`, with an enforced `size_limit`. It is not workflow storage and may be evicted — see [below](#the-pool-cache). |
+| `runner_settings` | The fleet timings this pool overrides: `provision_timeout`, `drain_timeout`, `max_runner_lifetime`, `scale_up_delay` and `docker_wait`. Every field is optional and a pool follows the fleet on the ones it leaves alone, including after the fleet's own figure changes. Zero is an answer in each rather than an absence, so an absent field, an explicit `null` and `"0s"` are three different things. See [Runner settings a pool can override](hosts-and-pools.md#runner-settings-a-pool-can-override). |
+| `tmpfs` | Keeps the runner's `work` folder, and `tmp` if asked, in memory instead of on the host's disk. Off for every pool. Each is `{enabled, size_mb}`; `size_mb: 0` fits the folder to the memory limit. `daemon` is a Docker-in-Docker pool's image store. A tmpfs is charged to that limit, so it is proposed raised rather than raised for you, see [Keeping the work folder in memory](hosts-and-pools.md#keeping-the-work-folder-in-memory). Docker and Podman only. |
+| `cache` | A disposable accelerator directory mounted at `/opt/zoomies-cache`, scoped `pool` or `repository`, with an enforced `size_limit`. It is not workflow storage and may be evicted, see [below](#the-pool-cache). |
 | `cost_per_runner_hour` | An optional rate you supply, used only to estimate what the fleet costs. Zoomies never embeds prices of its own. |
 | `host_selector` | Restricts the pool to matching hosts. |
-| `env` | Injected into every runner. A proxy variable here wins over the one the runner would otherwise inherit from its agent — see [How a runner picks up a proxy](#how-a-runner-picks-up-a-proxy). |
+| `env` | Injected into every runner. A proxy variable here wins over the one the runner would otherwise inherit from its agent, see [How a runner picks up a proxy](#how-a-runner-picks-up-a-proxy). |
 | `run_as_root` | Off. Turning it on is warned about. |
 | `enabled` | A disabled pool drains to zero and creates nothing. |
 
 ### The labels to give a pool
 
-Give it one branded label of its own — `zoomies-linux-x64`, `zoomies-gpu` — and
+Give it one branded label of its own (`zoomies-linux-x64`, `zoomies-gpu`) and
 let a workflow write that alone:
 
 ```yaml
@@ -2161,7 +2161,7 @@ runs-on: zoomies-linux-x64
 One label is enough to reach a pool. Branding it means a reviewer of the pull
 request that introduces it can tell the job has left GitHub's runners, which
 `runs-on: [self-hosted, linux, x64]` does not say. Zoomies also adds `zoomies` to
-every pool, so `runs-on: zoomies` means "anywhere in this fleet" — useful for a
+every pool, so `runs-on: zoomies` means "anywhere in this fleet", useful for a
 repository nobody has assigned a pool to yet.
 
 Runners are named for the brand too, and for their pool's shape:
@@ -2173,7 +2173,7 @@ runner list and in every job's log header. See
 
 `cache` mounts a directory at `/opt/zoomies-cache` inside every runner the pool
 creates, and keeps it between runners. It exists to stop an ephemeral fleet
-paying for the same download twice — a package or layer cache, a toolchain, a
+paying for the same download twice; a package or layer cache, a toolchain, a
 warm module directory.
 
 It is **not** workflow storage. Nothing guarantees a hit, an operator may empty
@@ -2197,8 +2197,8 @@ which is what to use when the pool serves repositories that should not.
 
 A repository cache needs to know which repository it is for. An installation
 scoped to a single repository says so by itself and `repository` stays empty.
-An installation scoped to a whole organisation — one App over one shared fleet,
-which is the usual deployment — does not, so name it there as `owner/name`
+An installation scoped to a whole organisation (one App over one shared fleet,
+which is the usual deployment) does not, so name it there as `owner/name`
 under that organisation. Without this a shared fleet would need a separate
 installation per repository to give each one a cache.
 
@@ -2209,7 +2209,7 @@ So a repository cache under an organisation installation is only as private as
 the pool's labels: give such a pool a branded label that only that repository's
 workflows use, and keep it that way. Zoomies warns about the combination on the
 pool's page and in the problems panel, because the cache's privacy rests on
-something it cannot see — see [security.md](security.md#6-the-dangerous-toggles).
+something it cannot see, see [security.md](security.md#6-the-dangerous-toggles).
 
 `source` is left empty for a daemon-managed volume, which is the easy answer. An
 absolute path puts the cache on a disk you chose; anything else is treated as a
@@ -2220,7 +2220,7 @@ give, so two pools never collide, and refuses a source containing `..`.
 are removed, least recently modified first, until the cache is back under the
 limit. Deleting from a cache is only safe while nothing is reading it, so a
 runner that starts to find another runner still using the same cache leaves it
-alone and the next start tries again — on a pool with `max_runners` above one,
+alone and the next start tries again, on a pool with `max_runners` above one,
 that is most starts, and the eviction happens at the one that finds it idle.
 This bounds how far the cache drifts over the limit from one job to the next.
 It is not a filesystem quota: a single job can still fill the disk before the
@@ -2229,7 +2229,7 @@ next runner starts, and if that matters, give the cache its own filesystem.
 Only a directory can be measured, so a non-zero `size_limit` requires `source`
 to be an absolute host path. On a named volume the bytes are the daemon's, on a
 filesystem the agent may not even share, and a limit there would be a number in
-a form that controlled nothing — so it is refused rather than accepted.
+a form that controlled nothing, so it is refused rather than accepted.
 
 #### Using the pool cache from a workflow
 
@@ -2245,8 +2245,8 @@ across hosts, use its [registry cache recipe](persistent-caches.md#dind-and-buil
 `cache.tools` keeps the pool's tool cache between runners as well: what
 `setup-python`, `setup-node`, `setup-go` and `setup-java` download, so the first
 job to ask for a version downloads it and the rest find it there. It is a
-setting of the pool, stored with it — the **Keep a tool cache as well** box
-under the cache in the pool editor's **Speed-ups** section — and not an environment variable to
+setting of the pool, stored with it (the **Keep a tool cache as well** box
+under the cache in the pool editor's **Speed-ups** section) and not an environment variable to
 remember.
 
 ```yaml
@@ -2257,8 +2257,8 @@ cache:
 ```
 
 It is kept in each host's [shared folder](#the-shared-folder), under
-`cache/tools`, in a folder named for the pool — and the repository, for a
-repository-scoped cache — so it is shared with exactly the runners the pool
+`cache/tools`, in a folder named for the pool (and the repository, for a
+repository-scoped cache) so it is shared with exactly the runners the pool
 cache is. It is mounted read-only at `/opt/zoomies-tools-shared`, and each
 runner is pointed at a folder of its own, `/opt/zoomies-tools`, holding a link
 to every version in the kept cache whose install finished. That is its own
@@ -2293,8 +2293,8 @@ arrive: the twelve asked for by the most jobs, if there are more.
 
 The fill runs in a short-lived container of the pool's own image, as its runner
 user, with only the tool cache mounted, one pool at a time per host, and never
-in a runner's slot. It resolves each version the way the setup action would —
-the newest stable release that matches — from the source that action reads,
+in a runner's slot. It resolves each version the way the setup action would
+(the newest stable release that matches) from the source that action reads,
 checks the download against the checksum its publisher lists (Node.js, Go and
 Temurin do; the Python manifest lists none, and `setup-python` checks none
 either), and lays it out where the action looks first:
@@ -2305,7 +2305,7 @@ either), and lays it out where the action looks first:
 | Node.js | nodejs.org's release index | plain versions, `lts/*` and `lts/<name>` |
 | Go | go.dev's release list | plain versions and `stable` |
 | Java | Adoptium's API | the `temurin` distribution only |
-| .NET | — | never: `setup-dotnet` installs outside the tool cache |
+| .NET | - | never: `setup-dotnet` installs outside the tool cache |
 
 A version already there is left alone. A range such as `>=3.10`, a version read
 from a file, and a distribution the fill does not serve are listed as skipped
@@ -2334,7 +2334,7 @@ purpose:
 
 The agent creates any of these that are missing each time it starts, which is
 how a later release adds a folder: it needs the shared folder to be writable by
-the account Zoomies runs as — `zoomies` for a native install, uid 65532 in the
+the account Zoomies runs as, `zoomies` for a native install, uid 65532 in the
 container images. The installer creates it that way.
 
 A container deployment mounts the host's `/var/lib/zoomies/shared` at the same
@@ -2349,17 +2349,17 @@ For a Compose file you maintain by hand, create it before starting:
 sudo mkdir -p /var/lib/zoomies/shared && sudo chown 65532:65532 /var/lib/zoomies/shared
 ```
 
-A cache folder Zoomies creates for a runner is writable by every account — the
-runner is uid 1001 in the stock images, and something else in your own — while
+A cache folder Zoomies creates for a runner is writable by every account (the
+runner is uid 1001 in the stock images, and something else in your own) while
 the folders above it keep everyone else out. One that is already there is left
 as you made it.
 
 ### Jobs that build container images
 
-A job that runs `docker`, `docker buildx` or `docker compose` — which includes
+A job that runs `docker`, `docker buildx` or `docker compose` (which includes
 `docker/setup-qemu-action`, `docker/setup-buildx-action` and
 `docker/build-push-action`, and any job with a `container:` or a `services:`
-block — needs a Docker daemon, and its pool decides whether it gets one. Set the
+block) needs a Docker daemon, and its pool decides whether it gets one. Set the
 pool's `docker_mode` to `dind` or `host-socket`; the default, `none`, gives the
 job no daemon at all, and its first Docker step fails. Both alternatives weaken
 the pool's isolation and both are warned about at startup;
@@ -2367,9 +2367,9 @@ the pool's isolation and both are warned about at startup;
 `dind` is the one to prefer.
 
 That is the one setting. A daemon is worth nothing to a job whose image has no
-client to reach it with, and the stock runner image deliberately carries none —
-most pools never build an image, and a client on every runner is cold-start
-time spent for nothing — so a pool that asks for a daemon while on
+client to reach it with, and the stock runner image deliberately carries none
+(most pools never build an image, and a client on every runner is cold-start
+time spent for nothing) so a pool that asks for a daemon while on
 `ghcr.io/eyupio/zoomies-runner` is switched to
 `ghcr.io/eyupio/zoomies-runner-docker` under the same tag as it is saved. That
 covers every tag this build publishes: the channels (`latest`, `dev`, `main`, or
@@ -2385,19 +2385,19 @@ jobs to runners that cannot run them. The switch is not reversed when the
 daemon goes away again: the variant runs everything the stock image does.
 
 Three kinds of image are left exactly as you set them. A tag this build does
-not hand out — a commit pin (`sha-<commit>`), or a release older than the
-controller running it — promises nothing about the variant: a run whose second
+not hand out, a commit pin (`sha-<commit>`), or a release older than the
+controller running it, promises nothing about the variant: a run whose second
 build did not finish published the stock image and not its Docker one, and the
 first prerelease predates the variant altogether. Moving a pool onto a tag the
 registry may not have would stop every job on it, not only the Docker ones. A
 digest reference (`…@sha256:…`) names one exact image and cannot be moved to
-another. An image of your own — a mirror of the stock image under another
-registry included — is yours to equip, and only has to put `docker` on the
+another. An image of your own (a mirror of the stock image under another
+registry included) is yours to equip, and only has to put `docker` on the
 runner's `PATH`.
 
 A pool left on either of the first two is not left to find out: it raises
 [`pool.docker_client_missing`](problem-codes.md), on its own page and in the
-problems drawer, naming the reference to pin instead —
+problems drawer, naming the reference to pin instead,
 `ghcr.io/eyupio/zoomies-runner-docker:sha-<commit>`, or a digest of the variant.
 A runner that starts with a daemon it has no client for also says so in its own
 log, at the top, before any job runs; the job itself fails at its first Docker
@@ -2410,7 +2410,7 @@ Error: Unable to locate executable file: docker.
 which names the missing binary and not the reason.
 
 `ghcr.io/eyupio/zoomies-runner-docker` is the stock runner image plus
-`docker-ce-cli`, `docker-buildx-plugin` and `docker-compose-plugin` — the client
+`docker-ce-cli`, `docker-buildx-plugin` and `docker-compose-plugin`; the client
 only. It never runs a daemon of its own; that is what `docker_mode` is for.
 
 Whichever image a pool runs is pulled under its `pull_policy`, and the default,
@@ -2420,8 +2420,8 @@ for as long as its hosts lived, which is what
 [`images.refresh_interval`](#imagesrefresh_interval-keeping-a-moving-tag-current)
 exists to prevent: the image is prewarmed again on a timer, in the background,
 so the tag moves without a registry round trip in front of any job. Setting
-`pull_policy: always` puts that round trip back on every runner created — with
-the layers still cached, so the cost is a manifest check and not a download —
+`pull_policy: always` puts that round trip back on every runner created (with
+the layers still cached, so the cost is a manifest check and not a download)
 and is only worth it when an hour is too long to wait.
 
 On a `host-socket` pool Zoomies also adds the group that owns the host's
@@ -2431,8 +2431,8 @@ and a socket it cannot open is the same failure with a different message.
 ### How a job finds a pool
 
 1. The job's `runs-on` labels are normalised.
-2. Labels every runner advertises anyway — `self-hosted`, `linux`, `windows`,
-   `macos`, `x64`, `arm`, `arm64` — do not constrain the choice, except that a
+2. Labels every runner advertises anyway (`self-hosted`, `linux`, `windows`,
+   `macos`, `x64`, `arm`, `arm64`) do not constrain the choice, except that a
    pool declaring a *contradicting* os/arch label is excluded.
 3. A pool matches when it provides every remaining label the job asked for.
 4. Among matching pools, the most specific wins (fewest surplus labels), with a

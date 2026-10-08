@@ -102,7 +102,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
     label: 'Runner failures',
     group: 'The fleet at work',
     description:
-      'A runner that stopped unexpectedly, with what to do about it. Ordinary lifecycle — provisioning, idle, busy, gone — stays on the Runners page.',
+      'A runner that stopped unexpectedly, with what to do about it. Ordinary lifecycle, provisioning, idle, busy, gone, stays on the Runners page.',
     icon: TriangleAlert,
     on: true,
     history: true,
@@ -112,7 +112,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
     label: 'Runners coming and going',
     group: 'The fleet at work',
     description:
-      'A runner that registered and is ready for work, and one removed when its work was done — the ordinary, successful half of the life the failures above are the exception to. One or two lines per runner, so a fleet of ephemeral runners writes a couple per job.',
+      'A runner that registered and is ready for work, and one removed when its work was done, the ordinary, successful half of the life the failures above are the exception to. One or two lines per runner, so a fleet of ephemeral runners writes a couple per job.',
     icon: Circle,
     on: true,
     history: false,
@@ -142,7 +142,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
     label: 'Jobs that finished',
     group: 'Jobs',
     description:
-      'Every other job GitHub reports over, with how it ended, where it came from and how long it took. The busiest category on a fleet that finishes a job a minute — switch it off and the failures above stay.',
+      'Every other job GitHub reports over, with how it ended, where it came from and how long it took. The busiest category on a fleet that finishes a job a minute, switch it off and the failures above stay.',
     icon: CircleCheck,
     on: true,
     history: true,
@@ -171,7 +171,7 @@ export const FEED_CATEGORIES: readonly FeedCategory[] = [
     id: 'pools',
     label: 'Pool changes',
     group: 'Infrastructure',
-    description: 'A pool created, changed or deleted — the fleet’s shape, rather than its weather.',
+    description: 'A pool created, changed or deleted, the fleet’s shape, rather than its weather.',
     icon: Boxes,
     on: true,
     history: false,

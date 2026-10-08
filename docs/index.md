@@ -3,7 +3,7 @@ icon: material/home
 # The header shows the page's title once the headline has scrolled out of view,
 # and the headline is too long for it: on a phone it read "Give your GitHub Ac…".
 title: Zoomies
-social_title: Zoomies — open-source self-hosted GitHub Actions runners
+social_title: "Zoomies: open-source self-hosted GitHub Actions runners"
 description: >-
   Free, open-source self-hosted GitHub Actions runners: a fresh ephemeral runner
   per job, autoscaling across cloud and home-lab hosts over Tailcat tunnels.
@@ -33,7 +33,7 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 
 <p class="actions" markdown>
 [Get started :material-arrow-right:](quickstart.md){ .md-button .md-button--primary }
-[Try the demo — no GitHub needed](quickstart.md#just-looking){ .md-button }
+[Try the demo; no GitHub needed](quickstart.md#just-looking){ .md-button }
 </p>
 
 <p class="prereq">Runs on Linux, with Docker or Podman. Needs a GitHub organisation or repository you own.</p>
@@ -45,7 +45,7 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 ![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and a feed of the fleet's recent events](screenshots/overview-dark.webp#only-dark){ .zoomies-shot }
 ![The Overview: the activity matrix across the top, then four metric tiles with an hour of sparkline behind each, runner startup and registration times, a one-line problems summary, per-pool utilisation bars and a feed of the fleet's recent events](screenshots/overview-light.webp#only-light){ .zoomies-shot }
 
-The Overview, on a fleet part-way through a morning — every number live, and
+The Overview, on a fleet part-way through a morning; every number live, and
 nothing to press to keep it that way. [See all twelve pages, in both
 themes](ui.md).
 { .zoomies-shot-caption }
@@ -93,7 +93,7 @@ flowchart LR
 
 ### A live web UI
 Thirteen pages, one job each, and every one of them updates in place from the
-controller's event stream — you never have to press refresh, though there is a
+controller's event stream; you never have to press refresh, though there is a
 button where you want to be sure. Light and dark, a command palette, and a log
 viewer built for a hundred thousand lines.
 [See every page](ui.md).
@@ -104,7 +104,7 @@ viewer built for a hundred thousand lines.
 
 ### Elastic CPU zoomies
 Every runner keeps its guaranteed share of its host, and a busy one is lent
-the CPU nobody else is using — with the next queued job's room held back and
+the CPU nobody else is using, with the next queued job's room held back and
 the host's reserve untouched. A compile that would run in under two cores gets
 four, and gives them back the moment they are wanted.
 [How it works](elastic-cpu.md).
@@ -115,7 +115,7 @@ four, and gives them back the moment they are wanted.
 
 ### Elastic memory
 A job that is about to be killed for its memory limit is given more, out of
-memory no other runner on its host was promised — raised, never lowered, with
+memory no other runner on its host was promised, raised, never lowered, with
 swap as the last resort and the host's floor left alone. The kill that used to
 fail a build becomes a build that finished.
 [How it works](elastic-memory.md).
@@ -143,7 +143,7 @@ itself. There is no long-lived token sitting in a dotfile beside a runner.
 :material-webhook:{ .icon }
 
 ### Event-driven
-`workflow_job` webhooks, with polling only as a fallback — so a misconfigured
+`workflow_job` webhooks, with polling only as a fallback, so a misconfigured
 webhook slows your fleet down instead of silently stopping it.
 </div>
 
@@ -151,7 +151,7 @@ webhook slows your fleet down instead of silently stopping it.
 :material-server-network-outline:{ .icon }
 
 ### Multi-host, multi-OS
-One controller, any number of agents, each connecting outbound only — a host
+One controller, any number of agents, each connecting outbound only; a host
 behind NAT needs no inbound firewall rule. Runner images for Ubuntu, Debian,
 Fedora and Rocky Linux, and a pool names the machine it needs.
 [Which images](naming.md#the-runner-image).
@@ -169,7 +169,7 @@ history with queue waits, and an audit row for every mutating action.
 :material-backup-restore:{ .icon }
 
 ### Backed up by itself
-A consistent copy of the database nightly, kept to a ceiling — and sent on to
+A consistent copy of the database nightly, kept to a ceiling, and sent on to
 the S3-compatible destinations you name, sealed with that destination's
 passphrase before it leaves the host. A bucket that was unreachable is caught up
 with every backup it missed rather than quietly skipping them.
@@ -182,7 +182,7 @@ with every backup it missed rather than quietly skipping them.
 ### Safe defaults
 Loopback bind, authentication on, no Docker socket in your jobs, no root. Every
 deviation is named at startup and in the UI's problems drawer. A self-hosted
-runner still runs your repositories' code — [what this protects, and what it
+runner still runs your repositories' code, [what this protects, and what it
 does not](security.md).
 </div>
 
@@ -191,7 +191,7 @@ does not](security.md).
 
 ### One pull request per repository
 The migration wizard rewrites `runs-on` across your repositories and opens a
-pull request on each one — after showing you the exact diff, and only for the
+pull request on each one, after showing you the exact diff, and only for the
 jobs it is sure about. It never pushes to your default branch and never merges
 anything. [How it works](migration.md).
 </div>
@@ -202,9 +202,9 @@ anything. [How it works](migration.md).
 
 The installer detects your OS, architecture, container runtime and init system,
 then walks you through the rest: service user, encryption key, backend, TLS, the
-GitHub App — created for you through the manifest flow with exactly the
+GitHub App (created for you through the manifest flow with exactly the
 permissions Zoomies needs, and no write access to your code unless you say you
-want the migration wizard — and your first account.
+want the migration wizard) and your first account.
 
 <div class="zoomies-install" markdown>
 
@@ -215,17 +215,17 @@ curl -fsSL https://zoomies.sh/install.sh | sh
 </div>
 
 Piping a script into a shell deserves a second look, and this one is written to
-survive one — [download it, read it, then run it](quickstart.md#1-install).
+survive one, [download it, read it, then run it](quickstart.md#1-install).
 
-It can deploy three ways — the binary under systemd, a `docker compose` stack
-with a fully populated `.env`, or a single container — and it will only offer
+It can deploy three ways (the binary under systemd, a `docker compose` stack
+with a fully populated `.env`, or a single container) and it will only offer
 the ones your host can actually run. See the [quick start](quickstart.md).
 
 ## Run it from the browser. Reach it from anywhere.
 
 The web UI is the way a Zoomies fleet is configured and operated: connect
 GitHub, create a pool, add a host, watch a job, size a runner, turn on elastic
-CPU — every one of those is a page or a wizard, live as it happens, and the
+CPU; every one of those is a page or a wizard, live as it happens, and the
 documentation describes each task from there first. Nothing on those pages is
 special: they are clients of the REST API, and so is everything else.
 
@@ -245,14 +245,14 @@ Two different journeys, and Zoomies answers them differently on purpose.
 the workflows across the repositories your App can see, maps each hosted label
 to one of your pools, and shows you the exact diff before it writes anything.
 Approve it and you get one pull request per repository, each on its own branch.
-It changes the `runs-on` lines and nothing else — comments, indentation,
+It changes the `runs-on` lines and nothing else, comments, indentation,
 quoting and line endings all survive byte for byte, because a pull request that
 reformats the file hides the one line that actually changed. It never pushes to
 your default branch, never merges, and never opens more than twenty-five at a
 time.
 
 **Already running your own static runners?** Then you do not need the wizard,
-and it will deliberately leave those jobs alone — somebody already made that
+and it will deliberately leave those jobs alone, somebody already made that
 decision and guessing at it would be rude. Give a Zoomies pool the label your
 existing runners already advertise, and **not a line of any workflow changes**:
 the same `runs-on` now reaches a fleet that gives every job a fresh runner.
@@ -273,13 +273,13 @@ promising a platform it has never run on.
 | --- | --- |
 | **The controller and the agents** | Linux on x86-64 and arm64; the agent also on Windows x86-64, where a runner is a process rather than a container. macOS builds every release and is fine for running a controller while you develop against it. |
 | **The runners** | Ubuntu 24.04, Ubuntu 26.04, Ubuntu 22.04, Debian 12, Debian 13, Fedora 42 and Rocky Linux 9, from `ghcr.io/eyupio/zoomies-runner`. Every image is built for x86-64 and arm64. [The catalogue](naming.md#the-runner-image) is generated from one table in the code, and a test holds this page to it, so neither can drift from what is published. |
-| **The backends** | `docker` — the default — `podman`, including rootless, and `process`, which runs the runner straight on the host without a container. |
+| **The backends** | `docker`, the default, `podman`, including rootless, and `process`, which runs the runner straight on the host without a container. |
 
 A pool names the machine its runners need, and the scheduler will not place it
 anywhere else; when no host matches, the Overview says which machine to add.
-A Windows host runs the agent on the `process` backend — no container, a fresh
+A Windows host runs the agent on the `process` backend, no container, a fresh
 work directory per job on a machine that keeps its state
-([the details](hosts-and-pools.md#worked-shapes)) — and there is no macOS
+([the details](hosts-and-pools.md#worked-shapes)), and there is no macOS
 runner image.
 
 ## What is qualified
@@ -291,8 +291,8 @@ before you put anything precious on this. Today, in short: the controller, the
 agents, a join, and a queued job becoming a real workload on a real machine are
 exercised on every pull request, on the `process` backend against a fake GitHub,
 on amd64 and on arm64; the Docker backend is unit-tested against a fake Engine
-API, and while no *test* here starts a container, this repository's own CI does
-— every job but the arm64 and Windows legs runs on a Zoomies fleet, inside a
+API, and while no *test* here starts a container, this repository's own CI does;
+every job but the arm64 and Windows legs runs on a Zoomies fleet, inside a
 container the Docker backend started, through the build under test, and
 [a test](https://github.com/eyupio/zoomies/blob/main/internal/docs/workflows_test.go)
 fails if a job leaves the fleet; and the Windows agent is built, vetted and
@@ -307,7 +307,7 @@ the thing that backs it.
 
 Zoomies is what you want when
 [ARC](https://github.com/actions/actions-runner-controller) is too much
-machinery — you have a VM or three, not a cluster — but a handful of
+machinery (you have a VM or three, not a cluster) but a handful of
 hand-registered long-lived runners is too little.
 
 <div class="zoomies-compare" markdown>
@@ -363,7 +363,7 @@ been run and which have only been built.
 One command installs it, and the quick start takes you from a fresh host to a
 running job in five steps. It is free, it is yours, and you can read every line
 of it. Still deciding? The FAQ answers what people ask before they
-self-host runners — what it costs, what it needs, and what it will not protect
+self-host runners, what it costs, what it needs, and what it will not protect
 you from.
 </p>
 

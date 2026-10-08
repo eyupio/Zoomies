@@ -44,7 +44,7 @@ zoomies hosts join-token create --ttl 1h --capacity 8 --labels arch=arm64
 ```
 
 It prints the command to run on the new host, the token, and when it expires.
-The token is shown once — only its hash is stored — and it may be redeemed once.
+The token is shown once, only its hash is stored, and it may be redeemed once.
 
 On the new machine, either install and join in one line:
 
@@ -64,10 +64,10 @@ zoomies agent join https://zoomies.example.com --token zoojoin_... \
 
 `join` redeems the token, writes the credentials, and installs the service that
 keeps the host enrolled; `--no-service` joins without one. On a systemd host
-the service needs root, so run the shorter form with `sudo` — without it the
+the service needs root, so run the shorter form with `sudo`, without it the
 command stops before the token is redeemed, rather than spending a single-use
 token and then failing at the unit file. A private controller
-takes `--ca-file` — prefer it over `--insecure`, which trusts anything on the
+takes `--ca-file`, prefer it over `--insecure`, which trusts anything on the
 path.
 
 The agent connects outbound only, both to long-poll for tasks and to post
@@ -136,7 +136,7 @@ That is a preference rather than a requirement, and
 [Version skew](upgrading.md#version-skew) is where the rules live: an agent may
 lag its controller by releases while the protocol version matches, which is the
 normal state during a rolling upgrade. The direction to avoid is a **newer agent
-against an older controller** — upgrade the controller first.
+against an older controller**, upgrade the controller first.
 
 What an older agent costs is description rather than placement. A host on a
 build from before agents measured themselves reports no CPUs, memory or disk at
@@ -151,16 +151,16 @@ The disk figure on a host's card is the filesystem holding the work directory, t
 
 | What | Where it comes from | Why it matters |
 | --- | --- | --- |
-| Capacity | `agent.capacity`, `--capacity`, or half the CPU count | A hard ceiling the scheduler respects, per host — and, with default limits on, what one slot's share of the machine is divided by. |
+| Capacity | `agent.capacity`, `--capacity`, or half the CPU count | A hard ceiling the scheduler respects, per host, and, with default limits on, what one slot's share of the machine is divided by. |
 | Backends | Probed by the agent at startup, and again as sockets appear | A pool is only placed on a host that offers its backend. |
 | Labels | `agent.labels` or `--labels` | What a pool's `host_selector` matches against. |
 | OS, arch, version | The agent | Shown in **Hosts**. A pool's `host_selector` can match `os` and `arch` directly, so keeping work on arm64 needs no labelling at all. |
-| Health | A heartbeat every `agent.heartbeat_interval` | A host silent for 90 seconds — three times the default interval — is unhealthy, and takes no new runners until it checks in again. After five minutes of silence it is presumed gone: the runners still recorded on it are failed so the pool can replace them, and a job one of them was running is marked as lost by the fleet. |
+| Health | A heartbeat every `agent.heartbeat_interval` | A host silent for 90 seconds, three times the default interval, is unhealthy, and takes no new runners until it checks in again. After five minutes of silence it is presumed gone: the runners still recorded on it are failed so the pool can replace them, and a job one of them was running is marked as lost by the fleet. |
 
 A host that offers no backend is connected and useless: nothing will
 ever be scheduled on it. `zoomies hosts list` says so rather than printing a
 dash, and repeats the agent's own explanation for each backend it could not
-use — usually a Docker socket that is not readable by the account the agent runs
+use, usually a Docker socket that is not readable by the account the agent runs
 as. [Configuration](configuration.md#agentdocker_host) covers that diagnosis.
 
 The controller itself counts as a host. On a single-VM install the controller
@@ -177,7 +177,7 @@ zoomies hosts delete host_k3f9qz2m  # refused while runners are still on it
 ```
 
 **Cordon before maintenance.** A cordoned host keeps everything it is already
-running — no job is ever interrupted by a cordon — and accepts nothing new. Once
+running (no job is ever interrupted by a cordon) and accepts nothing new. Once
 nothing on it is running a job (a runner kept warm for a pool never finishes by
 itself, so look at which are busy), reboot the machine, upgrade Docker, do
 whatever you came to do, then uncordon it. The scheduler says `cordoned` in its
@@ -193,7 +193,7 @@ runners remain; `--force` deletes anyway and leaves their GitHub registrations
 orphaned, which is the right trade only when the machine itself has gone away.
 
 Capacity and labels are edited in the UI under **Hosts**, or with a `PATCH` to
-`/api/v1/hosts/{id}` — see [the API surface](api-surface.md#hosts-and-agents).
+`/api/v1/hosts/{id}`, see [the API surface](api-surface.md#hosts-and-agents).
 Relabelling a host changes which pools can select it on the very next scheduler
 pass; the runners already on it stay where they are.
 
@@ -206,7 +206,7 @@ One pool is enough until the fleet has to answer two different questions. Add a
 second when a job needs something the first cannot give it:
 
 * **A different machine.** GPU boxes, arm64 builders, a host in another region.
-  Architecture and operating system need nothing set up — `arch=arm64` or
+  Architecture and operating system need nothing set up, `arch=arm64` or
   `os=linux` matches what the agent already reports. Anything else is a label
   on the hosts and the same key in the pool's `host_selector`.
 * **A different runtime.** A pool whose jobs build images needs a
@@ -230,8 +230,8 @@ never touches a pool you made. See
 ### One page, six sections
 
 Creating a pool and editing one are the same page. It is made of six sections,
-each one a decision — **Name and labels**, **Hosts**, **Runner**, **Size**,
-**Scaling** and **Speed-ups** — and each is a row that says its current answer
+each one a decision (**Name and labels**, **Hosts**, **Runner**, **Size**,
+**Scaling** and **Speed-ups**) and each is a row that says its current answer
 without being opened: *One share of each host · elastic CPU observing*, *0 to 10
 runners · idle 5m*. Opening a row shows the controls that change the answer, and
 any section is one tap from any other, so there is no order to follow and
@@ -241,14 +241,14 @@ A new pool opens on the first, which is all most pools need. Name it, label it,
 say whether its jobs build container images, and create it. Every other setting
 follows this fleet: each runner is given one slot's share of whichever host it
 lands on, any host that can run it may, the backend is Docker on the published
-image for the host's platform, and every timing follows the fleet's own — and
+image for the host's platform, and every timing follows the fleet's own, and
 keeps following it when you change one. Nothing to revisit when the fleet grows.
 
 The Docker question is there because it is the one thing a fleet cannot work out
 for itself: nothing in a name, a label or a host says whether the jobs that will
 land here run `docker build`. Answering yes sets `docker_mode: dind`, which
-gives each runner a private daemon in a privileged container beside it — the
-page says so — and the runner image follows automatically, so there is nothing
+gives each runner a private daemon in a privileged container beside it, the
+page says so, and the runner image follows automatically, so there is nothing
 to pin. Answering no is the default and costs nothing. The host Docker socket,
 which hands a job root on the host, is chosen in the **Runner** section, where
 it is confirmed deliberately.
@@ -258,8 +258,8 @@ hosts, a backend and platform chosen by hand, a fixed size on every host, the
 count and the runner timings this pool disagrees with the fleet about, and
 scratch space kept in memory and a cache. Each already holds the answer a new
 pool would have chosen, so you only change what you mean to, and what is
-rarely changed — the minimum size, the priority and the timings, an image of
-your own — is behind a row of its own inside the section.
+rarely changed (the minimum size, the priority and the timings, an image of
+your own) is behind a row of its own inside the section.
 
 An existing pool opens on none of its sections, so that an operator who came to
 change one setting reads six lines rather than scrolling a form. A section you
@@ -267,8 +267,8 @@ have changed is marked **Edited**, a section with something wrong in it says how
 many things, and **Save changes** waits until there is something to save. On a
 wide screen a rail beside the page lists the sections and jumps to one.
 
-A bar at the bottom says what the controller makes of the pool so far — *Room
-for 10 runners on 2 hosts*, or *No connected host can run this pool yet* — and
+A bar at the bottom says what the controller makes of the pool so far (*Room
+for 10 runners on 2 hosts*, or *No connected host can run this pool yet*) and
 **Create pool** is never disabled for a mistake: pressing it while something is
 wrong opens the first section with a problem and puts the cursor in it.
 
@@ -285,8 +285,8 @@ zoomies pools create \
   --dry-run
 ```
 
-`--dry-run` validates exactly as the editor's check against the controller does —
-field errors and the dangerous-setting warnings the pool would produce — without
+`--dry-run` validates exactly as the editor's check against the controller does
+(field errors and the dangerous-setting warnings the pool would produce) without
 creating anything. Drop the flag to create it for real. Every field is in
 [Pool settings](configuration.md#pool-settings); the labels to choose are in
 [The labels to give a pool](configuration.md#the-labels-to-give-a-pool).
@@ -310,13 +310,13 @@ drains its runners first unless you pass `--force`.
 A pool sizes its runners in one of three ways, and there is no fourth: **“no
 limit at all” is not reachable**, because a runner with no cgroup limit takes
 every core on the machine it lands on while the fleet charges it one slot's
-share — the host reads as half committed, its daemon stops answering, and the
+share; the host reads as half committed, its daemon stops answering, and the
 creates queued behind it time out on a machine every page calls busy.
 
 **One share of each host** is what a pool with no `cpus` and no `memory_mb`
 means, and it is what a new pool does. The scheduler charges each runner one
-slot's share of the machine it is placed on — the machine less its reserve,
-divided by the host's capacity — and gives it exactly that share as a real
+slot's share of the machine it is placed on (the machine less its reserve,
+divided by the host's capacity) and gives it exactly that share as a real
 cgroup limit. The books and the cgroups therefore say the same thing, and they
 say it per host: the same pool is 3.8 cores on a 16-core box with four slots
 and 7.6 on a 32-core one, so an unequal fleet is sized correctly everywhere
@@ -326,14 +326,14 @@ share moves with it.
 That share is handed out by `scheduler.default_runner_limits`, which is on by
 default. With it off, a pool that names no size is charged the share and given
 nothing, which is the one shape where “automatic” and “unlimited” are the same
-thing — so the controller says so (`pool.size_unlimited`).
+thing, so the controller says so (`pool.size_unlimited`).
 
 **The size each host sets** is the third answer, for a fleet whose machines
 differ and where the operator, not a slot count, knows how big a runner should
 be on each of them. The pool carries `size_from_profile` instead of a size, and
 each runner is given the standard size of the [runner
 profile](#runner-profiles-how-big-a-runner-is-on-one-host) of the host it lands
-on — or the fleet's default, `runners.default_cpus` and
+on, or the fleet's default, `runners.default_cpus` and
 `runners.default_memory_mb`, where a host names none. It is the same pool on
 every host and a different runner on each, and it is the one answer where a
 host's own figures decide what a runner is.
@@ -343,12 +343,12 @@ for a pool whose jobs need a particular amount of machine wherever they run,
 and it is the right answer less often than it looks: a figure chosen for the
 first host fits four runners on the 64-core one that joins later, and the
 controller names that when it happens (`pool.size_strands_hosts`). The editor's
-sliders open on `runners.default_cpus` and `runners.default_memory_mb` — two
-cores and four gigabytes out of the box — so a fleet of small boxes or of
+sliders open on `runners.default_cpus` and `runners.default_memory_mb` (two
+cores and four gigabytes out of the box) so a fleet of small boxes or of
 compilers says so once rather than on every pool.
 
-A pool's **minimum** — the least a runner will take when no host has room for
-its standard — works the other way. Left empty, it follows the fleet's
+A pool's **minimum** (the least a runner will take when no host has room for
+its standard) works the other way. Left empty, it follows the fleet's
 `runners.minimum_cpus` and `runners.minimum_memory_mb` live, so changing those
 moves every pool that set none of its own on the next pass; the pool's page
 marks such a minimum *(fleet default)*. A figure typed on the pool wins on its
@@ -357,7 +357,7 @@ must not be reduced gives its own figure instead. See
 [`runners.minimum_cpus`](configuration.md#runnersminimum_cpus-and-runnersminimum_memory_mb-the-least-a-runner-will-take).
 
 Disk and the process limit are independent of the choice. Neither has a share
-to be given — free disk is a measurement rather than a budget — so a pool may
+to be given (free disk is a measurement rather than a budget) so a pool may
 cap its cache's disk and still leave its size to the host.
 
 In the editor the size is a section of its own, after the hosts and before the
@@ -373,14 +373,14 @@ reaches can actually hold, host by host:
   for want of cores or memory.
 * A maximum above what the fleet can place is named too
   (`pool.max_above_room`), with the room offered as the maximum. It is not
-  wrong — the maximum is a backstop rather than a target — but the runners
+  wrong (the maximum is a backstop rather than a target) but the runners
   above the room are runners the scheduler will never create, and the jobs that
   ask for them wait with nothing else saying why.
 * While a new pool's maximum has not been typed over, it follows that room, so
   choosing bigger runners or fewer hosts lowers the cap in front of you. The
   cap is still stored as a figure: one that silently grew with the fleet would
   be a cap nobody chose, and its whole job is to stop one misconfigured
-  workflow filling every machine you have — and every machine the provider loop
+  workflow filling every machine you have, and every machine the provider loop
   would rent behind them.
 
 The cache size limit is a slider on the same step and is checked the same way,
@@ -396,7 +396,7 @@ A fleet of identical machines needs nothing beyond the share above. A fleet with
 a twelve-core machine beside two four-core ones does: the size that suits the
 large host is too much for the small ones, and the share is only as good as the
 capacity somebody typed for each. A **runner profile** is what an operator says
-about one host instead — how big a runner is there, and the least it may be —
+about one host instead (how big a runner is there, and the least it may be)
 and the scheduler places by it.
 
 A profile has two tiers and a policy, every field is optional, and a field left out follows
@@ -414,13 +414,13 @@ writes one.
 
 A profile is set from the host's menu on **Hosts** (*Set runner sizes*), with
 `zoomies hosts edit`, or with `runner_profile` on `PATCH /api/v1/hosts/{id}`,
-which replaces the whole profile — `{}` clears it. The dialog shows what each
+which replaces the whole profile, `{}` clears it. The dialog shows what each
 empty field follows, says how many runners the figures give the host before
 anything is saved, and refuses a figure the machine could never hold.
 
 **Slots follow the standard.** A host with a standard size takes as many runners
-of it as its allocatable machine holds — the machine less its reserve, divided
-by the standard on each of CPU and memory, the smaller count winning — and never
+of it as its allocatable machine holds (the machine less its reserve, divided
+by the standard on each of CPU and memory, the smaller count winning) and never
 more than its capacity. Capacity becomes the operator's ceiling on that count
 rather than the count itself: a host that holds three runners and has a capacity
 of eight takes three, and one that holds eight with a capacity of two takes two.
@@ -435,15 +435,15 @@ host above is 3.8 cores, not the 1.4 its capacity of eight would have given.
 worked out from both sides, and neither side's explicit figure is changed by the
 other:
 
-* The **floor** is the larger of the pool's minimum — its own, or the fleet's
-  where it follows it — and the host's.
+* The **floor** is the larger of the pool's minimum (its own, or the fleet's
+  where it follows it) and the host's.
 * The **ceiling** is the smaller of the pool's `cpu_burst.max_cpus` and the
   host's `burst_max_cpus`. An unset side does not count, so a pool with a ceiling
   and a host with none keeps the pool's. Whoever owns the machine has the last
   word on how much of it one job may take, so the host's can lower the pool's
   and never raise it. The memory ceiling is the same rule: the smaller of the
   pool's `memory_burst.max_memory_mb` and the host's `burst_max_memory_mb`.
-* A **pool that states a size** — `cpus` and `memory_mb` — is never given more
+* A **pool that states a size**, `cpus` and `memory_mb`, is never given more
   than it states. A host whose minimum is above that size is not used for the
   pool at all, and says so, rather than building a bigger runner than the pool
   asked for.
@@ -492,8 +492,8 @@ zoomies hosts edit hst_small1 --standard-cpus 1.5 --standard-memory-mb 4096
 zoomies hosts edit hst_small2 --standard-cpus 1.5 --standard-memory-mb 4096
 ```
 
-The large host holds three runners of 3 CPU and 8 GB — 11.4 CPUs is three
-threes, and 30 GB is three eights — and its cores run out first. Each small host
+The large host holds three runners of 3 CPU and 8 GB (11.4 CPUs is three
+threes, and 30 GB is three eights) and its cores run out first. Each small host
 holds two runners of 1.5 CPU and 4 GB: 3.5 CPUs is two of them with half a core
 over. That is seven slots between the three machines, where a capacity of eight
 on each would have promised twenty-four. Three pools then use them:
@@ -509,7 +509,7 @@ each. `zoomies-build` needs a runner of at least 3 CPU, so only the large host
 can run it, and the small ones are named as excluded rather than left to look
 like a quiet fleet. `zoomies-lint` states a small size and the large host's
 minimum would have made it bigger, so the large host is kept for work that needs
-it and the lint jobs go to the small ones — which is what the host's minimum is
+it and the lint jobs go to the small ones, which is what the host's minimum is
 for. Creating the first pool and the third is:
 
 ```sh
@@ -521,12 +521,12 @@ zoomies pools create --name zoomies-lint --labels zoomies-lint \
 
 #### Seeing it
 
-Every figure says whose it is — the pool's, the host's or the fleet's — so an
+Every figure says whose it is (the pool's, the host's or the fleet's) so an
 operator told a runner is 3 CPU knows which setting to change to move it:
 
 * A host's card lists its runner sizes with where each came from, and says what
   its slots are limited by when a standard made them so.
-* A pool's page has a **Size on each host** panel — for operators, and only
+* A pool's page has a **Size on each host** panel, for operators, and only
   where a size is somebody's choice per host: a pool that takes its size from its
   hosts, or a fleet where some host has a profile. The pool editor's size
   section shows the same count while a pool is being made: what a runner is on each host,
@@ -550,7 +550,7 @@ profile changed today moves the runners created after it.
 
 Every timing that shapes a runner's life is a fleet-wide setting, and a pool
 follows the fleet on all of them until it says otherwise. A pool that overrides
-one keeps following the fleet on the rest — and a setting left alone keeps
+one keeps following the fleet on the rest, and a setting left alone keeps
 following it after you change the fleet's own figure, which a value copied onto
 the pool at creation would not.
 
@@ -569,7 +569,7 @@ pool had, `null` hands the setting back to the fleet, and a duration sets it.
 The pool that needs these is usually the one whose images are large. A pool
 pulling twelve gigabytes of Windows and a pool booting Alpine do not agree about
 how long registering should take, and a fleet that has to pick one picks the
-slower — which leaves the fast pool holding a dead runner's slot for ten
+slower, which leaves the fast pool holding a dead runner's slot for ten
 minutes.
 
 ```sh
@@ -599,8 +599,8 @@ being chosen.
 
 ### Keeping the work folder in memory
 
-A runner's work folder — the checkout, build output, the runner's own temporary
-files — normally lives on its container's writable layer, which is on the host's
+A runner's work folder (the checkout, build output, the runner's own temporary
+files) normally lives on its container's writable layer, which is on the host's
 Docker data root. On a host with slow disks and memory to spare that layer is
 where every checkout, install and build waits. A pool can keep the folder in
 memory instead: a tmpfs mounted over `_work`, gone when the runner is. How much
@@ -638,7 +638,7 @@ tmpfs:
 | --- | --- |
 | `work` | The runner's `_work` folder. The one worth having, and the one the pool editor offers first. |
 | `tmp` | `/tmp`. Off unless asked for: some toolchains put their heaviest traffic there, and some jobs leave gigabytes behind. |
-| `daemon` | The Docker-in-Docker sidecar's image store, `/var/lib/docker` in the daemon's container: where every image a job pulls and every layer it builds is written. Needs `docker_mode: dind`. Its own choice, because it is the one folder that can fail a job that used to pass — an image bigger than the store does not pull. |
+| `daemon` | The Docker-in-Docker sidecar's image store, `/var/lib/docker` in the daemon's container: where every image a job pulls and every layer it builds is written. Needs `docker_mode: dind`. Its own choice, because it is the one folder that can fail a job that used to pass; an image bigger than the store does not pull. |
 | `auto` | Let each runner decide whether the folder is in memory: yes where it has room for it to be useful, on disk where it has not. The recommended setting, and what the pool editor starts a pool with. Without it an enabled folder is always in memory. |
 | `size_mb` | The folder's ceiling, at least 64. `0` fits it to the memory limit: 4096 MB for the work folder, 1024 MB for `/tmp` and 8192 MB for the image store, shrunk so the work folder and `/tmp` together take no more than half of the runner's limit, and the image store no more than half of the daemon's. |
 
@@ -646,9 +646,9 @@ tmpfs:
 differ: the same pool has 31 GB machines with five slots and 128 GB machines
 with plenty to spare. With `auto` on, each runner decides at creation, from the
 memory limit it is really given and the host it is on: a folder is in memory
-only if it would come out at least as large as its floor — 2 GB for the work
+only if it would come out at least as large as its floor (2 GB for the work
 folder, 1 GB for `/tmp`, 4 GB for the image store, or the size you typed if that
-is smaller — and on disk otherwise. When two folders compete for the room, the
+is smaller) and on disk otherwise. When two folders compete for the room, the
 one furthest below its floor goes to disk first, which leaves the other more. The
 floors are not a measurement of your jobs: they are the least a folder is worth
 having, because below them a checkout, a build or an image pull fills it and
@@ -659,9 +659,9 @@ put on disk; it is always in memory, as small as the limit demands.
 The pool editor shows the result while you are choosing: under the folders in the
 Speed section, for every host the pool can run on, what a runner there has and what
 each folder is given, in memory or on disk. Where something is on disk it says
-what would change that — the standard runner memory to set on a host (or, for a
+what would change that, the standard runner memory to set on a host (or, for a
 pool sized by a slot's share, the capacity to lower it to) and the slots the host
-is left with, and a daemon share where one helps without losing a runner — so the
+is left with, and a daemon share where one helps without losing a runner, so the
 trade is on the page where it is made, with its cost. A runner profile is where
 a host's standard size is set, so that is the lever for a pool that takes its size
 from its hosts.
@@ -676,9 +676,9 @@ it is also what the scheduler charges the host for and changing it changes how
 many runners fit. It proposes instead. (A running container's limit is a
 different thing, and [elastic memory](elastic-memory.md) can raise it while a
 job runs.) The pool editor offers the limit that leaves the job the
-room it has now — the current one plus what the folders may fill, and never less
+room it has now (the current one plus what the folders may fill, and never less
 than twice what they may fill, because folders are fitted into half a limit and a
-proposal that left them more would be tight again when it was taken — as soon as
+proposal that left them more would be tight again when it was taken) as soon as
 the folders take more than half of it, and `pool.tmpfs_memory_tight` says the same
 in the problems list and in the dry run. Sizes you type that add up to the whole
 limit or more are refused; a pool with no limit of its own is sized from its
@@ -690,23 +690,23 @@ is charged to the container it is in: the work folder and `/tmp` to the runner,
 the image store to the daemon. What each container's limit is depends on how the
 pool is sized.
 
-- *A typed size* is given to both containers in full — a pool that asked for 8 GB
+- *A typed size* is given to both containers in full (a pool that asked for 8 GB
   and got it only in the container that is not building would have asked for
-  nothing — and the host is charged for both. The proposal covers whichever
+  nothing) and the host is charged for both. The proposal covers whichever
   container needs more, not the sum, because each is charged for its own folders.
 - *A size left to the host* is one slot's share, and the pair splits it evenly,
   because a slot is one runner: a host set to eight slots may carry eight runners,
   not four because half of them brought a daemon. The host is charged once. The
-  split is an accounting rule, not a measurement of where a build's memory goes —
+  split is an accounting rule, not a measurement of where a build's memory goes;
   the memory a Docker-in-Docker job reports is the two containers added together.
   Where your jobs do their work decides how the slot should be divided, so it is
-  yours to set — see the next paragraph. It divides only a share the host chose;
+  yours to set, see the next paragraph. It divides only a share the host chose;
   a typed size goes to both containers in full whatever it says.
 - *One field typed, the other left to the host* is each of the two at once: the
   typed field goes to both containers in full and is charged twice, and the field
   the host decided is one slot's share that the pair divides. That share is held to
-  the same floor as a pool left entirely to the host — about 2 CPU and 4 GB for the
-  two containers between them, more with a larger minimum — and a host whose slots
+  the same floor as a pool left entirely to the host (about 2 CPU and 4 GB for the
+  two containers between them, more with a larger minimum) and a host whose slots
   divide to less is refused, with the capacity that would fit named. Before, a pool
   that typed only one field was never checked on the other, and its typed figure was
   divided in two as well, so a job given 4 CPU ran on 2+2.
@@ -744,8 +744,8 @@ each specific one overrides it for its own resource. A pool saved with one figur
 keeps meaning it.
 
 You don't have to guess the figures. The agent reports what each container of a pair
-used, and when one has been squeezed against its own limit while the other idled —
-across enough jobs on several runners — `pool.daemon_share_suggested` names the pool
+used, and when one has been squeezed against its own limit while the other idled
+(across enough jobs on several runners) `pool.daemon_share_suggested` names the pool
 and a share to try, for CPU and for memory on their own: more CPU to a sidecar that
 is building, less memory to one that is not, in one notice with a flag for each. A share
 is never proposed if it would cost the pool runners on its hosts, since a thinner half is
@@ -753,8 +753,8 @@ held to the pool's smallest runner: the notice offers the nearest share they can
 says what the figure would cost and leaves the share alone. An
 operator can make the change from a button on the notice, which sets those shares and leaves
 the rest of the pool as it was; nothing changes until it is clicked. It applies only to pools
-sized by their hosts — by a share of the host or by its
-[runner profile](#runner-profiles-how-big-a-runner-is-on-one-host) — and clears itself once you
+sized by their hosts, by a share of the host or by its
+[runner profile](#runner-profiles-how-big-a-runner-is-on-one-host), and clears itself once you
 change the share.
 
 **When to turn it on.** Zoomies tells you. `pool.tmpfs_suggested` is raised for
@@ -790,26 +790,26 @@ a before-and-after run of one real workflow tells you more than any figure.
   the folder's size.
 
 **A host has the last word.** The setting is the pool's, and a pool is one
-setting for every host it lands on — but a fleet has machines with memory to
+setting for every host it lands on, but a fleet has machines with memory to
 spare and machines without, and only the host's owner knows which is which. So a
 host's [runner profile](#runner-profiles-how-big-a-runner-is-on-one-host) can
 say:
 
-- `tmpfs.work_mb`, `tmp_mb` and `daemon_mb` — the size each folder is asked for
+- `tmpfs.work_mb`, `tmp_mb` and `daemon_mb`: the size each folder is asked for
   on this machine when a pool leaves it to size itself, in place of the built-in
   4096, 1024 and 8192 MB. The folder-sized counterpart of a host's standard
   runner size: a machine with 256 GB can offer a work folder far larger than the
   default, and one with 16 GB less. They are what is asked for, so the fit to the
   runner's limit, the auto floors and `max_mb` all still apply; a size a pool
   typed is the pool's and is not replaced. At least 64 MB each.
-- `tmpfs.disabled` — **fall back to disk on this machine**, whatever a pool asks
+- `tmpfs.disabled`: **fall back to disk on this machine**, whatever a pool asks
   for. Its runners use disk, as they did before the setting existed. This is a
   tactical fix and not a policy: it is for a machine that cannot spare the memory
   today, and the pool is told for as long as it is on (`pool.tmpfs_host_off`), so
   it is not forgotten. The lasting answers are the per-host sizes above and a
   pool's Auto placement, which keep memory where it is useful without anybody
   switching a machine off.
-- `tmpfs.max_mb` — the most any one folder may be on this machine. It is applied
+- `tmpfs.max_mb`: the most any one folder may be on this machine. It is applied
   after a pool's size is fitted to the runner's limit, so it lowers a size
   however the size was arrived at, typed or fitted, and it never raises one. It
   cannot be combined with `disabled`, because a host that keeps the folders off
@@ -859,8 +859,8 @@ fallback.
 
 The same figures size a machine from the other side. The recommended capacity
 on a host's **Adjust** dialog is the machine, less its reserve, divided by what
-a runner in this fleet asks for — the largest ask across the enabled pools, or
-the fleet's default where no pool has said — so the two screens describe one
+a runner in this fleet asks for (the largest ask across the enabled pools, or
+the fleet's default where no pool has said) so the two screens describe one
 fleet rather than two.
 
 ### Leaving out the default labels
@@ -870,7 +870,7 @@ architecture as well as the labels its pool gives it, and Zoomies matches jobs
 the same way GitHub does: a job asking for `[self-hosted, linux, x64]` is not
 asking for any pool in particular. `no_default_labels` registers a pool's
 runners with its own labels only, as the runner's `config.sh
---no-default-labels` does — useful when a workflow written as `runs-on:
+--no-default-labels` does, useful when a workflow written as `runs-on:
 self-hosted` must never land on this pool.
 
 The scheduler follows the runners: once a pool leaves the default labels out, a
@@ -880,8 +880,8 @@ labels matches as before.
 
 Only a pool with `ephemeral` off can do this. An ephemeral runner registers with
 a just-in-time configuration, and GitHub adds `self-hosted`, the operating
-system and the architecture to every one of those itself — the request has no
-way to ask otherwise — so the API refuses the combination rather than keep a
+system and the architecture to every one of those itself (the request has no
+way to ask otherwise) so the API refuses the combination rather than keep a
 pool whose runners advertise labels the scheduler thinks they do not. Existing
 pools keep the default labels; the setting is off until you turn it on.
 
@@ -889,7 +889,7 @@ pools keep the default labels; the setting is off until you turn it on.
 
 `--installation` is not bookkeeping. A pool's runners are registered into that
 installation's GitHub target with that installation's credentials, so the
-target decides which jobs can ever reach them — and Zoomies will not put a job
+target decides which jobs can ever reach them, and Zoomies will not put a job
 from one installation on a pool belonging to another, whatever the labels say.
 Two installations whose pools advertise the same labels are two separate
 fleets that happen to use the same words.
@@ -903,7 +903,7 @@ adding a pool there.
 
 Within one organisation installation, that is as far as the boundary goes.
 **GitHub decides which of its runners gets a queued job**, and it offers a job
-to any runner in scope whose labels match — so a runner this fleet created for
+to any runner in scope whose labels match, so a runner this fleet created for
 one repository's job may be handed another repository's job from the same
 organisation instead. Zoomies has no say in it. Where two repositories must not
 share runners, give each one a repository-target installation, or separate them
@@ -930,7 +930,7 @@ their repository's Default scope.
 
 ## How a runner is placed
 
-Every scheduler pass takes a snapshot — pools, runners, queued jobs, hosts — and
+Every scheduler pass takes a snapshot (pools, runners, queued jobs, hosts) and
 decides where new runners go. A host is eligible for a pool when all six of
 these hold:
 
@@ -965,8 +965,8 @@ so the same snapshot always produces the same plan.
 Linux agents sample whole-host CPU occupancy, `MemAvailable` and the one-minute
 load average on their normal heartbeats, including work outside Zoomies. CPU
 uses counter differences, so the first sample reports memory and load only; I/O
-wait counts as occupied. The same counters give I/O wait on its own — the share of
-time the machine sat idle with something waiting on disk — because a build
+wait counts as occupied. The same counters give I/O wait on its own (the share of
+time the machine sat idle with something waiting on disk) because a build
 stalled on a saturated disk reads as a machine hard at work, and that is the one
 figure that tells the two apart. It is judged the way CPU is: it starts a clock
 at 20% and holds it until it falls below 10%, and a host that has been there for
@@ -991,8 +991,8 @@ reservation budget remains enforced as well.
 One exception, for a pool that sets no `memory_mb` and so takes one slot's
 share of its host. On a host running nothing of Zoomies', that share is
 checked against the reservation budget alone, not against measured free
-memory. The share is carved from the host's allocatable memory — the machine
-less its reserve — while measured free memory is the machine less what its
+memory. The share is carved from the host's allocatable memory, the machine
+less its reserve, while measured free memory is the machine less what its
 operating system actually uses, and on a host whose system uses more than the
 reserve allows for, the share never fits: a host of one slot, whose share is
 the whole of its allocatable memory, would refuse its only slot while idle and
@@ -1012,9 +1012,9 @@ because that figure is what its jobs need.
 | Usage missing, older than 90 seconds, or inconsistent with the reported host size | Use configured capacity and reservations; show usage as unavailable. |
 | **Overwhelmed** on a fresh sample: CPU at or above 95% for 30 seconds while a runner with no CPU limit is on the host, the one-minute load average at least twice the host's CPUs, or available memory at or below the reserve | **Throttle, step 1 of 3.** The host is stepped down to three quarters of its slots, and every runner on it that has a CPU limit is left 75% of it. The host card says so, `host.throttled` is raised, and the step is audited as `host.throttle`. |
 | Still overwhelmed two minutes after the last step | **Step 2:** half the slots, and running jobs at half their CPU allocation. |
-| Still overwhelmed two minutes after that | **Step 3:** a quarter of the slots. Running jobs stay at half — the top rung takes slots and nothing else. |
-| **Calm** — CPU below 85%, load average under one per CPU, memory above the reserve — for five minutes without a break | **One step back down**, audited as `host.throttle_lift`. The streak starts again, and the throttle is gone once the last step is taken. |
-| Neither — 90% CPU, say | The rung is kept and the calm streak is broken. Not overwhelmed, and not a host to give slots back to either. |
+| Still overwhelmed two minutes after that | **Step 3:** a quarter of the slots. Running jobs stay at half; the top rung takes slots and nothing else. |
+| **Calm**: CPU below 85%, load average under one per CPU, memory above the reserve, for five minutes without a break | **One step back down**, audited as `host.throttle_lift`. The streak starts again, and the throttle is gone once the last step is taken. |
+| Neither, 90% CPU, say | The rung is kept and the calm streak is broken. Not overwhelmed, and not a host to give slots back to either. |
 | Usage stale for ten minutes while throttled | The throttle is lifted anyway. A host nobody can measure is placed by its configured capacity, exactly as the holds fall back. |
 
 The holds affect new runners only. Existing runners stay in place and running
@@ -1029,14 +1029,14 @@ time it is let back in. The throttle is a ladder instead: each rung takes a
 quarter of the host's slots, it climbs while the pressure keeps coming back,
 and it comes down one rung at a time after a stretch of calm long enough to
 mean something. The slots it takes come off the host's **effective capacity**
-— the configured capacity stepped down by the rung — and that is the figure
+(the configured capacity stepped down by the rung) and that is the figure
 `free` is measured against, on the Hosts page, in `zoomies hosts list` and in
 the scheduler alike, while the throttle stands. The configured capacity is the
 operator's, and the throttle never writes it.
 
 It touches running jobs in exactly one way. On the next heartbeat the agent
-lowers the CPU quota of every runner on the host that has one — the runner and,
-for a `dind` pool, its sidecar — to the rung's share of what it was created
+lowers the CPU quota of every runner on the host that has one (the runner and,
+for a `dind` pool, its sidecar) to the rung's share of what it was created
 with, and **never below half**. Half speed doubles a job's time, which the
 `timeout-minutes` most workflows set survives; a quarter turns "slow" into
 "timed out", and a throttle that made jobs fail would be doing the thing it
@@ -1044,24 +1044,24 @@ exists to prevent. That is why the third rung takes slots and nothing else. A
 runner with no CPU limit has nothing to lower and is left alone, and a memory
 limit is never lowered on a live container, because that can kill it: memory
 pressure is relieved by the smaller effective capacity only. The `throttle_reason`
-on the host says all of this in one sentence — what was taken, which
+on the host says all of this in one sentence, what was taken, which
 measurement did it, what the running jobs are getting, and how it ends.
 
 Not every host can be throttled, because not every host is measured.
-Throttling needs a Linux agent on the machine it measures — the same hosts the
-sampling above covers — so a remote Docker endpoint, which is never sampled, is
+Throttling needs a Linux agent on the machine it measures (the same hosts the
+sampling above covers) so a remote Docker endpoint, which is never sampled, is
 never throttled. Lowering a quota needs a Docker or Podman daemon beside that
 agent: a host that offers only the `process` backend has no container to
 update, so its throttle is slots only, and its reason says so.
 
-**How a throttle ends.** Five minutes of calm — every fresh sample under 85%
-CPU, under one runnable task per core and above the memory reserve — lifts one
+**How a throttle ends.** Five minutes of calm (every fresh sample under 85%
+CPU, under one runnable task per core and above the memory reserve) lifts one
 rung, and the streak starts again for the next; a sample that is neither calm
 nor overwhelmed breaks the streak without moving the rung. Recovery is longer
 than a step up on purpose: a host that recovered in a minute and was pushed
 straight back over would otherwise oscillate with the ladder rather than settle
-on it. If the samples stop — an agent downgraded to a build that does not send
-them, or a host that went away — the rung is kept for ten minutes and then
+on it. If the samples stop (an agent downgraded to a build that does not send
+them, or a host that went away) the rung is kept for ten minutes and then
 lifted, so a host that comes back is not still throttled for pressure nobody
 can see. An operator can end one sooner, three ways: a `PATCH /hosts/{id}` that
 changes the capacity or a reserve clears it, since it was decided against
@@ -1074,8 +1074,8 @@ host back on the first rung. A cordon keeps the throttle, and switching
 `scheduler.host_throttling` off lifts every standing one.
 
 At small capacities the ladder has less to take. The effective capacity never
-falls below one — a host taken to nothing would look exactly like a cordon, and
-an operator reading "0 slots" would go looking for who cordoned it — so a host
+falls below one (a host taken to nothing would look exactly like a cordon, and
+an operator reading "0 slots" would go looking for who cordoned it) so a host
 of capacity 4 steps through 3, 2 and 1; one of capacity 2 drops to 1 on the
 first rung and stays there; and one of capacity 1 keeps its slot on every rung,
 where the throttle is the CPU quota and nothing else.
@@ -1101,7 +1101,7 @@ charged against what its host reported, and a host that cannot cover the charge
 takes no more work however many slots it has left.
 
 What one runner is charged is the pool's own `resources`. A field the pool
-leaves unset is charged one slot's worth of the host instead — a host with
+leaves unset is charged one slot's worth of the host instead; a host with
 30 GB allocatable and a capacity of 6 charges 5 GB. That is not a fallback for
 old rows: it is what [one share of each host](#how-big-a-runner-is-and-how-many-there-are)
 means, it is the shape a new pool has, and the same share is handed to the
@@ -1111,7 +1111,7 @@ A pool with `docker_mode: dind` runs two containers per runner, and what it is
 charged follows what the two are given. A size **you typed** says what the job
 may have, and the build runs in the daemon, so the daemon is given the same and
 the host is charged twice: two of what the pool asked for. A size that came
-from **the host's slot** is one slot, and the pair splits it between them — so
+from **the host's slot** is one slot, and the pair splits it between them, so
 the host is charged one, and eight slots are eight runners whether or not their
 jobs build images.
 
@@ -1121,7 +1121,7 @@ the arithmetic behind a host reading "CPU committed 50%" with every core on it
 inside a runner's quota and `docker` refusing creates. Charging two while
 giving the pair one is the mirror of it, and reads as a fleet that will not use
 the machines it has: eight slots holding four runners, a page promising room
-the scheduler refuses, and an overcommit warning whose fix — fewer slots — cost
+the scheduler refuses, and an overcommit warning whose fix, fewer slots, cost
 room every time it was taken, down to one slot holding nothing at all.
 
 A slot too small to give both halves what a runner needs is refused rather than
@@ -1133,14 +1133,14 @@ half of a defaulted pair has to clear a full core and 2 GB on its own, the same
 figure a plain runner's slot is judged comfortable against, or the pool does
 not run on that host at all. A host that used to squeeze several thin dind
 pairs onto a small machine now runs fewer of them, each with room for its
-daemon to answer a create — which is the trade this exists to make.
+daemon to answer a create, which is the trade this exists to make.
 
-A minimum on the pool — its own, or the fleet's where it set none — replaces
+A minimum on the pool (its own, or the fleet's where it set none) replaces
 that figure on its field. The
 comfortable size is a judgement made for a pool nobody sized; `min_memory_mb`
 or `min_cpus` is the operator saying what each container may have at least, so
-a slot is held to twice the minimum instead — the runner and its daemon each
-get their share of it — and a host whose share clears that runs the pool at
+a slot is held to twice the minimum instead (the runner and its daemon each
+get their share of it) and a host whose share clears that runs the pool at
 its share. The pool editor counts such a host as running the pool and lists it
 as information, saying the runners there get less than on a larger machine;
 it is not a warning, because the minimum doing its job is the pool working as
@@ -1150,7 +1150,7 @@ it, so a restart recovers it and a runner that fails stops being charged for
 as soon as its row says so.
 
 Held back before any of that: `reserve_cpus`, `reserve_memory_mb` and
-`reserve_disk_mb` on the host, which are the operator's the way capacity is —
+`reserve_disk_mb` on the host, which are the operator's the way capacity is;
 an agent reports what it measured and never writes these. Set them with
 `PATCH /hosts/{id}` or on the host's card; a reserve on a figure the host has
 never reported, or one that would leave nothing to place on, is refused rather
@@ -1164,11 +1164,11 @@ of them killed or fails a checkout before its first step. Memory scales with
 the machine for the reason CPU does, and the cap is where holding more back
 stops buying anything: a 64 GB host booked down to its last half gigabyte has
 no page cache left, and the daemon minding its containers is the first thing
-to suffer for it — while a twentieth of 256 GB is more than that daemon will
+to suffer for it, while a twentieth of 256 GB is more than that daemon will
 ever want.
 The CPU floor is there for the daemon rather than for the jobs. A CPU quota is
 a share of the one resource that is never exhausted, only contended, and a
-contended machine does still finish the job — but the runners' quotas are not
+contended machine does still finish the job, but the runners' quotas are not
 the only thing on the machine. dockerd, containerd and the agent have to answer
 in the gaps the quotas leave, and a host whose quotas add up to every core
 leaves none: the daemon stops answering, creates time out, and the fleet reads
@@ -1177,7 +1177,7 @@ box with sixty-four containers to mind, is what those three need to keep
 answering while every runner is flat out. An operator's own `reserve_cpus` is
 whole cores and replaces the floor where it is larger.
 
-The host the controller runs on — the one whose agent is embedded — holds back
+The host the controller runs on (the one whose agent is embedded) holds back
 **one more core and one more gigabyte** on top of both floors. The floors are
 sized for dockerd, containerd and the agent; on that host the controller is on
 the machine too, with the scheduler, the database every heartbeat and webhook
@@ -1190,12 +1190,12 @@ operator's own reserve still replaces the total where it is larger.
 The memory reserve is the one that is more than a charge: it is also the line
 pressure is judged against. A host whose available memory falls **to its
 reserve** takes no new runners and starts climbing the throttle ladder, and it
-recovers only once memory is above the reserve again — so raising the reserve
+recovers only once memory is above the reserve again, so raising the reserve
 raises the point at which the host counts as overwhelmed. Held at 8 GB of
 32 GB, a host is under pressure from three quarters full. That is worth knowing
 before raising one to protect a machine: the reserve is arithmetic rather than
-a fence — the room is kept free by placing less there, and nothing stops a job
-that runs away from taking it — so a large reserve buys an earlier throttle
+a fence (the room is kept free by placing less there, and nothing stops a job
+that runs away from taking it) so a large reserve buys an earlier throttle
 rather than a guarantee. The host's Adjust dialog says what the figure set
 there means for this machine.
 
@@ -1211,7 +1211,7 @@ deciding correctly, and the only symptom is a job that queues for an hour.
 So both edits are checked against the other half before they are saved. A
 change that would leave a pool with **no host in the fleet that could ever run
 it** is refused with a `409` naming the pool, the machine it no longer fits and
-by how much — `PATCH /hosts/{id}` for the host's side, `PATCH /pools/{id}` for
+by how much, `PATCH /hosts/{id}` for the host's side, `PATCH /pools/{id}` for
 the pool's, and the same sentence in the Adjust dialog and the pool editor. The
 check is deliberately narrow. It asks only whether a pool that has somewhere to
 run would stop having one: a pool with another host to go to is not stranded, a
@@ -1220,7 +1220,7 @@ nothing waiting on it.
 
 Shrinking a host before deleting the pool that used it, and sizing a pool for
 machines that have not joined yet, are both real things to want, so the refusal
-is a question rather than a wall — `?confirm=true`, or **Save anyway** in the
+is a question rather than a wall, `?confirm=true`, or **Save anyway** in the
 dialog, goes through. What it stops is the silent version, where the figure is
 accepted and the consequence arrives an hour later as a job that never started.
 
@@ -1236,11 +1236,11 @@ takes the machine with it.
 A charge is bookkeeping, and for a long time nothing turned the charge for an
 unset field into a limit: the books balanced while eight runners of a pool with
 no limits each took every core on the machine, which is how a host's Docker
-daemon stops answering. With `scheduler.default_runner_limits` on — the default
-— a runner whose pool leaves `cpus` or `memory_mb` unset is created with **one
+daemon stops answering. With `scheduler.default_runner_limits` on, the default,
+a runner whose pool leaves `cpus` or `memory_mb` unset is created with **one
 slot's share of the host's allocatable** on that field as a real cgroup limit:
 exactly what it was charged, and nothing the pool did not already pay for. The
-share is the allocatable figure divided by the host's slots — its capacity, or
+share is the allocatable figure divided by the host's slots; its capacity, or
 fewer where a [runner profile](#runner-profiles-how-big-a-runner-is-on-one-host)
 gives it a standard size. An 8-CPU, 16 GB host
 with capacity 4 keeps half a core and 512 MB for itself and gives each runner
@@ -1256,21 +1256,21 @@ nothing about CPU, and is treated that way.
 #### Elastic CPU zoomies
 
 The share is a guarantee, not a ceiling. An automatically-sized Docker or
-Podman pool can let a busy runner be lent the CPU its host is not using —
-after every live runner's guarantee and one queued start have been charged,
-and never on a host under pressure — and give it back the moment the demand
+Podman pool can let a busy runner be lent the CPU its host is not using
+(after every live runner's guarantee and one queued start have been charged,
+and never on a host under pressure) and give it back the moment the demand
 ends. Memory has [a valve of its own](elastic-memory.md), which only raises a
-limit. New pools measure both by default and move nothing until you say so; the runner page says **Squirrel spotted — maximum zoomies**
+limit. New pools measure both by default and move nothing until you say so; the runner page says **Squirrel spotted, maximum zoomies**
 when it is happening.
 
 In the UI the setting is in the **Size** section of the pool editor, one tap from
-any other section, so the pool elastic CPU is for — the plain automatic one — is
+any other section, so the pool elastic CPU is for, the plain automatic one, is
 never the pool that cannot reach it. It has a page of its own: [Elastic CPU
 zoomies](elastic-cpu.md).
 
 A default is given only where it would bind. The host's own probe says what
-its daemon can enforce — a CPU quota, a memory limit, both or neither, read
-from the daemon's `/info` — and a field the daemon cannot apply gets no
+its daemon can enforce (a CPU quota, a memory limit, both or neither, read
+from the daemon's `/info`) and a field the daemon cannot apply gets no
 default, because a daemon that cannot apply a CPU quota refuses the container
 rather than ignoring the request, and a default sent there would fail every
 create on the host. A probe from an agent too old to say is read as "nothing",
@@ -1284,8 +1284,8 @@ be a number on the Runners page saying the opposite of the truth.
 
 A `dind` pool's sidecar is given what the runner was, and what that is depends
 on where it came from. A limit an operator typed is given to both containers
-in full — the build runs in the daemon, so it needs the same figure the runner
-was promised — and the charge covers both to match. A defaulted figure is one
+in full (the build runs in the daemon, so it needs the same figure the runner
+was promised) and the charge covers both to match. A defaulted figure is one
 slot's share, and the pair splits it between them rather than each keeping a
 whole one, because a slot is one runner however many containers it takes to
 run it; the charge is one share to match. A slot too small to give both halves
@@ -1310,7 +1310,7 @@ memory, and offered the two ways out: set `memory_mb` on the pool, so its
 runners carry a limit of their own, or lower the host's capacity, so each
 runner's share is larger. A default share is the machine divided by its slots,
 so a job that needs more than its share is either a pool that should say what
-it needs or a host with too many slots — and `host.overprovisioned` warns about
+it needs or a host with too many slots, and `host.overprovisioned` warns about
 the second before any job finds out: a measured host with more slots than it
 has allocatable CPUs, or more than it has 2 GB of allocatable memory for, is
 named with the share each runner is getting and the largest capacity that
@@ -1327,7 +1327,7 @@ disk is the one shortage that no job finishing will clear, and a pool that sets
 `resources.disk_gb` is charged it against what is free right now.
 
 A host whose agent never reported its size is placed by slots alone, exactly as
-before, which is what stops an upgrade emptying a fleet — and it is worth
+before, which is what stops an upgrade emptying a fleet, and it is worth
 knowing that this cuts both ways: an unmeasured host accepts a pool its
 measured neighbour refuses, because a figure nobody reported constrains
 nothing. Upgrade the agent and the machine starts answering for its own size.
@@ -1355,8 +1355,8 @@ size. A pool whose minimum is 1 CPU and 1 GB can land a race-enabled test
 suite on a 4-CPU, 3 GB host, where the kernel kills `go vet` an hour and a
 half in. So the fleet remembers what each job used.
 
-While a job runs, the agent's usage samples — the same ones elastic CPU is
-decided on — raise the job's **peak CPU** and **peak memory**, and a runner
+While a job runs, the agent's usage samples (the same ones elastic CPU is
+decided on) raise the job's **peak CPU** and **peak memory**, and a runner
 the kernel killed for memory (the container's `OOMKilled`, or exit 137 from
 the runner or one of its steps, unless the daemon says the container was not
 killed for memory -- a `docker stop`, an operator, or a maintenance restart's
@@ -1427,7 +1427,7 @@ Read the counts, because they name the fix:
 | `not matching the pool's host selector` | Relax the selector, or label a host to match. |
 | `too small for this pool's limits` | The machine could not hold one runner of this pool even when empty. Lower the pool's CPU or memory limits, or add a bigger host. Waiting will not help. |
 | `short of memory`, `short of CPU` | The host is the right size and has already promised what it has to the runners on it. Wait, lower the pool's limits, or add a host. When runners of yours hold it, that counts as full rather than as a fault, because a finishing job returns what they hold; memory taken by work outside the fleet does not. |
-| `low on disk` | The work directory's filesystem is at or below the host's disk reserve. Free space on it, lower the pool's `disk_gb`, or add a host — no job finishing will return this, because a runner leaves its caches behind on purpose. |
+| `low on disk` | The work directory's filesystem is at or below the host's disk reserve. Free space on it, lower the pool's `disk_gb`, or add a host; no job finishing will return this, because a runner leaves its caches behind on purpose. |
 | `throttled after sustained pressure` | The host is on a rung of the [throttle ladder](#current-usage-and-automatic-holds) and every slot the rung left it is in use. Wait for it to lift, lower the host's capacity or the pools' limits so its runners fit the machine, or add a host; running jobs continue. A host that keeps being throttled has too many slots for its machine, or pools whose limits let a job take more than a slot's worth of it. |
 
 The distinction the reasons keep is between a fleet that is merely **full**,
@@ -1470,12 +1470,12 @@ zoomies pools create --name zoomies-gpu --labels zoomies-gpu \
 ```
 
 Workflows reach it with `runs-on: zoomies-gpu`. Nothing else lands there,
-because every other pool's selector is empty and matches any host — including
+because every other pool's selector is empty and matches any host, including
 this one, which is usually not what you want, so give the general pools a
 selector too (`class=general`) once a specialised host exists.
 
 **An arm64 builder.** Same shape with `arch=arm64`, and a pool whose image is an
-arm64 runner image — but no `--labels` on the agent this time, because the
+arm64 runner image, but no `--labels` on the agent this time, because the
 architecture is something the agent already reports:
 
 ```sh
@@ -1484,7 +1484,7 @@ zoomies pools create --name zoomies-arm --labels zoomies-arm \
   --installation ins_k3f9qz2m --host-selector arch=arm64 --max 4
 ```
 
-`os` works the same way — `--host-selector os=linux` keeps a pool off the macOS
+`os` works the same way, `--host-selector os=linux` keeps a pool off the macOS
 box somebody runs a controller on. Both are matched against what the agent
 reports, and a label of the same name on a host still wins, which is the escape
 hatch if you want a machine to answer for an architecture it does not have.

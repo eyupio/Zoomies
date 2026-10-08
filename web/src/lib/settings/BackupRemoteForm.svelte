@@ -171,7 +171,7 @@
 
     <Field
       label="Endpoint"
-      hint="The service's URL. The scheme decides whether the connection is encrypted — http:// sends the key and the backup in the clear."
+      hint="The service's URL. The scheme decides whether the connection is encrypted, http:// sends the key and the backup in the clear."
       error={errors.endpoint}
     >
       <Input
@@ -215,7 +215,7 @@
 
     <Field
       label="Passphrase"
-      hint="Seals the archive before it leaves this host, so the bucket holds something its owner cannot open. Nothing here can recover a lost one — keep it with the encryption key."
+      hint="Seals the archive before it leaves this host, so the bucket holds something its owner cannot open. Nothing here can recover a lost one, keep it with the encryption key."
       error={errors.passphrase}
     >
       <Input type="password" bind:value={passphrase} autocomplete="new-password" />

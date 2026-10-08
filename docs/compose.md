@@ -10,7 +10,7 @@ description: >-
 
 The web UI is how a Zoomies fleet is run day to day, and it does not care how
 the controller under it was started. This page is for the people who would
-rather start it with `docker compose up -d` than with the installer — because
+rather start it with `docker compose up -d` than with the installer, because
 that is how everything else on the host runs, because the deployment lives in a
 repository, or because the installer's questions have already been answered
 once and a file remembers them better than a person does.
@@ -22,9 +22,9 @@ place.
 
 `zoomies init` offers **Docker Compose** whenever the host has a `compose`
 command, and makes it the default. It writes a `docker-compose.yml` and a
-**fully populated `.env`** — external URL, a freshly generated encryption key,
+**fully populated `.env`** (external URL, a freshly generated encryption key,
 bind address, TLS mode, trusted proxies, backend, capacity, paths, the image
-tag, the published port and the host's real docker group id — then brings the
+tag, the published port and the host's real docker group id) then brings the
 stack up. Every variable carries a one-line comment saying what it is for; the
 file is `0600` because it holds your encryption key; and it is written
 atomically, so an interrupted install never leaves a half-written file that
@@ -71,7 +71,7 @@ The database lives in `./data` beside the compose file, bind mounted, so a
 backup is a copy of a directory and inspecting it needs no `docker volume
 inspect`. It has to be owned by uid 65532: a bind mount keeps the host
 directory's ownership, the container is not root, and Docker would create a
-missing `./data` as root — so the file refuses to create it and fails with
+missing `./data` as root, so the file refuses to create it and fails with
 "bind source path does not exist", which is easier to act on than SQLite's
 error 14.
 
@@ -170,14 +170,14 @@ upgrade does to work in flight.
 `zoomies config set` and `config unset` need the controller stopped, on every
 deployment: they write the same settings table the **Settings** page does, and
 writing under a process that has already read it would leave the two
-disagreeing. On compose that is `docker compose stop zoomies` first — or, more
+disagreeing. On compose that is `docker compose stop zoomies` first, or, more
 simply, use the Settings page, which is what it is for.
 
 ## What this is not
 
 A compose deployment is a controller on a host you own, with that host's
-Docker daemon running jobs. For a host you do not install on at all — a
-platform that builds from source and gives a container no Docker socket — see
+Docker daemon running jobs. For a host you do not install on at all (a
+platform that builds from source and gives a container no Docker socket) see
 [Deploying on a PaaS](paas.md); for an instance booted from a provider's
 marketplace image, see [One-click deployment](marketplace.md). Both deploy a
 controller; the runner capacity is still yours.

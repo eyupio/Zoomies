@@ -229,14 +229,14 @@
       <h2 id="backup-remotes">Copies off this machine</h2>
       <p>
         {#if remotes.length === 0}
-          Nothing leaves this host. A backup beside the database survives a mistake, not the disk —
+          Nothing leaves this host. A backup beside the database survives a mistake, not the disk,
           add an S3-compatible destination here, or describe one under <code>backup.remotes</code>
           in
           <code>zoomies.yaml</code>, which is the copy a host that has lost its database can still
           read.
         {:else}
-          Every backup — the schedule's, one taken here, one taken by
-          <code>zoomies backup</code> — is copied to {pluralise(
+          Every backup, the schedule's, one taken here, one taken by
+          <code>zoomies backup</code>, is copied to {pluralise(
             remotes.length,
             'destination',
             'destinations',
@@ -448,7 +448,7 @@
   bind:open={forgetOpen}
   title="Remove the destination"
   name={forgetting?.name ?? ''}
-  description={`Backups will stop being copied to ${forgetting?.where ?? 'it'}. What the bucket already holds is left alone — remove those copies from the listing first if they should go too.`}
+  description={`Backups will stop being copied to ${forgetting?.where ?? 'it'}. What the bucket already holds is left alone, remove those copies from the listing first if they should go too.`}
   confirmLabel="Remove it"
   tone="danger"
   requireName

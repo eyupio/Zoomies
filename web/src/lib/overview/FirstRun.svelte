@@ -265,7 +265,7 @@
             <UserCheck size={14} aria-hidden="true" />
             Create an administrator<span class="sr-only">, done</span>
           </p>
-          <p class="why">Done — you are signed in as {session.identity?.name ?? 'the admin'}.</p>
+          <p class="why">Done, you are signed in as {session.identity?.name ?? 'the admin'}.</p>
         </div>
       </li>
 

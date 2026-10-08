@@ -1,6 +1,6 @@
-# Zoomies AI Context — implementation plan
+# Zoomies AI Context: implementation plan
 
-## Product correction — 3 October 2026
+## Product correction: 3 October 2026
 
 AI Context is a core Zoomies feature. Every signed-in user must be able to enable repositories they are authorised to manage; fleet administrator status is not the product gate. Implement verified user/installation ownership or GitHub identity linkage before opening shared installation discovery and setup writes to ordinary users. The current implementation still has the administrator gate, and removing that gate alone would expose other users' repositories.
 
@@ -132,13 +132,13 @@ The landing page lists configured repositories with visibility, installation, de
 
 | Step | User decisions and feedback |
 | --- | --- |
-| 1 — Choose repositories | Choose GitHub installation; search public/private repositories; select one or several; label archived/inaccessible/already-enabled repositories; do not preselect everything |
-| 2 — Check readiness | Probe required permissions, workflow availability and repository write restrictions; show exact blockers and remediation links; recheck without losing selections |
-| 3 — Choose output | Repository, Zoomies or Both; concise benefits and source-copy implications; disable unavailable modes with an explanation; default to Both |
-| 4 — Configure context | Default source branch, sensible exclusions, refresh settings, retention and optional advanced controls; exclude secrets/generated/dependency files by default |
-| 5 — Choose access | Explicit Zoomies users/groups as supported by the implementation and source access for app connections; GitHub installation visibility alone grants no user access |
-| 6 — Review setup | Preview workflow/config paths, generated branch, README badge and instruction changes; identify preserved/conflicting files; show required permissions and one PR per repository |
-| 7 — Create setup PRs | Open managed setup PRs and display per-repository result/links; retain partial successes and retry only failures; opening a PR does not mean the feature is operational |
+| 1: Choose repositories | Choose GitHub installation; search public/private repositories; select one or several; label archived/inaccessible/already-enabled repositories; do not preselect everything |
+| 2: Check readiness | Probe required permissions, workflow availability and repository write restrictions; show exact blockers and remediation links; recheck without losing selections |
+| 3: Choose output | Repository, Zoomies or Both; concise benefits and source-copy implications; disable unavailable modes with an explanation; default to Both |
+| 4: Configure context | Default source branch, sensible exclusions, refresh settings, retention and optional advanced controls; exclude secrets/generated/dependency files by default |
+| 5: Choose access | Explicit Zoomies users/groups as supported by the implementation and source access for app connections; GitHub installation visibility alone grants no user access |
+| 6: Review setup | Preview workflow/config paths, generated branch, README badge and instruction changes; identify preserved/conflicting files; show required permissions and one PR per repository |
+| 7: Create setup PRs | Open managed setup PRs and display per-repository result/links; retain partial successes and retry only failures; opening a PR does not mean the feature is operational |
 
 No manual token pasting for the initial repository/Both flow. Make the final action **Create setup PRs**, not “Enable AI” while merge is still outstanding. Save resumable configuration drafts server-side subject to access checks, with no credentials in browser storage. Back/Next navigation preserves inputs; server validation remains authoritative. Support keyboard focus, labelled controls, step/error announcements and a mobile single-column layout. Multi-repository setup shares defaults, permits repository overrides and exposes partial failures without duplicate PRs.
 
@@ -156,12 +156,12 @@ Repository page shows latest source/indexed commits, age, size, token counts, la
 
 | Phase | Deliverables | Completion gate |
 | --- | --- | --- |
-| 1 — Contracts and access | Schema, repository ACLs, OAuth consent extension, permission probes, storage contract | Existing MCP grants cannot read source; cross-repository access tests pass |
-| 2 — Managed repository setup | AI Context navigation, Enable repositories wizard, Both/repository workflow templates, config, instruction sections, README badge, setup/upgrade PRs | Accessible mobile wizard; resumable setup and partial retries; idempotent setup preserves user files; Jiggered setup PR builds/publishes successfully |
-| 3 — Durable ingestion | Validated branch ingestion, push handling, reconciliation, freshness, quotas/retention | Restart-safe storage; incomplete/stale/racing publications handled; revocation blocks reads |
-| 4 — MCP and UI pilot | Compact tools, context browser, failures, token comparison | Authorised retrieval works in live Claude and ChatGPT where available; targeted and broad measurements reported |
-| 5 — Zoomies-only output | Actions OIDC exchange and scoped uploads | Valid workflow/repository/ref claims enforced; replay, expiry and wrong-destination uploads rejected |
-| 6 — Assistant artifacts | Separate publish permission, versioned reports/plans, safe rendering and MCP reference tools | Explicit uploads attributed; source/AI distinction and access/retention enforced |
+| 1: Contracts and access | Schema, repository ACLs, OAuth consent extension, permission probes, storage contract | Existing MCP grants cannot read source; cross-repository access tests pass |
+| 2: Managed repository setup | AI Context navigation, Enable repositories wizard, Both/repository workflow templates, config, instruction sections, README badge, setup/upgrade PRs | Accessible mobile wizard; resumable setup and partial retries; idempotent setup preserves user files; Jiggered setup PR builds/publishes successfully |
+| 3: Durable ingestion | Validated branch ingestion, push handling, reconciliation, freshness, quotas/retention | Restart-safe storage; incomplete/stale/racing publications handled; revocation blocks reads |
+| 4: MCP and UI pilot | Compact tools, context browser, failures, token comparison | Authorised retrieval works in live Claude and ChatGPT where available; targeted and broad measurements reported |
+| 5: Zoomies-only output | Actions OIDC exchange and scoped uploads | Valid workflow/repository/ref claims enforced; replay, expiry and wrong-destination uploads rejected |
+| 6: Assistant artifacts | Separate publish permission, versioned reports/plans, safe rendering and MCP reference tools | Explicit uploads attributed; source/AI distinction and access/retention enforced |
 
 Phases 1–4 form the first usable pilot. All three output destinations are the planned release scope, but Zoomies-only is unavailable until phase 5 passes. Phase 6 is a follow-on rather than a dependency for code-context use.
 

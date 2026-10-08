@@ -13,7 +13,7 @@ A self-hosted runner serves whatever GitHub registered it to. Registered to an
 organisation, it can take jobs from every repository there; registered to one
 repository, it takes that repository's jobs and no others. So the question of
 sharing runners across repositories is mostly a question of where they are
-registered — and Zoomies registers them wherever the GitHub App you connect is
+registered, and Zoomies registers them wherever the GitHub App you connect is
 installed.
 
 ## Where GitHub lets a runner be registered
@@ -30,8 +30,8 @@ registered repository by repository.
 
 ## One organisation, every repository
 
-Install the GitHub App on the organisation — the installer and the Connect
-GitHub dialog both offer it — and one pool can serve every repository there. A
+Install the GitHub App on the organisation (the installer and the Connect
+GitHub dialog both offer it) and one pool can serve every repository there. A
 workflow reaches it by the pool's label:
 
 ```yaml
@@ -39,7 +39,7 @@ runs-on: zoomies-linux-x64
 ```
 
 Give each pool one branded label and add pools as the work needs different
-shapes — a bigger machine, a GPU host, arm64 — rather than one pool per
+shapes (a bigger machine, a GPU host, arm64) rather than one pool per
 repository. Every pool also answers to `zoomies`, so `runs-on: zoomies` means
 "anywhere in this fleet", which suits a repository nobody has assigned a pool to
 yet. [The labels to give a pool](configuration.md#the-labels-to-give-a-pool) has
@@ -74,8 +74,8 @@ Within an organisation, **GitHub decides which runner gets a queued job**: it
 offers the job to any runner in scope whose labels match. A runner Zoomies
 started for one repository's job may be handed another repository's job from
 the same organisation instead, and nothing on Zoomies' side can prevent it.
-Ephemeral runners make that harmless for most fleets — each job still gets a
-fresh runner, destroyed afterwards — but it matters where repositories must not
+Ephemeral runners make that harmless for most fleets (each job still gets a
+fresh runner, destroyed afterwards) but it matters where repositories must not
 share machines or caches.
 
 | To keep apart | Use | How strong |
@@ -93,7 +93,7 @@ installation is only as private as the pool's labels. See
 
 The [migration wizard](migration.md) reads the workflows in every repository
 the App can see, maps GitHub's hosted runner labels to your pools, and opens one
-pull request per repository after showing you each diff — never more than
+pull request per repository after showing you each diff, never more than
 twenty-five at a time, and never onto a default branch directly. Jobs already
 on self-hosted runners are left alone; for those,
 [give a pool the label they already use](migration.md#coming-from-your-own-static-runners).

@@ -57,8 +57,8 @@
 
   {#if !canAdmin}
     <p class="note">
-      Some of these pages need a role above yours — users, MCP clients and the configuration need
-      the administrator role, and backups the platform one. You are signed in with the {roleLabel(
+      Some of these pages need a role above yours, users, MCP clients and the configuration need the
+      administrator role, and backups the platform one. You are signed in with the {roleLabel(
         session.role,
       )} role, so those pages are listed but not open to you.
     </p>

@@ -9,7 +9,7 @@ description: >-
 # Troubleshooting
 
 Zoomies is built so that most of what goes wrong says so itself. The problems
-drawer — the count in the UI's top bar opens it — `GET /api/v1/problems` and
+drawer (the count in the UI's top bar opens it) `GET /api/v1/problems` and
 `zoomies status` all render the same list, each entry with what is true, why it
 matters and what to change. Every one carries a code, and
 [Problem codes](problem-codes.md) is the full list.
@@ -39,7 +39,7 @@ the listener while that is set is an administrator, which is why the loopback
 bind is not optional here.
 
 **The encryption key is gone.** Pools, runners, jobs and the audit log are not
-encrypted, so the fleet's state survives — but the GitHub App's private key and
+encrypted, so the fleet's state survives, but the GitHub App's private key and
 every webhook secret were sealed with that key and cannot be recovered. Generate
 a new private key on the App's settings page on GitHub, then
 Installations → Connect GitHub → **Existing App**, and paste the
@@ -47,7 +47,7 @@ new PEM and a fresh webhook secret. A new key is written on the next start; back
 that one up.
 
 **The App handshake did not come back.** The App and its private key are
-recorded the moment GitHub hands them over, before you are asked to install it —
+recorded the moment GitHub hands them over, before you are asked to install it,
 so a browser that wandered off has cost you nothing. Open
 Installations → Connect GitHub again: the flow resumes where it stopped and asks
 only for the installation ID, and it takes the whole URL GitHub left you on if
@@ -60,7 +60,7 @@ encryption key and database. To start over instead, `zoomies uninstall` (or
 account and the data directory, and offers to deregister your runners from
 GitHub first.
 
-**No Docker or Podman on the host.** The native install works regardless — only
+**No Docker or Podman on the host.** The native install works regardless, only
 the compose and docker *deployments* need a runtime. For running jobs, the
 process backend executes workflow steps directly on the host as the agent's
 user, with no container isolation and nothing cleaned up between jobs beyond the
@@ -175,9 +175,9 @@ measurements of the whole host, including work outside Zoomies.
 
 A host can be under pressure while the room **held back for the machine** looks
 generous, and the two do not contradict each other. The reserve is what the
-scheduler will not promise away rather than a fence around the machine — the
+scheduler will not promise away rather than a fence around the machine (the
 room is kept free by placing less there, and nothing stops a job that runs away
-from taking it — and the memory reserve is itself the line pressure is judged
+from taking it) and the memory reserve is itself the line pressure is judged
 against: a host counts as overwhelmed when available memory falls *to* it, so
 holding more back means being throttled sooner rather than later. When the
 reason names the **load average** instead, look for work no quota binds: the
@@ -185,10 +185,10 @@ kernel counts a task waiting on disk towards the load average while it keeps a
 container that has spent its CPU quota off the run queue, so a host can sit at
 40% CPU with a load past twice its cores and a daemon too busy to answer a
 `create`. `docker_mode: dind` is the usual multiplier, since each of its slots
-is two containers — a typed pool gives both the same limits, and a pool sized
+is two containers; a typed pool gives both the same limits, and a pool sized
 by its host still splits one slot between them. Either way a slot too thin to
-give both a comfortable share — or, for a pool with a minimum, the minimum
-each — is refused the host outright, before it can
+give both a comfortable share (or, for a pool with a minimum, the minimum
+each) is refused the host outright, before it can
 produce this symptom at all; [`host.overprovisioned`](problem-codes.md) is the
 warning for a host that is still too finely sliced even where it is not.
 
@@ -203,15 +203,15 @@ sample freshness and the fallback when usage cannot be measured.
 A host card that says **Throttled** is a different thing from a hold, and
 waiting is only half the answer. A hold is one bad sample and releases on the
 next good one; a throttle means the host has been overwhelmed for long enough
-that the controller has stepped it down a rung — to three quarters, half or a
-quarter of its slots — and lowered the CPU quota of every runner on it that has
+that the controller has stepped it down a rung (to three quarters, half or a
+quarter of its slots) and lowered the CPU quota of every runner on it that has
 one, never below half. The card's sentence, and `zoomies hosts list`, say which
 measurement did it: CPU pinned at 95% with a runner no limit binds, a load
 average past twice the host's CPUs, or memory at the reserve. Running jobs
 continue, slower; nothing is failed. It lifts itself one rung after five
 minutes of calm, and a host that keeps climbing back up has too many slots
 for its machine or pools whose limits let a job take more than a slot's worth
-of it — `host.overprovisioned` says which, and the fix is the host's capacity
+of it, `host.overprovisioned` says which, and the fix is the host's capacity
 or the pool's `cpus` and `memory_mb`, not the throttle. Once the cause is
 fixed, **Lift the throttle** on the card, or
 `POST /api/v1/hosts/{id}/throttle/clear`, gives the slots back without waiting
@@ -222,7 +222,7 @@ log: `throttling N runners to P% of their CPU allocation` is the quota being
 lowered; `the controller throttled this host, but no runner here has a CPU
 limit to reduce; running jobs continue at full speed, and only the host's
 smaller effective capacity applies` means no runner there carries a recorded
-allocation — the pool set no limits and defaults are off or unsupported on
+allocation; the pool set no limits and defaults are off or unsupported on
 that host, the runners were created before allocations were recorded and are
 replaced by their pool's next ones, or the pool runs on the `process` backend,
 which has no container to hold a quota; and `could not change a runner's CPU
@@ -245,12 +245,12 @@ cleanup removes evidence. The
 [host metrics](metrics.md) report measurement freshness and admission holds;
 an unavailable reading is not evidence that the host is idle.
 
-## "CI is flaky" — is it, or is it us?
+## "CI is flaky": is it, or is it us?
 
 GitHub records a job whose runner died exactly as it records a job whose tests
 failed: `failure`. From GitHub's side the two are indistinguishable, which is
 how a fleet that is quietly killing jobs gets blamed on the workflows, or the
-other way round — and the two need completely different people.
+other way round, and the two need completely different people.
 
 Zoomies knows which it was, and says so in three places.
 
@@ -258,7 +258,7 @@ Zoomies knows which it was, and says so in three places.
 caused: a runner that stopped under a job, or one that never started for it.
 Everything left in **Failed** is the workflows' own. The "Failed at" column
 carries the category rather than a repeated "Runner lost", so a column read
-downwards says what is actually happening — six rows of `Out of memory` is a
+downwards says what is actually happening, six rows of `Out of memory` is a
 memory limit to raise.
 
 **On a job**, the outcome panel leads with the category, carries the runner's
@@ -289,18 +289,18 @@ The categories, and what each one means you should change:
 | `image` | The runner image could not be pulled or would not start. | Check the pool's image tag, and that the host can reach the registry. |
 | `registration` | GitHub would not register the runner, so it had nothing to attach to. | Check the App is still installed on the repository and still holds its runner permissions. |
 | `backend` | The container backend refused the work or did not answer. This is "cannot start the runner container". | Check the daemon on the host, and the socket the agent names on the host's page. |
-| `container_conflict` | The runner's container name is held by a container Zoomies would not touch — one whose ownership could not be verified, an active runner, a sidecar whose parent runner still exists, or another workload's altogether — or was taken again after Zoomies removed its own, or is reserved to nothing the daemon can show with no create of ours on record. | Read the message: it says which. Then check the container's managed, runner, pool and role labels, its parent workload and duplicate agents sharing the daemon. Active or unrelated containers are retained; do not remove them blindly. |
-| `backend_busy` | The daemon is there and did not answer in time — the host is carrying more work than it can keep up with, not a backend that is broken. | Lower the host's capacity or the pool's maximum runners, or give the pool CPU and memory limits so the daemon keeps a share of the machine. The host's throttle steps it down on its own while the pressure lasts. |
+| `container_conflict` | The runner's container name is held by a container Zoomies would not touch (one whose ownership could not be verified, an active runner, a sidecar whose parent runner still exists, or another workload's altogether) or was taken again after Zoomies removed its own, or is reserved to nothing the daemon can show with no create of ours on record. | Read the message: it says which. Then check the container's managed, runner, pool and role labels, its parent workload and duplicate agents sharing the daemon. Active or unrelated containers are retained; do not remove them blindly. |
+| `backend_busy` | The daemon is there and did not answer in time; the host is carrying more work than it can keep up with, not a backend that is broken. | Lower the host's capacity or the pool's maximum runners, or give the pool CPU and memory limits so the daemon keeps a share of the machine. The host's throttle steps it down on its own while the pressure lasts. |
 | `config` | The runner refused a setting it was given. | Read the runner's log for the setting it named. Every runner in that pool will do the same until it is changed. |
 | `runner_exited` | The runner stopped and nothing could narrow it further. | Read the runner's last output on its page. |
 
 A `backend_busy` create is not failed on the first timeout. The agent gives
-the daemon a few more tries first, waiting longer between each — stability
+the daemon a few more tries first, waiting longer between each, stability
 over performance for the one fault a retry can actually fix, because the
 daemon is there and only momentarily busier than it can answer, not down or
 refusing the work. Before the agent retries at all, the backend asks the daemon
-what became of the create it stopped waiting on — a daemon does not abandon a
-create because its client did — waits for it, and adopts the container if it
+what became of the create it stopped waiting on (a daemon does not abandon a
+create because its client did) waits for it, and adopts the container if it
 turns out to be ours and never started; a create the daemon still has not
 finished after that window fails as `backend_busy` too, never as a name
 conflict, so the same retries and the same steering apply
@@ -315,7 +315,7 @@ trying elsewhere would change the answer.
 ### The failure with no failed job behind it
 
 A runner that dies before it registers never reaches a job at all. The job
-stays queued, waits for the next runner, and waits again — so nothing is marked
+stays queued, waits for the next runner, and waits again, so nothing is marked
 failed, every count reads as a fleet that is merely busy, and a queue that has
 not moved in an hour looks exactly like a queue that is keeping up.
 
@@ -332,7 +332,7 @@ state produces.
 process, its effective configuration and the validator's findings, everything
 currently wrong, the fleet's installations, pools, hosts and runners, the work
 in flight with the controller's own explanation for each of it, and the recent
-scheduler decisions — one JSON file to attach to an issue.
+scheduler decisions, one JSON file to attach to an issue.
 
 Two things about it are worth knowing before you attach one.
 
@@ -344,7 +344,7 @@ the variable names and leaves every value empty, because a pool's environment
 is where a registry password ends up.
 
 It carries no workflow log. There is no redaction pass for log bodies and there
-cannot be a reliable one, because a log holds whatever a workflow printed — so
+cannot be a reliable one, because a log holds whatever a workflow printed, so
 the bundle names the runners whose logs are likely to matter and the route that
 fetches each one, and you attach the ones you have read.
 
@@ -364,7 +364,7 @@ whether it is yours to deal with.
 
 * **The runner's workload.** The agent deletes a finished runner's container
   once the controller has heard how it ended and the window an operator gets to
-  read its output — `agent.finished_retention`, default `0s` — has passed. A
+  read its output (`agent.finished_retention`, default `0s`) has passed. A
   docker-in-docker sidecar and its anonymous volumes go with it. GitHub job
   completion, including cancellation and failure, also triggers ephemeral
   runner removal. The controller recovers pending removals after a restart
@@ -390,7 +390,7 @@ whether it is yours to deal with.
 * **Container images.** Zoomies pulls images and never deletes one. A host that
   has run several pools accumulates them, and `docker image prune` is the
   answer; nothing here will do it behind your back.
-* **A job that is running.** No maximum job duration exists by design — a
+* **A job that is running.** No maximum job duration exists by design; a
   workflow's own `timeout-minutes` is the right place for that, and it is the
   one GitHub reports honestly.
 
@@ -404,8 +404,8 @@ problems panel. Common causes:
   on the host with `docker rm -f`, and look at why the daemon refused.
 * **A container Docker is still removing.** A `409` that says *removal of
   container … is already in progress* is Docker carrying out an earlier
-  removal it has not finished — a docker-in-docker sidecar can take minutes on
-  a busy host — and Docker finishes a removal it has started whether or not
+  removal it has not finished (a docker-in-docker sidecar can take minutes on
+  a busy host) and Docker finishes a removal it has started whether or not
   anyone is waiting. It is not a failure, and Zoomies no longer reports it as
   one: it waits for the removal for as long as the removal is allowed, asks
   again on later passes, and confirms it once the container has gone. Only a
@@ -461,11 +461,11 @@ built, so the next create under that name is answered with HTTP 409 even though
 nothing could be found to clean up. Zoomies treats the timeout as a question
 rather than a failure: it records the name as a create it gave up waiting on
 and asks the daemon once more. The daemon's own reply says what became of the
-first — a fresh container if it never landed, or a 409 naming the one it did
+first; a fresh container if it never landed, or a 409 naming the one it did
 create.
 
-A 409 whose occupant the daemon cannot yet show — an inspect by the ID the 409
-named, or by the name, finds nothing — is a create the daemon has not finished
+A 409 whose occupant the daemon cannot yet show (an inspect by the ID the 409
+named, or by the name, finds nothing) is a create the daemon has not finished
 registering. When it is a create Zoomies itself gave up waiting on, it waits
 for it with backoff for up to three minutes, counted from the moment it stopped
 waiting rather than from each attempt, so the agent's own retries share one
@@ -480,11 +480,11 @@ Once the occupant can be inspected, its labels decide. Only a container whose
 managed, runner, pool, role and name labels match the request is Zoomies' to
 act on, and removal always uses the inspected container ID, never a name that
 another container could acquire. A container that is ours, was never started
-and matches what this create would have built — the same image, and for a
-runner the same sidecar binding — is adopted and started as though the create
+and matches what this create would have built (the same image, and for a
+runner the same sidecar binding) is adopted and started as though the create
 had succeeded first time; the agent's log says so. One that is ours but does
-not match — a different image, a runner bound to a sidecar that has since gone,
-a runner that has already exited — is removed and the create tried again under
+not match (a different image, a runner bound to a sidecar that has since gone,
+a runner that has already exited) is removed and the create tried again under
 the same name. Removing a container does not free its name at once: the daemon
 releases it only when the container's last layer has gone, seconds rather than
 milliseconds for a privileged DinD sidecar on a busy host, so creation is
@@ -492,9 +492,9 @@ retried with backoff for up to twenty seconds. Three removals of our own
 container that each find the name taken again stop recovery, because something
 else is creating containers with this runner's name.
 
-A container Zoomies would not touch — one whose ownership could not be
+A container Zoomies would not touch (one whose ownership could not be
 verified, a runner that may still be active, a sidecar whose parent runner
-still exists, or another workload's altogether — stops recovery at once with a
+still exists, or another workload's altogether) stops recovery at once with a
 **Container name conflict** finding, because waiting on somebody else's
 workload only delays what an operator has to act on. When it is the budget that
 runs out, whose create it was decides the kind. A name still reserved to a

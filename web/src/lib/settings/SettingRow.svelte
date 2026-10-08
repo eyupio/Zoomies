@@ -386,7 +386,7 @@
             -->
             {#if finding.undo && finding.source === 'database'}
               <p class="finding-detail">
-                Stored here. If it ever stops the controller starting, this page will not load — run <code
+                Stored here. If it ever stops the controller starting, this page will not load, run <code
                   >{finding.undo}</code
                 > against the stopped controller.
               </p>

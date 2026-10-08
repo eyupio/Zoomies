@@ -109,13 +109,13 @@ code path.
 ## Can jobs build container images?
 
 Yes, with one setting on the pool: `docker_mode: dind` gives each of its runners
-a private Docker daemon. The stock runner image has no Docker CLI on purpose —
-most pools never build an image, and the client is cold-start time they would
-pay for nothing — so a pool that asks for a daemon is switched to
+a private Docker daemon. The stock runner image has no Docker CLI on purpose
+(most pools never build an image, and the client is cold-start time they would
+pay for nothing) so a pool that asks for a daemon is switched to
 `ghcr.io/eyupio/zoomies-runner-docker`, the same image plus a client, as it is
 saved, under whichever tag it was on. An image of your own is left alone and has
 to carry `docker` itself, as is a digest or a tag from a build that may never
-have published the variant — and a pool left on one of those says so, with
+have published the variant, and a pool left on one of those says so, with
 `pool.docker_client_missing`, rather than failing its jobs one at a time. See
 [Jobs that build container
 images](configuration.md#jobs-that-build-container-images), and
@@ -127,8 +127,8 @@ job Docker compare.
 Linux on x86-64 and arm64 is what the controller, the agents and the runner
 images are built for, and the reference configuration is Linux amd64. macOS
 works for running a controller in development. A Windows host can join as an
-agent and run jobs with the `process` backend — actions/runner's own Windows
-build, as a process on the machine, with no container — which is new in 1.0
+agent and run jobs with the `process` backend (actions/runner's own Windows
+build, as a process on the machine, with no container) which is new in 1.0
 and [not yet qualified](index.md#what-is-qualified): it is built and
 unit-tested, and the first test that runs on a real Windows host is what moves
 it. The [runner image catalogue](naming.md#the-runner-image) is the list of
@@ -164,8 +164,8 @@ anything, and only touching the jobs it is sure about. See
 
 ## Does a runner get the whole machine, or a fixed slice of it?
 
-Neither, by default: it gets a guaranteed share — the host's allocatable CPU
-and memory divided by its slot count, applied as a real cgroup limit — and, on
+Neither, by default: it gets a guaranteed share (the host's allocatable CPU
+and memory divided by its slot count, applied as a real cgroup limit) and, on
 a pool with [elastic CPU zoomies](elastic-cpu.md) switched on, a busy runner is
 lent the CPU the rest of the host is not using on top of that. The guarantee is
 never reduced by another runner, one queued job's worth of CPU is held back

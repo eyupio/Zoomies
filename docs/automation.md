@@ -9,9 +9,9 @@ description: >-
 # Automation contract
 
 Zoomies can be installed, claimed, watched, backed up and retired with no
-person at the UI. This page lists what a tool doing that — a
+person at the UI. This page lists what a tool doing that (a
 configuration-management module, an installer, an operator running many
-installations from one script — may rely on. It is **proposed** in
+installations from one script) may rely on. It is **proposed** in
 [decision 0005](https://github.com/eyupio/zoomies/blob/main/roadmap/decisions/0005-a-stable-automation-contract.md)
 and not yet a promise; until it is accepted, treat it as the list the promise
 will cover.
@@ -21,8 +21,8 @@ will cover.
 Within a major version, everything listed here keeps its path, method,
 required role and every documented field and meaning. New optional fields
 and new routes may appear; ignore fields you do not know. A listed item is
-changed incompatibly or removed only after it has been marked deprecated —
-in the release notes, on this page and, for a route, in `api/openapi.yaml` —
+changed incompatibly or removed only after it has been marked deprecated
+(in the release notes, on this page and, for a route, in `api/openapi.yaml`)
 for at least one minor release and ninety days, whichever is longer, with its
 replacement already shipped. Anything not on this page carries no such
 promise. Every route is described in full in the [API reference](api-surface.md).

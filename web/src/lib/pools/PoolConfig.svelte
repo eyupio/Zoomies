@@ -143,7 +143,7 @@
   {#if pool.no_default_labels === true}
     <div class="pair">
       <dt>Default labels</dt>
-      <dd>Left out — runners advertise only this pool’s labels</dd>
+      <dd>Left out, runners advertise only this pool’s labels</dd>
     </div>
   {/if}
 
@@ -242,8 +242,8 @@
           Its runner and its Docker daemon share that size, so a slot here is one runner like
           anywhere else.{/if}
       {:else if automatic}
-        Each runner is given one slot's share of the machine it lands on — the same share the fleet
-        charges its host — so this pool is sized correctly on every host, and follows one that is
+        Each runner is given one slot's share of the machine it lands on, the same share the fleet
+        charges its host, so this pool is sized correctly on every host, and follows one that is
         resized. {#if dind}
           Its runner and its Docker daemon share that slot, so a slot here is one runner like
           anywhere else. {#if daemonCpu !== 50 || daemonMemory !== 50}

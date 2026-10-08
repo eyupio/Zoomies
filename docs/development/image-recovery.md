@@ -10,7 +10,7 @@ description: >-
 A multi-platform tag on GHCR is an index. The `linux/amd64` and `linux/arm64`
 manifests it lists, and the attestation manifests beside them, are separate
 package versions with no tag of their own. If one of them is deleted, the tag
-still resolves — `docker manifest inspect` answers — but `docker pull` fails
+still resolves, `docker manifest inspect` answers, but `docker pull` fails
 with `manifest unknown`.
 
 That is what the daily `cleanup-packages.yml` run did while it used

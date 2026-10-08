@@ -9,7 +9,7 @@ description: >-
 # Zoomies security
 
 This document says what Zoomies protects, what it does not, and what every
-dangerous setting actually costs you. Nothing here is hypothetical — each toggle
+dangerous setting actually costs you. Nothing here is hypothetical; each toggle
 below is a real setting, and each one produces a named warning at startup and in
 the UI's problems drawer when it is on.
 
@@ -18,19 +18,19 @@ the UI's problems drawer when it is on.
 ## 1. The fundamental problem
 
 **A self-hosted runner executes code from your repositories.** Anyone who can
-cause a workflow to run — which, on a public repository, is anyone who can open
-a pull request — can execute arbitrary code inside your runner.
+cause a workflow to run (which, on a public repository, is anyone who can open
+a pull request) can execute arbitrary code inside your runner.
 
 GitHub's own guidance is blunt about this: do not use self-hosted runners with
 public repositories. Zoomies does not change that. What it does is make the
 blast radius of each execution as small as it can reasonably be:
 
 * one job per runner, then the container is destroyed (ephemeral by default);
-* no long-lived credential on the runner — a JIT registration is single-use;
+* no long-lived credential on the runner: a JIT registration is single-use;
 * no Docker daemon reachable from the job unless you explicitly ask for one;
 * a non-root user inside the container;
 * capabilities dropped to a build-shaped minimum. The user keeps passwordless
-  `sudo` — a great many workflows assume it, matching a GitHub-hosted runner —
+  `sudo` (a great many workflows assume it, matching a GitHub-hosted runner)
   but `sudo` only ever regains that same minimum, never full root.
 
 ## 2. Threat model
@@ -74,7 +74,7 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 | --- | --- |
 | A malicious job tries to read another job's secrets or source | Ephemeral runners: the container that ran the previous job no longer exists |
 | A malicious job tries to reach the host | Container isolation, non-root user, dropped capabilities, no `docker.sock` by default |
-| A malicious job steals the runner registration credential and registers its own runner | JIT configurations are single-use and expire; there is no reusable PAT on the host. The entrypoint also unsets both the JIT configuration and the registration token before it starts `run.sh`, so neither is in the environment a workflow step inherits — which matters most on a pool with `ephemeral: false`, where the credential is an organisation-scoped registration token good for an hour rather than a single-use one |
+| A malicious job steals the runner registration credential and registers its own runner | JIT configurations are single-use and expire; there is no reusable PAT on the host. The entrypoint also unsets both the JIT configuration and the registration token before it starts `run.sh`, so neither is in the environment a workflow step inherits, which matters most on a pool with `ephemeral: false`, where the credential is an organisation-scoped registration token good for an hour rather than a single-use one |
 | Someone forges a webhook to make Zoomies create runners | HMAC-SHA256 signature verification on every delivery, constant-time comparison |
 | Someone reaches the controller's API | Authentication required by default; the listener binds to loopback unless told otherwise |
 | Someone reaches a freshly deployed controller before its owner does | The first-run endpoint needs the setup token printed in the controller's log, not merely an empty database |
@@ -84,10 +84,10 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 | A stolen API token | Tokens are stored as SHA-256 hashes, scoped by role, optionally expiring, individually revocable |
 | Someone reads the database file or a backup | GitHub App private keys, webhook secrets and OIDC client secrets are AES-256-GCM sealed with a key held outside the database |
 | An operator does something destructive | Every mutating action writes an audit row with actor, target, and a before/after diff with secrets redacted |
-| A coding agent connected over MCP is steered by text a workflow wrote — a log line, a step or branch name | The agent gets the token's authority and nothing more; its tools return a log in a separate block marked untrusted, and the server tells the model at connection that workflow-written text is data, not instructions. The fleet-changing tools are offered only to a token whose role reaches them, and `drain_runner` never confirms a busy runner's drain, so the worst an agent can be talked into is re-running a failed job, retiring an idle runner, or resizing a pool or host — which `update_pool` and `update_host` do by named field only, and `apply_remedy` does only for a change the controller itself is proposing, never with `confirm` (the controller still refuses a change that leaves a pool with nowhere to run) and never to a capacity of zero, and every call is an audit row under the token's name. The administrator tools (`edit_host`, `clear_host_throttle`, `get_settings`, `update_settings`) are a separate step: they are offered only to an administrator's token and only while an administrator has turned on `security.mcp_admin_tools`, and `update_settings` refuses every key outside the scheduling, retention, limits and display tuning ones, among them `updates.mode` and `updates.soak`, so a connected assistant can never be the one that turns on unattended updating |
+| A coding agent connected over MCP is steered by text a workflow wrote; a log line, a step or branch name | The agent gets the token's authority and nothing more; its tools return a log in a separate block marked untrusted, and the server tells the model at connection that workflow-written text is data, not instructions. The fleet-changing tools are offered only to a token whose role reaches them, and `drain_runner` never confirms a busy runner's drain, so the worst an agent can be talked into is re-running a failed job, retiring an idle runner, or resizing a pool or host, which `update_pool` and `update_host` do by named field only, and `apply_remedy` does only for a change the controller itself is proposing, never with `confirm` (the controller still refuses a change that leaves a pool with nowhere to run) and never to a capacity of zero, and every call is an audit row under the token's name. The administrator tools (`edit_host`, `clear_host_throttle`, `get_settings`, `update_settings`) are a separate step: they are offered only to an administrator's token and only while an administrator has turned on `security.mcp_admin_tools`, and `update_settings` refuses every key outside the scheduling, retention, limits and display tuning ones, among them `updates.mode` and `updates.soak`, so a connected assistant can never be the one that turns on unattended updating |
 | The controller edits its own fleet (`security.auto_apply_remedies`) | Shadow by default, which records what it would change and changes nothing; `on` makes the changes. Changeable only by an administrator at the Settings page: `update_settings` over MCP refuses it, as it refuses every `security.` key. When on, it applies only the change a problem is proposing now, by asking `POST /problems/apply` as an operator-level `zoomies autopilot` identity, so the route's role check, its refusal of a change that leaves a pool with nowhere to run, and its audit row all apply. A proposal must stand unchanged for two hours first, a pool or host is changed at most once a day, one change is made per pass, and an undone proposal is never made again. Each change is audited as `problem.remedy_auto_applied` with the values it replaced, listed under Problems, and undone with `POST /problems/auto-applied/{id}/undo` unless the target was edited since. A sidecar memory share it changed is taken back by the controller itself, as `problem.remedy_undone`, if a job in the pool is killed for memory within a week of it (never over an edit) |
 | A page the operator visits drives the MCP endpoint with the operator's own session | `/mcp` takes a bearer token only and refuses the session cookie, and answers a foreign `Origin` with a 403 |
-| An OAuth code or token for `/mcp` is intercepted, replayed or sent to the wrong place | Codes go only to a redirect the client registered, work once, for five minutes, and need the PKCE verifier; a replayed code or refresh token revokes the connection; access tokens last an hour, are bound to `/mcp`'s address and are refused everywhere else — see [OAuth for MCP](#oauth-for-mcp) |
+| An OAuth code or token for `/mcp` is intercepted, replayed or sent to the wrong place | Codes go only to a redirect the client registered, work once, for five minutes, and need the PKCE verifier; a replayed code or refresh token revokes the connection; access tokens last an hour, are bound to `/mcp`'s address and are refused everywhere else, see [OAuth for MCP](#oauth-for-mcp) |
 | A compromised agent | Agents can only claim tasks and report on their own runners; they cannot read pools, jobs, users or the audit log |
 
 ### Out of scope
@@ -99,8 +99,8 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
   team's fleet. Pools are not a security boundary between tenants.
 * **Compromise of the GitHub App itself.** If the App's private key leaks, the
   attacker can register runners against your org. An App that was created with
-  the [migration wizard's](migration.md) permissions — which it asks for only
-  when you say you want the wizard — could also commit to a branch and open a
+  the [migration wizard's](migration.md) permissions (which it asks for only
+  when you say you want the wizard) could also commit to a branch and open a
   pull request on the repositories it is installed on. It cannot merge one.
   Rotate the key in GitHub and re-enter it in Zoomies; an App that has those
   three permissions and will never migrate anything can drop them on its
@@ -136,14 +136,14 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
 32 bytes, base64 or hex, supplied by one of:
 
 1. `ZOOMIES_ENCRYPTION_KEY` (preferred for containers)
-2. `security.encryption_key_file` — a `0600` file; Zoomies refuses to read a key
+2. `security.encryption_key_file`: a `0600` file; Zoomies refuses to read a key
    file that is group- or world-readable
-3. `security.encryption_key` in `zoomies.yaml` — **warned about**, because
+3. `security.encryption_key` in `zoomies.yaml`: **warned about**, because
    anything that can read your config (backups, configuration management, a
    support bundle) can then decrypt every stored secret
 
 **Back this key up.** Losing it means re-entering the GitHub App private key, the
-webhook secret, and any credential held as a setting — the single sign-on client
+webhook secret, and any credential held as a setting; the single sign-on client
 secret, the registry credential, the capacity-demand signing secret. It does not
 mean losing the fleet's state: pools, runners, jobs, the audit log and every
 setting that is not a credential are not encrypted.
@@ -162,7 +162,7 @@ anything.
 
 The provider credential stays on the controller. It is sealed in
 `providers.credentials_enc`, unsealed only inside the call that builds one API
-client, and there is no code path that copies it into a guest — the type that
+client, and there is no code path that copies it into a guest; the type that
 describes what goes into a machine has no field it could travel in, and a test
 plants a recognisable token in the provider row and scans every byte of every
 bootstrap payload for it.
@@ -183,7 +183,7 @@ why each one is there.
 `zoomies export --installation` is the one path by which a GitHub App's private
 key leaves the instance. It leaves only when the exporter gives a passphrase,
 sealed under a key derived from it with argon2id, and never as the
-instance-sealed column — a copy of that ciphertext would outlive a purge and be
+instance-sealed column; a copy of that ciphertext would outlive a purge and be
 one leaked instance key away from readable. The export is admin-only
 (`installations.export`) and audited, the archive is written mode 0600, and the
 import seals the key again under the receiving instance's own key before it
@@ -194,16 +194,16 @@ and keep the passphrase somewhere else.
 
 Running the enrolment command on a machine hands Zoomies a small, fixed part
 of it, and nothing else. The agent does not upgrade packages, change a
-firewall, reboot, open a port or accept a connection — it only ever dials out
+firewall, reboot, open a port or accept a connection; it only ever dials out
 to the controller. This is the whole list, as the code does it:
 
 | What | Where | What the agent does with it |
 | --- | --- | --- |
 | Its service and user | The `zoomies-agent` service (a systemd unit on Linux), running as the `zoomies` system user when the command runs as root, otherwise as the user who ran it | Created by `zoomies agent join`, removed by `zoomies uninstall`. The unit is sandboxed: `NoNewPrivileges`, `ProtectSystem=strict`, and write access to its state directory only. Where the container socket belongs to a group, the service joins that group rather than running as root. |
-| `agent.work_dir` | `work/` under its state directory — `/var/lib/zoomies/work` for a root install | Its credentials (`agent.json`, mode `0600`) and the runners' working directories. |
+| `agent.work_dir` | `work/` under its state directory, `/var/lib/zoomies/work` for a root install | Its credentials (`agent.json`, mode `0600`) and the runners' working directories. |
 | Containers carrying its labels | Every container it creates is labelled `io.zoomies.managed=true`, with its runner and pool | It lists, reaps and removes only containers with that label; a container without it is never touched. Removing one also removes that container's anonymous volumes. |
-| Its per-pool cache | A named volume `zoomies-cache-<identity>`, or a directory `<source>/<identity>` when a pool's cache source is an absolute path — with scope, immutable pool ID and repository hashed into the versioned identity | A cache directory with a size limit is trimmed back under it, oldest entries first, before a runner starts. A named cache volume is never deleted. |
-| Its kept tool cache | A directory `cache/tools/<identity>/image-<digest>` in the host's shared folder, `/var/lib/zoomies/shared` — separated by cache scope and resolved runner image — when the pool sets `cache.tools` | Never trimmed or deleted by Zoomies; it is a cache, so emptying it costs the next job its downloads and nothing else. Created writable by every account, under a shared folder only Zoomies' own account can enter. After a toolchain scan Zoomies fills it too, in a container of the pool's image as its runner user, from each toolchain's publisher — nodejs.org, go.dev, Adoptium and GitHub's `actions/python-versions` — with the publisher's checksum checked where it lists one. Runners get it read-only, beside a folder of their own in `cache/tool-runs/<runner>` that is removed with the runner, so a job cannot change what the next job runs. |
+| Its per-pool cache | A named volume `zoomies-cache-<identity>`, or a directory `<source>/<identity>` when a pool's cache source is an absolute path, with scope, immutable pool ID and repository hashed into the versioned identity | A cache directory with a size limit is trimmed back under it, oldest entries first, before a runner starts. A named cache volume is never deleted. |
+| Its kept tool cache | A directory `cache/tools/<identity>/image-<digest>` in the host's shared folder, `/var/lib/zoomies/shared` (separated by cache scope and resolved runner image) when the pool sets `cache.tools` | Never trimmed or deleted by Zoomies; it is a cache, so emptying it costs the next job its downloads and nothing else. Created writable by every account, under a shared folder only Zoomies' own account can enter. After a toolchain scan Zoomies fills it too, in a container of the pool's image as its runner user, from each toolchain's publisher (nodejs.org, go.dev, Adoptium and GitHub's `actions/python-versions`) with the publisher's checksum checked where it lists one. Runners get it read-only, beside a folder of their own in `cache/tool-runs/<runner>` that is removed with the runner, so a job cannot change what the next job runs. |
 | The Docker builder cache | The Docker daemon the agent uses | See below. |
 
 It never removes an image, a volume it did not create with a container, or a
@@ -214,7 +214,7 @@ that ever widens.
 `docker` backend, the agent asks the daemon every five minutes, and at start,
 to prune **unused** builder cache down to `agent.docker_build_cache_mb`
 (default `0`, disabled). Docker never prunes cache that a build in progress is
-using, and the prune is bounded by that target — but it is daemon-wide: on a
+using, and the prune is bounded by that target, but it is daemon-wide: on a
 daemon something else also builds with, the cache it trims is partly somebody
 else's. On a shared daemon, set `agent.docker_build_cache_mb: 0` (or
 `ZOOMIES_AGENT_DOCKER_BUILD_CACHE_MB=0`) and the agent prunes nothing. Podman
@@ -233,7 +233,7 @@ says so when it does, and a daemon that already applies limits is left alone.
 
 ### Identities
 
-* **Local users** — argon2id passwords. The first account is created by
+* **Local users**: argon2id passwords. The first account is created by
   `zoomies init` on the console, or by the one-time bootstrap endpoint, which
   refuses to run once any user exists **and** requires the setup token the
   controller prints in its log while the instance is empty. "No account exists
@@ -246,16 +246,16 @@ says so when it does, and a daemon that already applies limits is left alone.
   at startup on an empty database. Whoever sets a process's environment already
   operates it, so that path needs no token; the files must not be readable by
   group or other, a supplied token is stored only as its hash, and once any
-  account exists the variables are ignored — they can never add a platform
-  account to an instance somebody has claimed — and `bootstrap.ignored` says
+  account exists the variables are ignored (they can never add a platform
+  account to an instance somebody has claimed) and `bootstrap.ignored` says
   so until they are removed. Every path writes an `auth.bootstrap` audit row
   naming how the account was made.
-* **OIDC users** — optional. Linked by `sub`, and by username only for an
+* **OIDC users**: optional. Linked by `sub`, and by username only for an
   account that has no local password: adopting one that does would let whoever
   holds that username at the identity provider take over the local account, so
   it takes `oidc.link_by_username`. An `email` claim is used as a username only
   when the provider says `email_verified`.
-* **API tokens** — `zoo_<prefix>_<secret>`, sent as `Authorization: Bearer`.
+* **API tokens**: `zoo_<prefix>_<secret>`, sent as `Authorization: Bearer`.
   Carry a role and optionally a narrower scope list. A token can mint tokens,
   but never one wider than itself: the role is capped at the caller's, a
   scoped token can only mint within its scopes, and the result belongs to the
@@ -267,27 +267,27 @@ says so when it does, and a daemon that already applies limits is left alone.
   never carries more than its owner's current role: demoting an account
   demotes the tokens it holds, as it does its MCP connections. The same tokens
   open `/mcp`, the endpoint a coding agent connects to; see below.
-* **MCP connections** — `zoomcp_` access tokens from the OAuth flow a client
+* **MCP connections**: `zoomcp_` access tokens from the OAuth flow a client
   such as Claude runs against `/mcp`, when `security.mcp_oauth` is on. They
   are accepted on `/mcp` and nowhere else; see
   [OAuth for MCP](#oauth-for-mcp) below.
-* **Agents** — a separate credential class that can only reach `/api/v1/agent/*`,
+* **Agents**: a separate credential class that can only reach `/api/v1/agent/*`,
   and only for their own host: an agent may report on its own runners and write
   into its own log relay, and gets the same "no such stream" answer for anybody
   else's. A join token enrols a machine; it does not let that machine take over
   an existing host by claiming its name, which needs the agent token the
   previous registration was issued. Labels pinned by the join token win over
   labels the agent declares for itself, because host labels are what decide
-  which pools' work — and which pools' runner registrations — a host is offered.
+  which pools' work, and which pools' runner registrations, a host is offered.
 
 ### Roles
 
 | Role | May |
 | --- | --- |
-| **viewer** | Read pools, runners, jobs, hosts, the audit log and metrics. Never sees a secret value — including a pool's `env`, where a registry or proxy credential ends up: a viewer is sent the variable names with empty values, on the API and on the event stream alike. |
+| **viewer** | Read pools, runners, jobs, hosts, the audit log and metrics. Never sees a secret value, including a pool's `env`, where a registry or proxy credential ends up: a viewer is sent the variable names with empty values, on the API and on the event stream alike. |
 | **operator** | Everything a viewer may, plus act on the fleet: create and edit pools, drain/delete/restart runners, cordon hosts, and ask a host's agent to run its read-only OS checks once (scope `hosts:check`). A viewer never can: the check spends the host's CPU and starts a few dozen processes there. |
 | **admin** | Everything an operator may, plus manage users, API tokens, installations, join tokens and settings, and take a support bundle. |
-| **platform** | Everything an administrator may, plus the two things that belong to whoever runs the process rather than the fleet: lifting the recovery fence, and taking, downloading and restoring backups. A backup is the whole database — every account's password hash and every sealed credential, under the key this host holds — so `backups:read` on a token is the instance, not merely the fleet. The role exists for the instance where one team runs the controller and another uses it; where one team does both, the account that installed it holds this role and nothing looks any different. |
+| **platform** | Everything an administrator may, plus the two things that belong to whoever runs the process rather than the fleet: lifting the recovery fence, and taking, downloading and restoring backups. A backup is the whole database (every account's password hash and every sealed credential, under the key this host holds) so `backups:read` on a token is the instance, not merely the fleet. The role exists for the instance where one team runs the controller and another uses it; where one team does both, the account that installed it holds this role and nothing looks any different. |
 
 Reading repository source through [AI Context](ai-context.md) is not part of
 any role. It needs explicit membership of the repository and, for an MCP
@@ -306,12 +306,12 @@ else: no line of it is stored or shown, because what a run prints is written by
 whatever the run executed.
 
 The mapping from every individual API action to its minimum role is a table in
-`internal/auth/rbac.go`, and a test walks the full action list — so a new
+`internal/auth/rbac.go`, and a test walks the full action list, so a new
 endpoint cannot be added without deciding who may call it.
 
 The API refuses to remove or demote the last enabled admin. Nobody may grant a
 role above their own, or change, disable, delete or reset the password of an
-account that outranks them — so an administrator cannot make a platform
+account that outranks them, so an administrator cannot make a platform
 account, or become one.
 
 ### How one request is authorised
@@ -338,8 +338,8 @@ cannot fill an audit log that is never pruned; the rest are counted in the
 controller's debug log.
 
 A coding agent's request to `/mcp` is authorised the same way, one tool call
-at a time. The endpoint resolves the bearer token as any route does — and
-only a bearer token: a session cookie is refused there — and then hands each
+at a time. The endpoint resolves the bearer token as any route does (and
+only a bearer token: a session cookie is refused there) and then hands each
 tool call back to the router as the documented route it names, carrying that
 token. So the call meets the same role check, the same scopes, the same audit
 row and the same access-log line it would have met from the CLI, and a tool
@@ -349,8 +349,8 @@ role reaches `POST /jobs/{id}/rerun`, `POST /runners/{id}/drain`, `PATCH /pools/
 
 ### OAuth for MCP
 
-With `security.mcp_oauth` on — the default where authentication is on and the
-controller is reached over https — the controller is its own OAuth 2.1
+With `security.mcp_oauth` on (the default where authentication is on and the
+controller is reached over https) the controller is its own OAuth 2.1
 authorisation server for `/mcp`, following the
 [MCP authorization specification](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization),
 so Claude can be added by URL and sign somebody in through the browser. What
@@ -365,7 +365,7 @@ that adds, and what it is built not to add:
 * **The token works on `/mcp` alone.** An MCP access token presented to the
   REST API is refused with a sentence saying so. The person approved an agent's
   tools, not a general credential; `/mcp` reaches the routes it needs in
-  process, as the connection, and never passes the token on — which the
+  process, as the connection, and never passes the token on, which the
   specification forbids a resource server to do. The token is bound to its
   audience, `<external URL>/mcp`: one issued for another address is refused.
 * **Nothing is stored in the clear.** Codes, access tokens, refresh tokens and
@@ -376,22 +376,22 @@ that adds, and what it is built not to add:
   token again revokes the whole connection, since only a copy explains it, and
   is audited as `mcp_connection.replay`.
 * **Redirects are exact.** A code is only ever sent to a redirect URI the client
-  registered — https, or http to loopback, where the port is allowed to differ
+  registered, https, or http to loopback, where the port is allowed to differ
   as RFC 8252 asks. A client or redirect that cannot be trusted is refused on
   the controller's own page and never followed.
 * **Registration is open, access is not.** A client may register itself or name
   itself by a client ID metadata document, and gets nothing until a person signs
   in and approves it. A client that registers again describing itself exactly as
-  before — the same name, client URI and redirects — is handed the registration
+  before (the same name, client URI and redirects) is handed the registration
   it already has rather than a new one. New registrations are limited to a
-  hundred an hour per address — a client named by a metadata document is not
-  counted against that — and a client that never completes a sign-in,
+  hundred an hour per address (a client named by a metadata document is not
+  counted against that) and a client that never completes a sign-in,
   self-registered or named by a document, is removed after a day. A revoked one
-  is kept, so the revocation holds. The document fetch is fenced — https, no
+  is kept, so the revocation holds. The document fetch is fenced (https, no
   redirects, public addresses only
-  unless `security.allow_private_egress` is on, five seconds, five kilobytes —
+  unless `security.allow_private_egress` is on, five seconds, five kilobytes)
   and the addresses it refuses are judged after resolution by the same ranges as
-  every other outbound URL, NAT64 and 6to4 spellings of a private address included —
+  every other outbound URL, NAT64 and 6to4 spellings of a private address included,
   because it is a request this process makes on an unauthenticated caller's
   say-so. `security.mcp_open_registration: false` closes both, leaving only the
   clients an administrator creates, which may be confidential and carry a secret.
@@ -400,8 +400,8 @@ that adds, and what it is built not to add:
   `mcp_connection.deny`, `mcp_connection.revoke`, `mcp_connection.replay`,
   `mcp_connection.revoke_all` when a password change, an administrator's
   password reset or **Sign out other sessions** ends every connection an
-  account holds — a connection outlives any session, and whoever does either
-  suspects a credential of theirs is loose — and
+  account holds (a connection outlives any session, and whoever does either
+  suspects a credential of theirs is loose) and
   `mcp_connection.call` for every tool call that changed or tried to change the
   fleet. The route the call reached writes its own row as well, with the
   connection as the actor.
@@ -427,7 +427,7 @@ per account, so a pool of addresses does not buy an unbounded budget against one
 person. An unknown username runs the argon2 KDF anyway, so response timing does
 not enumerate accounts either. Nor does the answer: "this account is disabled"
 is only said to somebody who has already given the right password, and an
-SSO-only account — which has no password to prove anything with — is refused
+SSO-only account (which has no password to prove anything with) is refused
 exactly as an unknown username is. The reason is in the log and the audit trail
 for whoever is diagnosing it.
 
@@ -443,14 +443,14 @@ themselves cannot be replayed into somebody else's browser.
 ### Two-step verification
 
 A local account can add a second step to its sign-in: a six-digit code from an
-authenticator app (RFC 6238 — SHA-1, six digits, thirty seconds, the default
+authenticator app (RFC 6238, SHA-1, six digits, thirty seconds, the default
 every app implements). It is off until the account's owner turns it on from
 **Settings → Account**, and an administrator can require it of every password
 account with `security.require_two_step`. [Two-step verification](two-step.md)
 is the walkthrough; this is what it protects and what it costs.
 
-**What it protects.** A password that has leaked — reused elsewhere, phished,
-read over a shoulder — is no longer enough to sign in. The code is good for its
+**What it protects.** A password that has leaked (reused elsewhere, phished,
+read over a shoulder) is no longer enough to sign in. The code is good for its
 thirty-second step and one either side, and only **once**: the step each
 accepted code belongs to is recorded, and a code for that step or an earlier
 one is refused, so a code relayed by a phishing page or seen on a screen is
@@ -462,8 +462,8 @@ the key file does not yield it. The QR code is drawn on the controller as SVG,
 so the key never passes through a third-party script or image service.
 
 **The sign-in.** After a right password the controller answers `202` and sets
-a pending-sign-in cookie — `HttpOnly`, `SameSite=Strict`, scoped to
-`/api/v1/auth` — instead of a session. It lasts five minutes, is bound to the
+a pending-sign-in cookie (`HttpOnly`, `SameSite=Strict`, scoped to
+`/api/v1/auth`) instead of a session. It lasts five minutes, is bound to the
 browser that typed the password, is not a session anywhere else, and ends after
 five wrong codes, after which the password has to be typed again. Every code
 attempt is charged to the same per-address and per-account limits as a password
@@ -472,8 +472,8 @@ attempt, so the code is no cheaper to guess than the password in front of it.
 **Recovery codes.** Turning it on shows ten single-use recovery codes, once.
 Only their SHA-256 hashes are stored. Any one of them stands in for the app at
 sign-in, or when turning two-step off, and is spent by it; the account page says
-how many are left, and issuing a new set — which takes the password and a current
-code — voids the old one.
+how many are left, and issuing a new set (which takes the password and a current
+code) voids the old one.
 
 **Turning it off** takes the current password and a current code, so a stolen
 session cookie cannot remove the second factor from the account it stole.
@@ -485,7 +485,7 @@ codes asks an administrator, who resets it from the account's row on
 **Settings → Users**, or with `zoomies users reset-two-step <user-id>` and an
 admin API token. The key and codes are removed, the account's sessions end, and
 the reset is recorded as `user.two_step_reset`, naming who did it. The owner
-then signs in with their password alone — or, where two-step is required, sets
+then signs in with their password alone, or, where two-step is required, sets
 it up again at that sign-in. Check who is asking before you reset: a reset is
 exactly what somebody holding only a stolen password would ask for. If the only
 administrator has lost theirs and holds no API token, stop the controller and
@@ -496,10 +496,10 @@ already has the database.
 **What it does not cover.**
 
 * *Single sign-on accounts* are never asked. They sign in at the identity
-  provider, and that is where a second factor for them belongs — require it
+  provider, and that is where a second factor for them belongs, require it
   there. A second prompt here would enforce nothing the provider does not.
 * *API tokens* are never asked. A token is already a long random secret the
-  caller holds — something you have — and the automation it is made for has
+  caller holds, something you have, and the automation it is made for has
   nobody to type a code. Keep tokens scoped and expiring, and revoke one the
   moment it may have leaked.
 * *Sessions that already exist* when `security.require_two_step` is turned on
@@ -514,7 +514,7 @@ already has the database.
 
 Every delivery is verified with HMAC-SHA256 against the installation's secret,
 compared in constant time. A delivery with a bad signature is recorded as
-`rejected` and shows up on the Installations page — a burst of them means
+`rejected` and shows up on the Installations page; a burst of them means
 somebody is probing you, and you should be able to see that.
 
 The webhook endpoint is the one unauthenticated route that mutates state. It:
@@ -551,7 +551,7 @@ Bind-mounts the host's `docker.sock` into every runner in the pool.
 
 **Any job on this pool can start a privileged container, mount the host's root
 filesystem, and become root on the host.** It also sees, and can stop, every
-other container on the host — including other runners and Zoomies itself.
+other container on the host, including other runners and Zoomies itself.
 
 Use it only when every repository that can reach this pool is as trusted as the
 host. Prefer `dind`.
@@ -578,7 +578,7 @@ container images](configuration.md#jobs-that-build-container-images).
 
 A fleet built to produce container images decides about that privileged sidecar
 once, and a row per pool per pass about a decision already taken is what teaches
-an operator to skim the problems list — so `security.docker_in_docker_expected`
+an operator to skim the problems list, so `security.docker_in_docker_expected`
 stops `dind` being listed among the dangerous settings. It changes nothing about
 the runners, and it silences that sentence alone: `host-socket` and persistent
 runners still say what they cost, and the setting itself is listed as
@@ -598,7 +598,7 @@ because some workloads genuinely need a warm cache.
 The pool names the repository its cache is for, but its runners register to
 the organisation, and GitHub gives a runner any queued job whose `runs-on`
 matches its labels. A job from another repository that asks for this pool's
-labels lands on one of its runners and reads and writes the cache — the
+labels lands on one of its runners and reads and writes the cache; the
 sharing the scope exists to prevent, held off only by a discipline kept in
 other people's workflow files.
 
@@ -635,7 +635,7 @@ an interrupt.
 Session cookies, API tokens and the GitHub App private key you paste during
 setup all cross the network in cleartext.
 
-This is legitimate *behind a TLS-terminating reverse proxy* — which is why it is
+This is legitimate *behind a TLS-terminating reverse proxy*, which is why it is
 a warning rather than an error. If that is your setup, also set
 `server.trusted_proxies` so audit entries record the real client address rather
 than your proxy's. The word `cloudflare` stands for Cloudflare's published
@@ -678,7 +678,7 @@ minute is generous for a person and hopeless for a dictionary.
 
 Lets the first single sign-on login by a username take over an existing local
 account of that name, password and role included. Off, a username alone links
-only to an account created for SSO — one with no password — so an identity
+only to an account created for SSO, one with no password, so an identity
 provider whose users can influence their own username claim cannot hand someone
 the local `admin` account. Turn it on for the migration from local passwords to
 SSO, when every account is known and the provider is trusted to spell names
@@ -689,12 +689,12 @@ leave it off.
 
 Takes the password form off the sign-in page while single sign-on is working,
 and refuses a correct password from anybody below administrator, so the only
-way in for most people is the identity provider — where their second factor,
+way in for most people is the identity provider, where their second factor,
 their leaving date and their password policy already live. It never hides the
 form while single sign-on is down: the page would then offer nobody a way in.
 
 The break-glass door is **`/login?password`**: an administrator opens it, gets
-the password form, and signs in as usual — two-step verification included — on
+the password form, and signs in as usual, two-step verification included, on
 the day the identity provider is the thing that is broken. Keep at least one
 administrator with a password and an authenticator for that day. With single
 sign-on off, the setting raises `oidc.password_login_hidden_without_sso`.
@@ -711,7 +711,7 @@ issuer for local development is not warned about.
 Every request is treated as an administrator.
 
 Zoomies **refuses to start** with this set unless the controller looks
-unreachable from anywhere but this machine — which means a loopback bind *and*
+unreachable from anywhere but this machine, which means a loopback bind *and*
 no `server.external_url` *and* no `server.trusted_proxies`. A loopback bind on
 its own is not enough: loopback behind a reverse proxy is the deployment this
 documentation recommends, and it is reachable by the whole internet. With
@@ -728,15 +728,15 @@ origins you actually serve the UI from instead.
 ### `agent.allow_insecure_http: true`
 
 The agent talks to a remote controller over plain HTTP. Its token and the JIT
-runner configuration in every create task — a live registration credential for
-your runner group — cross the network in the clear. Without this, a plaintext
+runner configuration in every create task (a live registration credential for
+your runner group) cross the network in the clear. Without this, a plaintext
 controller URL that is not on loopback is refused outright.
 
 ### A backup remote with no `passphrase`
 
 The archive the fleet uploads is the whole of it: every repository and job it
 has seen, every account and password hash, every API token's hash, and the
-GitHub App's private key and webhook secrets — sealed with the instance
+GitHub App's private key and webhook secrets, sealed with the instance
 encryption key, which is the one thing in the file that is not readable, and
 only until somebody who has the bucket also has that key. In a bucket, with no
 passphrase, it is a file that opens for whoever can read the bucket: the
@@ -744,7 +744,7 @@ provider, anyone holding a key to it, and anyone who finds it left public.
 
 Setting a passphrase on the remote seals the archive with argon2id and
 AES-256-GCM before it leaves the host, so the bucket holds something its owner
-cannot open. Keep the passphrase where you keep the encryption key — nothing on
+cannot open. Keep the passphrase where you keep the encryption key; nothing on
 the controller can recover a lost one, which is the same trade the encrypted
 download makes. The startup validator raises `backup.remote_plaintext` for as
 long as a remote has none.
@@ -753,7 +753,7 @@ long as a remote has none.
 
 The access key, the request signature and the archive itself cross the network
 in the clear. Whoever is on the path reads the fleet and, holding the key,
-writes to the bucket afterwards — which includes replacing a backup with one of
+writes to the bucket afterwards, which includes replacing a backup with one of
 their own choosing, for somebody to restore later. Loopback and a network you
 own end to end are the only endpoints this is reasonable for, which is why the
 warning (`backup.remote_insecure`) excludes loopback and nothing else.
@@ -763,13 +763,13 @@ warning (`backup.remote_insecure`) excludes loopback and nothing else.
 Six settings make the controller send a request to a URL an administrator
 typed: `oidc.issuer`, `github.api_base_url`, `capacity_demand.destination_url`,
 `agent.runner_download_url`, a backup remote's endpoint and a provider's. Left
-unchecked, each is a way to aim this process at its own neighbourhood — the
+unchecked, each is a way to aim this process at its own neighbourhood (the
 cloud metadata service at `169.254.169.254`, an admin port bound to loopback, a
-service on the LAN that trusts anything inside it — and read the answer back
+service on the LAN that trusts anything inside it) and read the answer back
 out of an error message. Those are the platform's resources, not the fleet's,
 so by default each of them is refused when it is written through the API
-— `PATCH /settings`, a settings import, a backup remote, a direct provider or
-an installation's own API base URL — if it names loopback, an unspecified address, link-local (IPv4 and `fe80::/10`),
+(`PATCH /settings`, a settings import, a backup remote, a direct provider or
+an installation's own API base URL) if it names loopback, an unspecified address, link-local (IPv4 and `fe80::/10`),
 RFC 1918, carrier-grade NAT (`100.64.0.0/10`), IPv6 unique-local
 (`fc00::/7`), the deprecated site-local and IPv4-compatible ranges, reserved,
 broadcast and multicast addresses, an IPv4 address carried inside IPv6
@@ -813,8 +813,8 @@ names.
 ### `provider.insecure_skip_verify: true`
 
 Zoomies talks to a hypervisor without verifying its certificate. The API token
-— which can create, configure, start, stop and destroy virtual machines, and
-run commands inside them — crosses the network to whoever answered. It is a
+(which can create, configure, start, stop and destroy virtual machines, and
+run commands inside them) crosses the network to whoever answered. It is a
 per-provider setting, warned about on the provider and in the problems drawer
 for as long as it is on.
 
@@ -833,7 +833,7 @@ migration where that is what you mean, then turn it off again.
 ### `metrics.public: true`
 
 `/metrics` served without authentication. No repository or workflow name is a
-label — the code stopped putting them there — but pool names, backend kinds,
+label (the code stopped putting them there) but pool names, backend kinds,
 runner and host states, the id of each GitHub App installation a call was made
 for, and the build's version and commit are, and together they tell a stranger
 what you run and how busy it is. Prefer giving Prometheus a viewer API token.
@@ -857,12 +857,12 @@ developer whose job has queued and who has no account: GitHub tells them only
 permission or a webhook secret that stopped verifying.
 
 What it discloses is how the fleet is doing, not who it is. It carries no pool,
-host, repository, runner or job name — a test searches its body for every name
-a fixture fleet has — only the fleet's state, the release the controller runs,
+host, repository, runner or job name (a test searches its body for every name
+a fixture fleet has) only the fleet's state, the release the controller runs,
 banded counts of queued and running jobs, the queue wait rounded to the minute,
 and the codes of the fleet's current problems with a fixed sentence each.
-Problems about the controller itself — its backups, its lease, its own release
-— are never in it. Together that still tells a stranger that a Zoomies fleet is
+Problems about the controller itself (its backups, its lease, its own release)
+are never in it. Together that still tells a stranger that a Zoomies fleet is
 here, which version it runs and when it is struggling, so it is a warning for
 as long as it is on.
 
@@ -877,8 +877,8 @@ whatever their role, and costs nothing that the rest of the interface does not.
 `/sitemap.xml`, and the page's own directive changes from `noindex, nofollow` to
 `index, follow`.
 
-Nothing behind authentication becomes readable — the API still refuses a request
-without a session — but the sign-in page, this controller's address and the fact
+Nothing behind authentication becomes readable (the API still refuses a request
+without a session) but the sign-in page, this controller's address and the fact
 that it is a Zoomies fleet all become public knowledge, findable by anyone
 searching for exactly that. Leave it off unless the instance is deliberately
 public.
@@ -957,7 +957,7 @@ on the README is the outside view of the same discipline, re-run weekly by
 repository and checked by it: every action pinned to a commit, workflow tokens
 that grant nothing at the top, Dependabot on all three ecosystems, CodeQL on
 every pull request, `govulncheck` on every change, a fuzz workflow, and a
-release that ships its build provenance twice — a Sigstore bundle for
+release that ships its build provenance twice; a Sigstore bundle for
 `gh attestation verify` and the same statement as `.intoto.jsonl` for SLSA
 tooling. `osv-scanner.toml` at the root is the one place an advisory is
 ignored, and only when `govulncheck` has already shown the package is not in
@@ -985,7 +985,7 @@ score knows what it is measuring:
 1. Create the first account before anyone else can. If you deployed with
    the compose file rather than the installer, the controller is listening the
    moment it starts: read the setup token out of its log
-   (`docker compose logs zoomies`) and finish the first-run page — or, when no
+   (`docker compose logs zoomies`) and finish the first-run page, or, when no
    person is at the console, have the provisioner create the account from
    `ZOOMIES_BOOTSTRAP_ADMIN` and a 0600 token or password file, so the
    instance is never reachable without an owner. Keep the
@@ -997,8 +997,8 @@ score knows what it is measuring:
    `memory` and `pids` controllers to that daemon's user slice for you, so a
    pool's CPU quota or memory limit is not refused there. A host still on
    cgroup v1 needs `systemd.unified_cgroup_hierarchy=1` on the kernel command
-   line and a reboot first — setup warns rather than guessing at that for you.
-3. Terminate TLS with a certificate GitHub trusts — either in Zoomies
+   line and a reboot first, setup warns rather than guessing at that for you.
+3. Terminate TLS with a certificate GitHub trusts: either in Zoomies
    (`tls.mode: files`) or in a reverse proxy, and then set `trusted_proxies`.
 4. Keep `ephemeral: true` and `docker_mode: none` on every pool you can.
 5. Set `max_runners` on every pool. It is your only backstop against a runaway
@@ -1010,14 +1010,14 @@ score knows what it is measuring:
 7. Put the encryption key in `ZOOMIES_ENCRYPTION_KEY` or a `0600` file, and back
    it up somewhere that is not the same backup as the database.
 8. Watch the audit log. `zoomies audit tail` and the Audit page both work.
-9. Keep the runner image current — it carries the `actions/runner` release and
+9. Keep the runner image current: it carries the `actions/runner` release and
    its .NET dependency, and GitHub deprecates old runner versions.
 
 ## 9. Reporting a vulnerability
 
 Open a [private security advisory][advisory] on the repository rather than a
 public issue. Please include the version (`zoomies version`), the configuration
-with secrets removed — `zoomies config print` produces it already blanked — and
+with secrets removed (`zoomies config print` produces it already blanked) and
 what an attacker gains.
 
 `SECURITY.md` in the repository root says the same thing, and is what GitHub
