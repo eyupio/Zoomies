@@ -2161,6 +2161,10 @@ test.describe('with Kennel Club on', () => {
       });
       await goto(page, '/kennel/repositories', 'Repositories');
       const sent = putsToTracking(page);
+      // The header's box is on the page before any row is, and ticking it then
+      // selects nothing, so the rows are waited for first. Without this the test
+      // failed whenever the list was a moment slower than the click.
+      await expect(listRows(page)).toHaveCount(11);
       await page.getByRole('checkbox', { name: /^Select every/ }).check();
       await bulkBar(page).getByRole('button', { name: 'Stop tracking' }).click();
       const dialog = bulkDialog(page, 'Stop tracking 11 repositories');
