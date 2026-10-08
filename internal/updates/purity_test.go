@@ -6,6 +6,7 @@ import (
 	"go/parser"
 	"go/token"
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -34,6 +35,10 @@ func TestTheUpdateRuleImportsOnlyTheStandardLibraryAndVersion(t *testing.T) {
 // arguments. A package listed here stands for itself and everything beneath it.
 var impurePackages = []string{"net", "os", "database/sql", "math/rand", "crypto/rand"}
 
+// pureWithinImpure are packages beneath one of those that only compute: reading
+// a URL from a string touches nothing outside it, and a release's address is one.
+var pureWithinImpure = []string{"net/url"}
+
 // impureImports names each import the rule may not have, in the words of the
 // failure, so the test and its own check read alike.
 func impureImports(imports []string) []string {
@@ -42,6 +47,9 @@ func impureImports(imports []string) []string {
 		first, _, _ := strings.Cut(path, "/")
 		if strings.Contains(first, ".") && path != "github.com/eyupio/zoomies/internal/version" {
 			problems = append(problems, "internal/updates imports "+path+"; the rule may use the standard library and internal/version, and what needs a file, a command or the clock belongs to its caller")
+			continue
+		}
+		if slices.Contains(pureWithinImpure, path) {
 			continue
 		}
 		for _, banned := range impurePackages {
@@ -66,7 +74,7 @@ func TestThePurityCheckRefusesWhatReachesOutsideTheArguments(t *testing.T) {
 		}
 	}
 	for _, path := range []string{
-		"fmt", "sort", "strings", "time", "slices", "regexp", "crypto/sha256", "math",
+		"fmt", "sort", "strings", "time", "slices", "regexp", "crypto/sha256", "math", "net/url",
 		"github.com/eyupio/zoomies/internal/version",
 	} {
 		if got := impureImports([]string{path}); len(got) != 0 {
