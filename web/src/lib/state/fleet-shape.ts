@@ -29,6 +29,17 @@ export const VOLATILE: ReadonlySet<string> = new Set([
   'memory_resource',
 ]);
 
+/**
+ * A report's age moves with every report; what it says is the news. A summary or
+ * a result changing still counts, so `doctor` is not on the volatile list.
+ */
+function withoutCheckedAt(v: unknown): unknown {
+  if (!v || typeof v !== 'object') return v;
+  const copy: Record<string, unknown> = { ...(v as Record<string, unknown>) };
+  delete copy.checked_at;
+  return copy;
+}
+
 /** True when two rows differ in anything but a live metric. */
 export function shapeDiffers(
   a: Record<string, unknown> | undefined,
@@ -37,6 +48,11 @@ export function shapeDiffers(
   if (!a) return true;
   for (const key of new Set([...Object.keys(a), ...Object.keys(b)])) {
     if (VOLATILE.has(key)) continue;
+    if (key === 'doctor') {
+      if (JSON.stringify(withoutCheckedAt(a[key])) !== JSON.stringify(withoutCheckedAt(b[key])))
+        return true;
+      continue;
+    }
     if (JSON.stringify(a[key]) !== JSON.stringify(b[key])) return true;
   }
   return false;

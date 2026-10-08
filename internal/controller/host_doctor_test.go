@@ -304,3 +304,106 @@ func TestAnAgentCannotClaimToHaveAcceptedItsOwnWarning(t *testing.T) {
 		t.Errorf("summary = %+v, want the warning counted and nothing accepted", s)
 	}
 }
+
+// reportAt is a one-warning report whose free-space text moves with every call,
+// the way a real host's does.
+func reportAt(at time.Time, free string, status hosttune.Status) *hosttune.Report {
+	return &hosttune.Report{CheckedAt: at, OS: "linux", Results: []hosttune.Result{
+		{ID: "disk.space", Title: "Disk space", Tier: hosttune.Safe, Status: hosttune.OK, Current: free},
+		{ID: "docker.logs", Title: "Docker log rotation", Tier: hosttune.Safe, Status: status, Current: "json-file"},
+	}}
+}
+
+func (h *harness) sendReport(hostID string, r *hosttune.Report) {
+	h.t.Helper()
+	if _, err := h.c.Heartbeat(h.ctx, hostID, agent.HeartbeatRequest{ProtocolVersion: agent.ProtocolVersion, Doctor: r}); err != nil {
+		h.t.Fatal(err)
+	}
+}
+
+// drainHostUpdates counts the host frames that arrive within a short quiet
+// period: the bus delivers from its own goroutine, so an instant read would
+// miss a frame that is on its way.
+func drainHostUpdates(sub *events.Subscription) (n int) {
+	for {
+		select {
+		case <-sub.C:
+			n++
+		case <-time.After(150 * time.Millisecond):
+			return n
+		}
+	}
+}
+
+// A report that says what the last one said is not news: the body is not
+// rewritten and no frame goes out for it, but the host still reads as checked
+// just now, because "Checked" and the stale pill and problem all read that time.
+func TestAReportThatSaysNothingNewMovesFreshnessAndWritesNoBody(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("quiet")
+	sub := h.c.Events().Subscribe(h.ctx, events.SubscribeOptions{Kinds: []events.Kind{events.KindHostUpdated}})
+	defer sub.Close()
+
+	first := h.c.Now().Truncate(time.Millisecond)
+	h.sendReport(host.ID, reportAt(first, "61% free (210.0 GiB)", hosttune.Warn))
+	if drainHostUpdates(sub) == 0 {
+		t.Fatal("the first report should publish")
+	}
+
+	h.advance(60 * time.Second)
+	second := first.Add(60 * time.Second)
+	h.sendReport(host.ID, reportAt(second, "60% free (209.0 GiB)", hosttune.Warn))
+	if n := drainHostUpdates(sub); n != 0 {
+		t.Fatalf("an unchanged report published %d host frames", n)
+	}
+	got, err := h.st.GetHost(h.ctx, host.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Doctor.CheckedAt.Equal(second) {
+		t.Fatalf("checked_at = %v, want the second report's %v", got.Doctor.CheckedAt, second)
+	}
+	if !got.DoctorBodyAt.Equal(first) {
+		t.Fatalf("body was rewritten at %v; it should still be the first report's %v", got.DoctorBodyAt, first)
+	}
+	if got.Doctor.Results[0].Current != "61% free (210.0 GiB)" {
+		t.Fatalf("the stored disk text moved to %q", got.Doctor.Results[0].Current)
+	}
+}
+
+func TestAReportThatChangesAFindingIsWrittenAndPublished(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("changed")
+	sub := h.c.Events().Subscribe(h.ctx, events.SubscribeOptions{Kinds: []events.Kind{events.KindHostUpdated}})
+	defer sub.Close()
+	first := h.c.Now().Truncate(time.Millisecond)
+	h.sendReport(host.ID, reportAt(first, "61% free", hosttune.Warn))
+	drainHostUpdates(sub)
+
+	h.advance(60 * time.Second)
+	second := first.Add(60 * time.Second)
+	h.sendReport(host.ID, reportAt(second, "61% free", hosttune.OK))
+	if drainHostUpdates(sub) == 0 {
+		t.Fatal("a warning clearing is news and must be published")
+	}
+	got, _ := h.st.GetHost(h.ctx, host.ID)
+	if got.Doctor.Results[1].Status != hosttune.OK || !got.DoctorBodyAt.Equal(second) {
+		t.Fatalf("the new body was not stored: %v at %v", got.Doctor.Results[1].Status, got.DoctorBodyAt)
+	}
+}
+
+// The body is rewritten at least every doctorBodyMaxAge, so a drifting disk
+// figure on the page is never older than that beside a fresh "Checked".
+func TestAnUnchangedBodyIsStillRewrittenWhenItReachesTheMaximumAge(t *testing.T) {
+	h := newHarness(t)
+	host := h.host("aged")
+	first := h.c.Now().Truncate(time.Millisecond)
+	h.sendReport(host.ID, reportAt(first, "61% free", hosttune.Warn))
+	h.advance(doctorBodyMaxAge)
+	late := first.Add(doctorBodyMaxAge)
+	h.sendReport(host.ID, reportAt(late, "55% free", hosttune.Warn))
+	got, _ := h.st.GetHost(h.ctx, host.ID)
+	if !got.DoctorBodyAt.Equal(late) || got.Doctor.Results[0].Current != "55% free" {
+		t.Fatalf("body still at %v reading %q", got.DoctorBodyAt, got.Doctor.Results[0].Current)
+	}
+}

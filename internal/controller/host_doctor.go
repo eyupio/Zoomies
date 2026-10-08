@@ -1,10 +1,12 @@
 package controller
 
 import (
+	"context"
 	"fmt"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/hosttune"
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 // validateDoctor checks an agent's report and clears the three fields only the
@@ -36,4 +38,37 @@ func validateDoctor(r *hosttune.Report, now time.Time) error {
 		}
 	}
 	return nil
+}
+
+// doctorBodyMaxAge bounds how old the stored report body may get while reports
+// keep saying the same thing. It is under every staleness threshold (the page's
+// three minutes, the problem's ten), and it is the most the disk figure on the
+// host page can lag the "Checked" time beside it.
+const doctorBodyMaxAge = 5 * time.Minute
+
+// ingestDoctor is the one place a host's report is accepted. It writes the body
+// only when the report says something the stored one does not, or the body has
+// reached doctorBodyMaxAge, and publishes only then: every UPDATE on a host
+// rewrites the whole record, 8 KB of report included, and a report that moved
+// nothing but its own time is not news.
+//
+// For an unchanged report it returns the time to record as the host's
+// freshness, which the caller folds into the heartbeat's own UPDATE; the next
+// pass frame carries it, at most one heartbeat later. A zero time means there is
+// nothing for the caller to record. The first report always writes.
+func (c *Controller) ingestDoctor(ctx context.Context, h *store.Host, in *hosttune.Report) (freshAt time.Time, err error) {
+	if h.Doctor.Report != nil && !in.CheckedAt.After(h.Doctor.CheckedAt) {
+		return time.Time{}, nil
+	}
+	if h.Doctor.Report != nil && h.Doctor.SameFindings(*in) && in.CheckedAt.Sub(h.DoctorBodyAt) < doctorBodyMaxAge {
+		h.Doctor.CheckedAt = in.CheckedAt
+		return in.CheckedAt, nil
+	}
+	if err := c.st.SetHostDoctor(ctx, h.ID, in); err != nil {
+		return time.Time{}, err
+	}
+	h.Doctor = store.HostDoctor{Report: in}
+	h.DoctorBodyAt = in.CheckedAt
+	c.publishHost(h)
+	return time.Time{}, nil
 }

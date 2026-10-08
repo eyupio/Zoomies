@@ -70,3 +70,19 @@ test('a host that changed in anything else is a change worth fetching again', ()
 test('a row the cache has not seen is a change', () => {
   assert.equal(shapeDiffers(undefined, host), true);
 });
+
+test('a report that only moved its own time does not move the fleet', () => {
+  // The controller sends no frame for such a report, but a frame can still carry
+  // a newer checked_at beside a heartbeat. Refetching the Runners and Pools grids
+  // for it is a round trip that has nothing to show.
+  const summary = { counted: 3, warnings: 1, errors: 0, skipped: 0, suggestions: 0, accepted: 0 };
+  const before = { ...host, doctor: { checked_at: '2026-01-01T00:00:00Z', summary, results: [] } };
+  const later = { ...before, doctor: { ...before.doctor, checked_at: '2026-01-01T00:01:30Z' } };
+  assert.equal(shapeDiffers(before, later), false);
+  const worse = {
+    ...later,
+    doctor: { ...later.doctor, summary: { ...summary, warnings: 2 } },
+  };
+  assert.equal(shapeDiffers(before, worse), true);
+  assert.equal(shapeDiffers(host, before), true, 'a first report is news');
+});

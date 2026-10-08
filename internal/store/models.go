@@ -1084,6 +1084,10 @@ func (p *Pool) Dangerous() []string {
 // Host is an agent process and the machine it runs on.
 type Host struct {
 	Doctor HostDoctor `json:"doctor,omitempty"`
+	// DoctorBodyAt is when the stored report body was written, which is older
+	// than Doctor.CheckedAt once reports that said nothing new have arrived. The
+	// controller rewrites a body no later than doctorBodyMaxAge after this.
+	DoctorBodyAt time.Time `json:"-"`
 	// Acceptances are the operator decisions about this host's checks, filled
 	// by every read that fills the runner counts. They stay out of the JSON:
 	// the API renders them as marks on the doctor results, through JudgedDoctor.
