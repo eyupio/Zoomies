@@ -205,8 +205,8 @@ public jobs on a disposable pool has a finding for it, and you may be content
 with that. A **waiver** records the decision, instead of hiding the finding.
 **Waive** on a finding asks for the reason and for how long:
 
-![The Waive this finding dialog for a public repository running jobs on this fleet: a reason written for whoever reads it in a year, a waiver of 30 days, and the Cancel and Waive buttons](screenshots/kennel-waive-dark.webp#only-dark){ .zoomies-shot }
-![The Waive this finding dialog for a public repository running jobs on this fleet: a reason written for whoever reads it in a year, a waiver of 30 days, and the Cancel and Waive buttons](screenshots/kennel-waive-light.webp#only-light){ .zoomies-shot }
+![The Waive this finding dialog for a public repository running jobs on this fleet: a reason typed in, a waiver of 30 days, and the Cancel and Waive buttons](screenshots/kennel-waive-dark.webp#only-dark){ .zoomies-shot }
+![The Waive this finding dialog for a public repository running jobs on this fleet: a reason typed in, a waiver of 30 days, and the Cancel and Waive buttons](screenshots/kennel-waive-light.webp#only-light){ .zoomies-shot }
 
 * **It needs a reason**, of at least ten and at most five hundred characters,
   because whoever reads the audit log in a year will want to know why.
