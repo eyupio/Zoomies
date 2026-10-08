@@ -188,6 +188,7 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionStatsRead)).Get("/stats", s.handleStats)
 		r.With(s.require(auth.ActionStatsRead)).Get("/samples", s.handleSamples)
 		r.With(s.require(auth.ActionStatsRead)).Get("/problems", s.handleProblems)
+		r.With(s.require(auth.ActionStatsRead)).Get("/catalog", s.handleCatalog)
 		// An operator's, and then the pool's or host's own action for the change it
 		// makes, which the handler checks once it knows which that is.
 		r.With(s.require(auth.ActionProblemsApply)).Post("/problems/apply", s.handleApplyRemedy)

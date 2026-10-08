@@ -799,6 +799,7 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "PUT", path: "/api/v1/size-pins", role: store.RoleOperator, body: map[string]any{"repo": "acme/widgets", "class": "large"}, action: auth.ActionPoolsWrite},
 		{method: "DELETE", path: "/api/v1/size-pins", role: store.RoleOperator, action: auth.ActionPoolsWrite},
 		{method: "GET", path: "/api/v1/label-advice", role: store.RoleViewer, action: auth.ActionJobsRead},
+		{method: "GET", path: "/api/v1/catalog", role: store.RoleViewer, action: auth.ActionStatsRead},
 		{method: "GET", path: "/api/v1/toolchains", role: store.RoleViewer, action: auth.ActionPoolsRead},
 		{method: "POST", path: "/api/v1/toolchains/scan", role: store.RoleOperator, action: auth.ActionPoolsWrite},
 

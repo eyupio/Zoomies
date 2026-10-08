@@ -1498,6 +1498,34 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/FleetSample" }
 
+  /catalog:
+    get:
+      operationId: getCatalog
+      tags: [overview]
+      summary: Every problem code and Kennel check, with what to do about each
+      description: |
+        The catalog: one entry per problem code the validator and the controller
+        can raise and per check Kennel Club makes, each with what it means, what
+        to change, how to see that the change worked and where it is documented.
+        It is built into the binary from the problem-codes page and the Kennel
+        registry, so it is this release's and the docs site publishes the same
+        document at /catalog.json. It answers whether or not Kennel Club is on,
+        because the checks are part of what the fleet can say rather than what
+        it is saying now. Carries an `ETag`, and answers 304 to a matching
+        `If-None-Match`.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          headers:
+            ETag:
+              schema: { type: string }
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Catalog" }
+        "304":
+          description: The client's copy is current.
+
   /problems:
     get:
       operationId: listProblems
@@ -6712,6 +6740,33 @@ components:
         label: { type: string }
         permission: { type: string, description: Empty for what the fleet already knows, which needs none. }
         conditional: { type: boolean, description: Read only for the repositories the check applies to. }
+    Catalog:
+      type: object
+      required: [version, generated_from, entries]
+      properties:
+        version: { type: integer, description: The document's own version; 1. }
+        generated_from: { type: string, description: The short commit the catalog was generated at. }
+        entries:
+          type: array
+          items: { $ref: "#/components/schemas/CatalogEntry" }
+    CatalogEntry:
+      type: object
+      required: [id, kind, title, category, severity, detection, detects, fix, verify, docs_html, docs_md]
+      properties:
+        id: { type: string, description: "The code, verbatim: a problem code such as jobs.oom_killed or a check code such as ci.no_timeout." }
+        kind: { type: string, enum: [problem, check] }
+        title: { type: string }
+        category: { type: string, enum: [capacity, reliability, security, configuration, cost] }
+        severity: { type: string, description: The documented severity verbatim; a sentence where it depends on the circumstances. }
+        detection: { type: string, enum: [static, runtime] }
+        detects: { type: string }
+        fix: { type: string }
+        verify: { type: string, nullable: true, description: How to see the fix worked, or null where the documentation has no such sentence yet. }
+        status_sentence: { type: string, description: What the public status page says for this code, where it shows it. }
+        area: { type: string, description: A check's registry area. }
+        setting: { type: string, description: The configuration key a static problem is about. }
+        docs_html: { type: string, format: uri }
+        docs_md: { type: string, format: uri }
     KennelCatalogueEntry:
       type: object
       required: [code, area, severity, detects, fix, verify, docs, needs, disabled]

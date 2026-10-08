@@ -1098,6 +1098,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/catalog": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Every problem code and Kennel check, with what to do about each
+         * @description The catalog: one entry per problem code the validator and the controller
+         *     can raise and per check Kennel Club makes, each with what it means, what
+         *     to change, how to see that the change worked and where it is documented.
+         *     It is built into the binary from the problem-codes page and the Kennel
+         *     registry, so it is this release's and the docs site publishes the same
+         *     document at /catalog.json. It answers whether or not Kennel Club is on,
+         *     because the checks are part of what the fleet can say rather than what
+         *     it is saying now. Carries an `ETag`, and answers 304 to a matching
+         *     `If-None-Match`.
+         */
+        get: operations["getCatalog"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/problems": {
         parameters: {
             query?: never;
@@ -4647,6 +4675,40 @@ export interface components {
             permission: string;
             /** @description Read only for the repositories the check applies to. */
             conditional: boolean;
+        };
+        Catalog: {
+            /** @description The document's own version; 1. */
+            version: number;
+            /** @description The short commit the catalog was generated at. */
+            generated_from: string;
+            entries: components["schemas"]["CatalogEntry"][];
+        };
+        CatalogEntry: {
+            /** @description The code, verbatim: a problem code such as jobs.oom_killed or a check code such as ci.no_timeout. */
+            id: string;
+            /** @enum {string} */
+            kind: "problem" | "check";
+            title: string;
+            /** @enum {string} */
+            category: "capacity" | "reliability" | "security" | "configuration" | "cost";
+            /** @description The documented severity verbatim; a sentence where it depends on the circumstances. */
+            severity: string;
+            /** @enum {string} */
+            detection: "static" | "runtime";
+            detects: string;
+            fix: string;
+            /** @description How to see the fix worked */
+            verify: string | null;
+            /** @description What the public status page says for this code */
+            status_sentence?: string;
+            /** @description A check's registry area. */
+            area?: string;
+            /** @description The configuration key a static problem is about. */
+            setting?: string;
+            /** Format: uri */
+            docs_html: string;
+            /** Format: uri */
+            docs_md: string;
         };
         KennelCatalogueEntry: {
             code: string;
@@ -10731,6 +10793,34 @@ export interface operations {
                         items?: components["schemas"]["FleetSample"][];
                     };
                 };
+            };
+        };
+    };
+    getCatalog: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    ETag?: string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Catalog"];
+                };
+            };
+            /** @description The client's copy is current. */
+            304: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
         };
     };
