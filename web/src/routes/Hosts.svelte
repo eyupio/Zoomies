@@ -468,7 +468,7 @@
       <header>
         <div>
           <h2 id="hosts-rollout-heading">Host rollout</h2>
-          <p>Every host behind the controller's release, updated one at a time.</p>
+          <p>Hosts behind the controller's release, updated one at a time.</p>
         </div>
       </header>
       <div class="rollout-body">

@@ -746,6 +746,12 @@ test('an administrator updates every host behind in one rollout, and sees it mov
 
     const panel = rolloutPanel(page);
     await expect(panel).toContainText('Rolling out');
+    // A rollout can be of the hosts an administrator named, so the panel never
+    // claims every host is in it.
+    await expect(panel).toContainText(
+      "Hosts behind the controller's release, updated one at a time.",
+    );
+    await expect(panel).not.toContainText('Every host behind');
     await expect(panel).toBeFocused();
     await expect(start).toHaveCount(0);
     await expect(panel).toContainText(`${first.name} is being updated now.`, { timeout: 20_000 });
