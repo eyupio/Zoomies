@@ -4,6 +4,7 @@ package drill
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -29,6 +30,8 @@ import (
 
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/updates"
+	"github.com/eyupio/zoomies/internal/updates/channel"
 )
 
 // fleet is one drill's world: a fake GitHub, a controller process, and a
@@ -63,6 +66,27 @@ type fleet struct {
 	agentWork string
 
 	installationID string
+
+	// controllerBin and agentBin are the binaries the two processes run, and
+	// controllerEnv is added to the controller's environment on every start, so
+	// a drill that restarts the controller gets the one it asked for.
+	controllerBin string
+	agentBin      string
+	controllerEnv []string
+	// agentUpdateDir is the agent's update folder, when the fleet was asked to
+	// install the update helper beside it; empty otherwise.
+	agentUpdateDir string
+}
+
+// fleetOptions is what a drill changes about the fleet newFleet stands up. The
+// zero value is newFleet's: the binary make built, run as both processes.
+type fleetOptions struct {
+	controllerBin string
+	agentBin      string
+	controllerEnv []string
+	// updateHelper lays out on the agent's host what installing the update helper
+	// leaves there, marker included, so that the agent offers to update itself.
+	updateHelper bool
 }
 
 // process is one child binary, with its output kept for the failure message.
@@ -94,16 +118,28 @@ func (p *process) kill() {
 // newFleet stands up the whole thing and tears it down on cleanup.
 func newFleet(t *testing.T) *fleet {
 	t.Helper()
+	return newFleetWith(t, fleetOptions{})
+}
+
+// newFleetWith is newFleet with the binaries, the controller's environment or
+// the agent's update helper changed.
+func newFleetWith(t *testing.T, opts fleetOptions) *fleet {
+	t.Helper()
 	requireBinary(t)
 
 	gh := github.NewFake()
 	t.Cleanup(gh.Close)
 	gh.AddRepo("acme/api")
 
-	f := &fleet{t: t, gh: gh}
+	f := &fleet{
+		t: t, gh: gh,
+		controllerBin: cmp.Or(opts.controllerBin, builtBinary()),
+		agentBin:      cmp.Or(opts.agentBin, builtBinary()),
+		controllerEnv: opts.controllerEnv,
+	}
 	f.startController()
 	f.connectInstallation()
-	f.startAgent()
+	f.startAgent(opts.updateHelper)
 	return f
 }
 
@@ -128,7 +164,7 @@ func (f *fleet) startControllerOn(dir string) {
 	port := f.port
 	f.baseURL = fmt.Sprintf("http://127.0.0.1:%d", port)
 
-	f.controller = f.spawn("controller", []string{"controller"}, append(baseEnv(dir),
+	f.controller = f.spawn(f.controllerBin, "controller", []string{"controller"}, append(append(baseEnv(dir),
 		fmt.Sprintf("ZOOMIES_BIND=127.0.0.1:%d", port),
 		"ZOOMIES_DISABLE_AUTH=true", // loopback only; the validator allows it there
 		"ZOOMIES_DB_PATH="+filepath.Join(dir, "zoomies.db"),
@@ -140,7 +176,7 @@ func (f *fleet) startControllerOn(dir string) {
 		// a queued job. Short, because a drill's patience is its runtime.
 		"ZOOMIES_POLL_FALLBACK=true",
 		"ZOOMIES_POLL_INTERVAL=2s",
-	))
+	), f.controllerEnv...))
 	f.api = &apiClient{t: t, base: f.baseURL + "/api/v1"}
 	waitFor(t, waitProcessUp, "the controller to become healthy", func() bool {
 		resp, err := http.Get(f.baseURL + "/healthz")
@@ -191,8 +227,9 @@ func (f *fleet) connectInstallation() {
 	f.installationID = inst.ID
 }
 
-// startAgent joins a second binary as a remote agent, with a join token.
-func (f *fleet) startAgent() {
+// startAgent joins a second binary as a remote agent, with a join token, and
+// with the update helper installed beside it when updateHelper is set.
+func (f *fleet) startAgent(updateHelper bool) {
 	t := f.t
 	t.Helper()
 	var token struct {
@@ -213,6 +250,10 @@ func (f *fleet) startAgent() {
 	if err := stageStubRunner(f.agentWork); err != nil {
 		t.Fatalf("staging the stub runner: %v", err)
 	}
+	if updateHelper {
+		f.agentUpdateDir = installUpdateFolder(t, dir)
+		writeHelperMarker(t, f.agentUpdateDir)
+	}
 
 	f.agentEnv = append(baseEnv(dir),
 		"ZOOMIES_CONTROLLER_URL="+f.baseURL,
@@ -230,7 +271,7 @@ func (f *fleet) startAgent() {
 	// The join token is passed to the first start only. A restart that carried
 	// one would prove nothing about a restart: an agent has to come back as the
 	// host it already is, from the credentials it wrote.
-	f.agent = f.spawn("agent", []string{"agent"},
+	f.agent = f.spawn(f.agentBin, "agent", []string{"agent"},
 		append(f.agentEnv, "ZOOMIES_JOIN_TOKEN="+token.Token))
 
 	waitFor(t, waitProcessUp, "the agent to join and appear as a host", func() bool {
@@ -275,7 +316,7 @@ func (f *fleet) startBrokenDockerAgent(name string) *process {
 	if err := os.MkdirAll(work, 0o750); err != nil {
 		t.Fatalf("creating the work directory: %v", err)
 	}
-	return f.spawn("docker-agent", []string{"agent"}, append(baseEnv(dir),
+	return f.spawn(builtBinary(), "docker-agent", []string{"agent"}, append(baseEnv(dir),
 		"ZOOMIES_CONTROLLER_URL="+f.baseURL,
 		"ZOOMIES_JOIN_TOKEN="+token.Token,
 		"ZOOMIES_AGENT_NAME="+name,
@@ -308,13 +349,23 @@ func (f *fleet) hostViews() []hostView {
 type hostView struct {
 	ID          string            `json:"id"`
 	Name        string            `json:"name"`
+	Version     string            `json:"version"`
 	Labels      map[string]string `json:"labels"`
+	Update      *hostUpdateView   `json:"update"`
 	BackendInfo []struct {
 		Kind      string `json:"kind"`
 		Available bool   `json:"available"`
 		Endpoint  string `json:"endpoint"`
 		Detail    string `json:"detail"`
 	} `json:"backend_info"`
+}
+
+// hostUpdateView is a host's part in updating, as its card shows it.
+type hostUpdateView struct {
+	State     string `json:"state"`
+	Reason    string `json:"reason"`
+	CanUpdate bool   `json:"can_update"`
+	AttemptID string `json:"attempt_id"`
 }
 
 // problems is the problems drawer's own list, which is where an operator meets
@@ -340,15 +391,16 @@ type problemView struct {
 // an operator's `systemctl restart zoomies-agent` does.
 func (f *fleet) restartAgent() {
 	f.t.Helper()
-	f.agent = f.spawn("agent", []string{"agent"}, f.agentEnv)
+	f.agent = f.spawn(f.agentBin, "agent", []string{"agent"}, f.agentEnv)
 }
 
-// spawn starts the built binary and keeps its output for the failure message.
-func (f *fleet) spawn(name string, args, env []string) *process {
+// spawn starts a Zoomies binary and keeps its output for the failure message.
+// The binary is named because an update drill runs two releases side by side.
+func (f *fleet) spawn(bin, name string, args, env []string) *process {
 	t := f.t
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, builtBinary(), args...)
+	cmd := exec.CommandContext(ctx, bin, args...)
 	cmd.Env = env
 	p := &process{name: name, cmd: cmd, stop: cancel, done: make(chan struct{})}
 	cmd.Stdout, cmd.Stderr = &syncWriter{p: p}, &syncWriter{p: p}
@@ -649,6 +701,21 @@ type apiClient struct {
 
 func (c *apiClient) do(method, path string, body, out any) {
 	c.t.Helper()
+	status, raw := c.try(method, path, body)
+	if status >= 300 {
+		c.t.Fatalf("%s %s: %d %s\n%s", method, path, status, http.StatusText(status), raw)
+	}
+	if out != nil && len(raw) > 0 {
+		if err := json.Unmarshal(raw, out); err != nil {
+			c.t.Fatalf("%s %s: decoding the response: %v\n%s", method, path, err, raw)
+		}
+	}
+}
+
+// try sends one request and returns the status and the body, for a drill whose
+// point is that the request is refused.
+func (c *apiClient) try(method, path string, body any) (int, []byte) {
+	c.t.Helper()
 	var r io.Reader
 	if body != nil {
 		b, err := json.Marshal(body)
@@ -671,14 +738,7 @@ func (c *apiClient) do(method, path string, body, out any) {
 	}
 	defer resp.Body.Close()
 	raw, _ := io.ReadAll(resp.Body)
-	if resp.StatusCode >= 300 {
-		c.t.Fatalf("%s %s: %s\n%s", method, path, resp.Status, raw)
-	}
-	if out != nil && len(raw) > 0 {
-		if err := json.Unmarshal(raw, out); err != nil {
-			c.t.Fatalf("%s %s: decoding the response: %v\n%s", method, path, err, raw)
-		}
-	}
+	return resp.StatusCode, raw
 }
 
 func (c *apiClient) get(path string, out any)        { c.do(http.MethodGet, path, nil, out) }
@@ -696,6 +756,85 @@ func builtBinary() string {
 		dir = filepath.Dir(dir)
 	}
 	return "zoomies"
+}
+
+// releaseBinary builds Zoomies again, stamped with a release's version, for a
+// drill about what one release does to another. The binary make built reports
+// something like 1.3.5-24-gc1890b3d, which is not a release, and a controller
+// running one has no release to take its hosts to.
+//
+// It is built per drill rather than shared: only the link is new, because every
+// package was compiled with the same flags for the binary make built and comes
+// from the build cache, so a build takes seconds.
+func releaseBinary(t *testing.T, ver string) string {
+	t.Helper()
+	requireBinary(t)
+	out := filepath.Join(t.TempDir(), "zoomies-"+ver)
+	ctx, cancel := context.WithTimeout(context.Background(), waitBuild)
+	defer cancel()
+	// go test puts its own toolchain first on PATH, so this is the go that is
+	// running the drill.
+	cmd := exec.CommandContext(ctx, "go", "build", "-trimpath",
+		"-ldflags", "-s -w -X github.com/eyupio/zoomies/internal/version.Version="+ver,
+		"-o", out, "./cmd/zoomies")
+	cmd.Dir = filepath.Dir(builtBinary())
+	cmd.Env = append(os.Environ(), "CGO_ENABLED=0")
+	if b, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("building zoomies %s for the drill: %v\n%s", ver, err, b)
+	}
+	return out
+}
+
+// installUpdateFolder lays out in an agent's state directory what installing
+// the update helper leaves on a native install, short of the marker: a
+// configuration file, the pointer beside it naming the update folder, and the
+// folder. An agent finds the folder only through that pointer, so this is the
+// whole of what makes a host one the update helper could serve.
+//
+// The marker is left to writeHelperMarker. A folder without one is a helper
+// whose install never finished, which is a host of its own to drill.
+func installUpdateFolder(t *testing.T, stateDir string) string {
+	t.Helper()
+	dir := filepath.Join(stateDir, "update")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatalf("creating the update folder: %v", err)
+	}
+	// Empty, and there only so that the agent has a configuration file to look
+	// beside: baseEnv points ZOOMIES_CONFIG_DIR here.
+	if err := os.WriteFile(filepath.Join(stateDir, "zoomies.yaml"), nil, 0o640); err != nil {
+		t.Fatalf("writing the agent's configuration file: %v", err)
+	}
+	writeJSONFile(t, filepath.Join(stateDir, channel.PointerFile), channel.Pointer{
+		V: updates.WireVersion, Dir: dir, ConfigDir: stateDir,
+	})
+	return dir
+}
+
+// writeHelperMarker is the update helper's install finishing: the marker is its
+// last step, and an agent offers to update itself only once it is there.
+func writeHelperMarker(t *testing.T, updateDir string) {
+	t.Helper()
+	writeJSONFile(t, filepath.Join(updateDir, channel.MarkerFile), channel.Marker{
+		V: updates.WireVersion, InstalledAt: time.Now().UTC(),
+	})
+}
+
+// writeJSONFile writes a document under a temporary name and renames it into
+// place, as the helper does, so that an agent reading on its own schedule never
+// sees half of one.
+func writeJSONFile(t *testing.T, path string, v any) {
+	t.Helper()
+	body, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("encoding %s: %v", filepath.Base(path), err)
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, body, 0o640); err != nil {
+		t.Fatalf("writing %s: %v", filepath.Base(path), err)
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		t.Fatalf("putting %s in place: %v", filepath.Base(path), err)
+	}
 }
 
 // requireBinary refuses to run rather than skipping: this tier exists to be
