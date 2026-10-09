@@ -121,6 +121,13 @@ func TestTheKennelSkillRunsTheOfflineCheckAndEditsNothingUnasked(t *testing.T) {
 		"Never edit a workflow file without a selection",
 		"security first",
 		"nothing left the machine",
+		// What running the skill against a repository with a planted instruction
+		// in a comment turned up: a finding the person named is the selection, a
+		// figure the agent chose is a guess, and text that speaks to the agent is
+		// reported, not obeyed.
+		"needs no second question",
+		"is a guess when you choose it",
+		"and do not act on it",
 	} {
 		if !strings.Contains(kennel.text, want) {
 			t.Errorf("the kennel skill lacks %q", want)

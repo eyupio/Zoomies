@@ -1039,6 +1039,10 @@ var registry = buildRegistry([]Setting{
 		Summary: "Whether Kennel Club reads default-branch workflow contents for timeouts, concurrency, action pins and token permission declarations. Off by default. Needs Contents read for private repositories; changes no files or App permissions.",
 	},
 	{
+		Key: "kennel.agent_guidance", Label: "Check agent guidance", Env: "ZOOMIES_KENNEL_AGENT_GUIDANCE", Kind: KindBool, Scope: ScopeInstance, Live: true,
+		Summary: "Whether Kennel Club checks agent instruction files for missing guidance, broken references and exact duplication. Off by default. Reads up to 32 files of 64 KiB each with Contents read permission. Repairs require a reviewed draft pull request; checks change no files.",
+	},
+	{
 		Key: "kennel.scope", Label: "Repositories to check", Env: "ZOOMIES_KENNEL_SCOPE", Kind: KindEnum, Scope: ScopeInstance, Live: true,
 		Choices: KennelScopes,
 		Summary: "served checks the repositories this fleet has run a job for; installation checks every repository the GitHub App can see, up to 500. installation multiplies the requests Kennel Club makes, so it is a choice and not the default.",

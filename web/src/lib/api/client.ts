@@ -675,6 +675,16 @@ export const listKennelRepositories = (
 export const getKennelRepository = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getKennelRepository'>>(`/kennel/repositories/${enc(id)}`, { signal });
 
+export const previewKennelGuidance = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'previewKennelGuidance'>>(`/kennel/repositories/${enc(id)}/agent-guidance`, {
+    signal,
+  });
+
+export const createKennelGuidancePR = (id: string, body: Body<'createKennelGuidancePR'>) =>
+  api.post<Result<'createKennelGuidancePR'>>(`/kennel/repositories/${enc(id)}/agent-guidance`, {
+    body,
+  });
+
 export const recheckKennelRepository = (id: string) =>
   api.post<Result<'recheckKennelRepository'>>(`/kennel/repositories/${enc(id)}/recheck`);
 

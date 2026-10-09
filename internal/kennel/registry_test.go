@@ -12,6 +12,7 @@ import (
 // this list is what a pull request that adds one has to edit.
 func TestTheRegistryIsTheClosedSetOfCodes(t *testing.T) {
 	want := []Code{
+		"guidance.missing", "guidance.broken_reference", "guidance.duplicated", "guidance.unreadable",
 
 		"exposure.public_repo_on_fleet",
 		"exposure.public_repo_weak_pool",
@@ -181,7 +182,7 @@ func TestTheNamesOfferedForDisabledChecksAreExactlyTheOnesAccepted(t *testing.T)
 			}
 		}
 	}
-	if len(names) < 2 || names[0] != string(AreaExposure) {
+	if len(names) < 2 || names[0] != string(Checks()[0].Area) {
 		t.Errorf("Names should start with the areas in registry order, got %v", names)
 	}
 }

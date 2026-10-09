@@ -32,6 +32,7 @@
   import Skeleton from '$lib/components/Skeleton.svelte';
   import Finding from '$lib/kennel/Finding.svelte';
   import RepositoryOverview from '$lib/kennel/RepositoryOverview.svelte';
+  import RepositoryAgentGuidance from '$lib/kennel/RepositoryAgentGuidance.svelte';
   import RepositoryAiContext from '$lib/kennel/RepositoryAiContext.svelte';
   import TrackSwitch from '$lib/kennel/TrackSwitch.svelte';
   import WaiveDialog from '$lib/kennel/WaiveDialog.svelte';
@@ -65,6 +66,7 @@
   const TABS = [
     { id: 'overview', label: 'Overview' },
     { id: 'ci', label: 'CI' },
+    { id: 'agent-guidance', label: 'Agent guidance' },
     { id: 'ai-context', label: 'AI Context' },
   ] as const;
   const base = $derived(`/kennel/repositories/${encodeURIComponent(id)}`);
@@ -302,6 +304,8 @@
       <Tabs tabs={TABS} value={tab} label="Repository sections" onchange={openTab}>
         {#if tab === 'overview'}
           <RepositoryOverview repo={current} refreshKey={reload} />
+        {:else if tab === 'agent-guidance'}
+          <RepositoryAgentGuidance repo={current} />
         {:else if tab === 'ai-context'}
           <RepositoryAiContext repo={current} />
         {:else if !current.tracking.tracked}

@@ -447,6 +447,7 @@ func (f *FakeGitHub) createPull(w http.ResponseWriter, r *http.Request) {
 	full := fullName(r)
 	var body struct {
 		Title string `json:"title"`
+		Draft bool   `json:"draft"`
 		Body  string `json:"body"`
 		Head  string `json:"head"`
 		Base  string `json:"base"`
@@ -483,7 +484,7 @@ func (f *FakeGitHub) createPull(w http.ResponseWriter, r *http.Request) {
 		repo.pullBodies = map[int]string{}
 	}
 	repo.pullBodies[number] = body.Body
-	repo.contextGit().Pulls = append(repo.contextGit().Pulls, &gh.PullRequest{Number: gh.Ptr(number), Title: gh.Ptr(body.Title), Body: gh.Ptr(body.Body), State: gh.Ptr("open"), Head: &gh.PullRequestBranch{Ref: gh.Ptr(body.Head)}, Base: &gh.PullRequestBranch{Ref: gh.Ptr(body.Base)}, HTMLURL: gh.Ptr(fmt.Sprintf("https://github.com/%s/pull/%d", full, number))})
+	repo.contextGit().Pulls = append(repo.contextGit().Pulls, &gh.PullRequest{Draft: gh.Ptr(body.Draft), Number: gh.Ptr(number), Title: gh.Ptr(body.Title), Body: gh.Ptr(body.Body), State: gh.Ptr("open"), Head: &gh.PullRequestBranch{Ref: gh.Ptr(body.Head)}, Base: &gh.PullRequestBranch{Ref: gh.Ptr(body.Base)}, HTMLURL: gh.Ptr(fmt.Sprintf("https://github.com/%s/pull/%d", full, number))})
 	if repo.contextGit().LoseNextPullResponse {
 		repo.contextGit().LoseNextPullResponse = false
 		writeError(w, http.StatusBadGateway, "Response lost after opening pull request")

@@ -119,7 +119,7 @@ func TestTheCatalogueIsTheRegistryWithThePermissionEachCheckNeedsAndWhatIsTurned
 		reads := func(src kennel.Source) bool {
 			return slices.Contains(ck.Needs, src) || slices.Contains(ck.Conditional, src)
 		}
-		wantOff := ck.Area == kennel.AreaCapacity || ck.Code == kennel.CodeForkCodeRan || ck.Area == kennel.AreaSetup || ck.Area == kennel.AreaCI || ck.Area == kennel.AreaToken || reads(kennel.SourceWorkflows) || reads(kennel.SourceSetup)
+		wantOff := ck.Area == kennel.AreaCapacity || ck.Code == kennel.CodeForkCodeRan || ck.Area == kennel.AreaSetup || ck.Area == kennel.AreaCI || ck.Area == kennel.AreaToken || reads(kennel.SourceWorkflows) || reads(kennel.SourceSetup) || reads(kennel.SourceGuidance)
 		if g.Disabled != wantOff {
 			t.Errorf("%s disabled = %v, want %v", ck.Code, g.Disabled, wantOff)
 		}

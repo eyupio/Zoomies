@@ -288,7 +288,7 @@ func TestASwitchTurnsOffEveryCheckThatReadsItsSource(t *testing.T) {
 	if off[string(kennel.CodeForkCodeRan)] || off[string(kennel.AreaExposure)] {
 		t.Errorf("a check that reads no gated source was turned off: %v", off)
 	}
-	if on := kennelDisabled(config.Kennel{RepositorySetup: true, WorkflowChecks: true}); len(on) != 0 {
+	if on := kennelDisabled(config.Kennel{RepositorySetup: true, WorkflowChecks: true, AgentGuidance: true}); len(on) != 0 {
 		t.Errorf("with both switches on nothing is off: %v", on)
 	}
 	// With only the setup switch off, the updater check, which reads the

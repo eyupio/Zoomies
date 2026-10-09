@@ -4,6 +4,73 @@ import { browserOverride, chooseTheme, goto } from './support/fixtures';
 
 test.use(browserOverride);
 
+test('Kennel Club previews guidance and opens a draft without installing AI Context', async ({
+  page,
+  request,
+}) => {
+  const fake = JSON.parse(readFileSync('test-results/fakegithub.json', 'utf8'));
+  let installation = '';
+  try {
+    const created = await request.post('/api/v1/installations', {
+      data: {
+        app_id: Number(fake.appId),
+        installation_id: Number(fake.installationId),
+        target: 'acme',
+        target_type: 'org',
+        api_base_url: fake.url,
+        private_key: fake.privateKey,
+      },
+    });
+    expect(created.status(), await created.text()).toBe(201);
+    installation = (await created.json()).id;
+    expect(
+      (
+        await request.patch('/api/v1/settings', {
+          data: {
+            'kennel.enabled': true,
+            'kennel.agent_guidance': true,
+            'kennel.scope': 'installation',
+          },
+        })
+      ).ok(),
+    ).toBeTruthy();
+    let id = '';
+    await expect
+      .poll(
+        async () => {
+          const rows = await (await request.get('/api/v1/kennel/repositories')).json();
+          id = rows.items.find((row: { name: string }) => row.name === 'acme/widgets')?.id ?? '';
+          return id;
+        },
+        { timeout: 30_000 },
+      )
+      .not.toBe('');
+    await goto(page, `/kennel/repositories/${id}/agent-guidance`, 'acme/widgets');
+    await page.getByRole('button', { name: 'Preview guidance changes' }).click();
+    await expect(page.getByRole('heading', { name: 'Proposed changes' })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'AGENTS.md', exact: true })).toBeVisible();
+    await expect(page.getByRole('heading', { name: 'CLAUDE.md', exact: true })).toBeVisible();
+    await page.setViewportSize({ width: 375, height: 812 });
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(
+      true,
+    );
+    await page.getByRole('button', { name: 'Open draft pull request' }).click();
+    await expect(page.getByRole('link', { name: /^Review draft pull request/ })).toBeVisible();
+    await expect(page.getByText(/Merge it, then press Recheck/)).toBeVisible();
+    const contexts = await (await request.get('/api/v1/ai-context/repositories')).json();
+    expect(contexts.items).toHaveLength(0);
+  } finally {
+    await request.patch('/api/v1/settings', {
+      data: {
+        'kennel.enabled': false,
+        'kennel.agent_guidance': false,
+        'kennel.scope': 'served',
+      },
+    });
+    if (installation) await request.delete(`/api/v1/installations/${installation}`);
+  }
+});
+
 test('setup saves resumable drafts, retries only failures and never enables source access', async ({
   page,
   request,

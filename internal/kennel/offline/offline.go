@@ -202,6 +202,10 @@ func Check(root string, o Options) (Report, error) {
 		}
 	}
 	for _, sk := range ev.Skipped {
+		if sk.Source == kennel.SourceGuidance {
+			r.NotChecked = append(r.NotChecked, NotChecked{Code: sk.Code, Reason: "agent guidance files are outside this workflow-only check"})
+			continue
+		}
 		r.NotChecked = append(r.NotChecked, NotChecked{Code: sk.Code, Reason: "needs what only a controller knows: " + sourceWords(sk.Source)})
 	}
 	return r, nil
