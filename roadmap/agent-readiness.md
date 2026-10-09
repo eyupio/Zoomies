@@ -367,8 +367,8 @@ designed.
 
 The plan's "nothing is sent anywhere" story, which Kennel Club on a controller
 cannot tell because it reads through GitHub. The same parser (today
-`InspectKennelWorkflow` in `internal/github`, moved to `internal/kennel/workflow`
-by 6.0) and the same `ci.*` and `token.*` evaluators run over a local
+`workflow.Inspect` in `internal/kennel/workflow`, moved there from
+`internal/github` by 6.0) and the same `ci.*` and `token.*` evaluators run over a local
 `.github/workflows`, with the fleet-dependent and `setup.*` checks reported as
 *not checked here* rather than silently absent. `--output json`, `--code a,b`, `--severity`,
 `--prompts`. Exit codes: 0 no findings at the asked severity, 1 error, 4

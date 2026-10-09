@@ -7,6 +7,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/kennel"
+	"github.com/eyupio/zoomies/internal/kennel/workflow"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -83,7 +84,7 @@ func (c *Controller) kennelReadWorkflows(ctx context.Context, inst *store.Instal
 			break
 		}
 		c.observeKennel(inst.ID, nil)
-		inspection, err := github.InspectKennelWorkflow(data)
+		inspection, err := workflow.Inspect(data)
 		if err != nil {
 			state = kennel.CoveragePartial
 			continue
