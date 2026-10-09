@@ -581,6 +581,26 @@ func TestTheStatusWithholdsAnAttemptsErrorBelowPlatform(t *testing.T) {
 	})
 }
 
+// The page shows the helper's sentence as it was written, line breaks and all.
+// The folder is one the service can write, so a result in it is not trusted to
+// be plain text: a direction override would reorder what an operator reads, and
+// the platform is shown the sentence whole. The override is the only thing taken
+// out; the lines of a real sentence stay.
+func TestTheStatusStripsDirectionControlsFromAnAttemptsErrorEvenForThePlatform(t *testing.T) {
+	h := newHarness(t)
+	h.readyToUpdate()
+	a := h.request()
+	h.takeRequest()
+	hostile := "cannot write \u202eelif.tseuqer\u202c in \u2066the folder\u2069\u200e\u200f\u061c.\nSecond line\u2028 here"
+	h.helperAnswers(updates.Result{ID: a.ID, OK: false, Error: hostile, FinishedAt: time.Now()})
+	h.pass(h.c)
+
+	const want = "cannot write elif.tseuqer in the folder.\nSecond line here"
+	if got := h.status().For(true).Controller.Error; got != want {
+		t.Errorf("the platform reads %q, want %q", got, want)
+	}
+}
+
 // A check that could not be completed is the controller's sentence, whole, and
 // is still the sentinel that tells the API it was upstream's failure and not its
 // own.

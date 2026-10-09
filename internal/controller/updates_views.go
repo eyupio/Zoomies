@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/url"
 	"runtime"
+	"strings"
 	"time"
 	"unicode"
 
@@ -231,13 +232,27 @@ func (c *Controller) UpdatesView(ctx context.Context) (*UpdatesView, error) {
 func attemptView(a store.UpdateAttempt) *UpdatesAttempt {
 	out := &UpdatesAttempt{
 		ID: a.ID, State: a.State, From: a.FromVersion, To: a.ToVersion, Trigger: a.Trigger,
-		RequestedAt: a.RequestedAt.UTC(), Error: a.Error,
+		RequestedAt: a.RequestedAt.UTC(), Error: withoutDirectionControls(a.Error),
 	}
 	if a.FinishedAt != nil {
 		at := a.FinishedAt.UTC()
 		out.FinishedAt = &at
 	}
 	return out
+}
+
+// withoutDirectionControls is s with the characters that change the direction
+// text is shown in, or end a line the browser would not otherwise end, taken out.
+// The update folder is writable by the service, so the helper's sentence in it is
+// not trusted to be plain text, and the page shows it as written, which an
+// override would reorder. Line breaks are kept: a real sentence has them.
+func withoutDirectionControls(s string) string {
+	return strings.Map(func(r rune) rune {
+		if isBidiControl(r) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // unreadReason says why there is nothing to offer yet, for a mode that wants a
