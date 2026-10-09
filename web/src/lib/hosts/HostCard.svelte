@@ -36,7 +36,9 @@
   import UtilisationBar from '$lib/components/UtilisationBar.svelte';
   import BackendList from './BackendList.svelte';
   import HostMemoryPool from './HostMemoryPool.svelte';
+  import HostUpdateRow from './HostUpdateRow.svelte';
   import ResourceBar from './ResourceBar.svelte';
+  import { hostUpdateWords, skewFact } from './update';
 
   interface Props {
     host: Host;
@@ -57,6 +59,8 @@
     onedit: (host: Host) => void;
     onrename: (host: Host) => void;
     ondelete: (host: Host) => void;
+    /** Ask whether to update this host's agent. Only an administrator is offered it. */
+    onupdate: (host: Host) => void;
     class?: string;
   }
 
@@ -72,6 +76,7 @@
     onedit,
     onrename,
     ondelete,
+    onupdate,
     class: className = '',
   }: Props = $props();
 
@@ -102,17 +107,11 @@
   // itself.
   const health = $derived(healthSummary(host.doctor, now, host.healthy));
   const line = $derived(cardLine(host, health));
-  const skew = $derived(host.version_skew ?? '');
-  const skewLabel = $derived(
-    skew === 'behind' ? 'Behind' : skew === 'ahead' ? 'Ahead' : skew ? 'Different build' : '',
-  );
-  const skewHint = $derived(
-    skew === 'ahead'
-      ? 'This agent is a later release than the controller, which is the direction nothing is tested in. Upgrade the controller first.'
-      : skew === 'behind'
-        ? 'This agent is an earlier release than the controller. It is placing work as normal; upgrade it when convenient.'
-        : 'This agent is a build the controller cannot order against its own. Both are running; check which is which before reporting a bug.',
-  );
+  const skew = $derived(skewFact(host.version_skew));
+  // The one-press update is an administrator's; the command beneath it is an
+  // operator's, and stays for everyone who had it.
+  const showUpdate = $derived(canAdmin && hostUpdateWords(host) !== null);
+  const showUpgrade = $derived(canOperate && !host.embedded && Boolean(host.upgrade_note));
   // What a runner on this host is held to, with whose each figure is. Shown
   // only for a host that has been given a profile: an unprofiled host follows
   // the fleet in everything, which is what the card has always implied, and a
@@ -487,12 +486,12 @@
             title={host.incompatible_reason ||
               'This agent speaks a protocol the controller does not, so no new runner is placed here.'}
           />
-        {:else if skewLabel}
+        {:else if skew}
           <!-- neutral, not a status colour: a host on another release is not
                in a state, it is a fact worth knowing. The status palette is a
                fixed mapping and reusing one here would teach it a second
                meaning. -->
-          <Badge tone="neutral" label={skewLabel} size="sm" dot={false} title={skewHint} />
+          <Badge tone={skew.tone} label={skew.label} size="sm" dot={false} title={skew.hint} />
         {/if}
         {#if !host.resources_known}
           <!-- Not a fault: an agent too old to measure its machine is placed by
@@ -815,52 +814,70 @@
       </ul>
     {/if}
   </section>
-  {#if canOperate && !host.embedded && host.upgrade_note}
-    <!--
-      Last on the card, and folded away until it is asked for.
+  {#if showUpdate || showUpgrade}
+    <!-- Against the foot of the card, so that a row of stretched cards puts
+         every one of these on the same line rather than wherever its own
+         content happened to end. -->
+    <div class="foot">
+      {#if showUpdate}
+        <!-- Outside the fold and outside its summary, on purpose: see the row. -->
+        <HostUpdateRow {host} {onupdate} />
+      {/if}
+      {#if showUpgrade}
+        <!--
+          Last on the card, and folded away until it is asked for.
 
-      A fleet upgraded in step is a fleet where every card carries this, and an
-      open copy of the same instructions on each one is three times the card
-      for a paragraph that does not differ between them. Kept anywhere above,
-      even folded, it also pushes the figures an operator came to compare --
-      slots, committed resources, backends -- down by a line on the hosts that
-      have it and not on the hosts that do not, so nothing lines up across the
-      row. The header badge is what says a host is behind; this is where the
-      command lives when somebody wants it.
-    -->
-    <details class="upgrade">
-      <summary>
-        {#if host.upgrade_command}
-          {host.upgrade_version
-            ? `Update this agent to ${host.upgrade_version}`
-            : 'Update this agent'}
-        {:else}
-          Agent version guidance
-        {/if}
-      </summary>
-      <div class="upgrade-body">
-        <p>{host.upgrade_note}</p>
-        {#if host.upgrade_command}
-          <p>
-            Running runner containers stay in place. The host reports its new version on the next
-            heartbeat.
-          </p>
-          <pre><code>{host.upgrade_command}</code></pre>
-          <div class="upgrade-actions">
-            <CopyButton value={host.upgrade_command} label="Copy the upgrade command" showLabel />
+          A fleet upgraded in step is a fleet where every card carries this, and an
+          open copy of the same instructions on each one is three times the card
+          for a paragraph that does not differ between them. Kept anywhere above,
+          even folded, it also pushes the figures an operator came to compare
+          (slots, committed resources, backends) down by a line on the hosts that
+          have it and not on the hosts that do not, so nothing lines up across the
+          row. The header badge is what says a host is behind; this is where the
+          command lives when somebody wants it.
+        -->
+        <details class="upgrade">
+          <summary>
+            {#if host.upgrade_command}
+              {host.upgrade_version
+                ? `Update this agent to ${host.upgrade_version}`
+                : 'Update this agent'}
+            {:else}
+              Agent version guidance
+            {/if}
+          </summary>
+          <div class="upgrade-body">
+            <p>{host.upgrade_note}</p>
+            {#if host.upgrade_command}
+              <p>
+                Running runner containers stay in place. The host reports its new version on the
+                next heartbeat.
+              </p>
+              <pre><code>{host.upgrade_command}</code></pre>
+              <div class="upgrade-actions">
+                <CopyButton
+                  value={host.upgrade_command}
+                  label="Copy the upgrade command"
+                  showLabel
+                />
+              </div>
+            {/if}
           </div>
-        {/if}
-      </div>
-    </details>
+        </details>
+      {/if}
+    </div>
   {/if}
 </article>
 
 <style>
-  .upgrade {
-    /* Against the foot of the card, so that a row of stretched cards puts
-       every one of these on the same line rather than wherever its own
-       content happened to end. */
+  .foot {
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-3);
     margin-top: auto;
+    min-width: 0;
+  }
+  .upgrade {
     border: var(--z-border-width) solid var(--z-pending-border);
     border-radius: var(--z-radius-sm);
     background: var(--z-pending-subtle);

@@ -59,6 +59,7 @@
   import HostDeleteDialog from '$lib/hosts/HostDeleteDialog.svelte';
   import HostRenameDialog from '$lib/hosts/HostRenameDialog.svelte';
   import HostLabelsDialog from '$lib/hosts/HostLabelsDialog.svelte';
+  import HostUpdateDialog from '$lib/hosts/HostUpdateDialog.svelte';
   import JoinTokenList from '$lib/hosts/JoinTokenList.svelte';
   import MachineBand from '$lib/providers/MachineBand.svelte';
 
@@ -267,6 +268,8 @@
   let profileOpen = $state(false);
   let deleting = $state<Host | null>(null);
   let deleteOpen = $state(false);
+  let updating = $state<Host | null>(null);
+  let updateOpen = $state(false);
 
   /**
    * Fetch both halves of this page again: the fleet, and the tokens beside it.
@@ -325,6 +328,11 @@
   function remove(host: Host): void {
     deleting = host;
     deleteOpen = true;
+  }
+
+  function update(host: Host): void {
+    updating = host;
+    updateOpen = true;
   }
 </script>
 
@@ -511,6 +519,7 @@
             onedit={edit}
             onrename={rename}
             ondelete={remove}
+            onupdate={update}
           />
         {/each}
       </div>
@@ -559,6 +568,7 @@
 <HostRenameDialog bind:open={renameOpen} host={renaming} onclose={() => (renaming = null)} />
 <HostLabelsDialog bind:open={editOpen} host={editing} onclose={() => (editing = null)} />
 <HostDeleteDialog bind:open={deleteOpen} host={deleting} onclose={() => (deleting = null)} />
+<HostUpdateDialog bind:open={updateOpen} host={updating} onclose={() => (updating = null)} />
 
 <style>
   .capacity-map {

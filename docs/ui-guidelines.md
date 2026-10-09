@@ -1284,10 +1284,12 @@ the controller to do its updating through. That folder also holds the marker an
 installed update helper leaves, so the Update button is offered, and nothing
 answers the request a press writes there: the spec plays the helper by writing
 a `result.json` into it. The `updates` and `updates-mobile`
-projects run `tests/updates.spec.ts` against one controller of their own, in
-manual mode, which is the mode whose sentences do not move with the clock;
+projects run `tests/updates.spec.ts` and `tests/host-update.spec.ts` against one
+controller of their own, in manual mode, which is the mode whose sentences do not move with the clock;
 states it cannot make, an auto soak or a list nobody has read, are served to the
-page as the documents the controller would send.
+page as the documents the controller would send. `host-update.spec.ts` joins
+hosts of its own on 1.2.0, which are behind this controller's 1.3.0, and plays
+each host's agent by posting its heartbeats.
 
 ## 8. Screenshots
 

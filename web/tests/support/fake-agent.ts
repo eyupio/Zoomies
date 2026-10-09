@@ -44,8 +44,13 @@ export function check(
   };
 }
 
-/** Enrol a host through the Add a host page's own join token. */
-export async function enrolAgent(page: Page, name: string): Promise<Credentials> {
+/**
+ * Enrol a host through the Add a host page's own join token.
+ *
+ * `version` is the build the agent says it is, which a spec about updating sets
+ * to a release behind the controller's.
+ */
+export async function enrolAgent(page: Page, name: string, version = 'dev'): Promise<Credentials> {
   await goto(page, '/hosts/new', 'Add a host');
   await page.getByRole('button', { name: 'Get the command' }).click();
   const command = await page
@@ -61,7 +66,7 @@ export async function enrolAgent(page: Page, name: string): Promise<Credentials>
       capacity: 1,
       os: 'linux',
       arch: 'amd64',
-      version: 'dev',
+      version,
       backends: [{ kind: 'docker', available: true }],
     },
   });

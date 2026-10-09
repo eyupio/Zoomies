@@ -30,6 +30,9 @@ serveController({
   prefix: 'zoomies-e2e-updates-',
   env: {
     ZOOMIES_DISABLE_AUTH: 'true',
+    // Enrolment shares the sign-in limit, ten a minute, and the host specs join
+    // a host of their own in nearly every test.
+    ZOOMIES_RATE_LIMIT_LOGINS: '1000',
     ZOOMIES_SEED_DEMO: 'true',
     ZOOMIES_UPDATE_MODE: 'manual',
     ZOOMIES_SEED_UPDATES: updateFolder,

@@ -43,7 +43,8 @@ const STATUS_PORT = 8095;
  * phone. The binary under test is a `dev` build, which no release comparison
  * accepts, so the shared fixture can only ever say that the build is left alone;
  * this one reports a version and reads a release list of its own, and the
- * Updates page has something to show.
+ * Updates page has something to show. It is also a controller on a release, so a
+ * host that joins on an earlier one is behind it and can be asked to update.
  */
 const UPDATES_PORT = 8094;
 const FAKE_GITHUB_FILE = 'test-results/fakegithub.json';
@@ -67,14 +68,14 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
       testIgnore:
-        /(first-run|two-step|mcp-oauth|diagnostics|connect|ai-context|status-page|updates)\.spec\.ts/,
+        /(first-run|two-step|mcp-oauth|diagnostics|connect|ai-context|status-page|updates|host-update)\.spec\.ts/,
     },
     // Read-only monitoring on a phone is a stated requirement, so it is tested.
     {
       name: 'mobile',
       use: { ...devices['Pixel 7'] },
       testIgnore:
-        /(first-run|two-step|mcp-oauth|diagnostics|connect|ai-context|status-page|updates)\.spec\.ts/,
+        /(first-run|two-step|mcp-oauth|diagnostics|connect|ai-context|status-page|updates|host-update)\.spec\.ts/,
     },
     {
       name: 'first-run',
@@ -101,12 +102,12 @@ export default defineConfig({
     },
     {
       name: 'updates',
-      testMatch: /updates\.spec\.ts/,
+      testMatch: /(updates|host-update)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${UPDATES_PORT}` },
     },
     {
       name: 'updates-mobile',
-      testMatch: /updates\.spec\.ts/,
+      testMatch: /(updates|host-update)\.spec\.ts/,
       use: { ...devices['Pixel 7'], baseURL: `http://127.0.0.1:${UPDATES_PORT}` },
     },
   ],
