@@ -12,7 +12,7 @@
  * administrator is not sent the `updates.*` rows, and the status carries them
  * beside the sentence they explain.
  */
-import { getUpdates } from '../api/client';
+import { getUpdates, updateController } from '../api/client';
 import { events } from '../api/sse';
 import type { SseStatus } from '../api/sse';
 import type { UpdatesStatus } from '../api/types';
@@ -21,6 +21,7 @@ class Updates {
   #status = $state<UpdatesStatus | null>(null);
   #error = $state<unknown>(null);
   #loading = $state(false);
+  #stream = $state<SseStatus>(events.status);
   #asking: Promise<void> | null = null;
   /**
    * How many frames have been taken. A read that began before one landed is
@@ -41,6 +42,27 @@ class Updates {
   /** A read is in flight. */
   get loading(): boolean {
     return this.#loading;
+  }
+
+  /**
+   * The event stream's state while a page follows it. An update restarts the
+   * controller, and this is how the page learns of that: it drops, and comes
+   * back when the new process answers. It is the connection and not a probe of
+   * `/healthz`, because a restart quicker than a probe's interval falls between
+   * two probes and is never seen.
+   */
+  get stream(): SseStatus {
+    return this.#stream;
+  }
+
+  /**
+   * Ask the update helper to take the controller to `tag`. The answer is the
+   * status with the attempt in it, and is taken as a frame would be: the
+   * attempt stays open until the controller closes it, and that arrives as a
+   * frame of its own. A refusal throws, with the controller's sentence in it.
+   */
+  async updateController(tag: string): Promise<void> {
+    this.adopt(await updateController(tag));
   }
 
   /**
@@ -87,6 +109,7 @@ class Updates {
       events.subscribe('updates.updated', (status) => this.adopt(status)),
       events.subscribe('resync', () => void this.refresh()),
       events.onStatus((next) => {
+        this.#stream = next;
         if (next === 'live' && before !== null && before !== 'live') void this.refresh();
         before = next;
       }),
