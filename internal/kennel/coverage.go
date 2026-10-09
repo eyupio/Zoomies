@@ -17,6 +17,13 @@ const (
 	SourceSetup     Source = "setup"
 	SourceWorkflows Source = "workflows"
 	SourceGuidance  Source = "guidance"
+	// SourceSettings is the repository's Actions settings: the default token and
+	// the policy for fork pull requests. It needs a permission GitHub offers no
+	// narrower form of, so it is read only when the operator has asked for it.
+	SourceSettings Source = "settings"
+	// SourceProtection is the status checks the default branch requires, from
+	// classic protection and from the rules that apply to it.
+	SourceProtection Source = "protection"
 )
 
 // CoverageState is how far a source could be read.
@@ -76,6 +83,8 @@ func (s Source) Permission() string {
 		return "Repository permissions: Actions: Read-only"
 	case SourceSetup, SourceWorkflows, SourceGuidance:
 		return "Repository permissions: Contents: Read-only"
+	case SourceSettings, SourceProtection:
+		return "Repository permissions: Administration: Read-only"
 	}
 	return ""
 }
@@ -95,6 +104,10 @@ func (s Source) Label() string {
 		return "Workflow best practices"
 	case SourceGuidance:
 		return "Agent guidance"
+	case SourceSettings:
+		return "Repository settings"
+	case SourceProtection:
+		return "Required status checks"
 	}
 	return "Something else"
 }

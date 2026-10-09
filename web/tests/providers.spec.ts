@@ -715,7 +715,10 @@ test('Proxmox onboarding waits for one command and fills the connection without 
           ? {
               name: 'proxmox-pve-1',
               endpoint: 'https://pve.example:8006',
-              templates: [{ vmid: 9000, name: 'Runner template', node: 'pve-1' }],
+              templates: [
+                { vmid: 200, name: 'Other template', node: 'pve-2' },
+                { vmid: 9100, name: 'zoomies-template', node: 'pve-1' },
+              ],
             }
           : {}),
       },
@@ -752,8 +755,9 @@ test('Proxmox onboarding waits for one command and fills the connection without 
   await expect.poll(() => discoveryBody?.setup_id).toBe('pvs_test');
   expect(discoveryBody).not.toHaveProperty('credential');
   expect(discoveryBody).not.toHaveProperty('tailcat_address');
-  expect(discoveryBody?.settings).toMatchObject({ template_id: '9000', template_node: 'pve-1' });
-  await expect(page.getByRole('option', { name: 'Runner template (9000)' })).toBeAttached();
+  expect(discoveryBody?.settings).toMatchObject({ template_id: '9100', template_node: 'pve-1' });
+  await expect(page.getByRole('option', { name: 'zoomies-template (9100)' })).toBeAttached();
+  await expect(page.getByLabel('Template VMID')).toHaveValue('9100');
   await expect(next(page)).toBeEnabled();
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Capacity' })).toBeVisible();

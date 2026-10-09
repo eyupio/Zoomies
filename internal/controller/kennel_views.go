@@ -266,9 +266,6 @@ const kennelAttentionLines = 10
 
 // kennelDisabled turns the setting into the set the evaluator is given.
 func kennelDisabled(k config.Kennel) map[string]bool {
-	if len(k.DisabledChecks) == 0 && k.RepositorySetup && k.WorkflowChecks && k.AgentGuidance {
-		return nil
-	}
 	out := make(map[string]bool, len(k.DisabledChecks)+1)
 	if !k.AgentGuidance {
 		out[string(kennel.AreaGuidance)] = true
@@ -289,6 +286,14 @@ func kennelDisabled(k config.Kennel) map[string]bool {
 			return slices.Contains(c.Needs, src) || slices.Contains(c.Conditional, src)
 		}
 		if (!k.WorkflowChecks && reads(kennel.SourceWorkflows)) || (!k.RepositorySetup && reads(kennel.SourceSetup)) || (!k.AgentGuidance && reads(kennel.SourceGuidance)) {
+			out[string(c.Code)] = true
+		}
+		// Nothing reads a repository's settings or its protection yet: the
+		// readers exist and the loop does not call them. A check that needs a
+		// source nobody reads would be skipped everywhere and cost every
+		// repository its best-in-show, so these are off until the setting that
+		// turns the reads on arrives with them.
+		if reads(kennel.SourceSettings) || reads(kennel.SourceProtection) {
 			out[string(c.Code)] = true
 		}
 	}

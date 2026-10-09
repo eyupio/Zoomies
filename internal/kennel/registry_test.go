@@ -19,6 +19,8 @@ func TestTheRegistryIsTheClosedSetOfCodes(t *testing.T) {
 		"exposure.fork_code_ran",
 		"exposure.target_event_ran",
 		"exposure.target_checkout_pr_head",
+		"exposure.fork_approval_weak",
+		"exposure.private_fork_secrets",
 		"capacity.unserved_label",
 		"capacity.job_hit_default_limit",
 		"capacity.matrix_exceeds_pool",
@@ -36,10 +38,12 @@ func TestTheRegistryIsTheClosedSetOfCodes(t *testing.T) {
 		"ci.no_concurrency",
 		"ci.action_not_pinned",
 		"token.permissions_unset",
+		"token.default_write",
 		"ci.workflow_unreadable",
 		"ci.pins_without_updater",
 		"ci.label_unserved",
 		"ci.secret_on_command_line",
+		"protection.required_check_never_reports",
 	}
 	var got []Code
 	seen := map[Code]bool{}

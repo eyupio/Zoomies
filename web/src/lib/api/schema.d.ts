@@ -4882,7 +4882,7 @@ export interface components {
             };
         };
         /** @enum {string} */
-        KennelSource: "fleet" | "metadata" | "runs" | "setup" | "workflows" | "guidance";
+        KennelSource: "fleet" | "metadata" | "runs" | "setup" | "workflows" | "guidance" | "settings" | "protection";
         KennelCounts: {
             error: number;
             warning: number;
@@ -5078,7 +5078,7 @@ export interface components {
         KennelCatalogueEntry: {
             code: string;
             /** @enum {string} */
-            area: "exposure" | "capacity" | "setup" | "ci" | "token";
+            area: "guidance" | "exposure" | "capacity" | "setup" | "ci" | "token" | "protection";
             severity: components["schemas"]["KennelSeverity"];
             detects: string;
             /** @description What to change */

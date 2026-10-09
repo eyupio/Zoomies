@@ -1430,8 +1430,9 @@ page's Copy button, `zoomies kennel` with its five readers, and
 `zoomies kennel check [path]`, the same checks over a checkout with nothing
 sent anywhere, held by golden JSON (#767).
 
-**Open:** Stage 4 (ZF-229d, repository settings); Stage 5 (ZF-229e, fix by
-pull request); the documentation page.
+**Open:** Stage 4 (ZF-229d, repository settings), planned in
+[roadmap/plans/2026-10-09-zf-229d-settings.md](roadmap/plans/2026-10-09-zf-229d-settings.md);
+Stage 5 (ZF-229e, fix by pull request); the documentation page.
 
 Depends on ZF-227. Size L.
 

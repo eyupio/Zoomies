@@ -7152,7 +7152,7 @@ components:
             branch: { type: string }
     KennelSource:
       type: string
-      enum: [fleet, metadata, runs, setup, workflows, guidance]
+      enum: [fleet, metadata, runs, setup, workflows, guidance, settings, protection]
     KennelCounts:
       type: object
       required: [error, warning, info, waived]
@@ -7361,7 +7361,7 @@ components:
       required: [code, area, severity, detects, fix, verify, docs, needs, disabled]
       properties:
         code: { type: string }
-        area: { type: string, enum: [exposure, capacity, setup, ci, token] }
+        area: { type: string, enum: [guidance, exposure, capacity, setup, ci, token, protection] }
         severity: { $ref: "#/components/schemas/KennelSeverity" }
         detects: { type: string }
         fix: { type: string, description: What to change, written once for the check; a finding's own fix carries the numbers. }

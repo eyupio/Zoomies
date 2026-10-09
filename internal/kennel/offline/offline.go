@@ -232,6 +232,10 @@ func sourceWords(s kennel.Source) string {
 		return "the repository's record"
 	case kennel.SourceWorkflows:
 		return "the workflow files"
+	case kennel.SourceSettings:
+		return "the repository's Actions settings"
+	case kennel.SourceProtection:
+		return "the status checks the default branch requires"
 	}
 	return string(s)
 }

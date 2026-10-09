@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"os"
+	"slices"
 	"sort"
 	"strings"
 	"testing"
@@ -137,7 +138,7 @@ func TestChecksAreEntriesWithTheRegistrysWords(t *testing.T) {
 			t.Errorf("%s: docs = %q %q", k.Code, e.DocsHTML, e.DocsMD)
 		}
 		wantDetection := "runtime"
-		if k.Area == kennel.AreaSetup || k.Area == kennel.AreaCI || k.Area == kennel.AreaToken {
+		if k.Area == kennel.AreaSetup || k.Area == kennel.AreaCI || k.Area == kennel.AreaToken || slices.Contains(append(slices.Clone(k.Needs), k.Conditional...), kennel.SourceSettings) {
 			wantDetection = "static"
 		}
 		if string(e.Detection) != wantDetection {

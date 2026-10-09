@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -288,8 +289,20 @@ func TestASwitchTurnsOffEveryCheckThatReadsItsSource(t *testing.T) {
 	if off[string(kennel.CodeForkCodeRan)] || off[string(kennel.AreaExposure)] {
 		t.Errorf("a check that reads no gated source was turned off: %v", off)
 	}
-	if on := kennelDisabled(config.Kennel{RepositorySetup: true, WorkflowChecks: true, AgentGuidance: true}); len(on) != 0 {
-		t.Errorf("with both switches on nothing is off: %v", on)
+	// With every switch there is on, only the checks that read the repository's
+	// settings or its required checks are off: nothing reads those yet, and a
+	// check that needs an unread source would cost every repository its
+	// best-in-show. This changes when the setting that reads them arrives.
+	on := kennelDisabled(config.Kennel{RepositorySetup: true, WorkflowChecks: true, AgentGuidance: true})
+	for _, c := range kennel.Checks() {
+		reads := slices.Contains(c.Needs, kennel.SourceSettings) || slices.Contains(c.Needs, kennel.SourceProtection) ||
+			slices.Contains(c.Conditional, kennel.SourceSettings) || slices.Contains(c.Conditional, kennel.SourceProtection)
+		if on[string(c.Code)] != reads {
+			t.Errorf("with every switch on, %s off = %v, want %v", c.Code, on[string(c.Code)], reads)
+		}
+	}
+	if len(on) != 4 {
+		t.Errorf("with every switch on, %d checks are off, want the 4 that read settings: %v", len(on), on)
 	}
 	// With only the setup switch off, the updater check, which reads the
 	// setup source once it applies, is off with it.
