@@ -460,7 +460,7 @@ fleet. [Backup and restore](backup-and-restore.md) is the operator's page.
 | POST | `/api/v1/updates/check` | admin | Ask GitHub for the release list now, and answer with the status once it has been read; the same status is sent to every open page as `updates.updated`. At most one request goes out a minute, and a press inside the minute answers the status as it stands. Refused with `update.check_disabled` while `updates.check_interval` is `0`. Takes no body. |
 | POST | `/api/v1/updates/controller` | platform | Ask the update helper on the controller's host to replace its binary, with the newest release that can be installed on this system or with the optional `tag` in the body (`{ "tag": "v1.3.5" }`). Answers `202` with the status, whose `controller` is the attempt just opened. A field the body does not define is a `422` naming it. Audited as `update.controller_requested` once it is accepted. |
 
-It takes no role above `viewer`: it names a public release and the build this
+`GET /updates` takes no role above `viewer`: it names a public release and the build this
 controller runs, and nothing of the fleet's. It is, though, the first route a
 viewer can read that carries the platform-scoped `mode` and `soak`, which is
 accepted because they say what the controller will do and not how to get in. It answers `200` in every mode,
