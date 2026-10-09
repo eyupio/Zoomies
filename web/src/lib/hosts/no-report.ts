@@ -97,7 +97,7 @@ export function noReport(i: { host: HostFields; now: number; canOperate: boolean
         ...NONE,
         ...base,
         detail:
-          'Updating an agent needs an administrator, who can press Update on its host card, or an operator, who can run its upgrade command on the host. Ask one of them to update this host’s agent.',
+          'Updating an agent needs an administrator, who can press Update on its host card where the update helper is installed, or an operator, who can run its upgrade command on the host. Ask one of them to update this host’s agent.',
       };
     }
     if (host.upgrade_command && !host.embedded) {
