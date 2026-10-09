@@ -28,6 +28,7 @@
   import AboutPanel from '$lib/settings/AboutPanel.svelte';
   import AccountPanel from '$lib/settings/AccountPanel.svelte';
   import AppearancePanel from '$lib/settings/AppearancePanel.svelte';
+  import AssistantPanel from '$lib/settings/AssistantPanel.svelte';
   import BackupsPanel from '$lib/settings/BackupsPanel.svelte';
   import ConfigurationPanel from '$lib/settings/ConfigurationPanel.svelte';
   import EventsPanel from '$lib/settings/EventsPanel.svelte';
@@ -129,6 +130,8 @@
         <BackupsPanel />
       {:else if page.id === 'updates'}
         <UpdatesPanel />
+      {:else if page.id === 'assistant'}
+        <AssistantPanel />
       {:else}
         <AboutPanel />
       {/if}

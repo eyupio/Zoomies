@@ -170,6 +170,9 @@ func (c *Controller) SeedDemo(ctx context.Context) error {
 	if err := c.seedInstallation(ctx); err != nil {
 		return err
 	}
+	if err := c.seedAssistantProvider(ctx, now); err != nil {
+		return err
+	}
 	hosts, err := c.seedHosts(ctx, now)
 	if err != nil {
 		return err
@@ -1699,4 +1702,23 @@ func jitter(rng *rand.Rand, lo, hi int) int {
 		return lo
 	}
 	return lo + rng.IntN(hi-lo+1)
+}
+
+// demoAssistantProviderName is the one provider the demo ships with.
+const demoAssistantProviderName = "Demo model (built in)"
+
+// seedAssistantProvider gives the demo a model that answers without a
+// network, as the default, with a check that passed, so the Assistant page
+// opens on something usable and the announcement can say the assistant
+// talks to nothing outside this machine.
+func (c *Controller) seedAssistantProvider(ctx context.Context, now time.Time) error {
+	p := &store.AssistantProvider{Name: demoAssistantProviderName, Kind: "fake", Model: "demo", Enabled: true}
+	if err := c.st.CreateAssistantProvider(ctx, p); err != nil {
+		return fmt.Errorf("seeding the assistant provider: %w", err)
+	}
+	if err := c.st.SetDefaultAssistantProvider(ctx, p.ID); err != nil {
+		return err
+	}
+	check := AssistantProviderCheck{OK: true, Model: "demo", LatencyMS: 1, UsageReported: true, CheckedAt: now}
+	return c.RecordAssistantProviderCheck(ctx, p.ID, check)
 }

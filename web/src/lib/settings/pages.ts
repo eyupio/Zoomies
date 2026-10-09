@@ -22,6 +22,7 @@ import {
   DatabaseBackup,
   Info,
   KeyRound,
+  MessageSquare,
   Palette,
   Plug,
   SlidersHorizontal,
@@ -131,6 +132,13 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
         icon: DatabaseBackup,
         // A backup is the whole database under the key this host holds.
         needs: 'platform',
+      },
+      {
+        id: 'assistant',
+        label: 'Assistant',
+        description: 'Which model answers in the assistant, and where its traffic may go.',
+        icon: MessageSquare,
+        needs: 'admin',
       },
       {
         id: 'updates',
