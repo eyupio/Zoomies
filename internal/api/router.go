@@ -201,6 +201,8 @@ func (s *Server) apiRoutes() chi.Router {
 
 		// Updates.
 		r.With(s.require(auth.ActionUpdatesRead)).Get("/updates", s.handleGetUpdates)
+		r.With(s.require(auth.ActionUpdatesCheck)).Post("/updates/check", s.handleCheckUpdates)
+		r.With(s.require(auth.ActionUpdatesApply)).Post("/updates/controller", s.handleUpdateController)
 
 		// Installations.
 		r.Route("/installations", func(r chi.Router) {

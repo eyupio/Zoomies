@@ -83,7 +83,8 @@ type UpdatesAttempt struct {
 	RequestedAt time.Time  `json:"requested_at"`
 	FinishedAt  *time.Time `json:"finished_at"`
 	// Error is why it did not succeed, often the helper's own sentence, and empty
-	// otherwise.
+	// otherwise. Below the platform role it is a fixed sentence for the state (see
+	// For), because the text can name a folder on the controller's host.
 	Error string `json:"error"`
 }
 
@@ -115,6 +116,40 @@ type UpdatesTarget struct {
 	// DueAt is the earliest time the mode takes the release: the end of the soak
 	// in auto. It is null in manual, where the person asking is the only wait.
 	DueAt *time.Time `json:"due_at"`
+}
+
+// For is the status as one audience may read it. The platform reads it whole.
+//
+// An attempt's error is often the helper's own sentence, or the controller's
+// about a folder it could not write, and either can name a path on the
+// controller's host. That host is the platform's to know about, so every other
+// role is given a sentence for the state in its place, and still learns that the
+// attempt ended and how. The helper's own sentence stays: it is fixed, and names
+// no path, because every role reads it.
+//
+// It narrows a copy. The view is rendered once and handed to every audience, and
+// the attempt it points to is shared.
+func (v UpdatesView) For(platform bool) UpdatesView {
+	if platform || v.Controller == nil || v.Controller.Error == "" {
+		return v
+	}
+	attempt := *v.Controller
+	attempt.Error = withheldAttemptError(attempt.State)
+	v.Controller = &attempt
+	return v
+}
+
+// withheldAttemptError is what a role below the platform reads where the text of
+// an attempt's error would be. It is keyed on the state alone, so that it can
+// never carry anything the error did.
+func withheldAttemptError(state string) string {
+	switch state {
+	case store.UpdateTimedOut:
+		return "The update helper did not answer in time. Whoever holds the platform role can read the detail."
+	case store.UpdateCancelled:
+		return "The update was cancelled. Whoever holds the platform role can read the detail."
+	}
+	return "The update did not succeed. Whoever holds the platform role can read why."
 }
 
 // UpdatesView works out the status now.

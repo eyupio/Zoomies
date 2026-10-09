@@ -526,3 +526,56 @@ func TestTheReleasePageIsLinkedOnlyWhenItIsAnAbsoluteHTTPSAddress(t *testing.T) 
 		t.Errorf("latest = %+v, want v1.3.2 with no link", got.Latest)
 	}
 }
+
+// An attempt's error is often the helper's own sentence, or the controller's
+// about a folder it could not write, and either can name a path on the
+// controller's host. The status is read by every role and sent to every open
+// page, so only the platform, which owns that host, is given the text; the
+// others are told the state's own sentence, which names nothing.
+func TestTheStatusWithholdsAnAttemptsErrorBelowPlatform(t *testing.T) {
+	const secret = "/var/lib/zoomies-update/request.json"
+	attempt := func(state, text string) *UpdatesAttempt {
+		return &UpdatesAttempt{ID: "upd_1", State: state, From: "1.3.4", To: "v1.3.5", Trigger: "manual", Error: text}
+	}
+	helper := UpdatesHelper{State: HelperReady, Reason: "The update helper is installed on this controller's host, so the controller can update itself."}
+
+	for _, state := range []string{"failed", "timed_out", "cancelled"} {
+		t.Run(state, func(t *testing.T) {
+			view := UpdatesView{Mode: "manual", Helper: helper, Controller: attempt(state, "cannot write in "+secret)}
+
+			if got := view.For(true); got.Controller.Error != "cannot write in "+secret {
+				t.Errorf("the platform's error = %q, want the text as it was written", got.Controller.Error)
+			}
+			below := view.For(false)
+			if below.Controller.Error == "" {
+				t.Error("a role below platform was given no reason at all, so the page cannot say anything about why")
+			}
+			if strings.Contains(below.Controller.Error, secret) || strings.Contains(below.Controller.Error, "/") {
+				t.Errorf("the error below platform = %q, want a sentence that names no path", below.Controller.Error)
+			}
+			if below.Controller.State != state || below.Controller.To != "v1.3.5" {
+				t.Errorf("the attempt below platform = %+v, want its state and target kept", below.Controller)
+			}
+			if below.Helper != helper {
+				t.Errorf("the helper below platform = %+v, want the status's own sentence kept: %+v", below.Helper, helper)
+			}
+			// The view is shared with the other audiences, which are each handed a
+			// value of their own.
+			if view.Controller.Error != "cannot write in "+secret {
+				t.Errorf("narrowing the status changed the one it was made from: %q", view.Controller.Error)
+			}
+		})
+	}
+
+	t.Run("an attempt with nothing to withhold stays empty", func(t *testing.T) {
+		view := UpdatesView{Controller: attempt("requested", "")}
+		if got := view.For(false).Controller.Error; got != "" {
+			t.Errorf("error = %q, want none: a sentence about a failure on an attempt that has not failed", got)
+		}
+	})
+	t.Run("a controller that has never had an attempt", func(t *testing.T) {
+		if got := (UpdatesView{}).For(false); got.Controller != nil {
+			t.Errorf("controller = %+v, want null", got.Controller)
+		}
+	})
+}

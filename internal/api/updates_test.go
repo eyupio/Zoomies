@@ -1,14 +1,32 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
+	"io"
 	"net/http"
+	"net/http/httptest"
+	"os"
+	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/controller"
+	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/updates"
+	"github.com/eyupio/zoomies/internal/updates/channel"
 	"github.com/eyupio/zoomies/internal/version"
 )
 
@@ -100,5 +118,714 @@ func TestTheUpdateStatusModeEnumListsEveryModeTheSettingOffers(t *testing.T) {
 	slices.Sort(offered)
 	if !slices.Equal(listed, offered) {
 		t.Errorf("UpdatesStatus.mode lists %v, but updates.mode offers %v", listed, offered)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The check and the controller update
+// ---------------------------------------------------------------------------
+
+// releaseFeed stands in for api.github.com. It answers every request with a
+// refusal until a test gives it a release list, so that a route that asks GitHub
+// something, in a walk that calls it as every role, reaches nothing outside the
+// test. Any other host is left to the real transport, because the controller's
+// client also delivers the capacity-demand events that other tests listen for.
+type releaseFeed struct {
+	mu   sync.Mutex
+	list string
+}
+
+func (f *releaseFeed) serve(list string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.list = list
+}
+
+func (f *releaseFeed) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.URL.Host != "api.github.com" {
+		return http.DefaultTransport.RoundTrip(r)
+	}
+	f.mu.Lock()
+	list := f.list
+	f.mu.Unlock()
+	status := http.StatusOK
+	if list == "" {
+		status, list = http.StatusServiceUnavailable, `{"message":"no network in tests"}`
+	}
+	return &http.Response{
+		StatusCode: status, Body: io.NopCloser(strings.NewReader(list)), Request: r,
+		Header: http.Header{"Content-Type": []string{"application/json"}},
+	}, nil
+}
+
+// useVersion stamps the build for one test: the whole question an update asks is
+// what the binary was built from, and the test binary is "dev".
+func useVersion(t *testing.T, v string) {
+	t.Helper()
+	was := version.Version
+	version.Version = v
+	t.Cleanup(func() { version.Version = was })
+}
+
+// installHelper makes the update folder as the installer leaves it, marker and
+// all, where the controller was told to look.
+func (h *harness) installHelper() {
+	h.t.Helper()
+	if err := os.MkdirAll(h.updateDir, 0o750); err != nil {
+		h.t.Fatalf("making the update folder: %v", err)
+	}
+	marker, err := json.Marshal(channel.Marker{
+		V: updates.WireVersion, Version: "1.3.4", Binary: "/usr/local/bin/zoomies", InstalledAt: time.Now().UTC(),
+	})
+	if err != nil {
+		h.t.Fatalf("encoding the marker: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(h.updateDir, channel.MarkerFile), marker, 0o644); err != nil {
+		h.t.Fatalf("writing the marker: %v", err)
+	}
+}
+
+// offerRelease makes GitHub's list hold one release this system could install.
+func (h *harness) offerRelease(tag string) {
+	h.t.Helper()
+	binary := updates.AssetName(runtime.GOOS, runtime.GOARCH)
+	if binary == "" {
+		h.t.Skipf("no release is published for %s/%s", runtime.GOOS, runtime.GOARCH)
+	}
+	raw, err := json.Marshal([]map[string]any{{
+		"tag_name": tag, "html_url": "https://example.invalid/releases/" + tag,
+		"published_at": time.Now().Add(-6 * time.Hour).UTC().Format(time.RFC3339),
+		"assets":       []map[string]any{{"name": "checksums.txt"}, {"name": binary}},
+	}})
+	if err != nil {
+		h.t.Fatalf("encoding the release list: %v", err)
+	}
+	h.feed.serve(string(raw))
+}
+
+// updateCallers is one signed-in session per role.
+type updateCallers struct {
+	viewer, operator, admin, platform string
+}
+
+func (h *harness) updateCallers() updateCallers {
+	h.t.Helper()
+	session := func(name string, role store.Role) string {
+		u, _ := h.user(name, role)
+		return h.session(u)
+	}
+	return updateCallers{
+		viewer:   session("update-viewer", store.RoleViewer),
+		operator: session("update-operator", store.RoleOperator),
+		admin:    session("update-admin", store.RoleAdmin),
+		platform: session("update-platform", store.RolePlatform),
+	}
+}
+
+// readyToUpdate is a controller on 1.3.4, in manual mode, offered v1.3.5 by the
+// list an administrator has just asked for, with a helper beside it: everything
+// a press of the controller button needs.
+func (h *harness) readyToUpdate(as updateCallers) {
+	h.t.Helper()
+	useVersion(h.t, "1.3.4")
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Updates.Mode = "manual" })
+	h.offerRelease("v1.3.5")
+	h.installHelper()
+	h.do(request{method: http.MethodPost, path: "/api/v1/updates/check", cookie: as.admin}).
+		mustStatus(h.t, http.StatusOK, "reading the release list")
+}
+
+func (h *harness) updateAudit(action string) []*store.AuditEvent {
+	h.t.Helper()
+	rows, _, err := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{action}}, store.Page{Limit: 10})
+	if err != nil {
+		h.t.Fatalf("ListAudit: %v", err)
+	}
+	return rows
+}
+
+func (h *harness) openUpdateAttempts() []store.UpdateAttempt {
+	h.t.Helper()
+	open, err := h.st.OpenUpdateAttempts(h.ctx)
+	if err != nil {
+		h.t.Fatalf("OpenUpdateAttempts: %v", err)
+	}
+	return open
+}
+
+// routeRow finds one row of the route table, because the table is where a role is
+// written down and walked.
+func routeRow(t *testing.T, method, path string) route {
+	t.Helper()
+	for _, rt := range routeTable(fixtureIDs{}) {
+		if rt.method == method && rt.path == path {
+			return rt
+		}
+	}
+	t.Fatalf("the route table has no row for %s %s, so no walk checks who may call it", method, path)
+	return route{}
+}
+
+const (
+	updatesCheckPath      = "/api/v1/updates/check"
+	updatesControllerPath = "/api/v1/updates/controller"
+)
+
+// Asking GitHub is the administrator's, and replacing the controller's binary is
+// the platform's: it is the one update that ends the process serving the request,
+// on a host the fleet's administrator may not own.
+func TestOnlyThePlatformMayUpdateTheControllerAndAnAdministratorMayCheck(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdate(as)
+
+	check := routeRow(t, http.MethodPost, updatesCheckPath)
+	if check.role != store.RoleAdmin || check.action != auth.ActionUpdatesCheck {
+		t.Errorf("the route table says %s needs %s and %s; want admin and %s", check.path, check.role, check.action, auth.ActionUpdatesCheck)
+	}
+	apply := routeRow(t, http.MethodPost, updatesControllerPath)
+	if apply.role != store.RolePlatform || apply.action != auth.ActionUpdatesApply {
+		t.Errorf("the route table says %s needs %s and %s; want platform and %s", apply.path, apply.role, apply.action, auth.ActionUpdatesApply)
+	}
+
+	for _, tc := range []struct {
+		role   store.Role
+		cookie string
+		check  int
+		apply  int
+	}{
+		{store.RoleViewer, as.viewer, http.StatusForbidden, http.StatusForbidden},
+		{store.RoleOperator, as.operator, http.StatusForbidden, http.StatusForbidden},
+		{store.RoleAdmin, as.admin, http.StatusOK, http.StatusForbidden},
+		{store.RolePlatform, as.platform, http.StatusOK, http.StatusAccepted},
+	} {
+		t.Run(string(tc.role), func(t *testing.T) {
+			got := h.do(request{method: http.MethodPost, path: updatesCheckPath, cookie: tc.cookie})
+			got.mustStatus(t, tc.check, "asking for a release as "+string(tc.role))
+			if tc.check == http.StatusForbidden && !strings.Contains(got.errorMessage(t), "admin") {
+				t.Errorf("the refusal does not name the admin role: %q", got.errorMessage(t))
+			}
+			got = h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: tc.cookie})
+			got.mustStatus(t, tc.apply, "updating the controller as "+string(tc.role))
+			if tc.apply == http.StatusForbidden && !strings.Contains(got.errorMessage(t), "platform") {
+				t.Errorf("the refusal does not name the platform role: %q", got.errorMessage(t))
+			}
+		})
+	}
+	if open := h.openUpdateAttempts(); len(open) != 1 {
+		t.Errorf("%d attempts open after four callers pressed the button, want the platform's one", len(open))
+	}
+}
+
+// The check answers with the status it has just learnt, and the controller route
+// with the status that holds the attempt it opened: the page repaints from the
+// response, with no second request to make.
+func TestTheCheckAndTheControllerRouteAnswerWithTheStatus(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	useVersion(t, "1.3.4")
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Updates.Mode = "manual" })
+	h.offerRelease("v1.3.5")
+	h.installHelper()
+	doc := loadSpec(t)
+
+	checked := h.do(request{method: http.MethodPost, path: updatesCheckPath, cookie: as.admin})
+	checked.mustStatus(t, http.StatusOK, "asking for a release")
+	assertShape(t, doc, "UpdatesStatus", checked.body)
+	var status updatesResponse
+	checked.into(t, &status)
+	if status.Latest == nil || status.Latest.Tag != "v1.3.5" || status.CheckedAt == nil {
+		t.Errorf("the check answered %+v, want the release it has just read", status)
+	}
+
+	started := h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform})
+	started.mustStatus(t, http.StatusAccepted, "updating the controller")
+	assertShape(t, doc, "UpdatesStatus", started.body)
+	var after updatesResponse
+	started.into(t, &after)
+	if after.Controller == nil || after.Controller.State != "requested" || after.Controller.To != "v1.3.5" || after.Controller.Trigger != "manual" {
+		t.Errorf("the controller route answered %+v, want the attempt it opened, requested, for v1.3.5", after.Controller)
+	}
+	if open := h.openUpdateAttempts(); len(open) != 1 || after.Controller == nil || open[0].ID != after.Controller.ID {
+		t.Errorf("open attempts = %+v, want the one the response names", open)
+	}
+}
+
+// A tag is optional, and one that is in the list is taken as it stands.
+func TestTheControllerRouteTakesATagThatIsInTheList(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdate(as)
+
+	resp := h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform, body: map[string]any{"tag": "v1.3.5"}})
+	resp.mustStatus(t, http.StatusAccepted, "updating the controller to a named tag")
+	if open := h.openUpdateAttempts(); len(open) != 1 || open[0].ToVersion != "v1.3.5" {
+		t.Errorf("open attempts = %+v, want one for v1.3.5", open)
+	}
+}
+
+// wantUpdateRefusals is every sentinel in the controller's updates_errors.go with
+// the code the API gives it. The fenced one has no code of its own: it is the
+// plain conflict every other handler gives a controller that may not act.
+var wantUpdateRefusals = []struct {
+	name string
+	err  error
+	code string
+}{
+	{"ErrUpdateCheckDisabled", controller.ErrUpdateCheckDisabled, "update.check_disabled"},
+	{"ErrUpdateModeOff", controller.ErrUpdateModeOff, "update.mode_off"},
+	{"ErrUpdateHelperMissing", controller.ErrUpdateHelperMissing, "update.helper_missing"},
+	{"ErrUpdateInProgress", controller.ErrUpdateInProgress, "update.in_progress"},
+	{"ErrUpdateNotARelease", controller.ErrUpdateNotARelease, "update.not_a_release"},
+	{"ErrUpdateNothingNewer", controller.ErrUpdateNothingNewer, "update.nothing_newer"},
+	{"ErrUpdateHostCannotUpdate", controller.ErrUpdateHostCannotUpdate, "update.host_cannot_update"},
+	{"ErrUpdateRolloutHalted", controller.ErrUpdateRolloutHalted, "update.rollout_halted"},
+	{"ErrUpdateFenced", controller.ErrUpdateFenced, "conflict"},
+}
+
+// A refusal a client can do something different about has a code of its own, and
+// it survives the detail the controller wraps around it: which folder, which
+// release.
+func TestEachUpdateRefusalCarriesItsStableCode(t *testing.T) {
+	h := newHarness(t)
+	for _, tc := range wantUpdateRefusals {
+		t.Run(tc.name, func(t *testing.T) {
+			for _, err := range []error{tc.err, fmt.Errorf("%w: some detail the person needs", tc.err)} {
+				rec := httptest.NewRecorder()
+				h.api.failUpdate(rec, httptest.NewRequest(http.MethodPost, updatesControllerPath, nil), err)
+				resp := &response{status: rec.Code, body: rec.Body.Bytes()}
+				resp.mustStatus(t, http.StatusConflict, "refusing with "+tc.name)
+				if got := resp.errorCode(t); got != tc.code {
+					t.Errorf("%v has code %q, want %q", err, got, tc.code)
+				}
+				if got := resp.errorMessage(t); got != err.Error() {
+					t.Errorf("message = %q, want the sentence the controller wrote: %q", got, err.Error())
+				}
+			}
+		})
+	}
+
+	t.Run("anything else is a server failure", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		h.api.failUpdate(rec, httptest.NewRequest(http.MethodPost, updatesControllerPath, nil), errors.New("the disk is full"))
+		resp := &response{status: rec.Code, body: rec.Body.Bytes()}
+		resp.mustStatus(t, http.StatusInternalServerError, "an error that is not a refusal")
+		if strings.Contains(string(resp.body), "the disk is full") {
+			t.Errorf("the cause is in the response: %s", resp.body)
+		}
+	})
+}
+
+// A refusal added to the controller without a code would reach the page as a 500
+// that blames the server for something a person can fix. The sentinels are read
+// out of the file that declares them, so that adding one fails here until it has
+// a row in the table above, and a row in the table fails until the mapper
+// answers it.
+func TestEveryUpdateRefusalTheControllerDeclaresHasACode(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), filepath.Join("..", "controller", "updates_errors.go"), nil, 0)
+	if err != nil {
+		t.Fatalf("reading the controller's update refusals: %v", err)
+	}
+	var declared []string
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.VAR {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			for _, name := range spec.(*ast.ValueSpec).Names {
+				if strings.HasPrefix(name.Name, "Err") {
+					declared = append(declared, name.Name)
+				}
+			}
+		}
+	}
+	if len(declared) == 0 {
+		t.Fatal("found no refusals in updates_errors.go, so this checked nothing")
+	}
+
+	h := newHarness(t)
+	mapped := map[string]bool{}
+	for _, tc := range wantUpdateRefusals {
+		mapped[tc.name] = true
+		rec := httptest.NewRecorder()
+		h.api.failUpdate(rec, httptest.NewRequest(http.MethodPost, updatesControllerPath, nil), tc.err)
+		if rec.Code == http.StatusInternalServerError {
+			t.Errorf("%s is answered as a server failure; give it a code in failUpdate", tc.name)
+		}
+	}
+	for _, name := range declared {
+		if !mapped[name] {
+			t.Errorf("controller.%s has no row in wantUpdateRefusals, so nothing checks that it has a code", name)
+		}
+	}
+	if len(mapped) != len(declared) {
+		t.Errorf("wantUpdateRefusals names %d refusals and updates_errors.go declares %d", len(mapped), len(declared))
+	}
+}
+
+// Each refusal as a person meets it: through the route, from the state that
+// causes it, with the audit trail untouched, because nothing was done.
+func TestTheUpdateRoutesRefuseWithTheirCodesFromTheStateThatCausesThem(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(h *harness, as updateCallers)
+		do    func(h *harness, as updateCallers) *response
+		code  string
+	}{
+		{
+			name:  "updates are off",
+			setup: func(h *harness, as updateCallers) { useVersion(h.t, "1.3.4") },
+			do: func(h *harness, as updateCallers) *response {
+				return h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform})
+			},
+			code: "update.mode_off",
+		},
+		{
+			name: "the release check is switched off",
+			setup: func(h *harness, as updateCallers) {
+				h.ctrl.UpdateConfig(func(c *config.Config) { c.Updates.CheckInterval = 0 })
+			},
+			do: func(h *harness, as updateCallers) *response {
+				return h.do(request{method: http.MethodPost, path: updatesCheckPath, cookie: as.admin})
+			},
+			code: "update.check_disabled",
+		},
+		{
+			name: "the build is not a release",
+			setup: func(h *harness, as updateCallers) {
+				h.readyToUpdate(as)
+				useVersion(h.t, "main-sha-abc1234")
+			},
+			do: func(h *harness, as updateCallers) *response {
+				return h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform})
+			},
+			code: "update.not_a_release",
+		},
+		{
+			name: "there is no helper",
+			setup: func(h *harness, as updateCallers) {
+				h.readyToUpdate(as)
+				if err := os.Remove(filepath.Join(h.updateDir, channel.MarkerFile)); err != nil {
+					h.t.Fatalf("removing the marker: %v", err)
+				}
+			},
+			do: func(h *harness, as updateCallers) *response {
+				return h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform})
+			},
+			code: "update.helper_missing",
+		},
+		{
+			name:  "the tag is not in the list",
+			setup: func(h *harness, as updateCallers) { h.readyToUpdate(as) },
+			do: func(h *harness, as updateCallers) *response {
+				return h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform, body: map[string]any{"tag": "v9.9.9"}})
+			},
+			code: "update.nothing_newer",
+		},
+		{
+			name:  "the tag is not the shape of a release",
+			setup: func(h *harness, as updateCallers) { h.readyToUpdate(as) },
+			do: func(h *harness, as updateCallers) *response {
+				return h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform, body: map[string]any{"tag": "latest"}})
+			},
+			code: "update.nothing_newer",
+		},
+		{
+			name: "the release is the one already running",
+			setup: func(h *harness, as updateCallers) {
+				h.readyToUpdate(as)
+				useVersion(h.t, "1.3.5")
+			},
+			do: func(h *harness, as updateCallers) *response {
+				return h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform})
+			},
+			code: "update.nothing_newer",
+		},
+		{
+			name: "an update is already in flight",
+			setup: func(h *harness, as updateCallers) {
+				h.readyToUpdate(as)
+				h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform}).
+					mustStatus(h.t, http.StatusAccepted, "the first press")
+				// The helper has taken its request, so the second press is refused
+				// for the attempt and not for the request that is still waiting.
+				if err := os.Remove(filepath.Join(h.updateDir, channel.RequestFile)); err != nil {
+					h.t.Fatalf("taking the request: %v", err)
+				}
+			},
+			do: func(h *harness, as updateCallers) *response {
+				return h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform})
+			},
+			code: "update.in_progress",
+		},
+		{
+			name: "the controller may not act",
+			setup: func(h *harness, as updateCallers) {
+				h.readyToUpdate(as)
+				if err := h.st.SetRecoveryFence(h.ctx, true, "restored from a copy"); err != nil {
+					h.t.Fatalf("fencing: %v", err)
+				}
+				if err := h.ctrl.LoadFence(h.ctx); err != nil {
+					h.t.Fatalf("loading the fence: %v", err)
+				}
+			},
+			do: func(h *harness, as updateCallers) *response {
+				return h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform})
+			},
+			code: "conflict",
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			as := h.updateCallers()
+			tc.setup(h, as)
+			before := len(h.updateAudit("update.controller_requested"))
+
+			resp := tc.do(h, as)
+			resp.mustStatus(t, http.StatusConflict, tc.name)
+			if got := resp.errorCode(t); got != tc.code {
+				t.Errorf("code = %q, want %q (message %q)", got, tc.code, resp.errorMessage(t))
+			}
+			if after := len(h.updateAudit("update.controller_requested")); after != before {
+				t.Errorf("a refused press wrote %d audit rows, want none: nothing was done", after-before)
+			}
+		})
+	}
+}
+
+// A typo in a field name would otherwise be a 202 for a request that did not say
+// what its sender meant, on the one button that replaces the binary.
+func TestAnUnknownFieldInTheBodyIsRefused(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdate(as)
+
+	for _, tc := range []struct {
+		name  string
+		body  any
+		field string
+	}{
+		{"a field nobody defined", map[string]any{"tag": "v1.3.5", "force": true}, "force"},
+		{"a typo for tag", map[string]any{"tga": "v1.3.5"}, "tga"},
+		{"a tag that is not text", map[string]any{"tag": 135}, "tag"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform, body: tc.body})
+			resp.mustStatus(t, http.StatusUnprocessableEntity, tc.name)
+			if got := resp.errorCode(t); got != "unprocessable" {
+				t.Errorf("code = %q, want unprocessable", got)
+			}
+			var env errorEnvelope
+			resp.into(t, &env)
+			if env.Error.Field != tc.field {
+				t.Errorf("field = %q, want %q: the message is %q", env.Error.Field, tc.field, env.Error.Message)
+			}
+		})
+	}
+	if open := h.openUpdateAttempts(); len(open) != 0 {
+		t.Errorf("%d attempts open after refused bodies, want none", len(open))
+	}
+	if rows := h.updateAudit("update.controller_requested"); len(rows) != 0 {
+		t.Errorf("%d audit rows after refused bodies, want none", len(rows))
+	}
+
+	// And a body that is empty, or says nothing, is the newest release.
+	h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform, body: map[string]any{}}).
+		mustStatus(t, http.StatusAccepted, "a body with no fields")
+}
+
+// The audit trail names the person who pressed the button, and the controller
+// records the same name as the one who asked, so that the attempt and the trail
+// say the same thing. It is written after the controller has said yes, and not
+// before: a press that did nothing is not something somebody did.
+func TestTheControllerRouteRecordsAnAuditRowForTheCaller(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdate(as)
+	lead, _ := h.user("ops-lead", store.RolePlatform)
+
+	resp := h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: h.session(lead)})
+	resp.mustStatus(t, http.StatusAccepted, "updating the controller")
+	var status updatesResponse
+	resp.into(t, &status)
+	if status.Controller == nil {
+		t.Fatal("the response holds no attempt")
+	}
+
+	rows := h.updateAudit("update.controller_requested")
+	if len(rows) != 1 {
+		t.Fatalf("%d audit rows, want 1", len(rows))
+	}
+	row := rows[0]
+	if row.ActorID != lead.ID || row.ActorName != "ops-lead" || row.TargetKind != "update" || row.TargetID != status.Controller.ID {
+		t.Errorf("audit row = %+v, want ops-lead's, about the attempt %s", row, status.Controller.ID)
+	}
+	if !strings.Contains(row.After, "v1.3.5") || !strings.Contains(row.After, "1.3.4") {
+		t.Errorf("audit detail = %q, want what it was from and to", row.After)
+	}
+	attempts, err := h.st.ListUpdateAttempts(h.ctx, store.UpdateScopeController, "", 5)
+	if err != nil || len(attempts) != 1 {
+		t.Fatalf("attempts = %v, %v", attempts, err)
+	}
+	if attempts[0].RequestedBy != "ops-lead" {
+		t.Errorf("the attempt says %q asked, want ops-lead", attempts[0].RequestedBy)
+	}
+}
+
+// failedUpdate presses the button when the folder cannot take the request, which
+// is the attempt whose error names a path: a request is already waiting there.
+// It returns the folder, as it reads in JSON.
+func (h *harness) failedUpdate(as updateCallers) string {
+	h.t.Helper()
+	h.readyToUpdate(as)
+	if err := os.WriteFile(filepath.Join(h.updateDir, channel.RequestFile), []byte("{}"), 0o640); err != nil {
+		h.t.Fatalf("leaving a request in the folder: %v", err)
+	}
+	h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform}).
+		mustStatus(h.t, http.StatusConflict, "pressing the button with a request already waiting")
+	quoted, err := json.Marshal(h.updateDir)
+	if err != nil {
+		h.t.Fatalf("encoding the folder: %v", err)
+	}
+	return strings.Trim(string(quoted), `"`)
+}
+
+// The helper's sentence and the controller's about a folder it could not write
+// are for whoever owns the host. A viewer's page does not need the layout of the
+// controller's filesystem to know the update failed, and an administrator of the
+// fleet is not the platform's operator.
+func TestTheStatusWithholdsTheHelpersTextBelowPlatform(t *testing.T) {
+	t.Run("from GET /updates", func(t *testing.T) {
+		h := newHarness(t)
+		as := h.updateCallers()
+		folder := h.failedUpdate(as)
+
+		for _, tc := range []struct {
+			role     string
+			cookie   string
+			platform bool
+		}{
+			{"viewer", as.viewer, false},
+			{"operator", as.operator, false},
+			{"admin", as.admin, false},
+			{"platform", as.platform, true},
+		} {
+			t.Run(tc.role, func(t *testing.T) {
+				resp := h.do(request{method: http.MethodGet, path: "/api/v1/updates", cookie: tc.cookie})
+				resp.mustStatus(t, http.StatusOK, "reading the status")
+				var status updatesResponse
+				resp.into(t, &status)
+				assertWithheldBelowPlatform(t, tc.role, tc.platform, status, string(resp.body), folder)
+			})
+		}
+	})
+
+	// The check answers with the same status, and an administrator is the lowest
+	// role that may ask for it.
+	t.Run("from POST /updates/check", func(t *testing.T) {
+		h := newHarness(t)
+		as := h.updateCallers()
+		folder := h.failedUpdate(as)
+
+		for _, tc := range []struct {
+			role     string
+			cookie   string
+			platform bool
+		}{
+			{"admin", as.admin, false},
+			{"platform", as.platform, true},
+		} {
+			t.Run(tc.role, func(t *testing.T) {
+				resp := h.do(request{method: http.MethodPost, path: updatesCheckPath, cookie: tc.cookie})
+				resp.mustStatus(t, http.StatusOK, "checking for a release")
+				var status updatesResponse
+				resp.into(t, &status)
+				assertWithheldBelowPlatform(t, tc.role, tc.platform, status, string(resp.body), folder)
+			})
+		}
+	})
+
+	t.Run("from the event stream", func(t *testing.T) {
+		h := newHarness(t)
+		as := h.updateCallers()
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		type watcher struct {
+			role     string
+			platform bool
+			frames   <-chan sseFrame
+		}
+		var watchers []watcher
+		for _, tc := range []struct {
+			role     string
+			cookie   string
+			platform bool
+		}{
+			{"viewer", as.viewer, false},
+			{"operator", as.operator, false},
+			{"admin", as.admin, false},
+			{"platform", as.platform, true},
+		} {
+			frames, _ := h.openStream(t, ctx, "/api/v1/events", tc.cookie, nil)
+			await(t, frames, "the opening comment", func(f sseFrame) bool { return f.comment != "" })
+			watchers = append(watchers, watcher{tc.role, tc.platform, frames})
+		}
+
+		folder := h.failedUpdate(as)
+
+		for _, w := range watchers {
+			frame := await(t, w.frames, "the "+w.role+"'s update frame", func(f sseFrame) bool {
+				return f.event == string(events.KindUpdates) && strings.Contains(f.data, `"state":"failed"`)
+			})
+			var status updatesResponse
+			decodeFrame(t, frame, &status)
+			assertWithheldBelowPlatform(t, w.role, w.platform, status, frame.data, folder)
+		}
+	})
+}
+
+func assertWithheldBelowPlatform(t *testing.T, role string, platform bool, status updatesResponse, raw, folder string) {
+	t.Helper()
+	if status.Controller == nil || status.Controller.State != "failed" {
+		t.Fatalf("the %s's status holds %+v, want the failed attempt", role, status.Controller)
+	}
+	if platform {
+		if !strings.Contains(status.Controller.Error, folder) || !strings.Contains(raw, folder) {
+			t.Errorf("the platform's error = %q, want the text as it was written, folder and all", status.Controller.Error)
+		}
+		return
+	}
+	if status.Controller.Error == "" {
+		t.Errorf("the %s was given no reason at all", role)
+	}
+	if strings.Contains(raw, folder) || strings.Contains(raw, channel.RequestFile) {
+		t.Errorf("the %s was sent a path: %s", role, raw)
+	}
+	// What the page shows about the helper is its own sentence, which names no
+	// path for any role, and is kept.
+	if status.Helper.State != controller.HelperReady || status.Helper.Reason == "" {
+		t.Errorf("the %s's helper = %+v, want the status's own sentence", role, status.Helper)
+	}
+}
+
+// A frame this version cannot read is not one to guess about. The platform is
+// entitled to the whole of it and is sent it as it came; anyone else is sent
+// nothing, because the document is exactly what the filter exists to withhold.
+func TestAnUpdatesFrameTheFilterCannotReadIsOnlyPassedToThePlatform(t *testing.T) {
+	garbled := []byte(`{"controller":{"error":"cannot write in /var/lib/zoomies-update"`)
+
+	if out, ok := updatesFor(garbled, true); !ok || string(out) != string(garbled) {
+		t.Errorf("updatesFor(platform) = %q, %v, want the frame untouched", out, ok)
+	}
+	if out, ok := updatesFor(garbled, false); ok {
+		t.Errorf("updatesFor(below platform) = %q, true, want it refused", out)
+	}
+
+	whole := []byte(`{"mode":"manual","controller":{"id":"upd_1","state":"failed","error":"cannot write in /var/lib/zoomies-update"}}`)
+	out, ok := updatesFor(whole, false)
+	if !ok || strings.Contains(string(out), "/var/lib") {
+		t.Errorf("updatesFor(below platform) = %q, %v, want the frame with the path withheld", out, ok)
 	}
 }

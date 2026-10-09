@@ -64,6 +64,11 @@ type harness struct {
 	key  *cryptox.Key
 	ctx  context.Context
 	logs *logCapture
+	// updateDir is the update folder the controller was told to use, which does
+	// not exist until a test installs a helper in it; feed is what the controller
+	// reads of GitHub's release list.
+	updateDir string
+	feed      *releaseFeed
 }
 
 // logCapture is the controller's own log, kept so that a test can assert on
@@ -179,18 +184,23 @@ func newHarnessWithProviders(t *testing.T, factories []provider.Factory, opts ..
 	if err != nil {
 		t.Fatalf("provider.NewRegistry: %v", err)
 	}
+	// A folder that does not exist: no helper, and never the real host's.
+	updateDir := filepath.Join(t.TempDir(), "update")
+	// A network that answers every request with a refusal, so that a route that
+	// asks GitHub for a release in a walk reaches nothing outside the test.
+	feed := &releaseFeed{}
 	ctrl, err := controller.New(controller.Options{
-		Store:     st,
-		Config:    cfg,
-		Key:       key,
-		Auth:      auth.New(st, cfg, bus, auth.WithLogger(logger), auth.WithKey(key)),
-		Events:    bus,
-		GitHub:    &fakeFactory{gh: gh},
-		Providers: providers,
-		Logger:    logger,
-		Clock:     time.Now,
-		// A folder that does not exist: no helper, and never the real host's.
-		UpdateDir: filepath.Join(t.TempDir(), "update"),
+		Store:      st,
+		Config:     cfg,
+		Key:        key,
+		Auth:       auth.New(st, cfg, bus, auth.WithLogger(logger), auth.WithKey(key)),
+		Events:     bus,
+		GitHub:     &fakeFactory{gh: gh},
+		Providers:  providers,
+		Logger:     logger,
+		Clock:      time.Now,
+		HTTPClient: &http.Client{Transport: feed},
+		UpdateDir:  updateDir,
 	})
 	if err != nil {
 		t.Fatalf("controller.New: %v", err)
@@ -206,7 +216,8 @@ func newHarnessWithProviders(t *testing.T, factories []provider.Factory, opts ..
 	srv := httptest.NewServer(s.Handler())
 	t.Cleanup(srv.Close)
 
-	return &harness{t: t, srv: srv, api: s, ctrl: ctrl, st: st, gh: gh, cfg: cfg, key: key, ctx: ctx, logs: logs}
+	return &harness{t: t, srv: srv, api: s, ctrl: ctrl, st: st, gh: gh, cfg: cfg, key: key, ctx: ctx, logs: logs,
+		updateDir: updateDir, feed: feed}
 }
 
 // setupToken is the credential the first-run route asks for. It is minted per
@@ -769,6 +780,8 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "GET", path: "/api/v1/usage", role: store.RoleViewer, action: auth.ActionUsageRead},
 		{method: "GET", path: "/api/v1/usage.csv", role: store.RoleViewer, action: auth.ActionUsageRead},
 		{method: "GET", path: "/api/v1/updates", role: store.RoleViewer, action: auth.ActionUpdatesRead},
+		{method: "POST", path: "/api/v1/updates/check", role: store.RoleAdmin, action: auth.ActionUpdatesCheck},
+		{method: "POST", path: "/api/v1/updates/controller", role: store.RolePlatform, action: auth.ActionUpdatesApply},
 
 		{method: "GET", path: "/api/v1/installations", role: store.RoleViewer, action: auth.ActionInstallationsRead},
 		{method: "POST", path: "/api/v1/installations", role: store.RoleAdmin, body: map[string]any{}, action: auth.ActionInstallationsWrite},
@@ -1166,11 +1179,6 @@ func TestEveryActionIsReachableThroughARoute(t *testing.T) {
 	// may start again, and the handler asks for this one when the body says to stop.
 	// The tracking tests in kennel_test.go walk it.
 	claimed[auth.ActionKennelUntrack] = true
-	// The roles of the release check and the controller update are decided
-	// before their routes exist. The change that adds the routes puts them
-	// in the table and removes these two lines.
-	claimed[auth.ActionUpdatesCheck] = true
-	claimed[auth.ActionUpdatesApply] = true
 	for _, a := range auth.AllActions() {
 		if !claimed[a] {
 			t.Errorf("%s is a permission no route in the table checks", a)
