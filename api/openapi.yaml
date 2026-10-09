@@ -4250,6 +4250,60 @@ paths:
         "404": { $ref: "#/components/responses/NotFound" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /kennel/repositories/{id}/agent-guidance:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: previewKennelGuidance
+      tags: [kennel]
+      summary: Inspect agent guidance and preview proposed changes
+      description: >-
+        Requires Kennel Club and kennel.agent_guidance to be enabled and the repository to be
+        tracked. Pins the default branch, reads bounded instruction files and command manifests,
+        and returns issues and before/after file contents. Contents read permission is sufficient.
+        Repository text is untrusted and must be rendered as text. An incomplete inventory answers
+        409; it cannot produce a repair proposal.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: A proposal, including an empty files array when changes require manual review.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KennelGuidancePreview" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    post:
+      operationId: createKennelGuidancePR
+      tags: [kennel]
+      summary: Open a draft pull request for reviewed agent guidance
+      description: >-
+        Recomputes the proposal and requires its exact plan_hash. Refuses changes after review.
+        Needs Contents write and Pull requests write, without Workflows write. Uses a deterministic
+        branch and reconciles retries without overwriting edited proposals or reopening closed PRs.
+        Changes no workflows, installs no AI Context and grants no assistant access.
+        Audited as kennel.guidance_pr. Merge the PR, then request Recheck to refresh the findings.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan_hash]
+              properties:
+                plan_hash: { type: string }
+      responses:
+        "200":
+          description: The proposal and its draft pull request.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/KennelGuidancePreview" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
   /kennel/repositories/{id}/recheck:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
     post:
@@ -6872,9 +6926,45 @@ components:
         How far a source could be read. `denied` is a permission this installation has not been
         given, `held` is requests being held back to stay within the rate limit, and `partial`
         means what was found stands and nothing found is not an all-clear.
+    KennelGuidancePreview:
+      type: object
+      required: [base_commit, base, branch, plan_hash, issues, files]
+      properties:
+        base_commit: { type: string }
+        base: { type: string }
+        branch: { type: string }
+        plan_hash: { type: string }
+        issues:
+          type: array
+          items:
+            type: object
+            required: [kind, path, sha, line]
+            properties:
+              kind: { type: string, enum: [missing, broken_reference, duplicated, unreadable] }
+              path: { type: string }
+              sha: { type: string }
+              line: { type: integer }
+        files:
+          type: array
+          items:
+            type: object
+            required: [path, mode, previous_sha, before, content]
+            properties:
+              path: { type: string }
+              mode: { type: string, enum: ["100644", "100755"] }
+              previous_sha: { type: string }
+              before: { type: string }
+              content: { type: string }
+        pull_request:
+          type: object
+          required: [number, html_url, branch]
+          properties:
+            number: { type: integer }
+            html_url: { type: string }
+            branch: { type: string }
     KennelSource:
       type: string
-      enum: [fleet, metadata, runs, setup, workflows]
+      enum: [fleet, metadata, runs, setup, workflows, guidance]
     KennelCounts:
       type: object
       required: [error, warning, info, waived]
@@ -6906,9 +6996,9 @@ components:
       type: object
       required: [sha, path]
       description: >-
-        One workflow file of the default branch: the blob SHA a finding's file evidence names,
+        One workflow or agent instruction file of the default branch: the blob SHA a finding's file evidence names,
         and its path. The path is a stranger's text, gated to a plain name under
-        `.github/workflows`; one that did not pass is empty, and the page says the workflow
+        `.github/workflows` for workflows, or a plain repository path for guidance; one that did not pass is empty, and the page says the file
         has an unusual name. Render it as text.
       properties:
         sha: { type: string }

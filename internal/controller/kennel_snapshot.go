@@ -73,9 +73,12 @@ type kennelWatermark struct {
 	// WorkflowFormat says which shape Workflows holds. A watermark from before
 	// the files were kept by SHA holds counts the evaluator can no longer read,
 	// so one below kennelWorkflowFormat is read again once.
-	WorkflowFormat int                  `json:"workflow_format,omitempty"`
-	Setup          *kennel.SetupFacts   `json:"setup,omitempty"`
-	SetupState     kennel.CoverageState `json:"setup_state,omitempty"`
+	WorkflowFormat int                   `json:"workflow_format,omitempty"`
+	Setup          *kennel.SetupFacts    `json:"setup,omitempty"`
+	SetupState     kennel.CoverageState  `json:"setup_state,omitempty"`
+	Guidance       *kennel.GuidanceFacts `json:"guidance,omitempty"`
+	GuidanceState  kennel.CoverageState  `json:"guidance_state,omitempty"`
+	GuidanceFiles  []kennelWorkflowRef   `json:"guidance_files,omitempty"`
 	// Runs are the fork pull requests and stranger-triggered runs found, newest
 	// first.
 	Runs []kennelSeenRun `json:"runs"`

@@ -12,6 +12,9 @@ import (
 // the documentation quotes.
 func TestKennelClubIsOffByDefaultAndSpendsAFifthOfTheRequestLimit(t *testing.T) {
 	k := Default().Kennel
+	if k.AgentGuidance {
+		t.Error("agent guidance reads are on without opting in")
+	}
 	if k.WorkflowChecks {
 		t.Error("workflow content reads are on without opting in")
 	}
@@ -46,7 +49,7 @@ func TestKennelClubIsOffByDefaultAndSpendsAFifthOfTheRequestLimit(t *testing.T) 
 // to change, not the platform's.
 func TestEveryKennelSettingIsLiveAndTheFleetsToChange(t *testing.T) {
 	want := []string{
-		"kennel.api_budget_percent", "kennel.disabled_checks", "kennel.enabled",
+		"kennel.agent_guidance", "kennel.api_budget_percent", "kennel.disabled_checks", "kennel.enabled",
 		"kennel.refresh_interval", "kennel.repository_setup", "kennel.scope", "kennel.workflow_checks",
 	}
 	var got []string

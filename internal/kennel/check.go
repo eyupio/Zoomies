@@ -21,13 +21,17 @@ import (
 
 // Version is the evaluator's version. A stored evaluation made by an older one
 // is re-run, so bump it whenever a check's meaning or wording changes.
-const Version = 5
+const Version = 6
 
 // Code names one check. Codes are stable across releases and form a closed
 // set: Evaluate returns no code that is not in the registry below.
 type Code string
 
 const (
+	CodeGuidanceMissing          Code = "guidance.missing"
+	CodeGuidanceBroken           Code = "guidance.broken_reference"
+	CodeGuidanceDuplicated       Code = "guidance.duplicated"
+	CodeGuidanceUnreadable       Code = "guidance.unreadable"
 	CodeNoTimeout                Code = "ci.no_timeout"
 	CodeNoConcurrency            Code = "ci.no_concurrency"
 	CodeActionNotPinned          Code = "ci.action_not_pinned"
@@ -60,6 +64,7 @@ const (
 type Area string
 
 const (
+	AreaGuidance Area = "guidance"
 	AreaExposure Area = "exposure"
 	AreaCapacity Area = "capacity"
 	AreaSetup    Area = "setup"
@@ -160,6 +165,10 @@ type result struct {
 
 // checks is the registry, in the order findings of equal severity are listed.
 var checks = []Check{
+	guidanceCheck(CodeGuidanceMissing, SeverityInfo, "No agent guidance found", "No recognised agent instruction file was found on the default branch.", "Preview agent guidance to propose an AGENTS.md and a Claude import, using commands declared in repository files."),
+	guidanceCheck(CodeGuidanceBroken, SeverityWarning, "Agent guidance has a broken reference", "An instruction file imports or links to a missing repository path, or its Claude imports form a cycle.", "Preview agent guidance for unambiguous import repairs; review other broken links or import cycles and correct them manually. Use AI Context repair for damaged Zoomies-managed sections."),
+	guidanceCheck(CodeGuidanceDuplicated, SeverityInfo, "Agent guidance is duplicated", "A root or nested Claude instruction file repeats the root AGENTS.md in full.", "Preview agent guidance to replace the duplicate Claude file with an import of the shared AGENTS.md."),
+	guidanceCheck(CodeGuidanceUnreadable, SeverityWarning, "Agent guidance could not be inspected", "An instruction file is empty, is not regular UTF-8 text or exceeds the file or byte limits.", "Keep instruction files as non-empty regular UTF-8 text under 64 KiB each, with at most 32 files inspected; split or shorten them and recheck."),
 	{
 		Code: CodePublicRepoOnFleet, Area: AreaExposure, Severity: SeverityWarning,
 		Detects: "A public repository ran jobs on this fleet, or has jobs waiting for it.",
