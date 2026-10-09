@@ -27,7 +27,7 @@ and failure-mode review.
 The core binary is written in Go. The web UI is built with Svelte and embedded
 in that binary.
 
-- Go 1.27.2 or later (the version in `go.mod` and CI)
+- Go 1.27.1 or later (the floor in `go.mod`; CI builds and releases with 1.27.2)
 - Node.js 22 or later and npm, when changing or rebuilding the UI
 - Git
 - Docker or Podman for backend and image work

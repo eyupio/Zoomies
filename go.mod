@@ -1,6 +1,6 @@
 module github.com/eyupio/zoomies
 
-go 1.27.2
+go 1.27.1
 
 require (
 	github.com/bradleyfalzon/ghinstallation/v2 v2.19.0
