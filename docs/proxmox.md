@@ -42,7 +42,7 @@ Zoomies created it, knows it did, and is the only thing allowed to delete it.
 | | |
 | --- | --- |
 | Proxmox VE | 8.0 or later; automatic setup uses Tailcat to reach the local HTTPS API on port 8006 |
-| A prepared template | a Linux VM template, described [below](#preparing-the-template) |
+| A prepared template | created by automatic setup, or a Linux VM template prepared [manually](#preparing-the-template) |
 | An API token | created automatically by the setup command, or [managed manually](#the-api-token) |
 | A VMID range | a block of VM identifiers Zoomies may use and nothing else may |
 | Storage and a bridge | the storage the clone's disk lands on, and the network bridge it attaches to |
@@ -110,7 +110,8 @@ API token in flight. It exists for a first ten minutes, not for a deployment.
 
 ## Preparing the template
 
-The template is the part you own. Zoomies clones it and installs nothing that
+For manual connections, prepare the template yourself. Automatic setup creates
+one as described [below](#the-provider). Zoomies clones it and installs nothing that
 is not already there, so what is in the image is what a runner gets.
 
 Proxmox ships no templates, and the standard answer is a distribution's cloud
@@ -215,14 +216,24 @@ step and enter its private address. **Configure a direct connection** remains
 available for an API address Zoomies can reach.
 
 The controller needs private connections enabled. The Proxmox host needs outbound
-internet access and systemd. The setup does not prepare a runner VM template:
-choose the prepared template, storage and network on the Placement step. Choices
+internet access and systemd. Automatic setup reuses `zoomies-template` if it exists.
+Otherwise it installs `libguestfs-tools` on the Proxmox host and prepares an Ubuntu
+24.04 cloud image with Docker, the QEMU guest agent and a disabled Zoomies agent
+service, using the setup binary. The image checksum is checked before preparation.
+It imports the image into active disk-image storage with at least 33 GiB free,
+chooses an active bridge (preferring `vmbr0`) and creates a 32 GiB template at a
+free VMID starting at 9100, outside the default runner block. The first build can
+take several minutes and needs access to `cloud-images.ubuntu.com` and Ubuntu
+package mirrors. Automatic image preparation requires an x86_64 host.
+
+Choose the storage and network for clones on the Placement step. Choices
 come from the cluster; anything with one answer is already selected. Review the
 machine shape and limits, then save. The initial maximum is zero, so connecting a
-provider does not create any VMs. The setup callback also reports existing QEMU
-templates, with their VMIDs and nodes. A sole template is preselected; with several,
-choose the runner template on Placement. The script prints these identifiers at
-completion. If none exists, prepare a runner template first; setup does not create one.
+provider does not create runner VMs. The setup callback reports QEMU templates,
+with their VMIDs and nodes. The Zoomies template's VMID and node are preselected
+even when the cluster has other templates. The script prints these identifiers at
+completion. Interrupted template imports can be retried; setup resumes only a VM
+marked as belonging to that setup and refuses to change an unrelated guest.
 
 For a direct network connection or credentials you manage yourself, choose
 **Configure connection manually**. The tables and terminal command below describe
