@@ -93,3 +93,27 @@ func TestAnEventNameThatIsNotOneOfTheKnownIsIgnored(t *testing.T) {
 		}
 	}
 }
+
+// The prompt quotes evidence, and evidence is where a stranger's text is
+// allowed, so the prompt is allowed to carry it in one place: the fenced
+// block headed as repository data. Outside that block it is a sentence this
+// package wrote, and the hostile string must never be in one.
+func TestAPromptQuotesHostileTextOnlyInsideItsFencedBlock(t *testing.T) {
+	ev := Evaluate(hostileSnapshot(), Policy{})
+	paths := map[string]string{hostile: ".github/workflows/" + hostile + ".yml"}
+	for _, f := range ev.Findings {
+		p := Prompt(f, paths)
+		parts := strings.Split(p, "```")
+		if len(parts) != 1 && len(parts) != 3 {
+			t.Errorf("%s: %d fences in the prompt", f.Code, len(parts)-1)
+			continue
+		}
+		outside := parts[0]
+		if len(parts) == 3 {
+			outside += parts[2]
+		}
+		if strings.Contains(outside, hostile) || strings.Contains(strings.ToLower(outside), "ignore previous") {
+			t.Errorf("%s: hostile text outside the fenced block:\n%s", f.Code, p)
+		}
+	}
+}

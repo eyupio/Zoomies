@@ -20,6 +20,7 @@ func TestTheRegistryIsTheClosedSetOfCodes(t *testing.T) {
 		"exposure.target_checkout_pr_head",
 		"capacity.unserved_label",
 		"capacity.job_hit_default_limit",
+		"capacity.matrix_exceeds_pool",
 		"setup.readme",
 		"setup.licence",
 		"setup.security",

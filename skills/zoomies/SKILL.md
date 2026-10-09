@@ -92,6 +92,7 @@ These change nothing. Run them as the question needs.
 * `zoomies config check`, `zoomies config print`, `zoomies config list`, `zoomies config get`
 * `zoomies doctor`, `zoomies healthcheck`, `zoomies logs`
 * `zoomies deployment status`, `zoomies deployment logs`
+* `zoomies kennel overview`, `zoomies kennel repositories`, `zoomies kennel repository`, `zoomies kennel checks`, `zoomies kennel check` (it reads a checkout on this machine and sends nothing unless `--controller` names a repository to read from the controller)
 
 ### Changes: show the command, wait for a yes
 
@@ -109,6 +110,7 @@ minutes.
 * `zoomies runners drain`, `zoomies runners delete`
 * `zoomies problems apply`
 * `zoomies jobs rerun`
+* `zoomies kennel recheck`
 * `zoomies size-pins set`, `zoomies size-pins delete`
 * `zoomies hosts edit`, `zoomies hosts cordon`, `zoomies hosts drain`, `zoomies hosts uncordon`, `zoomies hosts delete`, `zoomies hosts join-token`
 * `zoomies updates check`, `zoomies updates apply`

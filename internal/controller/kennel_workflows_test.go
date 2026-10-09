@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/kennel"
@@ -119,7 +120,7 @@ const (
 	tidy        = "on: push\njobs:\n  ship:\n    runs-on: self-hosted\n    timeout-minutes: 5\n    permissions: {}\n    steps: []\n"
 )
 
-func findingOf(v KennelRepositoryView, code kennel.Code) *kennel.Finding {
+func findingOf(v KennelRepositoryView, code kennel.Code) *KennelFindingView {
 	for i := range v.Findings {
 		if v.Findings[i].Code == code {
 			return &v.Findings[i]
@@ -335,5 +336,41 @@ func TestARepositoryWhoseOnlyWorkflowIsOversizedIsToldItIsUnreadable(t *testing.
 	v := f.view("acme/api")
 	if findingOf(v, kennel.CodeWorkflowUnreadable) == nil || v.State == kennel.StateBestInShow {
 		t.Fatalf("findings = %v, state %s; want the unreadable file named", findingCodes(v), v.State)
+	}
+}
+
+// The prompt is rendered into the view, and nowhere else, so the page's
+// button, the API and the CLI copy one text. It names the path as the gate
+// let it through, and a waived finding, which nobody is asked to fix, has
+// none.
+func TestEveryFindingInTheViewCarriesItsPromptWithTheGatedPath(t *testing.T) {
+	f := newKennelFixture(t)
+	f.repo("acme/api", "public")
+	f.ran("acme/api", 1, f.pool)
+	f.gh.AddWorkflow("acme/api", ".github/workflows/ci.yml", timeoutless)
+	f.c.UpdateConfig(func(c *config.Config) { c.Kennel.WorkflowChecks = true })
+	f.pass()
+	v := f.view("acme/api")
+	fd := findingOf(v, kennel.CodeNoTimeout)
+	if fd == nil {
+		t.Fatalf("findings = %v", findingCodes(v))
+	}
+	if !strings.Contains(fd.Prompt, "`ci.no_timeout`") || !strings.Contains(fd.Prompt, "file .github/workflows/ci.yml:3 (job 0)") {
+		t.Errorf("prompt =\n%s", fd.Prompt)
+	}
+	for _, g := range v.Findings {
+		if g.Prompt == "" {
+			t.Errorf("%s has no prompt", g.Code)
+		}
+	}
+	if _, _, err := f.c.WaiveKennelFinding(f.ctx, f.row("acme/api").ID, KennelWaiverInput{Code: string(kennel.CodeNoTimeout), Subject: fd.Subject, Reason: "the job is a minute long and watched", ExpiresAt: f.c.Now().Add(24 * time.Hour)}, admin); err != nil {
+		t.Fatal(err)
+	}
+	v = f.view("acme/api")
+	if len(v.Waived) != 1 {
+		t.Fatalf("waived = %+v", v.Waived)
+	}
+	if b, _ := json.Marshal(v.Waived[0]); strings.Contains(string(b), `"prompt"`) {
+		t.Errorf("a waived finding carries a prompt: %s", b)
 	}
 }
