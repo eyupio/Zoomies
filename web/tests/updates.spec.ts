@@ -319,6 +319,10 @@ test('a status that cannot be read says so, and asking again shows the page', as
 
   const alert = page.getByRole('alert');
   await expect(alert).toContainText('The update status could not be worked out.');
+  // The page reads the status again when the event stream first reaches live. Let
+  // that read take its failing answer before the route heals, or it lands after
+  // the click and replaces the page it shows.
+  await expect(page.locator('.connection')).toHaveAttribute('data-state', 'live');
   failing = false;
   await alert.getByRole('button', { name: 'Try again' }).click();
   await expect(take(page)).toContainText('Manual would offer v1.3.2');
