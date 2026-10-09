@@ -135,7 +135,9 @@ func updatesStatusCmd(ctx context.Context, e *env, args []string) error {
 	}
 	if ro := st.Rollout; ro != nil {
 		rows = append(rows, [2]string{"Rollout", rolloutLine(ro)})
-		if ro.HaltedReason != "" {
+		// Only while it is halted: an older controller sends the sentence after a
+		// cancel too, and "resume or cancel it" is then a press nobody can make.
+		if ro.State == "halted" && ro.HaltedReason != "" {
 			rows = append(rows, [2]string{"Halted", plain(ro.HaltedReason)})
 		}
 	}

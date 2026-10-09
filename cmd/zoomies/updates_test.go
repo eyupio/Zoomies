@@ -815,7 +815,8 @@ func TestUpdatesResumeAndCancelSayWhenThereIsNoRollout(t *testing.T) {
 }
 
 func TestUpdatesStatusShowsTheRollout(t *testing.T) {
-	srv := jsonRoutes(t, map[string]string{"/api/v1/updates": strings.Replace(rolloutStatusBody, `"halted_reason":""`, `"halted_reason":"vm-a could not update`+hostileJSON+`"`, 1)})
+	halted := strings.Replace(rolloutStatusBody, `"state":"running"`, `"state":"halted"`, 1)
+	srv := jsonRoutes(t, map[string]string{"/api/v1/updates": strings.Replace(halted, `"halted_reason":""`, `"halted_reason":"vm-a could not update`+hostileJSON+`"`, 1)})
 	out, _ := runCLI(t, "updates", "status", "--url", srv.URL)
 	for _, want := range []string{"Rollout", "rol_k3fqz2mx7abcd", "v1.3.5", "0 of 2", "vm-a could not update"} {
 		if !strings.Contains(out, want) {
@@ -823,4 +824,21 @@ func TestUpdatesStatusShowsTheRollout(t *testing.T) {
 		}
 	}
 	assertNoTerminalControl(t, "updates status", out, strings.Count(out, "\n"))
+}
+
+// A rollout that halted and was then cancelled is over: printing why it halted,
+// beside a sentence that says to resume or cancel it, asks for a press that can
+// no longer be made. A controller from before the view stopped sending it may
+// still send the sentence, so the CLI prints it only for a halted rollout.
+func TestUpdatesStatusSaysWhyARolloutHaltedOnlyWhileItIsHalted(t *testing.T) {
+	cancelled := strings.Replace(rolloutStatusBody, `"state":"running"`, `"state":"cancelled"`, 1)
+	cancelled = strings.Replace(cancelled, `"halted_reason":""`, `"halted_reason":"vm-a could not update; resume the rollout or cancel it."`, 1)
+	srv := jsonRoutes(t, map[string]string{"/api/v1/updates": cancelled})
+	out, _ := runCLI(t, "updates", "status", "--url", srv.URL)
+	if !strings.Contains(out, "rol_k3fqz2mx7abcd") {
+		t.Fatalf("status does not show the rollout:\n%s", out)
+	}
+	if strings.Contains(out, "Halted") || strings.Contains(out, "vm-a could not update") {
+		t.Errorf("status prints why a cancelled rollout halted:\n%s", out)
+	}
 }

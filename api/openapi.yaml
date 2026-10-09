@@ -12637,8 +12637,9 @@ components:
         halted_reason:
           type: string
           description: >-
-            The sentence it halted with, naming the host and the release; empty unless it halted.
-            It never carries the helper's text, so every role reads it.
+            The sentence it halted with, naming the host and the release; empty unless the state is
+            `halted` now, so a rollout resumed or cancelled after halting carries none. It never
+            carries the helper's text, so every role reads it.
         done: { type: integer, description: Hosts it has updated. }
         total:
           type: integer

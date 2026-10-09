@@ -9706,7 +9706,7 @@ export interface components {
              * @enum {string}
              */
             state: "running" | "halted" | "done" | "cancelled";
-            /** @description The sentence it halted with, naming the host and the release; empty unless it halted. It never carries the helper's text, so every role reads it. */
+            /** @description The sentence it halted with, naming the host and the release; empty unless the state is `halted` now, so a rollout resumed or cancelled after halting carries none. It never carries the helper's text, so every role reads it. */
             halted_reason: string;
             /** @description Hosts it has updated. */
             done: number;
