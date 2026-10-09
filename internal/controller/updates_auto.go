@@ -126,6 +126,7 @@ func (c *Controller) updatesSnapshot(ctx context.Context, cfg config.Updates, he
 	for i := range s.Hosts {
 		byHost[s.Hosts[i].ID] = &s.Hosts[i]
 	}
+	var gone []updates.HostFacts
 	for _, a := range pic.attempts {
 		facts := attemptFacts(a)
 		switch {
@@ -133,14 +134,20 @@ func (c *Controller) updatesSnapshot(ctx context.Context, cfg config.Updates, he
 			s.Controller = &facts
 		case a.Scope == store.UpdateScopeController:
 			s.ControllerEnded = append(s.ControllerEnded, facts)
+		case byHost[a.HostID] == nil && a.State == store.UpdateRequested:
+			// A host with no row and an attempt still open: deleting a host
+			// cancels its attempt in the same transaction, so this is a race
+			// or a fault, and something may still be restarting. It blocks the
+			// next start as any open attempt does, and times out as one.
+			gone = append(gone, updates.HostFacts{ID: a.HostID, Name: a.HostID, Open: &facts})
 		case byHost[a.HostID] == nil:
-			// A host that is gone; its attempt was cancelled with it.
 		case a.State == store.UpdateRequested:
 			byHost[a.HostID].Open = &facts
 		default:
 			byHost[a.HostID].Ended = append(byHost[a.HostID].Ended, facts)
 		}
 	}
+	s.Hosts = append(s.Hosts, gone...)
 	pic.snap = s
 	return pic, nil
 }
@@ -232,11 +239,10 @@ func (c *Controller) autoTimeOut(ctx context.Context, pic *updatesPicture, step 
 		return false
 	}
 	a := pic.attempts[i]
-	if !c.endAttempt(ctx, a, store.UpdateTimedOut, timedOutText(a)) {
-		return false
-	}
-	c.autoAudit(ctx, "update.timed_out", a.ID, map[string]any{"scope": a.Scope, "host": a.HostID, "to": a.ToVersion, "reason": step.Reason})
-	return true
+	// Not audited: the pass's own closer records the same time-out without a
+	// row, and which of the two saw the ninetieth minute first is chance. The
+	// attempt's state and error are the record.
+	return c.endAttempt(ctx, a, store.UpdateTimedOut, timedOutText(a))
 }
 
 func (c *Controller) autoRequestController(ctx context.Context, step updates.Action) bool {
@@ -351,24 +357,30 @@ func (c *Controller) StartHostRollout(ctx context.Context, by UpdateActor, hostI
 	if err := c.refuseOverOpenRollout(ctx); err != nil {
 		return nil, err
 	}
-	var hosts []*store.Host
-	var ids store.StringSlice
-	if len(hostIDs) == 0 {
-		list, err := c.st.ListHosts(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("listing the hosts: %w", err)
-		}
-		hosts = list
+	// One listing of the fleet, and the ids read against it: a repeated id is
+	// one host, and the list can never be longer than the fleet.
+	fleet, err := c.st.ListHosts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing the hosts: %w", err)
 	}
-	for _, id := range hostIDs {
-		if slices.Contains(ids, id) {
-			continue
+	hosts := fleet
+	var ids store.StringSlice
+	if len(hostIDs) > 0 {
+		byID := make(map[string]*store.Host, len(fleet))
+		for _, h := range fleet {
+			byID[h.ID] = h
 		}
-		h, err := c.st.GetHost(ctx, id)
-		if err != nil {
-			return nil, err
+		hosts = nil
+		for _, id := range hostIDs {
+			h, ok := byID[id]
+			if !ok {
+				return nil, fmt.Errorf("%w: no host has the id %q; list the hosts to find it", store.ErrNotFound, cutAt(id, 64))
+			}
+			if slices.Contains(ids, id) {
+				continue
+			}
+			hosts, ids = append(hosts, h), append(ids, id)
 		}
-		hosts, ids = append(hosts, h), append(ids, id)
 	}
 	behind, able := 0, 0
 	for _, h := range hosts {

@@ -899,3 +899,64 @@ func TestARolloutStoppedBetweenThePlanAndItsStepAsksNoHost(t *testing.T) {
 		})
 	}
 }
+
+// Host ids are read against one listing of the fleet: a repeated id is one host,
+// an embedded agent is never a rollout's (it goes with the controller), and an
+// id that names no host is refused with that id, so the caller knows which.
+func TestARolloutsHostIdsAreReadOnceAgainstTheFleet(t *testing.T) {
+	h := newHarness(t)
+	h.autoFleet("manual")
+	host := h.updatableHost("vm-a")
+	embedded := &store.Host{
+		Name: "controller", Capacity: 4, Embedded: true, Backends: store.StringSlice{"docker"}, Labels: store.StringMap{},
+		OS: "linux", Arch: "amd64", LastHeartbeat: time.Now(),
+	}
+	if err := h.st.CreateHost(h.ctx, embedded); err != nil {
+		t.Fatal(err)
+	}
+	embedded.Version, embedded.Features = "1.3.4", []string{agent.FeatureSelfUpdate}
+	if err := h.st.SetHostReported(h.ctx, embedded); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.c.StartHostRollout(h.ctx, alice, []string{embedded.ID}); !errors.Is(err, ErrUpdateNothingNewer) {
+		t.Errorf("a rollout of the embedded agent alone: err = %v, want ErrUpdateNothingNewer", err)
+	}
+	_, err := h.c.StartHostRollout(h.ctx, alice, []string{host.ID, "host_nothere"})
+	if !errors.Is(err, store.ErrNotFound) || !strings.Contains(err.Error(), "host_nothere") {
+		t.Errorf("with an id that names no host: err = %v, want ErrNotFound naming it", err)
+	}
+	if _, err := h.c.StartHostRollout(h.ctx, alice, []string{host.ID, host.ID, embedded.ID}); err != nil {
+		t.Fatalf("StartHostRollout: %v", err)
+	}
+	if r := h.openRollout(); len(r.HostIDs) != 2 {
+		t.Errorf("the rollout is for %v, want each id once", r.HostIDs)
+	}
+}
+
+// An open attempt whose host has no row is still something under way, and the
+// planner starts nothing beside it, as it would beside any open attempt.
+func TestAnOpenAttemptOfAHostWithNoRowStillBlocksTheNextStart(t *testing.T) {
+	h := newHarness(t)
+	h.autoFleet("auto")
+	host := h.updatableHost("vm-a")
+	ghost := &store.UpdateAttempt{Scope: store.UpdateScopeHost, HostID: "host_gone", FromVersion: "1.3.4", ToVersion: "v1.3.5",
+		Trigger: store.UpdateTriggerManual, RequestedBy: "alice"}
+	if err := h.st.CreateUpdateAttempt(h.ctx, ghost); err != nil {
+		t.Fatal(err)
+	}
+	h.c.applyUpdatePlan(h.ctx, h.mustPicture(), updates.Decide(h.mustPicture().snap))
+	h.c.applyUpdatePlan(h.ctx, h.mustPicture(), updates.Decide(h.mustPicture().snap))
+	if got := h.openRollout(); got != nil {
+		t.Errorf("auto started %+v beside an open attempt", got)
+	}
+	h.noAttemptFor(host)
+}
+
+func (h *harness) mustPicture() *updatesPicture {
+	h.t.Helper()
+	pic, err := h.c.updatesSnapshot(h.ctx, h.c.cfg().Updates, h.c.probeUpdateHelper())
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return pic
+}

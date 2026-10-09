@@ -387,6 +387,10 @@ func (p *planner) member(h HostFacts) bool {
 // since the rollout started or was last resumed. One before that is a failure
 // an operator has resumed past, and halting on it again would make resuming
 // impossible.
+//
+// It does not ask which rollout the attempt belonged to, on purpose: a person's
+// press on a host in the rollout that fails is as much a reason to stop and look
+// as the rollout's own step failing, so it halts the rollout too.
 func (p *planner) failedIn(h HostFacts) bool {
 	for _, a := range h.Ended {
 		if a.Scope == scopeHost && a.HostID == h.ID && failed(a.State) && !a.FinishedAt.Before(p.rollout.Since) &&
@@ -556,7 +560,7 @@ func (p *planner) start() {
 	// on the next pass would undo them ten seconds later.
 	if lr := p.s.LastRollout; lr != nil && lr.State == rolloutCanceled && lr.CancelledBy != "" &&
 		version.CompareBuilds(lr.Target, p.target) == version.SkewNone {
-		p.say(fmt.Sprintf("The rollout to %s was cancelled by hand, so auto starts no other until there is a newer release or somebody starts one.", p.target))
+		p.say(fmt.Sprintf("The rollout to %s was cancelled by hand, so auto will not start another rollout to %s until a newer release is out or somebody starts one.", p.target, p.target))
 		return
 	}
 	hosts := strconv.Itoa(sv.updatable) + " hosts are behind it and are"
