@@ -8939,6 +8939,53 @@ export interface components {
              */
             due_at: string | null;
         };
+        UpdatesHelper: {
+            /**
+             * @description Whether the update helper is installed on the controller's host. Only a helper, installed by somebody with root there, can replace the controller's binary, so without one the controller cannot update itself.
+             * @enum {string}
+             */
+            state: "ready" | "missing";
+            /** @description A sentence that says what the state means. It names no path. */
+            reason: string;
+            /**
+             * @description The command that installs the helper, for a person with root on the host to run. Empty when it is ready.
+             * @example sudo zoomies updates helper install
+             */
+            install_command: string;
+        };
+        UpdatesAttempt: {
+            /** @example upd_k3fqz2mx7abcd */
+            id: string;
+            /**
+             * @description `requested` until it ends. It ends once: `succeeded` when the controller runs the release or a later one, `failed` when the helper refused or the upgrade failed, `timed_out` after 90 minutes with neither, or `cancelled`.
+             * @enum {string}
+             */
+            state: "requested" | "succeeded" | "failed" | "timed_out" | "cancelled";
+            /**
+             * @description The build that asked
+             * @example 1.3.4
+             */
+            from: string;
+            /**
+             * @description The release tag it asked for.
+             * @example v1.3.5
+             */
+            to: string;
+            /**
+             * @description `manual` for a person, `auto` for the update mode.
+             * @enum {string}
+             */
+            trigger: "manual" | "auto";
+            /** Format: date-time */
+            requested_at: string;
+            /**
+             * Format: date-time
+             * @description When it ended. Null while it is `requested`.
+             */
+            finished_at: string | null;
+            /** @description Why it did not succeed, often the helper's own sentence. Empty when it succeeded or is still in flight. */
+            error: string;
+        };
         UpdatesStatus: {
             /**
              * @description `updates.mode` as the controller acts on it. `off` offers nothing, `manual` offers the newest release to a person, and `auto` takes it once it has been public for the soak.
@@ -8959,6 +9006,9 @@ export interface components {
              * @description When the list of releases `latest` was chosen from was read. Null while updating is off, and until a list has been read.
              */
             checked_at: string | null;
+            helper: components["schemas"]["UpdatesHelper"];
+            /** @description The controller's latest update attempt, in flight or ended, in every mode: one that was in flight when updating was switched off still ends, and says how. Null when it has never had one. */
+            controller: components["schemas"]["UpdatesAttempt"] | null;
         };
         AgentJoinRequest: {
             protocol_version: number;
