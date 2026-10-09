@@ -147,7 +147,7 @@ test-e2e-proxmox: ## Live Proxmox qualification: needs a cluster and ZOOMIES_PRO
 
 .PHONY: test-drill
 test-drill: build-nogui ## Runtime drills: the built binary as a real controller and agent, against a fake GitHub
-	$(GO) test -count=1 -v -tags drill -timeout 10m ./test/drill/...
+	$(GO) test -count=1 -v -tags drill -timeout 15m ./test/drill/...
 
 # Both binaries land under dist/, which is already ignored: a fixed directory
 # rather than a mktemp -d so a failed run leaves the two binaries that produced

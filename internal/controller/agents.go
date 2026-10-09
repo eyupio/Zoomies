@@ -1228,16 +1228,18 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 		}
 	}()
 	if res.NotStarted && !res.OK {
-		// The agent was shutting down -- an upgrade, a restart -- and gave the
-		// task back before touching the runner. Offer it again straight away
-		// so the agent that comes back picks it up, instead of waiting out a
-		// twenty-minute lease or failing a runner nothing happened to. The
-		// attempt still counts, so a host that never stays up long enough
-		// ends at the provision timeout rather than looping.
+		// The agent gave the task back before touching the runner: it was
+		// shutting down (an upgrade, a restart), or this controller had told it
+		// to pause while it recovers. Offer it again straight away so the agent
+		// that comes back picks it up, instead of waiting out a twenty-minute
+		// lease or failing a runner nothing happened to. The attempt still
+		// counts, so a host that never stays up long enough ends at the
+		// provision timeout rather than looping. Which of the two it was is the
+		// agent's to say, so the log carries its words rather than a guess.
 		switch c.queues.get(hostID).redeliver(res.TaskID) {
 		case redelivered:
-			c.log.Info("an agent gave a task back while shutting down; it will be offered again",
-				"host", hostID, "task", res.TaskID, "kind", res.Kind, "runner", res.RunnerID)
+			c.log.Info("an agent gave a task back without starting it; it will be offered again",
+				"host", hostID, "task", res.TaskID, "kind", res.Kind, "runner", res.RunnerID, "said", res.Error)
 			return nil
 		case notInFlight:
 			// A controller restart since, so the task is not on record. The

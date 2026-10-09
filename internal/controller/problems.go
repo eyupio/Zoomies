@@ -2771,7 +2771,7 @@ func (c *Controller) hostUpdateProblems(ctx context.Context, out *[]Problem) err
 		return fmt.Errorf("listing hosts: %w", err)
 	}
 	target := hostTarget()
-	on := c.updateMode() != updates.ModeOff
+	mode := c.updateMode()
 	for _, h := range hosts {
 		label := naming.ForSentence(h.Name)
 		if a, ok := c.hostAttempt(h.ID); ok {
@@ -2779,16 +2779,17 @@ func (c *Controller) hostUpdateProblems(ctx context.Context, out *[]Problem) err
 				*out = append(*out, p)
 			}
 		}
-		// Only where the button could be pressed at all: with updating off, or a
-		// controller that is not a release, host.version_behind says everything.
-		// An incompatible host has a louder problem of its own.
-		if !on || target == "" || h.Embedded || h.Incompatible || h.Supports(agent.FeatureSelfUpdate) {
+		// Only where the helper is what keeps a host that is behind from its
+		// update, which is what its card says too. With updating off nothing is
+		// offered, so host.version_behind says everything, even of a host the
+		// helper can never serve. An incompatible host has a louder problem of
+		// its own.
+		cause := c.hostHelperUnsupported(h)
+		_, _, gap := hostCanSelfUpdate(h, target, cause, mode)
+		if gap == hostGapNone || mode == updates.ModeOff || h.Incompatible {
 			continue
 		}
-		if version.CompareBuilds(h.Version, target) != version.SkewBehind {
-			continue
-		}
-		if cause := c.hostHelperUnsupported(h); cause != "" {
+		if gap == hostGapHelperImpossible {
 			*out = append(*out, Problem{
 				Code:     "host.update_unavailable",
 				Severity: config.SeverityInfo,

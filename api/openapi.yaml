@@ -1992,7 +1992,8 @@ paths:
         `migration` is true, because nothing else in Zoomies writes to a
         repository. An organisation App also asks for `administration` read
         when `kennel_settings` is true, for the Kennel Club checks of a
-        repository's settings.
+        repository's settings, and `contents` read when `kennel_files` is true,
+        for the checks of a repository's files.
       x-zoomies-role: admin
       requestBody:
         required: true
@@ -2028,6 +2029,17 @@ paths:
                     already, so this changes nothing for one. Adding it later is
                     possible, but GitHub holds the change until the account's owner
                     accepts it on the installation.
+                kennel_files:
+                  type: boolean
+                  default: false
+                  description: |
+                    Also request `contents` read, for the Kennel Club checks of a
+                    repository's workflow files, instruction files and file names.
+                    Read access to contents is read access to code, so leave it off
+                    for a fleet that will not turn those checks on. It is not
+                    lowered when `migration` already requests `contents` write.
+                    Adding it later is possible, but GitHub holds the change until
+                    the account's owner accepts it on the installation.
       responses:
         "200":
           description: OK
@@ -3956,13 +3968,14 @@ paths:
         never dials an agent, and the host is updated once its agent reports that release, which
         the page learns from the host's `host.updated` events. Everything that can refuse does so
         before anything is written, so a refusal leaves nothing in flight. A host can be asked when
-        its `update.can_update` is true: its agent offers to update itself (it does only once the
-        update helper is installed on the host), it is behind the controller's release, and no
-        attempt for it is open. The agent inside the controller is updated with the controller,
-        and is refused with `update.host_cannot_update`, as is a host that is not behind. A host
-        that is not there is a 404. Takes no body; a field sent is a 422 naming it. Audited as
-        `update.host_requested` once it is accepted, and not before. Below the `platform` role the
-        text of a failed attempt in the answer is a fixed sentence for its state.
+        its `update.can_update` is true: updating is on, its agent offers to update itself (it does
+        only once the update helper is installed on the host), it is behind the controller's
+        release, and no attempt for it is open. The agent inside the controller is updated with
+        the controller, and is refused with `update.host_cannot_update`, as is a host that is not
+        behind. A host that is not there is a 404. Takes no body; a field sent is a 422 naming it.
+        Audited as `update.host_requested` once it is accepted, and not before. Below the
+        `platform` role the text of a failed attempt in the answer is a fixed sentence for its
+        state.
       x-zoomies-role: admin
       requestBody:
         required: false
@@ -11217,10 +11230,12 @@ components:
         can_update:
           type: boolean
           description: >-
-            Whether asking for an update now would be taken: the host's agent offers it, the
-            host is behind the controller's release, the controller runs a release, it is not
-            the agent inside the controller, and no attempt is open. `updates.mode` is not part
-            of it; with the mode `off` every request is refused with `update.mode_off`.
+            Whether asking for an update now would be taken: `updates.mode` is `manual` or
+            `auto`, the host's agent offers it, the host is behind the controller's release, the
+            controller runs a release, it is not the agent inside the controller, and no attempt
+            is open. With the mode `off` it is false, and `reason` says that updating is off
+            wherever turning it on would let the host be asked; where it would not, as for a host
+            the update helper can never be installed on, `reason` says what is in the way instead.
         attempt_id: { type: string, description: The attempt `state` describes, and empty with none., examples: [upd_k3fqz2mx7abcd] }
     Host:
       type: object
@@ -12362,7 +12377,7 @@ components:
           examples: [sudo zoomies updates helper install]
         upgrade_command:
           type: string
-          description: The command that updates the controller by hand on its host, for a person to copy. Set only when the state is `unsupported`, where it is the way.
+          description: The command that updates the controller by hand on its host, for a person to copy. Set only when the state is `unsupported`, where it is the way, and empty on Windows, which has no service `zoomies upgrade` can update, where `reason` says what to do by hand instead.
           examples: [sudo zoomies upgrade]
     UpdatesAttempt:
       type: object

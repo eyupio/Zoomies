@@ -11,13 +11,33 @@ import (
 // controllerUpgradeCommand is what updates this controller by hand on its host,
 // for a person to copy where the helper cannot be installed. With no version it
 // takes the newest release, which is what the button would have taken.
-const controllerUpgradeCommand = "sudo zoomies upgrade"
+//
+// There is none on Windows: it has no sudo, and zoomies upgrade replaces a
+// service it finds under systemd or launchd and knows no Windows service, so a
+// command offered there would be one that fails.
+func controllerUpgradeCommand(goos string) string {
+	if goos == "windows" {
+		return ""
+	}
+	return "sudo zoomies upgrade"
+}
 
-// helperUnsupported is why the helper cannot be installed beside this
-// controller, or nothing. A container has the shared folder only when its
-// embedded agent is on, which is the rule the installer mounts it by, and the
-// runtime it runs under is the one that agent found.
-func (c *Controller) helperUnsupported() updates.HelperUnsupported {
+// controllerByHand is what to do to update this controller by hand, as the end
+// of a sentence for the status and of a refusal: the command when there is one,
+// and the steps when there is not.
+func controllerByHand(goos string) (status, refusal string) {
+	if controllerUpgradeCommand(goos) == "" {
+		return "Update this controller on its host by hand: stop it, put the release's zoomies.exe in place of the one it runs, and start it again.",
+			"update this controller on its host by hand, putting the release's zoomies.exe in place of the one it runs"
+	}
+	return "Update this controller on its host with the command below.", "update this controller on its host with zoomies upgrade"
+}
+
+// helperHostFacts is what this controller can see of its machine that decides
+// whether the helper could be installed beside it. A container has the shared
+// folder only when its embedded agent is on, which is the rule the installer
+// mounts it by, and the runtime it runs under is the one that agent found.
+func (c *Controller) helperHostFacts() updates.HelperHost {
 	look := c.helperHost
 	if look == nil {
 		look = agent.LocalHelperHost
@@ -30,7 +50,7 @@ func (c *Controller) helperUnsupported() updates.HelperUnsupported {
 	if embedded != nil && embedded.RootlessRuntime() {
 		host.RootlessRuntime = true
 	}
-	return updates.HelperSupport(host)
+	return host
 }
 
 // helperUnsupportedWhy is why the helper cannot be installed, for who, as the
