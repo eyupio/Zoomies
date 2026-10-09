@@ -8125,6 +8125,26 @@ export interface components {
              */
             next_at?: string;
         };
+        /** @description The host's part in updating Zoomies from the web UI: whether it can be updated from here, why in a sentence, and its latest attempt while that attempt still says something about the host. Nothing in it moves with the clock or with a heartbeat. */
+        HostUpdate: {
+            /**
+             * @description The latest attempt's state: `requested` until the host reports the release or 90 minutes pass, then `succeeded`, `failed`, `timed_out`, or `cancelled` when the host was removed. `none` when there is no attempt to show, including one that failed before the host reached its release some other way.
+             * @enum {string}
+             */
+            state: "none" | "requested" | "succeeded" | "failed" | "timed_out" | "cancelled";
+            /**
+             * @description The card's sentence: why the host can or cannot be updated, or how its attempt stands. For a failed, timed-out or cancelled attempt only the `platform` role is given the reason recorded for it, which can be the update helper's own and name a path on the host; every other role, and the event stream, is given a fixed sentence for the state.
+             * @example This host's agent does not offer to update itself, which it does only once the update helper is installed on the host. Run sudo zoomies updates helper install there, or update it with the command below.
+             */
+            reason: string;
+            /** @description Whether asking for an update now would be taken: the host's agent offers it, the host is behind the controller's release, the controller runs a release, it is not the agent inside the controller, and no attempt is open. `updates.mode` is not part of it; with the mode `off` every request is refused with `update.mode_off`. */
+            can_update: boolean;
+            /**
+             * @description The attempt `state` describes
+             * @example upd_k3fqz2mx7abcd
+             */
+            attempt_id: string;
+        };
         Host: {
             health_check?: components["schemas"]["HostHealthCheck"];
             doctor?: components["schemas"]["HostDoctorView"];
@@ -8269,6 +8289,7 @@ export interface components {
             upgrade_version?: string;
             /** @description What the command does, or why no safe published command can be offered. */
             upgrade_note?: string;
+            update?: components["schemas"]["HostUpdate"];
             healthy?: boolean;
             /** Format: date-time */
             last_heartbeat?: string;

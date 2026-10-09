@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "115adbee",
+  "generated_from": "d5406233",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -949,8 +949,8 @@
       "category": "capacity",
       "severity": "warning",
       "detection": "runtime",
-      "detects": "`updates.mode` is `manual` or `auto` on a controller built from a release, so it may be asked to update itself, but the update helper that would replace its binary is not installed on its host, or its marker cannot be read. Nothing else is affected, and neither the mode `off` nor a build from `main`, which cannot be updated this way, raises it. Where the controller's host is not Linux the helper cannot be installed at all (it is systemd units), and the fix says to upgrade by hand with `zoomies upgrade`. Installing the helper needs root, so the entry offers no one-click fix: run `sudo zoomies updates helper install` on the controller's host, or set the mode to `off` and upgrade by hand.",
-      "fix": "`updates.mode` is `manual` or `auto` on a controller built from a release, so it may be asked to update itself, but the update helper that would replace its binary is not installed on its host, or its marker cannot be read. Nothing else is affected, and neither the mode `off` nor a build from `main`, which cannot be updated this way, raises it. Where the controller's host is not Linux the helper cannot be installed at all (it is systemd units), and the fix says to upgrade by hand with `zoomies upgrade`. Installing the helper needs root, so the entry offers no one-click fix: run `sudo zoomies updates helper install` on the controller's host, or set the mode to `off` and upgrade by hand.",
+      "detects": "`updates.mode` is `manual` or `auto` on a controller built from a release, so it may be asked to update itself, but the update helper that would replace its binary is not installed on its host, or its folder or marker is not as the installer leaves it. Nothing else is affected, and neither the mode `off` nor a build from `main`, which cannot be updated this way, raises it. Where the controller's host is not Linux the helper cannot be installed at all (it is systemd units), and the fix says to upgrade by hand with `zoomies upgrade`. Installing the helper needs root, so the entry offers no one-click fix: run `sudo zoomies updates helper install` on the controller's host, or set the mode to `off` and upgrade by hand.",
+      "fix": "`updates.mode` is `manual` or `auto` on a controller built from a release, so it may be asked to update itself, but the update helper that would replace its binary is not installed on its host, or its folder or marker is not as the installer leaves it. Nothing else is affected, and neither the mode `off` nor a build from `main`, which cannot be updated this way, raises it. Where the controller's host is not Linux the helper cannot be installed at all (it is systemd units), and the fix says to upgrade by hand with `zoomies upgrade`. Installing the helper needs root, so the entry offers no one-click fix: run `sudo zoomies updates helper install` on the controller's host, or set the mode to `off` and upgrade by hand.",
       "verify": "Install the helper: `zoomies updates helper status` on the controller's host says it is ready, and the entry leaves at the next pass.",
       "docs_html": "https://zoomies.sh/problem-codes/#runtime-pools-jobs-and-runners",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-pools-jobs-and-runners"
@@ -1396,6 +1396,32 @@
       "fix": "The host has stopped heartbeating. With runners recorded on it their state is unknown, which is worse than a spare host being down.",
       "verify": "The host's card turns green and the entry leaves the problems list on the next heartbeat; `zoomies hosts list` shows it connected.",
       "status_sentence": "A machine has stopped checking in, so fewer jobs can run at once.",
+      "docs_html": "https://zoomies.sh/problem-codes/#runtime-hosts-and-installations",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-hosts-and-installations"
+    },
+    {
+      "id": "host.update_failed",
+      "kind": "problem",
+      "title": "host.update_failed",
+      "category": "reliability",
+      "severity": "error",
+      "detection": "runtime",
+      "detects": "The latest update of a host from here ended as failed or timed out, and its agent still runs the release it had, placing work as normal on it. The entry names the host and the release it was asked to take, and never carries the reason itself: the update helper's sentence can name a path on the host, so it is on the host's card for the `platform` role, and every other role reads a fixed sentence there. It offers no one-click fix. Look at `journalctl -u zoomies-update` on the host, where `sudo zoomies updates helper status` says what the helper did last, then update it again from the Hosts page, or by hand with the command on its card. It never reaches the public status page.",
+      "fix": "The latest update of a host from here ended as failed or timed out, and its agent still runs the release it had, placing work as normal on it. The entry names the host and the release it was asked to take, and never carries the reason itself: the update helper's sentence can name a path on the host, so it is on the host's card for the `platform` role, and every other role reads a fixed sentence there. It offers no one-click fix. Look at `journalctl -u zoomies-update` on the host, where `sudo zoomies updates helper status` says what the helper did last, then update it again from the Hosts page, or by hand with the command on its card. It never reaches the public status page.",
+      "verify": "The entry leaves the list when a new attempt for the host opens, or when the host reports the release it was asked to take, however it got there.",
+      "docs_html": "https://zoomies.sh/problem-codes/#runtime-hosts-and-installations",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-hosts-and-installations"
+    },
+    {
+      "id": "host.update_unavailable",
+      "kind": "problem",
+      "title": "host.update_unavailable",
+      "category": "reliability",
+      "severity": "info",
+      "detection": "runtime",
+      "detects": "`updates.mode` is `manual` or `auto` on a controller built from a release, and a host runs an older release than the controller but its agent does not offer to update itself, which it does only once the update helper is installed on the host. The agent inside the controller, a host whose agent speaks another protocol (it has a louder entry of its own) and a host on a build that cannot be ordered against a release are left out. Nothing is wrong meanwhile. Run `sudo zoomies updates helper install` on the host so it can be updated from the Hosts page, or update it by hand with the command on its card. It never reaches the public status page.",
+      "fix": "`updates.mode` is `manual` or `auto` on a controller built from a release, and a host runs an older release than the controller but its agent does not offer to update itself, which it does only once the update helper is installed on the host. The agent inside the controller, a host whose agent speaks another protocol (it has a louder entry of its own) and a host on a build that cannot be ordered against a release are left out. Nothing is wrong meanwhile. Run `sudo zoomies updates helper install` on the host so it can be updated from the Hosts page, or update it by hand with the command on its card. It never reaches the public status page.",
+      "verify": "The host's card offers its Update button, or the host reports the controller's release, and the entry leaves the list.",
       "docs_html": "https://zoomies.sh/problem-codes/#runtime-hosts-and-installations",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-hosts-and-installations"
     },
