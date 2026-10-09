@@ -54,6 +54,10 @@ type GitHubPlan struct {
 	// Administration read. It is off unless they said yes: GitHub offers no
 	// narrower permission for those settings, and it reaches more than they do.
 	KennelSettings bool
+	// KennelFiles records that the operator wants Kennel Club's checks of a
+	// repository's files, and so wants the App created with Contents read. It is
+	// off unless they said yes: read access to contents is read access to code.
+	KennelFiles bool
 }
 
 // manifestWait is how long the installer waits for GitHub to come back. Five
@@ -165,6 +169,9 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 	if err := i.askKennelSettingsPermission(ctx, p); err != nil {
 		return err
 	}
+	if err := i.askKennelFilesPermission(ctx, p); err != nil {
+		return err
+	}
 
 	cfg := p.Config()
 	webhookURL := cfg.WebhookURL()
@@ -194,6 +201,7 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 		AllowWorkflowCancellation: cfg.GitHub.AllowWorkflowCancellation,
 		Migration:                 p.GitHub.Migration,
 		KennelSettings:            p.GitHub.KennelSettings,
+		KennelFiles:               p.GitHub.KennelFiles,
 	})
 	if err != nil {
 		return err
@@ -377,6 +385,10 @@ func (i *Installer) notePermissions(p *Plan) {
 		i.ui.note("              administration:read (for Kennel Club's checks of repository settings)")
 	}
 	if !p.GitHub.Migration {
+		if p.GitHub.KennelFiles {
+			i.ui.note("              contents:read (for Kennel Club's checks of workflow and instruction files)")
+			return
+		}
 		i.ui.note("              no repository permissions: this App cannot read or change code")
 		return
 	}
@@ -440,6 +452,24 @@ func (i *Installer) askKennelSettingsPermission(ctx context.Context, p *Plan) er
 		return err
 	}
 	p.GitHub.KennelSettings = want
+	return nil
+}
+
+// askKennelFilesPermission asks whether the App should also carry Contents read,
+// which Kennel Club's checks of a repository's files need on a private
+// repository. The default is no: read access to contents is read access to the
+// code, and a fleet that will not turn those checks on has no use for it.
+func (i *Installer) askKennelFilesPermission(ctx context.Context, p *Plan) error {
+	want := p.GitHub.KennelFiles
+	if err := i.confirm(ctx, "Also let Kennel Club read repository files?",
+		"Kennel Club can check a repository's workflow files, its instruction files and the names of its files, "+
+			"which needs the App's Contents read permission on private repositories. That is read access to code, "+
+			"so leave this off unless you will turn those checks on. "+
+			"You can add it later, but GitHub holds the change until the account's owner accepts it.",
+		&want); err != nil {
+		return err
+	}
+	p.GitHub.KennelFiles = want
 	return nil
 }
 

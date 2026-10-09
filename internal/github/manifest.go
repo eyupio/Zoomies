@@ -64,6 +64,14 @@ type ManifestOptions struct {
 	// A repository App already holds Administration write, which includes read,
 	// so the option changes nothing for one.
 	KennelSettings bool
+	// KennelFiles adds Contents read, for the Kennel Club checks that read a
+	// repository's file inventory, its workflow files and its agent instruction
+	// files (kennel.repository_setup, kennel.workflow_checks and
+	// kennel.agent_guidance). A public repository needs none of it, and a private
+	// one is a coverage gap without it. It is asked for only when the operator says
+	// they want those checks, because read access to contents is read access to the
+	// code. It is not lowered when Migration already holds Contents write.
+	KennelFiles bool
 }
 
 // manifest is the wire format of GitHub's App manifest.
@@ -165,6 +173,10 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 // KennelSettings says so. A repository App holds Administration write already,
 // to register its runners, and that is not lowered to read.
 //
+// Contents read is the same kind of question. Read access to contents is read
+// access to the code, and only the Kennel Club checks of a repository's files
+// need it, so it is asked for only when the operator says they want them.
+//
 // The cost of the choice is real, and it is why this is a question on the
 // consent screen rather than a silent default either way. Adding a permission
 // to an App that already exists is not a setting an operator can just flip:
@@ -191,6 +203,11 @@ func manifestPermissions(o ManifestOptions) map[string]string {
 		p["contents"] = "write"
 		p["pull_requests"] = "write"
 		p["workflows"] = "write"
+	}
+	if o.KennelFiles && p["contents"] == "" {
+		// Write, which the migration wizard holds, includes read, so only an App
+		// without it is given read.
+		p["contents"] = "read"
 	}
 	if org {
 		p["organization_self_hosted_runners"] = "write"
