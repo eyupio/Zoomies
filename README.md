@@ -453,6 +453,11 @@ reshape a host to you. Copy the folder into the agent's skills directory
 Claude Code); an installer that takes a repository takes `eyupio/zoomies`. See
 [the CLI reference](docs/cli.md#the-zoomies-skill).
 
+A second skill, [`skills/zoomies-kennel`](skills/zoomies-kennel/SKILL.md), audits
+a repository's workflow files with Kennel Club's checks on a checkout on the
+agent's own machine, sends nothing anywhere, and edits a file only for a finding
+you choose. It installs the same way.
+
 ## Configuration
 
 One `zoomies.yaml`, every key overridable with a `ZOOMIES_*` environment
@@ -567,8 +572,8 @@ hooks/              the site's build-time metadata: git dates, llms.txt, and the
 ROADMAP.md          the sole active roadmap: scope, order and owner decisions
 roadmap/            supporting status/evidence, decision records, model guidance
                     and historical source material; it does not compete with ROADMAP.md
-skills/             what a coding agent installs: the zoomies skill, with a command
-                    reference generated from the binary
+skills/             what a coding agent installs: the zoomies and zoomies-kennel
+                    skills, with a command reference generated from the binary
 install.sh          the one-line installer, served from the site root
 mkdocs.yml          how docs/ becomes zoomies.sh
 nixpacks.toml       how a Nixpacks-based PaaS builds and runs the controller

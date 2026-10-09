@@ -184,8 +184,8 @@ hooks/              the site's build-time metadata: git dates, llms.txt, and the
 ROADMAP.md          the follow-on roadmap, and the decisions it asks the owner to take
 roadmap/            what supports it: the work-package record, decision records,
                     gate evidence, the model guidance and the source document
-skills/             what a coding agent installs: the zoomies skill, with a command
-                    reference generated from the binary
+skills/             what a coding agent installs: the zoomies and zoomies-kennel
+                    skills, with a command reference generated from the binary
 install.sh          the one-line installer, served from the site root
 nixpacks.toml       the build a Nixpacks-based PaaS runs; see docs/paas.md
 ```

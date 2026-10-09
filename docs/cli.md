@@ -632,7 +632,11 @@ actions are off by default, and why the token for `/mcp` should be a `viewer`
 one unless the agent is meant to act: an agent that reads logs and can also
 act is an agent a pull request can try to steer.
 
-### The zoomies skill
+### The zoomies skills
+
+There are two, in `skills/` in the repository, and they install the same way.
+`skills/zoomies` drives the fleet; [`skills/zoomies-kennel`](#the-zoomies-kennel-skill)
+audits a repository's workflow files.
 
 `skills/zoomies` in the repository is a skill for a coding agent that drives the
 fleet with this command line. It tells the agent where each kind of question
@@ -658,6 +662,21 @@ project, for Claude Code. An installer that takes a repository and reads its
 authority it did not have: the token in `ZOOMIES_TOKEN` still decides what the
 controller will do, and a viewer token cannot make a change whatever the agent
 is asked.
+
+#### The zoomies-kennel skill
+
+`skills/zoomies-kennel` is for an agent asked to audit, review or harden a
+repository's GitHub Actions workflows. It runs
+[`zoomies kennel check`](#zoomies-kennel) over a checkout on the machine the agent
+is on, which needs no controller, no token and no network and sends nothing
+anywhere; it does not add `--controller` unless you ask. It reports what the
+command found, saying which files it could not read and which checks it could
+not run without a controller, so that a quiet result is not taken for a clean
+one. It puts the findings about who can run what with which secrets first,
+numbers them, and asks which to act on, and edits nothing until you choose.
+For each one you choose it works from the finding's own prompt: read the file's
+history first, make the smallest change, run the check again and show the diff.
+It does not commit or push unless you say so.
 
 ## Setting up and looking around
 
