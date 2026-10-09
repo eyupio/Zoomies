@@ -193,10 +193,11 @@ second question, on its own:
 Add the update helper? [y/N]
 ```
 
-The [update helper](security.md#what-the-agent-owns-on-a-host) is what lets the
-web UI update the host. It is a pair of systemd units that run
-`zoomies upgrade` as root for a validated request from the web UI; a request
-names a release and nothing else. The account Zoomies runs as can trigger an
+The [update helper](security.md#what-the-agent-owns-on-a-host) is what will let
+the web UI update the host. The web UI cannot ask for updates yet; a later release adds that, and installing the helper now only makes this host ready for it.
+
+It is a pair of systemd units that run `zoomies upgrade` as root for a
+validated request; a request names a release and nothing else. The account Zoomies runs as can trigger an
 upgrade by writing a request, which is why it is a question of its own and
 never part of the batch above. `sudo zoomies updates helper remove` takes it
 away.

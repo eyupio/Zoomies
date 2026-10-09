@@ -35,7 +35,7 @@ func runUpdates(ctx context.Context, e *env, args []string) error {
 
 func runUpdatesHelper(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "updates helper", "The update helper on this host. It is local: it never talks to a controller.", []*subcommand{
-		{"install", "[--config-dir path]", "Let this host be updated from the controller: install the helper, as root", updatesHelperInstall},
+		{"install", "[--config-dir path]", "Make this host ready to be updated from the controller: install the helper, as root", updatesHelperInstall},
 		{"remove", "[--config-dir path]", "Stop the helper and remove it, its units and its files", updatesHelperRemove},
 		{"run", "", "Answer the request in the update folder; the helper's unit runs it, as root", updatesHelperRun},
 		{"status", "", "Where the update folder is, whether the helper is installed, and its last result", updatesHelperStatus},
@@ -44,7 +44,7 @@ func runUpdatesHelper(ctx context.Context, e *env, args []string) error {
 
 func updatesHelperInstall(ctx context.Context, e *env, args []string) error {
 	flags := newFlagSet(e, "zoomies updates helper install [--config-dir path]",
-		`Install the update helper, so that the controller can update this host when an administrator asks or the update mode says so. It makes the update folder, owned by the account zoomies runs as, writes root's pointer to it in `+installer.UpdateHelperStateDir+`, and installs and starts the zoomies-update units, which run "zoomies updates helper run" as root when the service writes a request. Everything the helper would refuse is refused here first. Nothing installs the helper but its owner: the controller's update mode cannot.`)
+		`Install the update helper, which lets the controller update this host when an administrator asks or the update mode says so. `+installer.UpdateHelperNotUsedYet+` It makes the update folder, owned by the account zoomies runs as, writes root's pointer to it in `+installer.UpdateHelperStateDir+`, and installs and starts the zoomies-update units, which run "zoomies updates helper run" as root when the service writes a request. Everything the helper would refuse is refused here first. Nothing installs the helper but its owner: the controller's update mode cannot.`)
 	configDir := flags.String("config-dir", "", "the deployment's configuration directory, where zoomies.yaml and deployment.json are (default: "+config.ConfigDir()+")")
 	flags.example("sudo zoomies updates helper install")
 	if err := flags.parse(args); err != nil {

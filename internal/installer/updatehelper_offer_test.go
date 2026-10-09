@@ -120,6 +120,19 @@ func TestAnUpgradeAsksAboutTheHelperAsItsOwnQuestionThatDefaultsToNo(t *testing.
 			if tc.says != "" && !strings.Contains(out, tc.says) {
 				t.Errorf("output does not say %q:\n%s", tc.says, out)
 			}
+			// Nothing in the controller writes a request yet, so the question and the
+			// hint that follows a no each say so, once, and a later release removes
+			// the sentence from both.
+			wantSaid := 0
+			if tc.asks {
+				wantSaid++
+			}
+			if tc.says == addLater {
+				wantSaid++
+			}
+			if got := strings.Count(out, UpdateHelperNotUsedYet); got != wantSaid {
+				t.Errorf("%q is said %d times, want %d:\n%s", UpdateHelperNotUsedYet, got, wantSaid, out)
+			}
 			if tc.asks {
 				for _, want := range []string{"sudo zoomies updates helper remove", "as root", "validated request", "by writing a request"} {
 					if !strings.Contains(out, want) {

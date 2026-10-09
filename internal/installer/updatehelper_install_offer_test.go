@@ -32,6 +32,20 @@ func yes() *bool { v := true; return &v }
 // in a way that is about the helper: the question, --update-helper, or the
 // answer file's update_helper. --yes accepts the install's confirmations in
 // advance and is none of those.
+// saidTimes is how often the "web UI cannot use it yet" sentence is expected:
+// once in the question when one is asked, and once in the hint that follows a
+// no or an unattended run.
+func saidTimes(asks bool, says string) int {
+	n := 0
+	if asks {
+		n++
+	}
+	if says == addLater {
+		n++
+	}
+	return n
+}
+
 func TestInitDoesNotInstallTheHelperUnlessAsked(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
@@ -72,6 +86,9 @@ func TestInitDoesNotInstallTheHelperUnlessAsked(t *testing.T) {
 			}
 			if tc.says != "" && !strings.Contains(out, tc.says) {
 				t.Errorf("output does not say %q:\n%s", tc.says, out)
+			}
+			if got, want := strings.Count(out, UpdateHelperNotUsedYet), saidTimes(tc.asks, tc.says); got != want {
+				t.Errorf("%q is said %d times, want %d:\n%s", UpdateHelperNotUsedYet, got, want, out)
 			}
 			if tc.asks {
 				for _, want := range []string{"sudo zoomies updates helper remove", "as root", "validated request", "by writing a request", "web UI"} {
@@ -262,6 +279,9 @@ func TestAgentJoinOffersTheHelperAndDefaultsToNo(t *testing.T) {
 			}
 			if tc.says != "" && !strings.Contains(out, tc.says+" --config-dir "+h.configDir) {
 				t.Errorf("output does not say %q:\n%s", tc.says, out)
+			}
+			if got, want := strings.Count(out, UpdateHelperNotUsedYet), saidTimes(tc.asks, tc.says); got != want {
+				t.Errorf("%q is said %d times, want %d:\n%s", UpdateHelperNotUsedYet, got, want, out)
 			}
 			if got := h.installed(); got != tc.installed {
 				t.Fatalf("installed = %v, want %v:\n%s", got, tc.installed, out)

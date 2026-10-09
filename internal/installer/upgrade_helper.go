@@ -17,6 +17,13 @@ import (
 // helper is a pair of systemd units, and nothing else could start it.
 const noSystemdForHelper = `the update helper is a pair of systemd units, and this host does not run systemd; update it by hand with "sudo zoomies upgrade"`
 
+// UpdateHelperNotUsedYet is said wherever the helper is offered or described as
+// what lets the web UI update a host, because in this release nothing in the
+// controller writes a request yet. A later release adds the button and the
+// update mode, and removes this sentence from every place that carries it; a
+// test finds them by it.
+const UpdateHelperNotUsedYet = "The web UI cannot ask for updates yet; a later release adds that, and installing the helper now only makes this host ready for it."
+
 // upgradeHelperHost is what the update helper question reads from the host.
 type upgradeHelperHost struct {
 	// systemdDir exists only while systemd is the init system.
@@ -80,8 +87,8 @@ type helperOffer struct {
 	hold func() bool
 }
 
-// offer asks, as a question of its own, whether this host may be updated from
-// the web UI, and installs the helper if the answer is yes.
+// offer asks, as a question of its own, whether this host may be made ready to
+// be updated from the web UI, and installs the helper if the answer is yes.
 //
 // The question is asked only where it could be answered: on a systemd host,
 // where the helper is not already installed, and for a service that can be
@@ -121,10 +128,11 @@ func (o helperOffer) offer(ctx context.Context) {
 	switch {
 	case o.Requested:
 	case o.Interactive && o.In != nil:
-		fmt.Fprintln(out, "Update this host from the web UI?")
+		fmt.Fprintln(out, "Make this host ready to be updated from the web UI?")
+		fmt.Fprintln(out, "  "+UpdateHelperNotUsedYet)
 		fmt.Fprintln(out, "  The update helper is a pair of systemd units ("+UpdatePathUnit+" and "+UpdateServiceUnit+")")
-		fmt.Fprintln(out, "  that run `zoomies upgrade` as root for a validated request from the web UI; a")
-		fmt.Fprintln(out, "  request names a release and nothing else. The account Zoomies runs as ("+helper.Account+")")
+		fmt.Fprintln(out, "  that run `zoomies upgrade` as root for a validated request; a request names a")
+		fmt.Fprintln(out, "  release and nothing else. The account Zoomies runs as ("+helper.Account+")")
 		fmt.Fprintln(out, "  can trigger an upgrade by writing a request. `sudo zoomies updates helper remove`")
 		fmt.Fprintln(out, "  takes it away.")
 		if !askDefaultNo(o.In, out, "Add the update helper? [y/N] ") {
@@ -169,9 +177,9 @@ func (p *upgradePlan) holdForSharedMount() bool {
 	}
 	ui, command := PaletteFor(p.opts.Out), helperInstallCommand(p.opts.ConfigDir)
 	if p.sharedMountApplied {
-		ui.Hint(p.opts.Out, "The web UI update helper needs the shared folder mounted, which the restart below adds; run %s afterwards.", command)
+		ui.Hint(p.opts.Out, "The update helper needs the shared folder mounted, which the restart below adds; run %s afterwards.", command)
 	} else {
-		ui.Hint(p.opts.Out, "The web UI update helper needs the shared folder mounted, which the deployment additions above would give it; once they are added (sudo zoomies upgrade --yes), run %s.", command)
+		ui.Hint(p.opts.Out, "The update helper needs the shared folder mounted, which the deployment additions above would give it; once they are added (sudo zoomies upgrade --yes), run %s.", command)
 	}
 	return true
 }
@@ -232,7 +240,7 @@ func helperInstallCommand(configDir string) string {
 }
 
 func (o helperOffer) skipped() {
-	PaletteFor(o.Out).Hint(o.Out, "The update helper was not added, so the web UI cannot update this host.")
+	PaletteFor(o.Out).Hint(o.Out, "The update helper was not added. %s", UpdateHelperNotUsedYet)
 	fmt.Fprintln(o.Out, "Add later: "+helperInstallCommand(o.ConfigDir))
 }
 
