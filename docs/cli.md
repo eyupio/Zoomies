@@ -436,7 +436,7 @@ helper; only the host's owner does.
 | `providers pause <name\|id>` | Stop buying new machines. `--reason` is kept for the card and the audit row. Machines that exist keep running, and drains, deletes and recovery carry on. Pressing it twice is not an error. |
 | `providers resume <name\|id>` | Let it buy machines again. If something else is still holding it (the fence a restore sets, the configuration, a ceiling) the answer says so rather than claiming the fleet is buying. |
 | `providers machines` | The machines that exist right now, filtered by `--provider` and `--state`, with `--include-deleted` for the ones whose resource is confirmed gone. A stuck machine prints the provider's own words and the task handle to paste into its console. |
-| `providers connect-proxmox` | The one line the provider wizard generates for a Proxmox host behind NAT: run on that host with the `--controller` address, `--setup-id` and `--token` the wizard printed, it connects the host to the controller through the gateway, so the controller never needs a route in. See [Providers](providers.md). |
+| `providers connect-proxmox` | The one line the provider wizard generates for a Proxmox host behind NAT: run on that host with the `--controller` address, `--setup-id` and `--token` the wizard printed, it connects the host to the controller through the gateway, so the controller never needs a route in. See [Proxmox VE](proxmox.md#the-provider). |
 | `providers orphans <name\|id>` | The three ways a row and a real resource can disagree: resources with no row, rows holding no resource, and machines nobody can vouch for. It deletes nothing; every line is for a person to decide. |
 
 There is no `providers machines delete`. Destroying a machine destroys a VM

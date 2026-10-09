@@ -32,6 +32,27 @@ func TestTheQueuedJobPageAndTheFAQSendAReaderToTheVerdictFirst(t *testing.T) {
 	}
 }
 
+// A row's "See" link is the only onward route a reference page gives, so it
+// has to land on the page that actually documents the command: the provider
+// contract page never mentions the wizard, and a link that resolves to the
+// wrong page is one the strict site build cannot catch.
+func TestTheConnectProxmoxRowSendsAReaderToTheProxmoxPage(t *testing.T) {
+	raw, err := os.ReadFile("../../docs/cli.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, line := range strings.Split(string(raw), "\n") {
+		if !strings.Contains(line, "`providers connect-proxmox`") {
+			continue
+		}
+		if !strings.Contains(line, "proxmox.md#the-provider") {
+			t.Errorf("the connect-proxmox row does not link to proxmox.md#the-provider:\n%s", line)
+		}
+		return
+	}
+	t.Fatal("docs/cli.md has no `providers connect-proxmox` row")
+}
+
 // The CLI page is written by hand and the binary's command list is not, so
 // the two drift unless something holds them together: every subcommand the
 // binary has is named on the page, with its command, in the backticks the
