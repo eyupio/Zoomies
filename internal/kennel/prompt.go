@@ -29,21 +29,11 @@ func Prompt(f Finding, paths map[string]string) string {
 	var lines []string
 	var history string
 	for _, e := range f.Evidence {
-		switch e.Kind {
-		case EvidenceFile:
-			path := paths[e.Ref]
-			if e.Ref == "" || path == "" {
-				lines = append(lines, "file "+unusualPath+fileWhere(e, ", line "))
-				continue
-			}
-			lines = append(lines, "file "+path+fileWhere(e, ":"))
-			if history == "" {
-				history = path
-			}
-		case EvidencePool:
-			lines = append(lines, "pool "+labelOrRef(e))
-		case EvidenceRun:
-			lines = append(lines, "run "+labelOrRef(e))
+		if line := EvidenceText(e, paths); line != "" {
+			lines = append(lines, line)
+		}
+		if path := paths[e.Ref]; e.Kind == EvidenceFile && e.Ref != "" && path != "" && history == "" {
+			history = path
 		}
 	}
 	if len(lines) > 0 {
@@ -62,6 +52,26 @@ func Prompt(f Finding, paths map[string]string) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// EvidenceText is one evidence item as a line a person reads: the kind, then
+// the path, the pool or the run, with a file's line and job. paths is as for
+// Prompt. It is the one place the words for an item are chosen, so the prompt
+// and the terminal say the same thing.
+func EvidenceText(e Evidence, paths map[string]string) string {
+	switch e.Kind {
+	case EvidenceFile:
+		path := paths[e.Ref]
+		if e.Ref == "" || path == "" {
+			return "file " + unusualPath + fileWhere(e, ", line ")
+		}
+		return "file " + path + fileWhere(e, ":")
+	case EvidencePool:
+		return "pool " + labelOrRef(e)
+	case EvidenceRun:
+		return "run " + labelOrRef(e)
+	}
+	return ""
 }
 
 // fileWhere is the line and job of a file item, after sep, or nothing when

@@ -1,0 +1,75 @@
+{
+  "files": [
+    {
+      "sha": "c866c9c7bd6b3c0a86f99565cf3cae66f8ae703b",
+      "path": ".github/workflows/ci.yml"
+    }
+  ],
+  "findings": [],
+  "not_checked": [
+    {
+      "code": "ci.label_unserved",
+      "reason": "the pools are known only to a controller"
+    },
+    {
+      "code": "exposure.public_repo_on_fleet",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "exposure.public_repo_weak_pool",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "exposure.fork_code_ran",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "exposure.target_event_ran",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "capacity.unserved_label",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "capacity.job_hit_default_limit",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "capacity.matrix_exceeds_pool",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "setup.readme",
+      "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
+    },
+    {
+      "code": "setup.security",
+      "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
+    },
+    {
+      "code": "setup.pull_request_template",
+      "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
+    },
+    {
+      "code": "setup.codeowners",
+      "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
+    },
+    {
+      "code": "setup.dependency_updates",
+      "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
+    },
+    {
+      "code": "setup.workflows",
+      "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
+    },
+    {
+      "code": "ci.pins_without_updater",
+      "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
+    }
+  ],
+  "root": "clean",
+  "unreadable": [],
+  "version": 5,
+  "visibility": "private"
+}

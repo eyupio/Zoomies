@@ -3,7 +3,7 @@ package controller
 import (
 	"context"
 	"errors"
-	"regexp"
+	"github.com/eyupio/zoomies/internal/kennel/offline"
 	"slices"
 	"strings"
 
@@ -13,15 +13,6 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-// workflowPathGrammar is what a workflow's path may look like before it is
-// kept beside the evaluation. A path is a stranger's text; one that is not a
-// plain name under .github/workflows is kept as "" and shown as unusual.
-var workflowPathGrammar = regexp.MustCompile(`^\.github/workflows/[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.ya?ml$`)
-
-// kennelWorkflowsEnabled is whether any check still on reads the workflow
-// files. It follows the checks, not an area: a check outside ci and token
-// reads them too, and with those two areas off by name it would otherwise be
-// skipped on every pass for a source nobody read.
 func kennelWorkflowsEnabled(p kennel.Policy) bool {
 	return kennelSourceWanted(p, kennel.SourceWorkflows)
 }
@@ -81,41 +72,15 @@ func kennelUnservedLabels(runsOn []workflow.RunsOn, served map[string]bool) []ke
 	return out
 }
 
-func locations(in []workflow.Location) []kennel.Location {
-	if len(in) == 0 {
-		return nil
-	}
-	out := make([]kennel.Location, len(in))
-	for i, l := range in {
-		out[i] = kennel.Location{JobIndex: l.JobIndex, Line: l.Line}
-	}
-	return out
-}
-
+// kennelWorkflowFile is the parser's facts as the evaluator reads them, with
+// the label check the controller alone can make, since it knows the pools.
 func kennelWorkflowFile(sha string, f workflow.Facts, served map[string]bool) kennel.WorkflowFile {
-	file := kennel.WorkflowFile{
-		SHA:                  sha,
-		NoTimeout:            locations(f.NoTimeout),
-		FirstPartyUnpinned:   locations(f.FirstPartyUnpinned),
-		OtherUnpinned:        locations(f.OtherUnpinned),
-		PermissionsUnset:     locations(f.PermissionsUnset),
-		TargetCheckoutPRHead: locations(f.TargetCheckoutPRHead),
-		SecretOnCommandLine:  locations(f.SecretOnCommandLine),
-		LabelUnserved:        kennelUnservedLabels(f.RunsOn, served),
-		Pinned:               f.Pinned,
-	}
-	if f.NoConcurrency != nil {
-		file.NoConcurrency = &kennel.Location{JobIndex: f.NoConcurrency.JobIndex, Line: f.NoConcurrency.Line}
-	}
+	file := offline.Convert(sha, f)
+	file.LabelUnserved = kennelUnservedLabels(f.RunsOn, served)
 	return file
 }
 
-func gatedPath(p string) string {
-	if workflowPathGrammar.MatchString(p) {
-		return p
-	}
-	return ""
-}
+func gatedPath(p string) string { return offline.GatePath(p) }
 
 func (c *Controller) kennelReadWorkflows(ctx context.Context, inst *store.Installation, row *store.KennelRepository, wm *kennelWatermark, l *kennelListing, in kennelPassInput) kennel.CoverageState {
 	wm.Workflows = nil
