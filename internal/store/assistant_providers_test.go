@@ -134,3 +134,40 @@ func TestUpdateLeavesTheKeyAndTheDefaultAlone(t *testing.T) {
 		t.Errorf("update touched the key or the default: key %q default %v", got.KeyEnc, got.IsDefault)
 	}
 }
+
+// Reading the fleet through a provider is something an administrator turns on
+// for that provider. A new row is off, so is every row that existed before the
+// column did, and an update of the other fields never turns it on.
+func TestFleetAccessIsOffUntilAnAdministratorTurnsItOn(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	p := seedAssistantProvider(t, s, "Ollama")
+	got, _ := s.GetAssistantProvider(ctx, p.ID)
+	if got.FleetAccess {
+		t.Fatal("a new provider may read the fleet")
+	}
+	got.FleetAccess = true
+	if err := s.UpdateAssistantProvider(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = s.GetAssistantProvider(ctx, p.ID)
+	if !got.FleetAccess {
+		t.Error("the switch was not kept")
+	}
+	got.FleetAccess = false
+	got.Model = "llama3.2"
+	if err := s.UpdateAssistantProvider(ctx, got); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = s.GetAssistantProvider(ctx, p.ID); got.FleetAccess || got.Model != "llama3.2" {
+		t.Errorf("turning it off, %+v", got)
+	}
+	// Created with it on, as a restore of an exported row would be.
+	on := &AssistantProvider{Name: "Local", Kind: "openai_compatible", BaseURL: "http://localhost:1/v1", Model: "m", Enabled: true, FleetAccess: true}
+	if err := s.CreateAssistantProvider(ctx, on); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = s.GetAssistantProvider(ctx, on.ID); !got.FleetAccess {
+		t.Error("created on, read back off")
+	}
+}

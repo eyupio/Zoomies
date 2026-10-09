@@ -35,6 +35,10 @@ type Server struct {
 	// Models, when set, is what the model list answers with, in the order given;
 	// otherwise it lists Model alone.
 	Models []string
+	// CallTool, when set, makes the OpenAI-protocol server answer a request that
+	// offers a tool of that name, and has no tool's answer in it yet, by calling
+	// it with no arguments. The request after that is answered in words.
+	CallTool string
 
 	mu       sync.Mutex
 	requests []Recorded
@@ -138,7 +142,11 @@ func NewOpenAI(t testing.TB) *Server {
 			return map[string]any{"id": "chatcmpl-1", "object": "chat.completion.chunk", "model": s.Model,
 				"choices": []any{map[string]any{"index": 0, "delta": delta, "finish_reason": finish}}}
 		}
-		if wantsTool(rec.Body) {
+		if s.CallTool != "" && offersTool(rec.Body, s.CallTool) && !hasToolAnswer(rec.Body) {
+			sse(w, "", chunk(map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "call_fleet", "type": "function",
+				"function": map[string]any{"name": s.CallTool, "arguments": `{}`}}}}, nil))
+			sse(w, "", chunk(map[string]any{}, "tool_calls"))
+		} else if wantsTool(rec.Body) {
 			sse(w, "", chunk(map[string]any{"tool_calls": []any{map[string]any{"index": 0, "id": "call_1", "type": "function",
 				"function": map[string]any{"name": "echo", "arguments": `{"text":`}}}}, nil))
 			sse(w, "", chunk(map[string]any{"tool_calls": []any{map[string]any{"index": 0,
@@ -229,4 +237,27 @@ func NewAnthropic(t testing.TB) *Server {
 	s.Server = httptest.NewServer(mux)
 	t.Cleanup(s.Close)
 	return s
+}
+
+// offersTool reports whether a chat request lists a tool by that name.
+func offersTool(body map[string]any, name string) bool {
+	tools, _ := body["tools"].([]any)
+	for _, t := range tools {
+		fn, _ := t.(map[string]any)["function"].(map[string]any)
+		if fn["name"] == name {
+			return true
+		}
+	}
+	return false
+}
+
+// hasToolAnswer reports whether a chat request already carries a tool's answer.
+func hasToolAnswer(body map[string]any) bool {
+	msgs, _ := body["messages"].([]any)
+	for _, m := range msgs {
+		if mm, _ := m.(map[string]any); mm["role"] == "tool" {
+			return true
+		}
+	}
+	return false
 }

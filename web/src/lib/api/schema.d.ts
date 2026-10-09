@@ -3153,16 +3153,23 @@ export interface paths {
          * Ask the assistant's model a question
          * @description Answers a conversation as a `text/event-stream`: `delta` frames carrying
          *     `{"text": ...}` as the model writes, one `usage` frame with
-         *     `{"input_tokens", "output_tokens"}` when the provider reports them, and a final
-         *     `done` frame with the provider's name and the model, or an `error` frame with a
-         *     `message` if the answer failed after it began (the status had gone out with the
-         *     first byte by then).
+         *     `{"input_tokens", "output_tokens"}` when the provider reports them (summed over
+         *     every round when the assistant looked at the fleet), `tool` frames with
+         *     `{"name", "status"}` as it looks (`running`, then `done` or `failed`), and a final
+         *     `done` frame with the provider's name and the model, `fleet_access` (whether the
+         *     fleet could be read through this provider) and the `tools` it used, or an `error`
+         *     frame with a `message` if the answer failed after it began (the status had gone
+         *     out with the first byte by then).
          *
          *     The controller keeps nothing between requests: send the conversation so far,
          *     ending in the person's question, and send it again with the next one. Only
          *     `user` and `assistant` messages are accepted. The model is told what Zoomies
-         *     is and that it cannot see this fleet or change anything; no tool is offered
-         *     and no fleet data is attached.
+         *     is. Unless an administrator has turned on `fleet_access` for the provider it is
+         *     told it cannot see this fleet, and no tool is offered and no fleet data attached.
+         *     With it on, the model is offered a fixed list of read-only fleet tools (never one
+         *     that changes anything and never one that reads a repository's source), each call
+         *     is made as the person asking, and the chat is audited as `assistant.chat` with the
+         *     tools used and never what was said.
          *
          *     Everything that can be refused is refused before the stream opens: a conversation
          *     that is empty, too long or does not end in a user message is a 422 naming the
@@ -8988,6 +8995,8 @@ export interface components {
             is_default: boolean;
             /** @description The address names this machine or a private network. */
             local: boolean;
+            /** @description The assistant may read this fleet through the provider. An administrator's decision per provider, off until made: what the tools return is sent to the provider, which for a hosted one leaves this network. */
+            fleet_access: boolean;
             last_check?: components["schemas"]["AssistantProviderCheck"];
             /** Format: date-time */
             created_at: string;
@@ -9004,6 +9013,8 @@ export interface components {
             base_url?: string;
             model?: string;
             enabled?: boolean;
+            /** @description Let the assistant read this fleet through the provider. Changing it writes an `assistant.provider.fleet_access` audit row. */
+            fleet_access?: boolean;
             /** @description Sealed with the instance key and never returned. An empty string leaves the stored key alone, so a form with a blank key box does not erase it. */
             api_key?: string;
         };

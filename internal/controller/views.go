@@ -2089,6 +2089,7 @@ type AssistantProviderView struct {
 	Enabled       bool                    `json:"enabled"`
 	IsDefault     bool                    `json:"is_default"`
 	Local         bool                    `json:"local"`
+	FleetAccess   bool                    `json:"fleet_access"`
 	LastCheck     *AssistantProviderCheck `json:"last_check,omitempty"`
 	CreatedAt     time.Time               `json:"created_at"`
 	UpdatedAt     time.Time               `json:"updated_at"`
@@ -2099,7 +2100,7 @@ func (c *Controller) AssistantProviderView(p *store.AssistantProvider) Assistant
 	v := AssistantProviderView{
 		ID: p.ID, Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, Model: p.Model,
 		KeyConfigured: len(p.KeyEnc) > 0, Enabled: p.Enabled, IsDefault: p.IsDefault,
-		Local:     assistantAddressIsLocal(p.BaseURL),
+		Local: assistantAddressIsLocal(p.BaseURL), FleetAccess: p.FleetAccess,
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
 	if len(p.LastCheck) > 0 {
