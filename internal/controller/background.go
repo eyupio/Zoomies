@@ -355,6 +355,13 @@ func (c *Controller) prune(ctx context.Context) {
 			n, err := c.st.PruneUpdateAttempts(ctx, before)
 			return int64(n), err
 		}},
+		// Rollouts ride the update attempts' window rather than one of their
+		// own, as they are only the grouping of those attempts. An open one
+		// (running or halted) stays however old, for the same reason.
+		{"update rollouts", r.UpdateAttempts, func(ctx context.Context, before time.Time) (int64, error) {
+			n, err := c.st.PruneUpdateRollouts(ctx, before)
+			return int64(n), err
+		}},
 		{"usage capacity", r.Jobs, c.st.PruneUsageCapacity},
 		// The class kept for a job is worked out from its runs, and goes when
 		// they do: a job that comes back after that long starts in the default

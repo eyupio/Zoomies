@@ -197,7 +197,7 @@ func (c *Controller) ReconcileUpdates(ctx context.Context) error {
 				c.keepHostUpdateGoing(h, a)
 				continue
 			}
-			if c.closeHostAttempt(ctx, a, state, text) {
+			if c.endAttempt(ctx, a, state, text) {
 				closed = true
 				if h != nil {
 					closedHosts = append(closedHosts, h)
@@ -209,15 +209,18 @@ func (c *Controller) ReconcileUpdates(ctx context.Context) error {
 		if !ended {
 			continue
 		}
-		if c.finishUpdateAttempt(ctx, a, state, text) {
+		if c.endAttempt(ctx, a, state, text) {
 			closed = true
-			if a.Scope == store.UpdateScopeController {
-				c.withdrawRequest(a)
-			}
 		}
 	}
 	for _, h := range closedHosts {
 		c.publishHost(h)
+	}
+	// After the closing, so that the planner decides on what is true now: the
+	// attempt that just ended is the one it would otherwise wait on.
+	if c.runUpdatePlan(ctx) {
+		c.publishDerived(ctx)
+		closed = true
 	}
 	if closed {
 		if _, err := c.publishUpdates(ctx); err != nil {
@@ -225,6 +228,21 @@ func (c *Controller) ReconcileUpdates(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// endAttempt is the one closer of an attempt, for the pass and for the
+// planner's time-out alike, so the two can never record an ending two ways. It
+// is idempotent: the store keeps the first ending, and only the call that made
+// it takes back the request or the task.
+func (c *Controller) endAttempt(ctx context.Context, a store.UpdateAttempt, state, text string) bool {
+	if a.Scope == store.UpdateScopeHost {
+		return c.closeHostAttempt(ctx, a, state, text)
+	}
+	if !c.finishUpdateAttempt(ctx, a, state, text) {
+		return false
+	}
+	c.withdrawRequest(a)
+	return true
 }
 
 // lookAtUpdates refreshes what the problems list reports on: whether the helper
@@ -278,12 +296,18 @@ func (c *Controller) updateOutcome(a store.UpdateAttempt) (state, text string, e
 	if c.Now().Sub(a.RequestedAt) <= updateAttemptTimeout {
 		return "", "", false
 	}
+	return store.UpdateTimedOut, timedOutText(a), true
+}
+
+// timedOutText is what an attempt that timed out records, whichever closer saw
+// the ninetieth minute first.
+func timedOutText(a store.UpdateAttempt) string {
 	if a.Scope == store.UpdateScopeController {
-		return store.UpdateTimedOut, fmt.Sprintf("No answer came from the update helper within 90 minutes, and this controller still runs %s. "+
-			"Look at journalctl -u zoomies-update and zoomies updates helper status on the controller's host.", version.Version), true
+		return fmt.Sprintf("No answer came from the update helper within 90 minutes, and this controller still runs %s. "+
+			"Look at journalctl -u zoomies-update and zoomies updates helper status on the controller's host.", version.Version)
 	}
-	return store.UpdateTimedOut, fmt.Sprintf("The host did not come back on %s within 90 minutes. "+
-		"Look at journalctl -u zoomies-update and zoomies updates helper status on the host.", a.ToVersion), true
+	return fmt.Sprintf("The host did not come back on %s within 90 minutes. "+
+		"Look at journalctl -u zoomies-update and zoomies updates helper status on the host.", a.ToVersion)
 }
 
 // controllerOutcome is how the controller's own attempt ended, if it has.
@@ -417,6 +441,9 @@ func (c *Controller) finishUpdateAttempt(ctx context.Context, a store.UpdateAtte
 	if !closed {
 		return false
 	}
+	// The planner moves on from an ended attempt, and should not wait ten
+	// seconds to.
+	c.KickUpdates()
 	c.metrics.updateAttempts.WithLabelValues(a.Scope, state).Inc()
 	if state == store.UpdateSucceeded {
 		c.log.Info("an update attempt succeeded", "attempt", a.ID, "scope", a.Scope, "host", a.HostID, "to", a.ToVersion)

@@ -171,6 +171,9 @@ func TestUpdatesUpdatedIsSentOnlyWhenTheStatusChanges(t *testing.T) {
 	withVersion(t, "1.3.0")
 	h.inMode("auto")
 	h.readTheList(releaseEntry("v1.3.2", whenAgo(6*time.Hour+30*time.Minute), completeAssets(t)...))
+	// Ready, so that the sentence after the soak is the rule's own and not the
+	// planner's wait for a helper.
+	h.installHelper()
 	sub := h.listen(events.KindUpdates)
 
 	pass := func(doing string) {

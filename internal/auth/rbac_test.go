@@ -426,3 +426,19 @@ func TestWithAuthenticationOffEverythingIsReachable(t *testing.T) {
 		}
 	}
 }
+
+// The audit log is how an operator learns that an update nobody pressed for
+// happened, so the planner's rows carry a name of their own, apart from the
+// controller's housekeeping, and the role that may update the controller.
+func TestTheAutoUpdateIdentityIsASystemActorOfItsOwn(t *testing.T) {
+	id := AutoUpdateIdentity()
+	if id.Kind != KindSystem || id.ID != "auto-update" || id.Name != "zoomies auto-update" || id.Role != store.RolePlatform {
+		t.Errorf("auto-update identity = %+v", id)
+	}
+	if id.ID == SystemIdentity().ID || id.Name == SystemIdentity().Name {
+		t.Error("the auto-update identity reads as the system identity in the audit log")
+	}
+	if !id.Can(ActionUpdatesApply) {
+		t.Error("the auto-update identity may not apply an update")
+	}
+}

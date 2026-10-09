@@ -49,6 +49,16 @@ type UpdateActor struct {
 	ID, Name string
 }
 
+// updateAsk is how an update was asked for: by a person pressing a button, or by
+// the planner, and as a step of which rollout, if any. A button press is never a
+// rollout's step, so that a person's update does not count for or against one.
+type updateAsk struct {
+	trigger   string
+	rolloutID string
+}
+
+var askedByHand = updateAsk{trigger: store.UpdateTriggerManual}
+
 // updateDir is the update folder this controller would write a request into, and
 // false when there is none to find. A test names its own; a real controller finds
 // it the way the installer recorded it.
@@ -158,6 +168,12 @@ func (c *Controller) RequestControllerUpdate(ctx context.Context, by UpdateActor
 // The attempt's id comes back beside the status so that a caller that audits the
 // press does not have to find it in the status, where it is only the latest.
 func (c *Controller) RequestControllerUpdateAttempt(ctx context.Context, by UpdateActor, tag string) (*UpdatesView, string, error) {
+	return c.requestControllerUpdate(ctx, by, tag, askedByHand)
+}
+
+// requestControllerUpdate is RequestControllerUpdateAttempt for either asker:
+// the button and the planner go through every refusal alike.
+func (c *Controller) requestControllerUpdate(ctx context.Context, by UpdateActor, tag string, ask updateAsk) (*UpdatesView, string, error) {
 	if !c.mayAct() {
 		return nil, "", fmt.Errorf("%w: %s", ErrUpdateFenced, c.notActingReason())
 	}
@@ -178,7 +194,7 @@ func (c *Controller) RequestControllerUpdateAttempt(ctx context.Context, by Upda
 
 	attempt := &store.UpdateAttempt{
 		Scope: store.UpdateScopeController, FromVersion: version.Version, ToVersion: target,
-		Trigger: store.UpdateTriggerManual, RequestedBy: requestedBy(by),
+		Trigger: ask.trigger, RequestedBy: requestedBy(by), RolloutID: ask.rolloutID,
 	}
 	if err := c.st.CreateUpdateAttempt(ctx, attempt); err != nil {
 		if errors.Is(err, store.ErrConflict) {

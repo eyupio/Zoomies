@@ -1,10 +1,12 @@
 package controller
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"net/url"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -43,8 +45,11 @@ type UpdatesView struct {
 	Latest *UpdatesRelease `json:"latest"`
 	// Target is what the mode would do about Latest.
 	Target *UpdatesTarget `json:"target"`
-	// Reason is the sentence the page shows. It is internal/updates' own wherever
-	// a list has been read.
+	// Reason is the sentence the page shows: the planner's, wherever a list has
+	// been read, which is the release rule's own unless something else (an open
+	// attempt, a rollout, the helper) decides what happens next. It holds no
+	// elapsed time that moves with a heartbeat, so the panel is not repainted
+	// for nothing.
 	Reason string `json:"reason"`
 	// CheckedAt is when the list Latest was chosen from was read.
 	CheckedAt *time.Time `json:"checked_at"`
@@ -54,6 +59,27 @@ type UpdatesView struct {
 	// Controller is this controller's latest update attempt, open or ended, and
 	// null when it has never had one.
 	Controller *UpdatesAttempt `json:"controller"`
+	// Rollout is the open rollout, or the last one that ended, and null when
+	// there has been none.
+	Rollout *UpdatesRollout `json:"rollout"`
+}
+
+// UpdatesRollout is a walk of the fleet to one release, as far as it has got.
+type UpdatesRollout struct {
+	ID     string `json:"id"`
+	Target string `json:"target"`
+	// State is running or halted while it is open, then done or cancelled.
+	State string `json:"state"`
+	// HaltedReason is the sentence it halted with: it names the host and the
+	// release and never the helper's text, which can name a path on the host,
+	// so every role reads it.
+	HaltedReason string `json:"halted_reason"`
+	// Done is the hosts it has updated, and Total those and the hosts it would
+	// still update. Neither moves with a heartbeat, only with a host's version.
+	Done  int `json:"done"`
+	Total int `json:"total"`
+	// Current is the name of the host being updated now, and empty with none.
+	Current string `json:"current"`
 }
 
 // UpdatesHelper is the update helper beside the controller, as far as the
@@ -164,12 +190,18 @@ func (c *Controller) UpdatesView(ctx context.Context) (*UpdatesView, error) {
 	cfg := c.cfg().Updates
 	mode := updateModeOf(cfg.Mode)
 	_, fromRelease := version.Release(version.Version)
+	probe := c.probeUpdateHelper()
 	view := &UpdatesView{
 		Mode:    string(mode),
 		Soak:    config.TidyDuration(cfg.Soak),
 		Running: UpdatesRunning{Version: version.Version, Release: fromRelease},
-		Helper:  c.probeUpdateHelper().view,
+		Helper:  probe.view,
 	}
+	pic, err := c.updatesSnapshot(ctx, cfg, probe)
+	if err != nil {
+		return nil, err
+	}
+	view.Rollout = c.rolloutView(pic)
 	// The last attempt is shown in every mode: one that was in flight when
 	// updating was switched off still ends, and the page says how.
 	attempts, err := c.st.ListUpdateAttempts(ctx, store.UpdateScopeController, "", 1)
@@ -209,7 +241,10 @@ func (c *Controller) UpdatesView(ctx context.Context) (*UpdatesView, error) {
 		Mode: mode, Soak: cfg.Soak, Now: c.Now(), Running: version.Version,
 		Releases: releases, GOOS: runtime.GOOS, GOARCH: runtime.GOARCH,
 	})
-	view.Reason = target.Reason
+	// The planner's sentence, worked out from the same snapshot it acts on, so
+	// the page says what the next pass will do. Where nothing else stands in the
+	// way it is the rule's own.
+	view.Reason = updates.Decide(pic.snap).Sentence
 	if mode == updates.ModeOff {
 		return view, nil
 	}
@@ -230,6 +265,53 @@ func (c *Controller) UpdatesView(ctx context.Context) (*UpdatesView, error) {
 		view.Target.DueAt = &due
 	}
 	return view, nil
+}
+
+// rolloutView is the open rollout, or the last that ended, as the status shows
+// it.
+func (c *Controller) rolloutView(pic *updatesPicture) *UpdatesRollout {
+	r := pic.rollout
+	if r == nil {
+		r = pic.last
+	}
+	if r == nil {
+		return nil
+	}
+	out := &UpdatesRollout{ID: r.ID, Target: r.Target, State: r.State, HaltedReason: r.HaltedReason}
+	names := make(map[string]string, len(pic.hosts))
+	for _, h := range pic.hosts {
+		names[h.ID] = h.Name
+	}
+	done := map[string]bool{}
+	asked := map[string]bool{}
+	for _, a := range pic.attempts {
+		if a.RolloutID != r.ID {
+			continue
+		}
+		asked[a.HostID] = true
+		switch a.State {
+		case store.UpdateSucceeded:
+			done[a.HostID] = true
+		case store.UpdateRequested:
+			out.Current = cmp.Or(names[a.HostID], a.HostID)
+		}
+	}
+	out.Done = len(done)
+	if r.State != store.RolloutRunning && r.State != store.RolloutHalted {
+		// Ended: what it was made of is what it asked for.
+		out.Total = len(asked)
+		return out
+	}
+	out.Total = out.Done
+	for _, h := range pic.hosts {
+		if done[h.ID] || (len(r.HostIDs) > 0 && !slices.Contains(r.HostIDs, h.ID)) {
+			continue
+		}
+		if can, _, _ := hostCanSelfUpdate(h, r.Target, c.hostHelperUnsupported(h), pic.snap.Mode); can {
+			out.Total++
+		}
+	}
+	return out
 }
 
 // attemptView is an attempt as the status shows it.

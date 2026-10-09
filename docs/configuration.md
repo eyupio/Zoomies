@@ -305,7 +305,7 @@ retention:
   runner_sessions: 8760h        # ZOOMIES_RETENTION_RUNNER_SESSIONS (365 days of the usage ledger's runner sessions, which outlive the rows above)
   webhooks: 168h                # ZOOMIES_RETENTION_WEBHOOKS
   machines: 168h                # ZOOMIES_RETENTION_MACHINES  (7 days of deleted-machine rows -- what was rented, when, and what it cost)
-  update_attempts: 2160h        # ZOOMIES_RETENTION_UPDATE_ATTEMPTS (90 days of finished update attempts, so why a host is behind stays answerable; 24h at least, 0 keeps all)
+  update_attempts: 2160h        # ZOOMIES_RETENTION_UPDATE_ATTEMPTS (90 days of finished update attempts and rollouts, so why a host is behind stays answerable; 24h at least, 0 keeps all)
 
 limits:                         # fleet-wide ceilings; 0 is unlimited, and every one is 0 by default except job_stats_window
   hosts: 0                      # ZOOMIES_LIMITS_HOSTS             -- enrolled hosts
@@ -627,7 +627,7 @@ the validator says so with `limits.loopback`.
 | `retention.runners` | `ZOOMIES_RETENTION_RUNNERS` | at once | Keep finished runners for: How long finished runners are kept. |
 | `retention.samples` | `ZOOMIES_RETENTION_SAMPLES` | at once | Keep Overview samples for: How long the Overview's samples are kept. |
 | `retention.scaling_events` | `ZOOMIES_RETENTION_SCALING_EVENTS` | at once | Keep scaling history for: How long scaling decisions are kept. Audit rows are not covered by this, or by anything: they are never deleted. |
-| `retention.update_attempts` | `ZOOMIES_RETENTION_UPDATE_ATTEMPTS` | at once | Keep update history for: How long a finished attempt to update the controller or a host is kept, so why a host is behind stays answerable. An attempt still open is never removed. 0 keeps every attempt. |
+| `retention.update_attempts` | `ZOOMIES_RETENTION_UPDATE_ATTEMPTS` | at once | Keep update history for: How long a finished attempt to update the controller or a host, and the rollout that grouped it, is kept, so why a host is behind stays answerable. One still open is never removed. 0 keeps every one. |
 | `retention.webhooks` | `ZOOMIES_RETENTION_WEBHOOKS` | at once | Keep webhook deliveries for: How long webhook deliveries are kept. |
 
 ### `runners`

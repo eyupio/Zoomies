@@ -243,6 +243,8 @@ func TestResponsesMatchTheSpecShapes(t *testing.T) {
 			Helper:    controller.UpdatesHelper{State: controller.HelperMissing, Reason: "No update helper is installed.", InstallCommand: "sudo zoomies updates helper install"},
 			Controller: &controller.UpdatesAttempt{ID: "upd_abc", State: "failed", From: "1.3.0", To: "v1.3.2", Trigger: "manual",
 				RequestedAt: at, FinishedAt: &due, Error: "the download failed"},
+			Rollout: &controller.UpdatesRollout{ID: "rol_abc", Target: "v1.3.0", State: "halted",
+				HaltedReason: "The update of runner-2 to v1.3.0 did not succeed, so the rollout is halted.", Done: 1, Total: 3, Current: ""},
 		})
 		if err != nil {
 			t.Fatalf("marshalling a status: %v", err)
@@ -255,6 +257,7 @@ func TestResponsesMatchTheSpecShapes(t *testing.T) {
 			Target     json.RawMessage `json:"target"`
 			Helper     json.RawMessage `json:"helper"`
 			Controller json.RawMessage `json:"controller"`
+			Rollout    json.RawMessage `json:"rollout"`
 		}
 		if err := json.Unmarshal(raw, &parts); err != nil {
 			t.Fatalf("reading the status back: %v", err)
@@ -264,6 +267,7 @@ func TestResponsesMatchTheSpecShapes(t *testing.T) {
 		assertShape(t, doc, "UpdatesTarget", parts.Target)
 		assertShape(t, doc, "UpdatesHelper", parts.Helper)
 		assertShape(t, doc, "UpdatesAttempt", parts.Controller)
+		assertShape(t, doc, "UpdatesRollout", parts.Rollout)
 	})
 
 	t.Run("Problem", func(t *testing.T) {

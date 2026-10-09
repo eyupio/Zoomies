@@ -1134,9 +1134,9 @@ type Retention struct {
 	// what it cost, and an operator reconciling a hypervisor bill against the
 	// fleet is reading exactly this.
 	Machines time.Duration `yaml:"machines"`
-	// UpdateAttempts is how long a finished update attempt is kept. It is the
-	// answer to "why is this host behind", so it outlives the job history
-	// around it. An attempt still open is never pruned.
+	// UpdateAttempts is how long a finished update attempt, and the rollout
+	// that grouped it, is kept. It is the answer to "why is this host behind",
+	// so it outlives the job history around it. One still open is never pruned.
 	UpdateAttempts time.Duration `yaml:"update_attempts"`
 }
 

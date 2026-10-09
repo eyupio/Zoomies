@@ -47,18 +47,21 @@ type UpdateAttempt struct {
 	RequestedBy string
 	State       string
 	Error       string
+	// RolloutID is the rollout that asked for the attempt, or empty for the
+	// controller's own and for a button pressed by a person (migration 0090).
+	RolloutID   string
 	RequestedAt time.Time
 	FinishedAt  *time.Time
 }
 
-const updateAttemptCols = `id, scope, host_id, from_version, to_version, trigger, requested_by, state, error, requested_at, finished_at`
+const updateAttemptCols = `id, scope, host_id, from_version, to_version, trigger, requested_by, state, error, rollout_id, requested_at, finished_at`
 
 func scanUpdateAttempt(sc interface{ Scan(...any) error }) (UpdateAttempt, error) {
 	var a UpdateAttempt
 	var requested int64
 	var finished sql.NullInt64
 	err := sc.Scan(&a.ID, &a.Scope, &a.HostID, &a.FromVersion, &a.ToVersion, &a.Trigger,
-		&a.RequestedBy, &a.State, &a.Error, &requested, &finished)
+		&a.RequestedBy, &a.State, &a.Error, &a.RolloutID, &requested, &finished)
 	a.RequestedAt, a.FinishedAt = at(requested), atp(finished)
 	return a, err
 }
@@ -86,9 +89,9 @@ func (s *Store) CreateUpdateAttempt(ctx context.Context, a *UpdateAttempt) error
 	a.RequestedAt = s.Now()
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `INSERT INTO update_attempts (`+updateAttemptCols+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
 			a.ID, a.Scope, a.HostID, a.FromVersion, a.ToVersion, a.Trigger, a.RequestedBy,
-			a.State, a.Error, ms(a.RequestedAt))
+			a.State, a.Error, a.RolloutID, ms(a.RequestedAt))
 		return wrapWrite(err)
 	})
 }
