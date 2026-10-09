@@ -10926,6 +10926,13 @@ components:
         consecutive_failures: { type: integer }
         last_check_at: { type: string, format: date-time }
         last_check_error: { type: string, description: The worst thing the last preflight found, in one sentence. }
+        last_check:
+          allOf: [{ $ref: "#/components/schemas/ProviderCheck" }]
+          description: >-
+            The whole of the last preflight, findings with their detail and fix, so a page
+            can show what `last_check_error` is the title of without running it again.
+            Absent for a provider never checked, and for one last checked before the report
+            was kept.
         last_sweep_at: { type: string, format: date-time, description: When this provider was last asked for everything it believes it is running. }
         machines:
           type: object

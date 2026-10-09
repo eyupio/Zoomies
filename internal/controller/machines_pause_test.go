@@ -67,7 +67,7 @@ func TestThePauseSurvivesARestart(t *testing.T) {
 func TestPausingACheckedProviderDoesNotClaimItsSettingsChanged(t *testing.T) {
 	h := newHarness(t)
 	_, row := h.machineFleet(t)
-	if err := h.st.SetProviderChecked(h.ctx, row.ID, time.Now(), ""); err != nil {
+	if err := h.st.SetProviderChecked(h.ctx, row.ID, time.Now(), "", ""); err != nil {
 		t.Fatalf("SetProviderChecked: %v", err)
 	}
 	if slices.Contains(h.problemCodes(), "provider.template_unverified") {

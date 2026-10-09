@@ -8379,6 +8379,8 @@ export interface components {
             last_check_at?: string;
             /** @description The worst thing the last preflight found */
             last_check_error?: string;
+            /** @description The whole of the last preflight, findings with their detail and fix, so a page can show what `last_check_error` is the title of without running it again. Absent for a provider never checked, and for one last checked before the report was kept. */
+            last_check?: components["schemas"]["ProviderCheck"];
             /**
              * Format: date-time
              * @description When this provider was last asked for everything it believes it is running.

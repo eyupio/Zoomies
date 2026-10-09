@@ -1790,7 +1790,12 @@ type ProviderView struct {
 	ConsecutiveFailures int        `json:"consecutive_failures,omitempty"`
 	LastCheckAt         *time.Time `json:"last_check_at,omitempty"`
 	LastCheckError      string     `json:"last_check_error,omitempty"`
-	LastSweepAt         *time.Time `json:"last_sweep_at,omitempty"`
+	// LastCheck is the whole of that check, findings with their detail and fix,
+	// so a page can show what the sentence above was the title of without the
+	// operator pressing Check again. Absent for a provider never checked, and
+	// for one last checked before the report was kept.
+	LastCheck   *ProviderCheckView `json:"last_check,omitempty"`
+	LastSweepAt *time.Time         `json:"last_sweep_at,omitempty"`
 
 	// Machines is how many this provider has, by state, so the card can show
 	// the band without a second request.
@@ -1843,6 +1848,7 @@ func (c *Controller) ProviderView(p *store.Provider, machines []*store.Machine) 
 		ConsecutiveFailures:   p.ConsecutiveFailures,
 		LastCheckAt:           p.LastCheckAt,
 		LastCheckError:        p.LastCheckError,
+		LastCheck:             decodeCheckReport(p),
 		LastSweepAt:           p.LastSweepAt,
 		Machines:              map[string]int{},
 		CreatedAt:             p.CreatedAt,

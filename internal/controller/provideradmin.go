@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"slices"
@@ -209,13 +210,54 @@ func (c *Controller) CheckProvider(ctx context.Context, row *store.Provider) (Pr
 	// The recorded error is the worst thing the check found, in one sentence,
 	// because that is what a card has room for; the findings are the whole of
 	// it and are returned to the caller who asked.
-	if err := c.st.SetProviderChecked(ctx, row.ID, now, checkComplaint(report)); err != nil {
+	//
+	// The whole result is kept too, because the sentence is only a title and
+	// the detail that says what to do ("it offers vmbr1") would otherwise
+	// exist for as long as one browser tab did.
+	if err := c.st.SetProviderChecked(ctx, row.ID, now, checkComplaint(report), encodeCheckReport(out)); err != nil {
 		c.log.Warn("could not record a provider check", "provider", row.ID, "error", err)
 	}
 	if fresh, err := c.st.GetProvider(ctx, row.ID); err == nil {
 		c.PublishProvider(ctx, fresh)
 	}
 	return out, nil
+}
+
+// storedCheck is what is kept of a preflight. The time and the provider are
+// the row's own (last_check_at, id), so they are not stored a second time to
+// disagree with it.
+type storedCheck struct {
+	OK        bool             `json:"ok"`
+	Reachable bool             `json:"reachable"`
+	Version   string           `json:"version,omitempty"`
+	Findings  []config.Finding `json:"findings"`
+}
+
+func encodeCheckReport(v ProviderCheckView) string {
+	b, err := json.Marshal(storedCheck{OK: v.OK, Reachable: v.Reachable, Version: v.Version, Findings: v.Findings})
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// decodeCheckReport reads back what encodeCheckReport kept, or nil when the
+// provider has never been checked or the stored text is not a report. A row
+// from before the report was kept reads as the second, which the page shows as
+// its one sentence, as it always did.
+func decodeCheckReport(p *store.Provider) *ProviderCheckView {
+	if p.LastCheckReport == "" || p.LastCheckAt == nil {
+		return nil
+	}
+	var s storedCheck
+	if err := json.Unmarshal([]byte(p.LastCheckReport), &s); err != nil {
+		return nil
+	}
+	if s.Findings == nil {
+		s.Findings = []config.Finding{}
+	}
+	return &ProviderCheckView{ProviderID: p.ID, OK: s.OK, Reachable: s.Reachable,
+		Version: s.Version, Findings: s.Findings, CheckedAt: *p.LastCheckAt}
 }
 
 // checkComplaint is the one sentence a preflight leaves on the row. A provider

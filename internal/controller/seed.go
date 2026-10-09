@@ -630,7 +630,7 @@ func (c *Controller) seedProvider(ctx context.Context, now time.Time) (*store.Pr
 	// Without the first the card reads "Never checked. Run it before anything
 	// is built on this", which is the one sentence a demo provider should not
 	// be the example of.
-	if err := c.st.SetProviderChecked(ctx, p.ID, now, ""); err != nil {
+	if err := c.st.SetProviderChecked(ctx, p.ID, now, "", ""); err != nil {
 		return nil, fmt.Errorf("recording the demo provider's preflight: %w", err)
 	}
 	if err := c.st.SetProviderSwept(ctx, p.ID, now); err != nil {
