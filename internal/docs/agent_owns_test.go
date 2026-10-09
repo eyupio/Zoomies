@@ -39,6 +39,9 @@ func TestTheSecurityPageSaysWhatTheAgentOwnsOnAHost(t *testing.T) {
 		{"`agent.docker_build_cache_mb`", "the builder-cache target, the one daemon-wide thing it does"},
 		{"default `0`", "the builder-cache default"},
 		{"agent.docker_build_cache_mb: 0", "the shared-daemon advice"},
+		{"`zoomies-update.path`", "the helper's trigger, present only where its owner installed it"},
+		{"`request.json`", "the update folder the service writes a request into and the helper reads"},
+		{"is not the agent", "that the update helper is root's and not the agent's"},
 	} {
 		if !strings.Contains(section, want.fact) {
 			t.Errorf("the \"What the agent owns on a host\" section no longer says %s (%q)", want.why, want.fact)

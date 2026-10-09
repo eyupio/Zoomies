@@ -7,6 +7,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -37,7 +38,11 @@ type layoutChange struct {
 	// missing Compose file is: there is nothing to bring the new image up
 	// with.
 	required bool
-	apply    func(ctx context.Context) error
+	// sharedMount marks the change that gives a running container the shared
+	// folder. Until the container is recreated it does not have it, which is what
+	// the update helper's install looks for.
+	sharedMount bool
+	apply       func(ctx context.Context) error
 }
 
 // layoutChanges is everything this deployment lacks, for what it runs: the
@@ -188,7 +193,8 @@ func (p *upgradePlan) composeLayoutChanges(s deploymentSettings) ([]layoutChange
 				items = append(items, fmt.Sprintf("add group %s, which owns the runtime's socket, so the image's account can use it", group))
 			}
 			out = append(out, layoutChange{
-				what: fmt.Sprintf("in %s, which an older release wrote: %s; the file is backed up first", path, strings.Join(items, "; ")),
+				what:        fmt.Sprintf("in %s, which an older release wrote: %s; the file is backed up first", path, strings.Join(items, "; ")),
+				sharedMount: slices.ContainsFunc(missing, func(m wantMount) bool { return m.target == SharedHostDir }),
 				apply: func(context.Context) error {
 					return editComposeFile(path, missing, group)
 				},
@@ -211,7 +217,8 @@ func (p *upgradePlan) dockerLayoutChanges(s deploymentSettings) []layoutChange {
 			}
 			bind := m.bind
 			out = append(out, layoutChange{
-				what: fmt.Sprintf("mount %s in the replacement container (%s)", m.target, m.why),
+				what:        fmt.Sprintf("mount %s in the replacement container (%s)", m.target, m.why),
+				sharedMount: m.target == SharedHostDir,
 				apply: func(context.Context) error {
 					return p.replacement.AddBind(bind)
 				},

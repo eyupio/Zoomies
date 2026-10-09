@@ -56,6 +56,14 @@ func isTerminal(w io.Writer) bool {
 	return term.IsTerminal(int(f.Fd()))
 }
 
+// canAsk is whether somebody is at a terminal to be asked a question: input and
+// output are both terminals, and the operator did not say --non-interactive. A
+// script's input is whatever it happens to be, and must not be taken for an answer.
+func canAsk(e *env, nonInteractive bool) bool {
+	f, ok := e.in.(*os.File)
+	return ok && term.IsTerminal(int(f.Fd())) && !nonInteractive && isTerminal(e.out)
+}
+
 // printer renders a command's output in the mode the operator asked for.
 type printer struct {
 	out    io.Writer

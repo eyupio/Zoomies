@@ -323,3 +323,23 @@ func TestEveryCommandNamedInAnErrorMessageExists(t *testing.T) {
 		t.Errorf("`zoomies hosts` offers no join-token command:\n%s", out)
 	}
 }
+
+// The helper is offered at install and at join, and added unasked only by a flag
+// about the helper, which is why both commands have one.
+func TestInitAndAgentJoinTakeTheUpdateHelperFlag(t *testing.T) {
+	for _, args := range [][]string{{"init", "--help"}, {"agent", "join", "--help"}} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			e, _, errOut := newTestEnv(t)
+			if code := dispatch(context.Background(), e, args); code != exitOK {
+				t.Fatalf("exit code = %d, want 0\n%s", code, errOut)
+			}
+			help := errOut.String()
+			if !strings.Contains(help, "--update-helper") {
+				t.Errorf("no --update-helper in the usage:\n%s", help)
+			}
+			if !strings.Contains(help, "update helper") {
+				t.Errorf("the usage does not say what --update-helper adds:\n%s", help)
+			}
+		})
+	}
+}

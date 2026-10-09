@@ -90,6 +90,19 @@ func TestUpgradeSaysWhetherAMovingImageAdvanced(t *testing.T) {
 	}
 }
 
+// noHelperHost is a host with no systemd, so that an upgrade under test never
+// reads the real /run/systemd, /etc/systemd/system or /var/lib/zoomies-update,
+// which would make the result depend on the machine the tests run on. A test of
+// the helper question replaces it.
+func noHelperHost(dir string) *upgradeHelperHost {
+	return &upgradeHelperHost{
+		systemdDir: filepath.Join(dir, "no-systemd"), unitDir: filepath.Join(dir, "units"), stateDir: filepath.Join(dir, "helper-state"),
+		resolve: func(string) (InstallHelperOptions, error) {
+			return InstallHelperOptions{}, errors.New("a test that reaches the real host's helper must say so with its own helperHost")
+		},
+	}
+}
+
 func upgradeFixture(t *testing.T, deployment Deployment) (UpgradeOptions, DeploymentRecord) {
 	t.Helper()
 	dir := t.TempDir()
@@ -117,7 +130,8 @@ func upgradeFixture(t *testing.T, deployment Deployment) (UpgradeOptions, Deploy
 		t.Fatal(err)
 	}
 	return UpgradeOptions{ConfigDir: dir, Mode: ModeAgent, Image: stockAgentRepository + ":v9.0",
-		shared: &sharedTarget{dir: shared, uid: -1, gid: -1}, socketGroup: func(string) int { return 0 }}, rec
+		shared: &sharedTarget{dir: shared, uid: -1, gid: -1}, socketGroup: func(string) int { return 0 },
+		helperHost: noHelperHost(dir)}, rec
 }
 
 func TestAnUnchangedImageStillStartsAStoppedController(t *testing.T) {
@@ -271,7 +285,7 @@ func TestNativeUpgradeRestartsTheExistingAgentAndRefusesTheWrongBinary(t *testin
 				t.Fatal(err)
 			}
 			opts := UpgradeOptions{ConfigDir: t.TempDir(), Mode: ModeAgent, BinaryPath: "/custom/bin/zoomies",
-				shared: &sharedTarget{dir: shared, uid: -1, gid: -1}}
+				shared: &sharedTarget{dir: shared, uid: -1, gid: -1}, helperHost: noHelperHost(t.TempDir())}
 			opts.run = func(_ context.Context, name string, args ...string) (string, error) {
 				line := name + " " + strings.Join(args, " ")
 				calls = append(calls, line)

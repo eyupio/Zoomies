@@ -49,6 +49,12 @@ type Answers struct {
 	Service        AnswersSvc  `yaml:"service"`
 	Agent          AnswersJoin `yaml:"agent"`
 
+	// UpdateHelper adds the update helper, which a later release's web UI will
+	// use to update this host. It is a pointer, like service.enable, so that "false" can be told
+	// apart from "not mentioned". Only true does anything: the helper is a
+	// grant of root, so no other answer, and no --yes, installs it.
+	UpdateHelper *bool `yaml:"update_helper"`
+
 	// path records where this file came from, so errors can name it.
 	path string `yaml:"-"`
 }
@@ -439,6 +445,16 @@ pool:
   # Defaults to capacity above. Always set a maximum somewhere: it is the only
   # backstop against a runaway workflow.
   # max_runners: 4
+
+# Adds the update helper, so this host can be updated from the web UI.
+# The web UI cannot ask for updates yet; a later release adds that, and installing the helper now only makes this host ready for it.
+# The helper is a pair of systemd units that run "zoomies upgrade" as root for a
+# validated request, which names a release and nothing else; the account Zoomies
+# runs as can trigger an upgrade by writing one. That is a grant of root, so it
+# is never on by default: left out, or false, nothing is added and the run
+# prints how to add it later ("sudo zoomies updates helper install"). Only true
+# adds it, on a systemd host.
+# update_helper: true
 
 # Only for deployment: native.
 service:

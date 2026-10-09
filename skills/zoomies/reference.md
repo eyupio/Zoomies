@@ -917,8 +917,8 @@ Usage:
 
 Subcommands:
   list                               Every pin
-  set <owner/repo> --class <small|medium|large> [--workflow <w> --job <j>] Pin a repository, or one job, to a class
-  delete <owner/repo> [--workflow <w> --job <j>] Take a pin away
+  set <owner/repo> --class <small|medium|large> [--workflow <w> --job <j>]  Pin a repository, or one job, to a class
+  delete <owner/repo> [--workflow <w> --job <j>]  Take a pin away
 
 Run "zoomies size-pins <subcommand> --help" for the flags each one takes.
 ```
@@ -940,6 +940,53 @@ Flags:
   --timeout=30s              how long to wait for one request
   --token                    an API token (or ZOOMIES_TOKEN)
   --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+```
+
+#### zoomies size-pins set
+
+Pin a repository, or one job, to a class
+
+```text
+Pin a repository, or one job in it, to a size class. It takes the place of what the job's runs measured, for the jobs that arrive and the ones already waiting.
+
+Usage:
+  zoomies size-pins set <owner/repo> --class <small|medium|large> [--workflow <w> --job <j>]
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --class                    small, medium or large
+  --insecure                 do not verify the controller's certificate
+  --job                      the job's name, with --workflow
+  --output=table             table, json or yaml
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+  --workflow                 the workflow, with --job, to pin one job instead of the whole repository
+
+Examples:
+  zoomies size-pins set acme/widgets --class large
+  zoomies size-pins set acme/widgets --workflow CI --job "Go (controller)" --class large
+```
+
+#### zoomies size-pins delete
+
+Take a pin away
+
+```text
+Take a pin away. The jobs it covered go back to the class their runs say, the ones already waiting included.
+
+Usage:
+  zoomies size-pins delete <owner/repo> [--workflow <w> --job <j>]
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --job                      the job's name, with --workflow
+  --output=table             table, json or yaml
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+  --workflow                 the workflow, with --job, for one job's pin
 ```
 
 ### zoomies auto-pools
@@ -1149,6 +1196,41 @@ Subcommands:
   create                             Mint a single-use join token and print the command to run on the new host
 
 Run "zoomies hosts join-token <subcommand> --help" for the flags each one takes.
+```
+
+### zoomies updates
+
+Release updates, and the helper that applies them
+
+```text
+Release updates, and the helper that applies them. To upgrade this host by hand, use "zoomies upgrade".
+
+Usage:
+  zoomies updates <subcommand> [flags]
+
+Subcommands:
+  helper <install|remove|run|status>  The root-owned helper on this host that applies an update
+
+Run "zoomies updates <subcommand> --help" for the flags each one takes.
+```
+
+#### zoomies updates helper
+
+The root-owned helper on this host that applies an update
+
+```text
+The update helper on this host. It is local: it never talks to a controller.
+
+Usage:
+  zoomies updates helper <subcommand> [flags]
+
+Subcommands:
+  install [--config-dir path]        Make this host ready to be updated from the controller: install the helper, as root
+  remove [--config-dir path]         Stop the helper and remove it, its units and its files
+  run                                Answer the request in the update folder; the helper's unit runs it, as root
+  status                             Where the update folder is, whether the helper is installed, and its last result
+
+Run "zoomies updates helper <subcommand> --help" for the flags each one takes.
 ```
 
 ### zoomies providers
@@ -2094,7 +2176,8 @@ Flags:
   --print-answers            write an annotated example answer file to stdout and exit
   --state-dir                where the database and runner scratch space go (default: /var/lib/zoomies)
   --tune                     explicitly approve recommended safe tuning after a fresh install
-  --yes                      accept the confirmations that are not destructive
+  --update-helper            add the update helper without asking, so this host is ready for web UI updates, which a later release adds; --yes never does
+  --yes                      accept the confirmations that are not destructive; never the update helper
 
 Examples:
   zoomies init
@@ -2125,6 +2208,7 @@ Flags:
   --no-download              apply the binary that is already installed; do not look for a newer one
   --non-interactive          never prompt; optional deployment changes require --yes
   --runtime                  docker or podman; empty uses the saved deployment
+  --update-helper            add the update helper without asking, so this host is ready for web UI updates, which a later release adds; --yes never does
   --version                  target a published tag such as v1.4.0, or dev
   --yes                      approve deployment additions and settings migration; never OS tuning
 
@@ -2156,6 +2240,7 @@ Flags:
   --no-download              apply the binary that is already installed; do not look for a newer one
   --non-interactive          never prompt; optional deployment changes require --yes
   --runtime                  docker or podman; empty uses the saved deployment
+  --update-helper            add the update helper without asking, so this host is ready for web UI updates, which a later release adds; --yes never does
   --version                  target a published tag such as v1.4.0, or dev
   --yes                      approve deployment additions and settings migration; never OS tuning
 
@@ -2317,6 +2402,7 @@ Flags:
   --no-download              apply the binary that is already installed; do not look for a newer one
   --non-interactive          never prompt; optional deployment changes require --yes
   --runtime                  docker or podman; empty uses the saved deployment
+  --update-helper            add the update helper without asking, so this host is ready for web UI updates, which a later release adds; --yes never does
   --version                  target a published tag such as v1.4.0, or dev
   --yes                      approve deployment additions and settings migration; never OS tuning
 

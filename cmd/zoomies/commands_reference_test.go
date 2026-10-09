@@ -107,3 +107,44 @@ func firstDifference(a, b string) string {
 	}
 	return "the file has " + strconv.Itoa(len(al)) + " lines and the binary prints " + strconv.Itoa(len(bl))
 }
+
+// A subcommand whose name and arguments leave fewer than two spaces before its
+// brief does not match the line the generator reads, and drops out of the
+// reference with everything under it and no error. Every line a group lists is
+// therefore one the generator reads.
+//
+// Only the subcommands of the top-level groups are checked. A group nested
+// inside one ("updates helper") prints its own list through the same
+// printGroupUsage, so the padding rule holds for it, but the lines it lists are
+// not compared with the reference here.
+func TestEverySubcommandAGroupListsIsInTheReference(t *testing.T) {
+	docs := collectCommandDocs(context.Background())
+	byName := map[string]commandDoc{}
+	for _, d := range docs {
+		byName[d.Name] = d
+	}
+	for _, c := range commands() {
+		if c.name == "commands" {
+			continue
+		}
+		var listed []string
+		in := false
+		for _, line := range strings.Split(byName[c.name].Help, "\n") {
+			switch {
+			case line == "Subcommands:":
+				in = true
+			case in && strings.HasPrefix(line, "  "):
+				listed = append(listed, strings.Fields(line)[0])
+			case in:
+				in = false
+			}
+		}
+		var got []string
+		for _, s := range byName[c.name].Subcommands {
+			got = append(got, s.Name)
+		}
+		if strings.Join(got, ",") != strings.Join(listed, ",") {
+			t.Errorf("zoomies %s lists %v, and the reference has %v", c.name, listed, got)
+		}
+	}
+}

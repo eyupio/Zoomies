@@ -84,6 +84,11 @@ ASSUME_YES=0
 # YES_GIVEN is --yes typed, as opposed to implied: an unattended upgrade adds
 # nothing new to the host -- a folder, a mount -- unless somebody said so.
 YES_GIVEN=0
+# UPDATE_HELPER is --update-helper: approval, in advance, to add the update helper
+# that will let the web UI update the host (a later release adds that). --yes
+# never stands for it, because it is a grant of root and not one of the
+# deployment's additions.
+UPDATE_HELPER=0
 ALLOW_UNVERIFIED=0
 DO_DEMO=0
 # Motion -- off until init_motion says otherwise. It is a courtesy, never the
@@ -362,6 +367,12 @@ Options:
                         docker-compose.yml -- is listed and added once you
                         agree; --yes adds it without asking, and
                         --non-interactive leaves it and says how to add it.
+                        On a systemd host without the update helper it also asks,
+                        as a question of its own that defaults to no, whether to
+                        add it so the host is ready to be updated from the web UI,
+                        which a later release adds; --yes does not answer it, --update-helper does, and --non-interactive
+                        skips it and says how to add it.
+  --update-helper       With --upgrade: add the update helper without asking.
   --config-dir <dir>    Existing configuration directory (for a custom install).
   --image <ref>         With --upgrade: replacement for a custom container image.
   --no-init             Install the binary only; do not run `zoomies init`.
@@ -476,6 +487,7 @@ while [ $# -gt 0 ]; do
         --config-dir=*) CONFIG_DIR="${1#*=}"; shift ;;
         --image)       needs_value --image $# "the replacement container image"; UPGRADE_IMAGE="$2"; shift 2 ;;
         --image=*)     UPGRADE_IMAGE="${1#*=}"; shift ;;
+        --update-helper) UPDATE_HELPER=1; shift ;;
         --no-init)     RUN_INIT=0; BINARY_ONLY=1; shift ;;
         --uninstall)   DO_UNINSTALL=1; shift ;;
         --demo)        DO_DEMO=1; shift ;;
@@ -514,6 +526,8 @@ if [ "$DO_UPGRADE" -eq 1 ]; then
     fi
 elif [ -n "$UPGRADE_IMAGE" ]; then
     die "--image belongs to --upgrade."
+elif [ "$UPDATE_HELPER" -eq 1 ]; then
+    die "--update-helper belongs to --upgrade. On a host that is already set up, run: sudo zoomies updates helper install"
 fi
 
 # --demo installs nothing, so a flag about installing, joining, upgrading or
@@ -1233,6 +1247,7 @@ upgrade_with() {
     [ -n "$RUNTIME_SOCKET" ] && set -- "$@" --docker-host "unix://$RUNTIME_SOCKET"
     case "$RUNTIME" in docker|podman) set -- "$@" --runtime "$RUNTIME" ;; esac
     [ "$YES_GIVEN" -eq 1 ] && set -- "$@" --yes
+    [ "$UPDATE_HELPER" -eq 1 ] && set -- "$@" --update-helper
     [ "$NON_INTERACTIVE" -eq 1 ] && set -- "$@" --non-interactive
     # The upgrade asks before it adds anything the deployment lacks, and this
     # script usually arrives through a pipe, so stdin is the rest of the

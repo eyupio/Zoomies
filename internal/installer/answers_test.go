@@ -201,6 +201,43 @@ func TestWriteExampleRoundTrips(t *testing.T) {
 	if !strings.Contains(buf.String(), "REQUIRED") {
 		t.Fatal("the template should mark the keys an unattended run cannot invent")
 	}
+	// The key is documented, and the template never turns it on: a file copied
+	// as it stands must not grant root to the web UI.
+	if !strings.Contains(buf.String(), "# update_helper: true") || a.UpdateHelper != nil {
+		t.Fatalf("the template should document update_helper without setting it (read as %v)", a.UpdateHelper)
+	}
+}
+
+// The key is documented, accepted, and read as a yes only when it is true; a
+// misspelling is still refused by name, because a typo in an unattended
+// install would otherwise leave the helper out and be found when an update
+// button does nothing.
+func TestTheAnswersFileAcceptsTheUpdateHelperKey(t *testing.T) {
+	dir := t.TempDir()
+	a, err := Load(writeFile(t, dir, "yes.yaml", "update_helper: true\n"))
+	if err != nil || a.UpdateHelper == nil || !*a.UpdateHelper {
+		t.Fatalf("update_helper: true loaded as %+v, %v", a, err)
+	}
+	a, err = Load(writeFile(t, dir, "no.yaml", "update_helper: false\n"))
+	if err != nil || a.UpdateHelper == nil || *a.UpdateHelper {
+		t.Fatalf("update_helper: false loaded as %+v, %v", a, err)
+	}
+	a, err = Load(writeFile(t, dir, "none.yaml", "mode: single\n"))
+	if err != nil || a.UpdateHelper != nil {
+		t.Fatalf("an answer file that does not mention it loaded as %+v, %v", a, err)
+	}
+	for _, typo := range []string{"update_helpr", "updates_helper", "update-helper", "helper"} {
+		_, err := Load(writeFile(t, dir, typo+".yaml", typo+": true\n"))
+		if err == nil || !strings.Contains(err.Error(), typo) {
+			t.Errorf("%s: want a refusal naming the key, got %v", typo, err)
+		}
+	}
+	if !strings.Contains(exampleAnswers, UpdateHelperNotUsedYet) {
+		t.Error("the printed template documents update_helper without saying the web UI cannot use it yet")
+	}
+	if !strings.Contains(exampleAnswers, "update_helper:") {
+		t.Error("the printed template does not document update_helper")
+	}
 }
 
 func keysOf(ms []MissingAnswer) []string {

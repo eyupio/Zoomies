@@ -39,11 +39,15 @@ type UpgradeOptions struct {
 	// in advance. With neither, what this release expects and the deployment
 	// lacks is reported and left alone. NonInteractive says nobody will be
 	// there on the real run either, which lets --check refuse an upgrade that
-	// could only stop half way.
+	// could only stop half way. UpdateHelper is --update-helper, the operator's
+	// own approval, given in advance, to add the update helper; --yes does not
+	// stand for it, because that approves the deployment's additions and this
+	// is a grant of root.
 	In             io.Reader
 	Interactive    bool
 	NonInteractive bool
 	AssumeYes      bool
+	UpdateHelper   bool
 	proxmoxRoot    string // injected gateway root for tests
 	run            commandRunner
 	runInput       inputRunner
@@ -53,6 +57,9 @@ type UpgradeOptions struct {
 	// socketGroup stands in for reading the group that owns the runtime's
 	// socket, which is the test host's own otherwise.
 	socketGroup func(path string) int
+	// helperHost stands in for what the update helper question reads from the
+	// host, so a test does not look at the real /run/systemd or /etc/systemd.
+	helperHost *upgradeHelperHost
 	// serveTimeout, servePoll and progressEvery shorten the wait for the
 	// controller to answer, which is minutes long outside a test.
 	serveTimeout, servePoll, progressEvery time.Duration
@@ -70,6 +77,11 @@ type upgradePlan struct {
 	// move is the settings the operator agreed to take out of the
 	// container's environment and into its database; see envsettings.go.
 	move []movedSetting
+	// sharedMountComing is set when the layout review found the running
+	// container without the shared folder, and sharedMountApplied when the
+	// review's additions were made, so the next restart gives it the mount.
+	// The update helper cannot be installed until it has the mount.
+	sharedMountComing, sharedMountApplied bool
 }
 
 // Upgrade applies the binary already downloaded by install.sh to the running
@@ -131,6 +143,7 @@ func Upgrade(ctx context.Context, opts UpgradeOptions) error {
 		}
 		return nil
 	}
+	p.offerUpdateHelper(ctx)
 	beforeImage := p.localImageID(ctx)
 	// The tag can have been pulled already -- by an earlier `docker pull`, a
 	// check, or an upgrade whose restart failed -- while the service still
@@ -254,6 +267,7 @@ func (p *upgradePlan) settleLayout(ctx context.Context) error {
 	required := ""
 	for _, c := range changes {
 		fmt.Fprintln(out, "  - "+c.what)
+		p.sharedMountComing = p.sharedMountComing || c.sharedMount
 		if c.required && required == "" {
 			required = c.what
 		}
@@ -290,6 +304,7 @@ func (p *upgradePlan) settleLayout(ctx context.Context) error {
 			return fmt.Errorf("installer: could not %s: %w", c.what, err)
 		}
 	}
+	p.sharedMountApplied = true
 	fmt.Fprintf(out, "Added %d change(s) this release expects.\n", len(changes))
 	return nil
 }
@@ -297,6 +312,21 @@ func (p *upgradePlan) settleLayout(ctx context.Context) error {
 // askApproval reads one answer. An empty line is yes, as the [Y/n] says; an
 // input that ends before anything is typed is no, because nobody said yes.
 func askApproval(in io.Reader, out io.Writer, question string) bool {
+	answer, ok := readAnswer(in, out, question)
+	if !ok {
+		return false
+	}
+	switch strings.ToLower(answer) {
+	case "", "y", "yes":
+		return true
+	}
+	return false
+}
+
+// readAnswer prints the question and reads one line, a byte at a time so that
+// nothing past the newline is consumed from a reader the next question shares.
+// The bool is false when the input ended before anything was typed.
+func readAnswer(in io.Reader, out io.Writer, question string) (string, bool) {
 	fmt.Fprint(out, question)
 	var line strings.Builder
 	buf := make([]byte, 1)
@@ -311,16 +341,12 @@ func askApproval(in io.Reader, out io.Writer, question string) bool {
 		if err != nil {
 			if line.Len() == 0 {
 				fmt.Fprintln(out)
-				return false
+				return "", false
 			}
 			break
 		}
 	}
-	switch strings.ToLower(strings.TrimSpace(line.String())) {
-	case "", "y", "yes":
-		return true
-	}
-	return false
+	return strings.TrimSpace(line.String()), true
 }
 
 func (p *upgradePlan) localImageID(ctx context.Context) string {

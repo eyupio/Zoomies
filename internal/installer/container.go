@@ -595,6 +595,9 @@ func (i *Installer) runContainer(ctx context.Context, p Plan) (retErr error) {
 	if p.Mode != ModeAgent {
 		i.stepContainerHealth(ctx, p)
 	}
+	// Only now: the container is up, so it has the shared folder mounted, which
+	// the helper's install checks for.
+	i.stepUpdateHelper(ctx, p)
 	var setupToken string
 	var setupTokenErr error
 	// A rerun may retain historical logs containing a token from before the
