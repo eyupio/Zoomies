@@ -13,6 +13,18 @@ import (
 
 const zoomiesSkill = "../../skills/zoomies/SKILL.md"
 
+// readSkill returns the skill with its lines ended by \n whatever the checkout
+// did to them: git on Windows turns them into \r\n, and the paragraph and
+// frontmatter splits below are on \n.
+func readSkill(t *testing.T) string {
+	t.Helper()
+	raw, err := os.ReadFile(zoomiesSkill)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return strings.ReplaceAll(string(raw), "\r\n", "\n")
+}
+
 // The zoomies skill tells a coding agent which commands it may run on its own,
 // which it must ask about first and which it must leave to the user. That is only
 // worth anything if it is complete: a command added to the binary and not placed
@@ -83,12 +95,8 @@ func TestNoCommandThatChangesTheFleetIsListedAsARead(t *testing.T) {
 // the skill names exactly those. A tool added without being named here would be
 // one the agent calls without being told to ask.
 func TestTheSkillNamesEveryMCPToolTheControllerHoldsBack(t *testing.T) {
-	raw, err := os.ReadFile(zoomiesSkill)
-	if err != nil {
-		t.Fatal(err)
-	}
 	var paragraph string
-	for _, p := range strings.Split(string(raw), "\n\n") {
+	for _, p := range strings.Split(readSkill(t), "\n\n") {
 		if strings.Contains(p, "not offered until the controller") {
 			paragraph = p
 		}
@@ -117,14 +125,10 @@ func TestTheSkillNamesEveryMCPToolTheControllerHoldsBack(t *testing.T) {
 // skill talking to the agent, and is not part of a list.
 func skillLists(t *testing.T) map[string][]string {
 	t.Helper()
-	raw, err := os.ReadFile(zoomiesSkill)
-	if err != nil {
-		t.Fatal(err)
-	}
 	span := regexp.MustCompile("`(zoomies[^`]*)`")
 	lists := map[string][]string{}
 	var current string
-	for _, line := range strings.Split(string(raw), "\n") {
+	for _, line := range strings.Split(readSkill(t), "\n") {
 		switch {
 		case strings.HasPrefix(line, "### Reads"):
 			current = "Reads"

@@ -44,7 +44,9 @@ func readSkills(t *testing.T) []skill {
 			t.Errorf("skills/%s has no SKILL.md: an agent installs a skill by that file", e.Name())
 			continue
 		}
-		s := skill{dir: e.Name(), text: string(raw)}
+		// Git on Windows ends the lines of a checkout with \r\n; every check below
+		// is on \n.
+		s := skill{dir: e.Name(), text: strings.ReplaceAll(string(raw), "\r\n", "\n")}
 		front, ok := frontmatter(s.text)
 		if !ok {
 			t.Errorf("skills/%s/SKILL.md does not start with a --- frontmatter block", e.Name())
