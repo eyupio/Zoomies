@@ -64,10 +64,13 @@ func (c *Controller) publishDerived(ctx context.Context) {
 	// it and nothing is written, so no row could announce that auto may now act.
 	// The sentence moves as time does, by the hour and then by the minute near the
 	// end of a wait, and each move is sent once.
+	//
+	// A request and a closed attempt send their own frame through the same
+	// memory, so this one says nothing a button has just said.
 	if status, err := c.UpdatesView(ctx); err != nil {
 		c.log.Warn("could not work out the update status for the event stream", "error", err)
-	} else if raw, changed := c.derivedChanged(&c.lastUpdates, status); changed {
-		c.bus.Publish(events.KindUpdates, "", json.RawMessage(raw))
+	} else {
+		c.sendUpdates(status)
 	}
 
 	c.publishHostChanges(ctx)

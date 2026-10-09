@@ -40,6 +40,7 @@ import (
 	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/updates"
 	"github.com/eyupio/zoomies/internal/version"
 )
 
@@ -100,6 +101,11 @@ type Options struct {
 	// controller was built. A nil lease means nothing renews and nothing is
 	// reported, which is what an embedded or test controller wants.
 	Lease *store.ControllerLease
+	// UpdateDir is the update folder the controller shares with its update
+	// helper. Empty finds it as the installer recorded it: the pointer beside the
+	// --config file, or <shared>/update in a container. A test names one, so that
+	// what it sees is never the real host's.
+	UpdateDir string
 }
 
 // Controller owns the control plane's moving parts and their lifecycles.
@@ -181,6 +187,10 @@ type Controller struct {
 	// autoPools is the reconciler of the pools the controller keeps for the
 	// hosts it has; see autopools.go.
 	autoPools autoPoolState
+	// updates is the loop that watches update attempts, and updateFolder is
+	// Options.UpdateDir; see updates_loop.go.
+	updates      updatesState
+	updateFolder string
 	// startedAt is when this process began listening to its hosts, which is what
 	// a host's silence is counted from if it is later than the host's last
 	// heartbeat: see scheduler.AutoPoolInput.Since.
@@ -480,6 +490,8 @@ func New(opts Options) (*Controller, error) {
 		kennel:                  newKennelRuntime(),
 		nudges:                  make(chan struct{}, 1),
 		autoPools:               newAutoPoolState(),
+		updates:                 newUpdatesState(),
+		updateFolder:            opts.UpdateDir,
 		startedAt:               clock().UTC(),
 		pollSettingsChanged:     make(chan struct{}, 1),
 		recoverySettingsChanged: make(chan struct{}, 1),
@@ -584,6 +596,10 @@ func (c *Controller) Start(ctx context.Context) error {
 	// while a pass is holding reconcileMu for as long as GitHub takes to answer.
 	c.spawn("auto-pools", loopCtx, c.autoPoolLoop)
 	c.spawn("size-mode", loopCtx, c.sizeModeLoop)
+	// Its own loop, for the same reason, and always running: an attempt in
+	// flight when updating is switched off still has to be closed, and the new
+	// process an update starts is the one that closes it.
+	c.spawn("updates", loopCtx, c.updatesLoop)
 	c.spawn("reap", loopCtx, c.reapLoop)
 	c.spawn("poller", loopCtx, c.pollLoop)
 	c.spawn("job-recovery", loopCtx, c.jobRecoveryLoop)
@@ -858,6 +874,15 @@ func (c *Controller) UpdateConfig(fn func(*config.Config)) *config.Config {
 	// page says whether the controller is keeping it from the last pass, so a
 	// change is worked out now and not at the next tick.
 	c.KickAutoPools()
+	if before.Updates != after.Updates {
+		// Turning updating on leaves the status saying the release list has not
+		// been read, perhaps for a day, so the loop reads it now; the button's
+		// once-a-minute limit still holds.
+		if updateModeOf(before.Updates.Mode) == updates.ModeOff && updateModeOf(after.Updates.Mode) != updates.ModeOff {
+			c.updates.checkReleases.Store(true)
+		}
+		c.KickUpdates()
+	}
 	return after
 }
 

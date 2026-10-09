@@ -11445,9 +11445,55 @@ components:
           description: >-
             The earliest time the mode takes the release: the end of the soak in `auto`. Null in
             `manual`, where the person asking is the only wait, and whenever `newer` is false.
+    UpdatesHelper:
+      type: object
+      required: [state, reason, install_command]
+      properties:
+        state:
+          type: string
+          enum: [ready, missing]
+          description: >-
+            Whether the update helper is installed on the controller's host. Only a helper,
+            installed by somebody with root there, can replace the controller's binary, so
+            without one the controller cannot update itself.
+        reason:
+          type: string
+          description: A sentence that says what the state means. It names no path.
+        install_command:
+          type: string
+          description: The command that installs the helper, for a person with root on the host to run. Empty when it is ready.
+          examples: [sudo zoomies updates helper install]
+    UpdatesAttempt:
+      type: object
+      required: [id, state, from, to, trigger, requested_at, finished_at, error]
+      properties:
+        id: { type: string, examples: [upd_k3fqz2mx7abcd] }
+        state:
+          type: string
+          enum: [requested, succeeded, failed, timed_out, cancelled]
+          description: >-
+            `requested` until it ends. It ends once: `succeeded` when the controller runs the
+            release or a later one, `failed` when the helper refused or the upgrade failed,
+            `timed_out` after 90 minutes with neither, or `cancelled`.
+        from: { type: string, description: The build that asked, as it reports itself., examples: ["1.3.4"] }
+        to: { type: string, description: The release tag it asked for., examples: [v1.3.5] }
+        trigger:
+          type: string
+          enum: [manual, auto]
+          description: "`manual` for a person, `auto` for the update mode."
+        requested_at: { type: string, format: date-time }
+        finished_at:
+          type: [string, "null"]
+          format: date-time
+          description: When it ended. Null while it is `requested`.
+        error:
+          type: string
+          description: >-
+            Why it did not succeed, often the helper's own sentence. Empty when it succeeded or
+            is still in flight.
     UpdatesStatus:
       type: object
-      required: [mode, soak, running, latest, target, reason, checked_at]
+      required: [mode, soak, running, latest, target, reason, checked_at, helper, controller]
       properties:
         mode:
           type: string
@@ -11485,6 +11531,15 @@ components:
           description: >-
             When the list of releases `latest` was chosen from was read. Null while updating is
             off, and until a list has been read.
+        helper: { $ref: "#/components/schemas/UpdatesHelper" }
+        controller:
+          description: >-
+            The controller's latest update attempt, in flight or ended, in every mode: one that
+            was in flight when updating was switched off still ends, and says how. Null when it
+            has never had one.
+          oneOf:
+            - $ref: "#/components/schemas/UpdatesAttempt"
+            - type: "null"
 
     # --- agent protocol (internal) ------------------------------------------
     # The wire types of the agent routes. internal/agent/protocol.go owns them;

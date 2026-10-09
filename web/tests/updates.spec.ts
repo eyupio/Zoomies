@@ -83,6 +83,12 @@ function waiting(): UpdatesStatus {
       'Waiting: v1.3.2 has been public for 6 hours and auto waits for 24; it can be taken in 18 hours. ' +
       'It replaced v1.3.1, which is skipped, and a newer release would start the wait again.',
     checked_at: new Date(now - 2 * MINUTE).toISOString(),
+    helper: {
+      state: 'missing',
+      reason: "No update helper is installed on this controller's host.",
+      install_command: 'sudo zoomies updates helper install',
+    },
+    controller: null,
   };
 }
 

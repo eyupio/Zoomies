@@ -56,7 +56,7 @@ func TestEveryActionHasARole(t *testing.T) {
 		ActionTokensRead, ActionTokensWrite,
 		ActionSettingsRead, ActionSettingsWrite,
 		ActionMetricsRead, ActionEventsRead, ActionLogsRead, ActionJoinsWrite,
-		ActionDiagnosticsRead, ActionUpdatesRead,
+		ActionDiagnosticsRead, ActionUpdatesRead, ActionUpdatesCheck, ActionUpdatesApply,
 	} {
 		if !required.Known() {
 			t.Errorf("%s is missing from the RBAC table", required)
@@ -144,6 +144,33 @@ func TestEveryRoleMayReadWhatAnUpdateWouldTake(t *testing.T) {
 	reads := &Identity{Kind: KindToken, Name: "dashboard", Role: store.RoleViewer, Scopes: []string{"updates:read"}}
 	if !reads.Can(ActionUpdatesRead) {
 		t.Error("a token scoped to updates:read may not read the update status")
+	}
+}
+
+// Updating the controller restarts the process every fleet on the instance runs
+// through, so it is the platform role's; asking GitHub for the release list
+// spends the controller's requests and changes nothing, so it is an
+// administrator's, like the other checks. An operator does neither.
+func TestCheckingForAReleaseIsAnAdministratorsAndUpdatingTheControllerThePlatformRoles(t *testing.T) {
+	for _, tc := range []struct {
+		action Action
+		want   store.Role
+	}{
+		{ActionUpdatesCheck, store.RoleAdmin},
+		{ActionUpdatesApply, store.RolePlatform},
+	} {
+		if got := tc.action.MinRole(); got != tc.want {
+			t.Errorf("%s needs %s; want %s", tc.action, got, tc.want)
+		}
+		operator := &Identity{Kind: KindUser, ID: "usr_o", Name: "olu", Role: store.RoleOperator}
+		if operator.Can(tc.action) {
+			t.Errorf("an operator may %s", tc.action)
+		}
+	}
+	admin := &Identity{Kind: KindUser, ID: "usr_a", Name: "alex", Role: store.RoleAdmin}
+	if !admin.Can(ActionUpdatesCheck) || admin.Can(ActionUpdatesApply) {
+		t.Errorf("an administrator may check: %v, may update the controller: %v; want true, false",
+			admin.Can(ActionUpdatesCheck), admin.Can(ActionUpdatesApply))
 	}
 }
 
@@ -309,6 +336,7 @@ func TestTheFenceAndTheBackupsNeedThePlatformRole(t *testing.T) {
 	moved := []Action{
 		ActionRecoveryWrite,
 		ActionBackupsRead, ActionBackupsWrite, ActionBackupsRestore,
+		ActionUpdatesApply,
 	}
 	admin := &Identity{Kind: KindUser, ID: "usr_a", Name: "alex", Role: store.RoleAdmin}
 	platform := &Identity{Kind: KindUser, ID: "usr_p", Name: "pat", Role: store.RolePlatform}
@@ -336,6 +364,7 @@ func TestNothingElseMovedOutOfReachOfAnAdministrator(t *testing.T) {
 	moved := map[Action]bool{
 		ActionRecoveryWrite: true,
 		ActionBackupsRead:   true, ActionBackupsWrite: true, ActionBackupsRestore: true,
+		ActionUpdatesApply: true,
 	}
 	admin := &Identity{Kind: KindUser, ID: "usr_a", Name: "alex", Role: store.RoleAdmin}
 	for _, a := range AllActions() {

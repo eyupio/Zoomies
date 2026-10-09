@@ -240,6 +240,9 @@ func TestResponsesMatchTheSpecShapes(t *testing.T) {
 			Target:    &controller.UpdatesTarget{Tag: "v1.3.2", Newer: true, DueAt: &due},
 			Reason:    "Waiting: v1.3.2 has been public for 6 hours and auto waits for 24; it can be taken in 17 hours.",
 			CheckedAt: &at,
+			Helper:    controller.UpdatesHelper{State: controller.HelperMissing, Reason: "No update helper is installed.", InstallCommand: "sudo zoomies updates helper install"},
+			Controller: &controller.UpdatesAttempt{ID: "upd_abc", State: "failed", From: "1.3.0", To: "v1.3.2", Trigger: "manual",
+				RequestedAt: at, FinishedAt: &due, Error: "the download failed"},
 		})
 		if err != nil {
 			t.Fatalf("marshalling a status: %v", err)
@@ -247,9 +250,11 @@ func TestResponsesMatchTheSpecShapes(t *testing.T) {
 		assertShape(t, doc, "UpdatesStatus", raw)
 
 		var parts struct {
-			Running json.RawMessage `json:"running"`
-			Latest  json.RawMessage `json:"latest"`
-			Target  json.RawMessage `json:"target"`
+			Running    json.RawMessage `json:"running"`
+			Latest     json.RawMessage `json:"latest"`
+			Target     json.RawMessage `json:"target"`
+			Helper     json.RawMessage `json:"helper"`
+			Controller json.RawMessage `json:"controller"`
 		}
 		if err := json.Unmarshal(raw, &parts); err != nil {
 			t.Fatalf("reading the status back: %v", err)
@@ -257,6 +262,8 @@ func TestResponsesMatchTheSpecShapes(t *testing.T) {
 		assertShape(t, doc, "UpdatesRunning", parts.Running)
 		assertShape(t, doc, "UpdatesRelease", parts.Latest)
 		assertShape(t, doc, "UpdatesTarget", parts.Target)
+		assertShape(t, doc, "UpdatesHelper", parts.Helper)
+		assertShape(t, doc, "UpdatesAttempt", parts.Controller)
 	})
 
 	t.Run("Problem", func(t *testing.T) {

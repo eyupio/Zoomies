@@ -402,18 +402,18 @@ func TestTheStatusAlwaysCarriesEveryFieldAndIsNullWhereThereIsNothing(t *testing
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		t.Fatalf("the status is not a JSON object: %v", err)
 	}
-	for _, key := range []string{"mode", "soak", "running", "latest", "target", "reason", "checked_at"} {
+	for _, key := range []string{"mode", "soak", "running", "latest", "target", "reason", "checked_at", "helper", "controller"} {
 		if _, ok := fields[key]; !ok {
 			t.Errorf("the status has no %q: %s", key, raw)
 		}
 	}
-	for _, key := range []string{"latest", "target", "checked_at"} {
+	for _, key := range []string{"latest", "target", "checked_at", "controller"} {
 		if got := string(fields[key]); got != "null" {
 			t.Errorf("%s = %s, want null while there is nothing to name", key, got)
 		}
 	}
-	if len(fields) != 7 {
-		t.Errorf("the status has %d fields, want the seven the document lists: %s", len(fields), raw)
+	if len(fields) != 9 {
+		t.Errorf("the status has %d fields, want the nine the document lists: %s", len(fields), raw)
 	}
 }
 

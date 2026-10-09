@@ -33,6 +33,12 @@ function status(overrides: Partial<UpdatesStatus> = {}): UpdatesStatus {
     reason:
       'Available: v1.3.2 is newer than the v1.3.0 running now; manual mode waits for someone to update.',
     checked_at: '2026-10-08T11:58:00Z',
+    helper: {
+      state: 'missing',
+      reason: "No update helper is installed on this controller's host.",
+      install_command: 'sudo zoomies updates helper install',
+    },
+    controller: null,
     ...overrides,
   };
 }

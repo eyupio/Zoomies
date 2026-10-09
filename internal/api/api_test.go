@@ -189,6 +189,8 @@ func newHarnessWithProviders(t *testing.T, factories []provider.Factory, opts ..
 		Providers: providers,
 		Logger:    logger,
 		Clock:     time.Now,
+		// A folder that does not exist: no helper, and never the real host's.
+		UpdateDir: filepath.Join(t.TempDir(), "update"),
 	})
 	if err != nil {
 		t.Fatalf("controller.New: %v", err)
@@ -1164,6 +1166,11 @@ func TestEveryActionIsReachableThroughARoute(t *testing.T) {
 	// may start again, and the handler asks for this one when the body says to stop.
 	// The tracking tests in kennel_test.go walk it.
 	claimed[auth.ActionKennelUntrack] = true
+	// The roles of the release check and the controller update are decided
+	// before their routes exist. The change that adds the routes puts them
+	// in the table and removes these two lines.
+	claimed[auth.ActionUpdatesCheck] = true
+	claimed[auth.ActionUpdatesApply] = true
 	for _, a := range auth.AllActions() {
 		if !claimed[a] {
 			t.Errorf("%s is a permission no route in the table checks", a)
