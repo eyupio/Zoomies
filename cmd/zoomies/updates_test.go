@@ -407,3 +407,68 @@ func TestUpdatesApplyRefusesAnEmptyVersionRatherThanTakingTheNewest(t *testing.T
 		t.Error("an empty --version still asked the controller to update")
 	}
 }
+
+// Whether anyone can be asked depends on the input and on the writer the
+// question goes to, and on nothing else: NO_COLOR and a redirected stdout say
+// how the output should look, not whether a person is there to answer.
+func TestUpdatesApplyAsksWhenInputAndPromptAreTerminalsWhateverStdoutIs(t *testing.T) {
+	prev := stdTerminal
+	stdTerminal = func(*os.File) bool { return true }
+	t.Cleanup(func() { stdTerminal = prev })
+	t.Setenv("NO_COLOR", "1")
+
+	rec := newUpdatesRecorder(t, http.StatusAccepted, updatesStatusBody)
+	e, out, _ := newTestEnv(t)
+	inR, inW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { inR.Close(); inW.Close(); errR.Close(); errW.Close() })
+	if _, err := inW.WriteString("n\n"); err != nil {
+		t.Fatal(err)
+	}
+	e.in, e.err = inR, errW // e.out stays a buffer: stdout is redirected
+
+	code := dispatch(context.Background(), e, []string{"updates", "apply", "--url", rec.srv.URL})
+	if code != exitOK {
+		t.Fatalf("apply exited %d; a person at a terminal with NO_COLOR set and stdout redirected must still be asked", code)
+	}
+	if !strings.Contains(out.String(), "Nothing was asked of the controller.") {
+		t.Errorf("a no was not taken as a no:\n%s", out)
+	}
+	if rec.calls != 0 {
+		t.Errorf("the controller was asked %d time(s) after a no", rec.calls)
+	}
+}
+
+// The question is written to stderr, so a stderr nobody can see is not somebody
+// to ask.
+func TestUpdatesApplyDoesNotAskWhenThePromptCannotBeSeen(t *testing.T) {
+	prev := stdTerminal
+	stdTerminal = func(*os.File) bool { return true }
+	t.Cleanup(func() { stdTerminal = prev })
+
+	rec := newUpdatesRecorder(t, http.StatusAccepted, updatesStatusBody)
+	e, _, errOut := newTestEnv(t) // e.err is a buffer, not a terminal
+	inR, inW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { inR.Close(); inW.Close() })
+	if _, err := inW.WriteString("y\n"); err != nil {
+		t.Fatal(err)
+	}
+	e.in = inR
+
+	code := dispatch(context.Background(), e, []string{"updates", "apply", "--url", rec.srv.URL})
+	if code == exitOK || rec.calls != 0 {
+		t.Fatalf("apply went ahead (exit %d, %d call(s)) with no terminal to show the question on:\n%s", code, rec.calls, errOut)
+	}
+	if !strings.Contains(errOut.String(), "--yes") {
+		t.Errorf("the refusal does not name --yes:\n%s", errOut)
+	}
+}
