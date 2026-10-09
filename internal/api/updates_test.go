@@ -1867,6 +1867,21 @@ func TestStartingARolloutRefusesWithTheCodeOfTheStateThatCausesIt(t *testing.T) 
 			useVersion(h.t, "1.3.5")
 			h.updatableHost("vm-a")
 		}, "update.mode_off"},
+		{"a running rollout is in progress", func(h *harness) {
+			h.readyToUpdateAHost()
+			h.updatableHost("vm-a")
+			if err := h.st.CreateUpdateRollout(h.ctx, &store.UpdateRollout{Target: "v1.3.5", Trigger: store.UpdateTriggerManual, StartedBy: "someone"}); err != nil {
+				h.t.Fatalf("CreateUpdateRollout: %v", err)
+			}
+		}, "update.in_progress"},
+		{"no host behind has the helper", func(h *harness) {
+			h.readyToUpdateAHost()
+			host := h.host("vm-no-helper")
+			host.Version = "1.3.4"
+			if err := h.st.SetHostReported(h.ctx, host); err != nil {
+				h.t.Fatalf("SetHostReported: %v", err)
+			}
+		}, "update.host_cannot_update"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			h := newHarness(t)
@@ -1942,6 +1957,37 @@ func TestResumeLetsAHaltedRolloutGoOnAndCancelEndsIt(t *testing.T) {
 	}
 }
 
+// A resume of a rollout that is already running moves nothing, but it is still
+// somebody's press: it is recorded against that rollout, and the record says it
+// changed nothing rather than that it resumed something.
+func TestAResumeThatMovesNothingIsAuditedAsChangingNothing(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdateAHost()
+	h.updatableHost("vm-a")
+	running := &store.UpdateRollout{Target: "v1.3.5", Trigger: store.UpdateTriggerManual, StartedBy: "someone"}
+	if err := h.st.CreateUpdateRollout(h.ctx, running); err != nil {
+		t.Fatalf("CreateUpdateRollout: %v", err)
+	}
+
+	h.do(request{method: http.MethodPost, path: rolloutResumePath, cookie: as.admin}).
+		mustStatus(t, http.StatusAccepted, "resuming a rollout that runs")
+	rows := h.updateAudit("update.rollout_resumed")
+	if len(rows) != 1 {
+		t.Fatalf("%d resume rows, want 1: a press is recorded whatever it moved", len(rows))
+	}
+	if rows[0].TargetID != running.ID {
+		t.Errorf("the row is about %q, want the rollout %s", rows[0].TargetID, running.ID)
+	}
+	var detail map[string]any
+	if err := json.Unmarshal([]byte(rows[0].After), &detail); err != nil {
+		t.Fatalf("audit detail %q is not JSON: %v", rows[0].After, err)
+	}
+	if want := map[string]any{"to": "v1.3.5", "changed": false}; !reflect.DeepEqual(detail, want) {
+		t.Errorf("detail = %v, want %v", detail, want)
+	}
+}
+
 // The person who pressed each button is in the audit trail, under their own
 // name: the controller writes no row for a person, so a row missing here is a
 // press nobody can account for.
@@ -1975,8 +2021,8 @@ func TestEachRolloutRouteRecordsAnAuditRowForTheCaller(t *testing.T) {
 		detail map[string]any
 	}{
 		{"update.rollout_started", map[string]any{"to": "v1.3.5", "host_ids": []any{a.ID}}},
-		{"update.rollout_resumed", map[string]any{"to": "v1.3.5"}},
-		{"update.rollout_cancelled", map[string]any{"to": "v1.3.5"}},
+		{"update.rollout_resumed", map[string]any{"to": "v1.3.5", "changed": true}},
+		{"update.rollout_cancelled", map[string]any{"to": "v1.3.5", "changed": true}},
 	} {
 		rows := h.updateAudit(tc.action)
 		if len(rows) != 1 {

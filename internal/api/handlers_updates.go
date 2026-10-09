@@ -8,10 +8,8 @@ import (
 	"maps"
 	"net/http"
 	"slices"
-	"strings"
 
 	"github.com/eyupio/zoomies/internal/controller"
-	"github.com/eyupio/zoomies/internal/store"
 )
 
 // The update routes are transport. What an update would take, and why, is the
@@ -109,24 +107,27 @@ func (s *Server) handleStartRollout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := Identity(r.Context())
-	status, err := s.ctrl.StartHostRollout(r.Context(), controller.UpdateActor{ID: id.ID, Name: id.Name}, hostIDs)
-	if errors.Is(err, store.ErrNotFound) {
-		// The only thing a start does not find is a host the body named, so it is
-		// the body to fix, and the controller's sentence names the id. The
-		// sentinel's own words are no use to the person reading it.
-		msg := strings.TrimPrefix(err.Error(), store.ErrNotFound.Error()+": ")
-		unprocessable(w, msg, []fieldError{{"host_ids", msg}})
+	status, change, err := s.ctrl.StartHostRollout(r.Context(), controller.UpdateActor{ID: id.ID, Name: id.Name}, hostIDs)
+	// Audited before the error is looked at: a rollout that was written exists
+	// whether or not the status after it could be worked out, and a press with no
+	// row is one nobody can account for.
+	if change.ID != "" {
+		detail := map[string]any{}
+		if len(hostIDs) > 0 {
+			detail["host_ids"] = dedupe(hostIDs)
+		}
+		s.auditRollout(r, "update.rollout_started", change, detail)
+	}
+	if errors.Is(err, controller.ErrUnknownHost) {
+		// An id the body named is the body to fix, and the controller's sentence
+		// names it.
+		unprocessable(w, err.Error(), []fieldError{{"host_ids", err.Error()}})
 		return
 	}
 	if err != nil {
 		s.failUpdate(w, r, err)
 		return
 	}
-	detail := map[string]any{}
-	if len(hostIDs) > 0 {
-		detail["host_ids"] = dedupe(hostIDs)
-	}
-	s.auditRollout(r, "update.rollout_started", status, detail)
 	writeJSON(w, http.StatusAccepted, status.For(isPlatform(r)))
 }
 
@@ -138,12 +139,14 @@ func (s *Server) handleResumeRollout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	id := Identity(r.Context())
-	status, err := s.ctrl.ResumeRollout(r.Context(), controller.UpdateActor{ID: id.ID, Name: id.Name})
+	status, change, err := s.ctrl.ResumeRollout(r.Context(), controller.UpdateActor{ID: id.ID, Name: id.Name})
+	if change.ID != "" {
+		s.auditRollout(r, "update.rollout_resumed", change, map[string]any{"changed": change.Changed})
+	}
 	if err != nil {
 		s.failUpdate(w, r, err)
 		return
 	}
-	s.auditRollout(r, "update.rollout_resumed", status, map[string]any{})
 	writeJSON(w, http.StatusAccepted, status.For(isPlatform(r)))
 }
 
@@ -152,25 +155,26 @@ func (s *Server) handleResumeRollout(w http.ResponseWriter, r *http.Request) {
 // a helper was already handed finishes by itself and is recorded.
 func (s *Server) handleCancelRollout(w http.ResponseWriter, r *http.Request) {
 	id := Identity(r.Context())
-	status, err := s.ctrl.CancelRollout(r.Context(), controller.UpdateActor{ID: id.ID, Name: id.Name})
+	status, change, err := s.ctrl.CancelRollout(r.Context(), controller.UpdateActor{ID: id.ID, Name: id.Name})
+	if change.ID != "" {
+		s.auditRollout(r, "update.rollout_cancelled", change, map[string]any{"changed": change.Changed})
+	}
 	if err != nil {
 		s.failUpdate(w, r, err)
 		return
 	}
-	s.auditRollout(r, "update.rollout_cancelled", status, map[string]any{})
 	writeJSON(w, http.StatusOK, status.For(isPlatform(r)))
 }
 
-// auditRollout writes the row for a person's press once the controller has said
-// yes. The controller writes none for a person, so this is the only record of who
-// started, resumed or stopped a rollout. Detached from the request, because the
-// rollout has changed whether or not the browser is still waiting.
-func (s *Server) auditRollout(r *http.Request, action string, status *controller.UpdatesView, detail map[string]any) {
-	targetID := ""
-	if ro := status.Rollout; ro != nil {
-		targetID, detail["to"] = ro.ID, ro.Target
-	}
-	s.auth.Auditor().Act(context.WithoutCancel(r.Context()), Identity(r.Context()), action, "update", targetID, detail)
+// auditRollout writes the row for a person's press on the rollout the controller
+// says it acted on. The controller writes none for a person, so this is the only
+// record of who started, resumed or stopped a rollout. A resume or cancel that
+// moved nothing is still a press, and its detail says changed is false. Detached
+// from the request, because the rollout has changed whether or not the browser
+// is still waiting.
+func (s *Server) auditRollout(r *http.Request, action string, change controller.RolloutChange, detail map[string]any) {
+	detail["to"] = change.Target
+	s.auth.Auditor().Act(context.WithoutCancel(r.Context()), Identity(r.Context()), action, "update", change.ID, detail)
 }
 
 // dedupe is ids with each kept once, in the order first given, as the controller

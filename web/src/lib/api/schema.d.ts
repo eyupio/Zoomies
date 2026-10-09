@@ -4507,7 +4507,7 @@ export interface paths {
         put?: never;
         /**
          * Let a halted rollout carry on
-         * @description Lets the open rollout carry on after it halted. The failure it halted on stays on the host's attempt, and that host waits out its retry while the rollout goes on to the next. A rollout that is already running is left as it is. It answers 202 with the status, because the next host is asked on the controller's next pass and not here. With no open rollout it is a 404. Takes no body; a field sent is a 422 naming it. Audited as `update.rollout_resumed` once it is accepted.
+         * @description Lets the open rollout carry on after it halted. The failure it halted on stays on the host's attempt, and that host waits out its retry while the rollout goes on to the next. A rollout that is already running is left as it is. It answers 202 with the status, because the next host is asked on the controller's next pass and not here. With no open rollout it is a 404. Takes no body; a field sent is a 422 naming it. Audited as `update.rollout_resumed` once it is accepted, with `changed` false when the rollout was already running and nothing moved.
          */
         post: operations["resumeRollout"];
         delete?: never;
@@ -4528,7 +4528,7 @@ export interface paths {
         post?: never;
         /**
          * Stop the rollout
-         * @description Ends the open rollout, running or halted. An update a host's helper has already been handed finishes by itself and is recorded; nothing new starts for the rollout, and in `auto` mode the controller does not start that release's rollout again by itself. It answers 200 with the status, whose `rollout` is the one just `cancelled`. With no open rollout it is a 404. Audited as `update.rollout_cancelled` once it is accepted.
+         * @description Ends the open rollout, running or halted. An update a host's helper has already been handed finishes by itself and is recorded; nothing new starts for the rollout, and in `auto` mode the controller does not start that release's rollout again by itself. It answers 200 with the status, whose `rollout` is the one just `cancelled`. With no open rollout it is a 404. Audited as `update.rollout_cancelled` once it is accepted, with `changed` false when the rollout had already ended by the time the cancel reached it.
          */
         delete: operations["cancelRollout"];
         options?: never;
