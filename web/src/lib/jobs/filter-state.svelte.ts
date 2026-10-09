@@ -25,6 +25,7 @@ const FILTER_KEYS = [
   'repo',
   'workflow',
   'pool_id',
+  'host_id',
   'label',
   'conclusion',
   'state',
@@ -118,6 +119,7 @@ export function jobFilterState(): JobFilterHandle {
     repo: router.paramList('repo'),
     workflow: router.paramList('workflow'),
     pool_id: router.paramList('pool_id'),
+    host_id: router.paramList('host_id'),
     label: router.paramList('label'),
     conclusion: router.paramList('conclusion'),
     // Validated rather than asserted: `?state=` is whatever was in the address
@@ -161,6 +163,7 @@ export function jobFilterState(): JobFilterHandle {
       filters.repo.length > 0 ||
       filters.workflow.length > 0 ||
       filters.pool_id.length > 0 ||
+      filters.host_id.length > 0 ||
       filters.label.length > 0 ||
       filters.conclusion.length > 0,
   );

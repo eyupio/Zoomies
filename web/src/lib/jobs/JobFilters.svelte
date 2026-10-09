@@ -7,6 +7,8 @@
     repo: string[];
     workflow: string[];
     pool_id: string[];
+    /** The hosts the jobs ran on, as stamped when a runner took them: a queued job has none. */
+    host_id: string[];
     label: string[];
     conclusion: string[];
     state: JobState[];
@@ -46,6 +48,7 @@
     repo: [],
     workflow: [],
     pool_id: [],
+    host_id: [],
     label: [],
     conclusion: [],
     state: [],
@@ -73,7 +76,7 @@
   import { Search } from '@lucide/svelte';
   import { registerSearch } from '$lib/keys';
   import { JOB_STATES, PROVISIONING_STATUSES } from '$lib/api/types';
-  import type { Pool } from '$lib/api/types';
+  import type { Host, Pool } from '$lib/api/types';
   import { jobStatus, QUEUE_STATUS_LABELS } from '$lib/status';
   import FilterBar from '$lib/components/FilterBar.svelte';
   import type { FilterChip } from '$lib/components/FilterBar.svelte';
@@ -99,6 +102,8 @@
     /** Distinct values from GET /jobs/facets. */
     facets: { repos?: string[]; workflows?: string[]; conclusions?: string[] };
     pools: readonly Pool[];
+    /** The fleet's hosts, to offer by name. Omitted where a job cannot have run on one yet. */
+    hosts?: readonly Host[];
     /** Labels worth offering: those the pools answer to, plus those on this page. */
     labelOptions: readonly string[];
     onchange: (patch: Partial<JobFilterState>) => void;
@@ -111,6 +116,7 @@
     value,
     facets,
     pools,
+    hosts = [],
     labelOptions,
     onchange,
     onclear,
@@ -134,6 +140,9 @@
       hint: (p.labels ?? []).join(', '),
     })),
   );
+  const hostOptions = $derived<FacetOption[]>(
+    hosts.map((h) => ({ value: h.id ?? '', label: h.name ?? h.id ?? '' })),
+  );
   const labelChoices = $derived<FacetOption[]>(labelOptions.map((l) => ({ value: l, label: l })));
   const conclusionOptions = $derived<FacetOption[]>(
     (facets.conclusions ?? []).map((c) => ({
@@ -146,9 +155,11 @@
   );
 
   const poolName = $derived(new Map(pools.map((p) => [p.id ?? '', p.name ?? p.id ?? ''])));
+  // A host the fleet no longer has still filters, so its chip says the id rather than nothing.
+  const hostName = $derived(new Map(hosts.map((h) => [h.id ?? '', h.name ?? h.id ?? ''])));
 
   function listChip(
-    key: 'repo' | 'workflow' | 'pool_id' | 'label' | 'conclusion' | 'state',
+    key: 'repo' | 'workflow' | 'pool_id' | 'host_id' | 'label' | 'conclusion' | 'state',
     label: string,
     display: (v: string) => string = (v) => v,
   ): FilterChip[] {
@@ -168,6 +179,7 @@
     ...listChip('repo', 'Repository'),
     ...listChip('workflow', 'Workflow'),
     ...listChip('pool_id', 'Pool', (v) => poolName.get(v) ?? v),
+    ...listChip('host_id', 'Host', (v) => hostName.get(v) ?? v),
     ...listChip('label', 'Label'),
     ...listChip('conclusion', 'Outcome', (v) => jobStatus('completed', v).label),
     ...(statusChips ? listChip('state', 'State', (v) => jobStatus(v as JobState).label) : []),
@@ -275,6 +287,15 @@
     emptyHint="There are no pools yet."
     onchange={(next) => onchange({ pool_id: next })}
   />
+  {#if !queue}
+    <FacetMenu
+      label="Host"
+      options={hostOptions}
+      selected={value.host_id}
+      emptyHint="There are no hosts yet."
+      onchange={(next) => onchange({ host_id: next })}
+    />
+  {/if}
   <FacetMenu
     label="Label"
     options={labelChoices}

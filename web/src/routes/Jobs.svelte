@@ -204,6 +204,7 @@
         repo: filters.repo,
         workflow: filters.workflow,
         pool_id: filters.pool_id,
+        host_id: filters.host_id,
         label: filters.label,
         conclusion: filters.conclusion,
         state: filters.state,
@@ -463,6 +464,7 @@
     value={filters}
     {facets}
     pools={fleet.pools}
+    hosts={fleet.hosts}
     {labelOptions}
     onchange={patch}
     onclear={clearFilters}
