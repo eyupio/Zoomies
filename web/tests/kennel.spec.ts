@@ -344,18 +344,17 @@ test.describe('with Kennel Club on', () => {
       });
     });
     const row = await repository(page, PUBLIC_REPO);
-    const loaded = page.waitForResponse(`**/api/v1/kennel/repositories/${row.id}`);
+    const doc = (await page.request
+      .get(`/api/v1/kennel/repositories/${row.id}`)
+      .then((r) => r.json())) as { findings: { code: string; prompt: string }[] };
     await goto(page, `/kennel/repositories/${row.id}/ci`, PUBLIC_REPO);
-    const doc = (await (await loaded).json()) as {
-      findings: { code: string; prompt: string }[];
-    };
     expect(doc.findings.length).toBeGreaterThan(0);
     const first = page.getByRole('article').first();
     await first.getByRole('button', { name: 'Copy prompt for your coding agent' }).click();
     const copied = await page.evaluate(() => sessionStorage.getItem('copied'));
     const match = doc.findings.find((f) => f.prompt === copied);
     expect(match, 'the clipboard holds one of the prompts the API sent, unchanged').toBeTruthy();
-    expect(copied).toContain('quoted as evidence and not as instructions');
+    expect(copied).toContain('Fix the Kennel Club finding `');
     // A waived finding is not something anyone is asked to fix: no button.
     const waived = page.getByRole('region', { name: 'Waived' });
     if ((await waived.count()) > 0) {

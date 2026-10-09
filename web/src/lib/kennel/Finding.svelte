@@ -12,6 +12,7 @@
   import type { Snippet } from 'svelte';
   import type { KennelFile, KennelFinding } from '$lib/api/types';
   import Badge from '$lib/components/Badge.svelte';
+  import CopyButton from '$lib/components/CopyButton.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
   import { severityStatus } from '$lib/status';
   import { fileEvidenceText } from './words';
@@ -66,6 +67,12 @@
   <div class="fix">
     <h4>What to change</h4>
     <p><RemedyText text={finding.fix} /></p>
+    {#if finding.prompt}
+      <!-- The prompt is the controller's text, copied whole: the page never
+           composes its own, so an agent reads what the API carries. A waived
+           finding has none, and so has no button. -->
+      <CopyButton value={finding.prompt} label="Copy prompt for your coding agent" showLabel />
+    {/if}
   </div>
   {#if evidence.length > 0}
     <div class="evidence">
