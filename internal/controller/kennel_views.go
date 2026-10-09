@@ -66,11 +66,22 @@ type KennelRepositoryView struct {
 	Lapsed   []kennel.Waiver     `json:"lapsed"`
 	Skipped  []KennelSkippedView `json:"skipped"`
 	Disabled []kennel.Code       `json:"disabled"`
+	// Files is the workflow inventory the findings' file evidence points into,
+	// by blob SHA, with each path as the gate let it through or "" for one it
+	// did not, which the page says is a workflow with an unusual name.
+	Files []KennelFileView `json:"files"`
 	// Tracking says whether Kennel Club is looking at this repository, and for one
 	// it is not, who stopped it, when and why. An untracked repository has no
 	// findings, counts or coverage to read, and its state is pending: nothing is
 	// evaluated for it, so there is nothing to be in a state.
 	Tracking KennelTrackingView `json:"tracking"`
+}
+
+// KennelFileView is one workflow file of the inventory: the SHA a finding's
+// evidence names, and the path a person reads.
+type KennelFileView struct {
+	SHA  string `json:"sha"`
+	Path string `json:"path"`
 }
 
 // KennelTrackingView is whether Kennel Club is looking at a repository. Reason, By
@@ -119,6 +130,14 @@ func newKennelRepositoryView(r *store.KennelRepository) KennelRepositoryView {
 	v.Skipped = make([]KennelSkippedView, 0, len(ev.Skipped))
 	for _, s := range ev.Skipped {
 		v.Skipped = append(v.Skipped, KennelSkippedView{Code: s.Code, Source: s.Source, State: s.State, Reason: s.Reason()})
+	}
+	// The path was gated when it was kept, and is gated again here: a link or
+	// a line is built from text, so it is built only from text with the shape
+	// of what it names.
+	wm := parseKennelWatermark(r.Watermark)
+	v.Files = make([]KennelFileView, 0, len(wm.WorkflowFiles))
+	for _, f := range wm.WorkflowFiles {
+		v.Files = append(v.Files, KennelFileView{SHA: f.SHA, Path: gatedPath(f.Path)})
 	}
 	v.Coverage = make([]KennelCoverageView, 0, len(cov))
 	for _, src := range KennelSources {
@@ -234,6 +253,18 @@ func kennelDisabled(k config.Kennel) map[string]bool {
 	if !k.WorkflowChecks {
 		out[string(kennel.AreaCI)] = true
 		out[string(kennel.AreaToken)] = true
+	}
+	// A switch is about a source, not an area: a check in another area that
+	// reads the gated source is off with the switch too, and not a gap. Left
+	// on, it would be skipped for a source nobody chose to read, and no
+	// repository could be best in show without the switch.
+	for _, c := range kennel.Checks() {
+		reads := func(src kennel.Source) bool {
+			return slices.Contains(c.Needs, src) || slices.Contains(c.Conditional, src)
+		}
+		if (!k.WorkflowChecks && reads(kennel.SourceWorkflows)) || (!k.RepositorySetup && reads(kennel.SourceSetup)) {
+			out[string(c.Code)] = true
+		}
 	}
 	for _, name := range k.DisabledChecks {
 		out[name] = true

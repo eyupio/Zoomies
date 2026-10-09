@@ -658,6 +658,44 @@ test.describe('with Kennel Club on', () => {
     expect(dialogs, 'nothing a stranger named ran').toEqual([]);
   });
 
+  test('a workflow finding names its file and line, and an unusual path is said to be one', async ({
+    page,
+  }) => {
+    const row = await repository(page, PUBLIC_REPO);
+    const sha = 'a'.repeat(40);
+    const odd = 'b'.repeat(40);
+    await page.route(`**/api/v1/kennel/repositories/${row.id}`, async (route) => {
+      const real = await route.fetch();
+      const body = (await real.json()) as Row & { files: Array<{ sha: string; path: string }> };
+      body.findings.unshift({
+        code: 'ci.no_timeout',
+        severity: 'warning',
+        subject: sha.slice(0, 12),
+        title: 'Jobs have no explicit timeout',
+        detail: 'Two executable jobs in this workflow have no timeout-minutes.',
+        fix: 'Set timeout-minutes on each.',
+        evidence: [
+          { kind: 'file', ref: sha, job_index: 0, line: 4 },
+          { kind: 'file', ref: odd, job_index: -1, line: 2 },
+        ],
+      } as unknown as Row['findings'][number]);
+      body.files = [
+        { sha, path: '.github/workflows/ci.yml' },
+        { sha: odd, path: '' },
+      ];
+      return route.fulfill({ response: real, json: body });
+    });
+    await goto(page, `/kennel/repositories/${row.id}/ci`, PUBLIC_REPO);
+    await expect(
+      page.getByText('.github/workflows/ci.yml:4 (job 1)', { exact: true }),
+    ).toBeVisible();
+    await expect(
+      page.getByText('a workflow with an unusual name, line 2', { exact: true }),
+    ).toBeVisible();
+    // A file is text, never a link: there is nothing here it could link to.
+    await expect(page.locator('a', { hasText: '.github/workflows/ci.yml' })).toHaveCount(0);
+  });
+
   test('it fits a phone', async ({ page, isMobile }) => {
     test.skip(!isMobile, 'the phone project checks the narrow widths');
     const row = await repository(page, PUBLIC_REPO);
