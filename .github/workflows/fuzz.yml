@@ -1,13 +1,16 @@
 name: Fuzz
 
-# The fuzz targets are the encryption boundaries in internal/cryptox, so only a
-# change there, or to the toolchain it is built with, can find anything new.
-# The weekly run keeps fuzzing main regardless.
+# The fuzz targets are the boundaries that read what a stranger wrote: the
+# encryption in internal/cryptox and the workflow parser in
+# internal/kennel/workflow. Only a change there, or to the toolchain they are
+# built with, can find anything new. The weekly run keeps fuzzing main
+# regardless.
 on:
   push:
     branches: [main]
     paths:
       - "internal/cryptox/**"
+      - "internal/kennel/workflow/**"
       - "go.mod"
       - "go.sum"
       - ".github/workflows/fuzz.yml"
@@ -15,6 +18,7 @@ on:
     types: [opened, synchronize, reopened, closed]
     paths:
       - "internal/cryptox/**"
+      - "internal/kennel/workflow/**"
       - "go.mod"
       - "go.sum"
       - ".github/workflows/fuzz.yml"
@@ -41,7 +45,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [FuzzParseKey, FuzzSealOpen]
+        include:
+          - { target: FuzzParseKey, package: ./internal/cryptox }
+          - { target: FuzzSealOpen, package: ./internal/cryptox }
+          # The workflow parser reads what a pull request author wrote.
+          - { target: FuzzInspect, package: ./internal/kennel/workflow }
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -49,15 +57,16 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version-file: go.mod
-      - name: Fuzz encryption boundaries
+      - name: Fuzz the boundary
         env:
           TARGET: ${{ matrix.target }}
+          PACKAGE: ${{ matrix.package }}
           DURATION: ${{ github.event_name == 'schedule' && '5m' || '30s' }}
-        run: go test ./internal/cryptox -run '^$' -fuzz "^${TARGET}$" -fuzztime "$DURATION" -parallel 2
+        run: go test "$PACKAGE" -run '^$' -fuzz "^${TARGET}$" -fuzztime "$DURATION" -parallel 2
       - name: Preserve failing inputs
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: fuzz-corpus-${{ matrix.target }}
-          path: internal/cryptox/testdata/fuzz/
+          path: ${{ matrix.package }}/testdata/fuzz/
           if-no-files-found: ignore
