@@ -191,8 +191,14 @@ export interface AttemptWords {
  */
 export function attemptWords(attempt: ControllerAttempt, running: string): AttemptWords {
   const { to, from } = attempt;
-  const state =
-    attempt.state === 'requested' && runsRelease(running, to) ? 'succeeded' : attempt.state;
+  const arrived = runsRelease(running, to);
+  const state = attempt.state === 'requested' && arrived ? 'succeeded' : attempt.state;
+  // Which build the controller runs, said without "still" once it is the target:
+  // an attempt that ended without the update can be read after somebody upgraded
+  // by hand, and "still" is a claim about the build it left.
+  const runs = arrived
+    ? `This controller runs ${running} now.`
+    : `This controller still runs ${running}.`;
   switch (state) {
     case 'requested':
       return {
@@ -219,7 +225,9 @@ export function attemptWords(attempt: ControllerAttempt, running: string): Attem
         label: 'Timed out',
         tone: 'danger',
         title: `The update to ${to} timed out`,
-        detail: `No answer came from the update helper within 90 minutes, and this controller still runs ${running}.`,
+        detail: arrived
+          ? `No answer came from the update helper within 90 minutes. ${runs}`
+          : `No answer came from the update helper within 90 minutes, and this controller still runs ${running}.`,
         open: false,
         lookAt: HELPER_LOOK_AT,
       };
@@ -228,7 +236,7 @@ export function attemptWords(attempt: ControllerAttempt, running: string): Attem
         label: 'Cancelled',
         tone: 'neutral',
         title: `The update to ${to} was cancelled`,
-        detail: `This controller still runs ${running}.`,
+        detail: runs,
         open: false,
         lookAt: '',
       };
@@ -237,7 +245,7 @@ export function attemptWords(attempt: ControllerAttempt, running: string): Attem
         label: 'Failed',
         tone: 'danger',
         title: `The update to ${to} did not succeed`,
-        detail: `This controller still runs ${running}.`,
+        detail: runs,
         open: false,
         lookAt: HELPER_LOOK_AT,
       };

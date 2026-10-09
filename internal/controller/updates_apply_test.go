@@ -640,6 +640,73 @@ func TestTheNewProcessClosesTheAttemptAsSucceededWhenItRunsTheTarget(t *testing.
 	}
 }
 
+// A build can arrive while the request is still waiting: somebody ran
+// zoomies upgrade by hand. The attempt then ends as a success, and the request
+// nobody will read must go with it, or the next press is refused as an earlier
+// request still waiting.
+func TestAnAttemptThatSucceedsTakesBackItsUnreadRequest(t *testing.T) {
+	h := newHarness(t)
+	h.readyToUpdate()
+	a := h.request()
+
+	restarted := h.restart()
+	withVersion(t, "1.3.5")
+	h.pass(restarted)
+
+	if got := h.attempt(a.ID); got.State != store.UpdateSucceeded {
+		t.Fatalf("attempt = %s %q, want succeeded", got.State, got.Error)
+	}
+	if got := h.folder(); !slices.Equal(got, []string{channel.MarkerFile}) {
+		t.Errorf("the folder holds %v, want the marker and no request nobody will read", got)
+	}
+}
+
+// Only this attempt's own request goes with it, as for every other ending.
+func TestAnAttemptThatSucceedsLeavesARequestThatIsNotItsOwn(t *testing.T) {
+	foreign, err := json.Marshal(updates.Request{V: updates.WireVersion, ID: "upd_someoneelse", Tag: "v1.3.6",
+		RequestedBy: "bob", RequestedAt: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := newHarness(t)
+	h.readyToUpdate()
+	a := h.request()
+	path := filepath.Join(h.updateDir, channel.RequestFile)
+	if err := os.WriteFile(path, foreign, 0o640); err != nil {
+		t.Fatal(err)
+	}
+
+	restarted := h.restart()
+	withVersion(t, "1.3.5")
+	h.pass(restarted)
+
+	if got := h.attempt(a.ID); got.State != store.UpdateSucceeded {
+		t.Fatalf("attempt = %s %q, want succeeded", got.State, got.Error)
+	}
+	if body, err := os.ReadFile(path); err != nil || !bytes.Equal(body, foreign) {
+		t.Errorf("request.json is now %q (%v), want it as it was", body, err)
+	}
+}
+
+// The new process is the proof, so a helper that reports a failure after the
+// binary was replaced does not make a failure of an update that took. The
+// words "still runs" would be false of a controller on the target.
+func TestAFailedResultReadAfterTheNewBuildIsRunningIsStillASuccess(t *testing.T) {
+	h := newHarness(t)
+	h.readyToUpdate()
+	a := h.request()
+	h.takeRequest()
+	h.helperAnswers(updates.Result{ID: a.ID, OK: false, Error: "the service did not answer its health check in time", FinishedAt: time.Now()})
+
+	restarted := h.restart()
+	withVersion(t, "1.3.5")
+	h.pass(restarted)
+
+	if got := h.attempt(a.ID); got.State != store.UpdateSucceeded || got.Error != "" {
+		t.Errorf("attempt = %s %q, want succeeded with nothing to apologise for", got.State, got.Error)
+	}
+}
+
 // The helper writes its answer once the new process answers its health check, so
 // the new process often starts before there is any result to read. It closes the
 // attempt on its first pass all the same, which runs as it starts.

@@ -368,6 +368,18 @@ test('an attempt that timed out says how long it waited and where to look', () =
   assert.match(words.lookAt, /journalctl -u zoomies-update/);
 });
 
+// "Still" is a claim about the old build. An attempt that was recorded as an
+// ending without the update, and is read after the controller has come to run
+// the release (somebody upgraded by hand, or the service came up late), must not
+// say the controller still runs something it does not.
+test('an attempt that did not succeed does not say the controller still runs a build it no longer runs', () => {
+  for (const state of ['failed', 'timed_out', 'cancelled'] as const) {
+    const words = attemptWords(attempt(state), '1.3.2');
+    assert.doesNotMatch(words.detail, /\bstill\b/, state);
+    assert.match(words.detail, /This controller runs 1\.3\.2 now\.$/, state);
+  }
+});
+
 test('an attempt that was cancelled says so without alarm', () => {
   const words = attemptWords(attempt('cancelled'), '1.3.0');
   assert.equal(words.title, 'The update to v1.3.2 was cancelled');

@@ -152,7 +152,7 @@ func (c *Controller) ReconcileUpdates(ctx context.Context) error {
 		}
 		if c.finishUpdateAttempt(ctx, a, state, text) {
 			closed = true
-			if a.Scope == store.UpdateScopeController && state != store.UpdateSucceeded {
+			if a.Scope == store.UpdateScopeController {
 				c.withdrawRequest(a)
 			}
 		}
@@ -229,27 +229,31 @@ func (c *Controller) updateOutcome(a store.UpdateAttempt) (state, text string, e
 // Success is this process running the tag or something later. The helper's word
 // alone is not enough, since a result can say done while the old build is still
 // the one running; and its word is not needed either, because the new process
-// may start before the result is written, and is itself the proof.
+// may start before the result is written, and is itself the proof. For the same
+// reason a failure the helper reported is not believed over a process that
+// already runs the target: whatever it complained of, the update took, and
+// "still runs the old build" would be untrue of it.
 func (c *Controller) controllerOutcome(a store.UpdateAttempt) (state, text string, ended bool) {
 	arrived := runsAtLeast(version.Version, a.ToVersion)
-	if res, ok := c.resultFor(a); ok {
-		switch {
-		case res.OK && arrived:
-			return store.UpdateSucceeded, "", true
-		case res.OK:
-			return store.UpdateFailed, fmt.Sprintf("The update helper says %s is installed, but this controller still runs %s, so the new release is not the one running. "+
-				"Restart zoomies on the controller's host, and look at journalctl -u zoomies-update there if it does not come back on %s.",
-				a.ToVersion, version.Version, a.ToVersion), true
+	res, answered := c.resultFor(a)
+	switch {
+	case arrived:
+		if answered && !res.OK {
+			c.log.Warn("the update helper reported a failure, but this controller runs the release it was asked for, so the attempt is recorded as succeeded",
+				"attempt", a.ID, "to", a.ToVersion, "running", version.Version, "helper", cutAt(res.Error, maxHelperSentence))
 		}
-		if msg := strings.TrimSpace(cutAt(res.Error, maxHelperSentence)); msg != "" {
-			return store.UpdateFailed, msg, true
-		}
-		return store.UpdateFailed, "The update helper says the update failed, and gave no reason. Look at journalctl -u zoomies-update on the controller's host.", true
-	}
-	if arrived {
 		return store.UpdateSucceeded, "", true
+	case !answered:
+		return "", "", false
+	case res.OK:
+		return store.UpdateFailed, fmt.Sprintf("The update helper says %s is installed, but this controller still runs %s, so the new release is not the one running. "+
+			"Restart zoomies on the controller's host, and look at journalctl -u zoomies-update there if it does not come back on %s.",
+			a.ToVersion, version.Version, a.ToVersion), true
 	}
-	return "", "", false
+	if msg := strings.TrimSpace(cutAt(res.Error, maxHelperSentence)); msg != "" {
+		return store.UpdateFailed, msg, true
+	}
+	return store.UpdateFailed, "The update helper says the update failed, and gave no reason. Look at journalctl -u zoomies-update on the controller's host.", true
 }
 
 // runsAtLeast says whether running is the release tag names or a later one.
