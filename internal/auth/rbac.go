@@ -194,10 +194,16 @@ const (
 // controller's requests is. Updating the controller is the platform role's: it
 // replaces the binary of the process every fleet on the instance depends on, and
 // restarts it, which is a decision about the instance and not about one fleet.
+//
+// A rollout (starting, resuming or cancelling one) is an administrator's, as
+// one host's update is: it walks the fleet's hosts through that same update, one
+// at a time, and touches nothing of the instance. Its scope is its own, so that a
+// token that may update one host is not one that may update every host.
 const (
-	ActionUpdatesRead  Action = "updates.read"
-	ActionUpdatesCheck Action = "updates.check"
-	ActionUpdatesApply Action = "updates.apply"
+	ActionUpdatesRead    Action = "updates.read"
+	ActionUpdatesCheck   Action = "updates.check"
+	ActionUpdatesApply   Action = "updates.apply"
+	ActionUpdatesRollout Action = "updates.rollout"
 )
 
 // Account and credential actions.
@@ -325,9 +331,10 @@ var actionRoles = map[Action]store.Role{
 
 	ActionAuditRead: store.RoleViewer,
 
-	ActionUpdatesRead:  store.RoleViewer,
-	ActionUpdatesCheck: store.RoleAdmin,
-	ActionUpdatesApply: store.RolePlatform,
+	ActionUpdatesRead:    store.RoleViewer,
+	ActionUpdatesCheck:   store.RoleAdmin,
+	ActionUpdatesApply:   store.RolePlatform,
+	ActionUpdatesRollout: store.RoleAdmin,
 
 	ActionMigrationsRead:  store.RoleOperator,
 	ActionMigrationsWrite: store.RoleOperator,

@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -52,7 +53,9 @@ func runUpdates(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "updates", `Release updates: what the controller would take, asking it to check or to update itself, and the helper that applies them. To upgrade this host by hand, use "zoomies upgrade".`, []*subcommand{
 		{"status", "", "What an update would take, the helper's state and the controller's last attempt", updatesStatusCmd},
 		{"check", "", "Read the list of releases from GitHub now and say what it leaves", updatesCheck},
-		{"apply", "[--version tag] [--yes]", "Ask the controller to update itself, through the root helper", updatesApply},
+		{"apply", "[--version tag | --hosts | --host name|id] [--yes]", "Ask the controller to update itself, or start a rollout that updates its hosts", updatesApply},
+		{"resume", "[--yes]", "Let a halted rollout of the hosts carry on", updatesResume},
+		{"cancel", "", "Stop the rollout of the hosts; an update already handed to a host finishes", updatesCancel},
 		{"helper", "<install|remove|run|status>", "The root-owned helper on this host that applies an update", runUpdatesHelper},
 	}, args)
 }
@@ -130,6 +133,12 @@ func updatesStatusCmd(ctx context.Context, e *env, args []string) error {
 	if st.Helper.UpgradeCommand != "" {
 		rows = append(rows, [2]string{"Upgrade", plain(st.Helper.UpgradeCommand)})
 	}
+	if ro := st.Rollout; ro != nil {
+		rows = append(rows, [2]string{"Rollout", rolloutLine(ro)})
+		if ro.HaltedReason != "" {
+			rows = append(rows, [2]string{"Halted", plain(ro.HaltedReason)})
+		}
+	}
 	if a := st.Controller; a != nil {
 		rows = append(rows, [2]string{"Attempt", fmt.Sprintf("%s %s: %s to %s (%s), requested %s",
 			plain(a.ID), plain(a.State), plain(a.From), plain(a.To), plain(a.Trigger), p.relTime(a.RequestedAt))})
@@ -178,17 +187,37 @@ func updatesCheck(ctx context.Context, e *env, args []string) error {
 }
 
 func updatesApply(ctx context.Context, e *env, args []string) error {
-	fs := newFlagSet(e, "zoomies updates apply [--version tag] [--yes]",
-		`Ask the controller to update ITSELF: it writes a request for the root-owned update helper on its own host, and the helper replaces the controller's binary and restarts the service. This is not "zoomies upgrade", which upgrades the host you run it on and needs no controller. Needs the platform role, an update mode other than off, and a helper installed on the controller's host ("zoomies updates status" says whether it is). The controller answers at once and the helper on its own time; follow the attempt with "zoomies updates status". Runners and jobs already running carry on through the restart. Without --version it takes the newest release that can be installed on the controller's system.`)
+	fs := newFlagSet(e, "zoomies updates apply [--version tag | --hosts | --host name|id] [--yes]",
+		`Ask the controller to update ITSELF: it writes a request for the root-owned update helper on its own host, and the helper replaces the controller's binary and restarts the service. This is not "zoomies upgrade", which upgrades the host you run it on and needs no controller. Needs the platform role, an update mode other than off, and a helper installed on the controller's host ("zoomies updates status" says whether it is). The controller answers at once and the helper on its own time; follow the attempt with "zoomies updates status". Runners and jobs already running carry on through the restart. Without --version it takes the newest release that can be installed on the controller's system. `+
+			`With --hosts or --host it updates the hosts instead, and not the controller: it starts a rollout that takes every host behind the controller's release (--hosts), or the hosts named (--host, by name or id, repeated or comma-separated), to that release, one host at a time, through each host's own update helper. A host's failed update halts the rollout until "zoomies updates resume" or "zoomies updates cancel". A rollout needs the admin role.`)
 	cf := registerClientFlags(fs, false)
 	version := fs.String("version", "", "the release to take, such as v1.3.5; left out, the newest the controller can install")
+	allHosts := fs.Bool("hosts", false, "update every host behind the controller's release, one at a time, instead of the controller")
+	var hostRefs listValue
+	fs.Var(&hostRefs, "host", "update this host, by name or id, instead of the controller (repeatable, or comma-separated)")
 	yes := fs.Bool("yes", false, "do not ask for confirmation; needed when there is no terminal to ask at")
-	fs.example("zoomies updates apply", "zoomies updates apply --version v1.3.5 --yes")
+	fs.example("zoomies updates apply", "zoomies updates apply --version v1.3.5 --yes",
+		"zoomies updates apply --hosts", "zoomies updates apply --host vm-1 --host vm-2 --yes")
 	if err := fs.parse(args); err != nil {
 		return err
 	}
 	if err := fs.noMoreArgs(); err != nil {
 		return err
+	}
+	said := 0
+	for _, name := range []string{"version", "hosts", "host"} {
+		if fs.changed(name) {
+			said++
+		}
+	}
+	if said > 1 {
+		return usagef("updates apply", "--version, --hosts and --host say different things to update; give one. A rollout takes the hosts to the controller's own release, so it takes no --version")
+	}
+	if fs.changed("host") && len(hostRefs) == 0 {
+		return usagef("updates apply", "--host needs a host's name or id, as zoomies hosts list shows; use --hosts for every host behind")
+	}
+	if *allHosts || len(hostRefs) > 0 {
+		return applyRollout(ctx, e, cf, hostRefs, *yes)
 	}
 	// An untyped nil, so that a request without --version carries no body at all
 	// and not the JSON null a nil map would encode to.
@@ -218,8 +247,7 @@ func updatesApply(ctx context.Context, e *env, args []string) error {
 			what = tag
 		}
 		fmt.Fprintf(e.err, "Ask the controller to update itself to %s? It restarts the controller's service through its root helper. [y/N] ", what)
-		line, _ := bufio.NewReader(e.in).ReadString('\n')
-		if answer := strings.ToLower(strings.TrimSpace(line)); answer != "y" && answer != "yes" {
+		if !answeredYes(e.in) {
 			fmt.Fprintln(e.out, "Nothing was asked of the controller.")
 			return nil
 		}
@@ -236,6 +264,160 @@ func updatesApply(ctx context.Context, e *env, args []string) error {
 	}
 	fmt.Fprintf(e.out, "The controller accepted attempt %s: %s to %s, %s. The helper answers on its own time; follow it with \"zoomies updates status\".\n",
 		plain(a.ID), plain(a.From), plain(a.To), plain(a.State))
+	return nil
+}
+
+// applyRollout is "updates apply --hosts" and "--host": start a rollout of every
+// host behind, or of the hosts named. Like the controller's update it builds the
+// client before anything else and asks before it sends; the names are resolved
+// after the terminal is known to be there, so that a script without --yes is
+// refused without a request, and before the question, so that a name that is no
+// host is reported while the person can still put it right.
+func applyRollout(ctx context.Context, e *env, cf *clientFlags, refs []string, yes bool) error {
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+	if !yes && !canAskAt(e.in, e.err) {
+		return usagef("updates apply", "this starts a rollout that restarts each host's agent as it updates it, and there is no terminal to ask you at; run it again with --yes to say yes")
+	}
+	// An untyped nil for every host behind, so that the request carries no body,
+	// which is what the controller reads as every host.
+	var body any
+	what := "every host behind the controller's release"
+	if len(refs) > 0 {
+		ids, names, err := resolveHosts(ctx, client, refs)
+		if err != nil {
+			return err
+		}
+		body = map[string]any{"host_ids": ids}
+		what = strings.Join(names, ", ")
+	}
+	if !yes {
+		fmt.Fprintf(e.err, "Start a rollout that updates %s to the controller's release, one host at a time? Each host's agent restarts through its root helper. [y/N] ", what)
+		if !answeredYes(e.in) {
+			fmt.Fprintln(e.out, "Nothing was asked of the controller.")
+			return nil
+		}
+	}
+	var st updatesStatus
+	if _, err := client.post(ctx, "/updates/hosts", nil, body, &st); err != nil {
+		return plainAPIError(err)
+	}
+	if st.Rollout == nil {
+		fmt.Fprintln(e.out, `The controller started the rollout. Follow it with "zoomies updates status".`)
+		return nil
+	}
+	fmt.Fprintf(e.out, "The controller started rollout %s. It updates one host at a time and halts if one fails; follow it with \"zoomies updates status\".\n", rolloutLine(st.Rollout))
+	return nil
+}
+
+// resolveHosts turns what an operator typed into host ids, each once, accepting
+// the name they know a host by or the id a log line quoted. The names it returns
+// are for the question, and safe to print.
+func resolveHosts(ctx context.Context, client *apiClient, refs []string) (ids, names []string, err error) {
+	var out listResponse[hostItem]
+	if _, err := client.get(ctx, "/hosts", nil, &out); err != nil {
+		return nil, nil, plainAPIError(err)
+	}
+	for _, ref := range refs {
+		i := slices.IndexFunc(out.Items, func(h hostItem) bool { return h.ID == ref || strings.EqualFold(h.Name, ref) })
+		if i < 0 {
+			if len(out.Items) == 0 {
+				return nil, nil, fmt.Errorf("there are no hosts on this controller, so %q is not one", plain(ref))
+			}
+			var all []string
+			for _, h := range out.Items {
+				all = append(all, plain(h.Name))
+			}
+			return nil, nil, fmt.Errorf("no host is called %q or has that id; this controller has: %s", plain(ref), strings.Join(all, ", "))
+		}
+		if h := out.Items[i]; !slices.Contains(ids, h.ID) {
+			ids, names = append(ids, h.ID), append(names, plain(h.Name))
+		}
+	}
+	return ids, names, nil
+}
+
+// answeredYes reads one line of the answer to a [y/N] question.
+func answeredYes(in io.Reader) bool {
+	line, _ := bufio.NewReader(in).ReadString('\n')
+	answer := strings.ToLower(strings.TrimSpace(line))
+	return answer == "y" || answer == "yes"
+}
+
+// rolloutLine is a rollout in one line of the CLI's: which, to what, where it
+// stands and how far it has got. Every part came from the controller.
+func rolloutLine(ro *updatesRollout) string {
+	line := fmt.Sprintf("%s to %s, %s: %d of %d hosts updated", plain(ro.ID), plain(ro.Target), plain(ro.State), ro.Done, ro.Total)
+	if ro.Current != "" {
+		line += ", now " + plain(ro.Current)
+	}
+	return line
+}
+
+func updatesResume(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies updates resume [--yes]",
+		`Let a halted rollout of the hosts carry on. The host whose update halted it keeps its failure and waits out its retry, and the rollout goes on to the next host, so a host's agent restarts soon after. A rollout that is already running is left as it is. Needs the admin role. Follow it with "zoomies updates status".`)
+	cf := registerClientFlags(fs, false)
+	yes := fs.Bool("yes", false, "do not ask for confirmation; needed when there is no terminal to ask at")
+	fs.example("zoomies updates resume", "zoomies updates resume --yes")
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	if err := fs.noMoreArgs(); err != nil {
+		return err
+	}
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+	if !*yes {
+		if !canAskAt(e.in, e.err) {
+			return usagef("updates resume", "this lets a rollout restart the next host's agent, and there is no terminal to ask you at; run it again with --yes to say yes")
+		}
+		fmt.Fprint(e.err, "Let the halted rollout carry on? The next host's agent restarts through its root helper. [y/N] ")
+		if !answeredYes(e.in) {
+			fmt.Fprintln(e.out, "Nothing was asked of the controller.")
+			return nil
+		}
+	}
+	var st updatesStatus
+	if _, err := client.post(ctx, "/updates/rollout/resume", nil, nil, &st); err != nil {
+		return plainAPIError(err)
+	}
+	if st.Rollout == nil {
+		fmt.Fprintln(e.out, `The controller accepted the request. Follow the rollout with "zoomies updates status".`)
+		return nil
+	}
+	fmt.Fprintf(e.out, "Rollout %s. Follow it with \"zoomies updates status\".\n", rolloutLine(st.Rollout))
+	return nil
+}
+
+func updatesCancel(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies updates cancel",
+		`Stop the rollout of the hosts, running or halted. Nothing new starts for it; an update a host's helper has already been handed finishes by itself and is recorded. In auto mode the controller does not start that release's rollout again by itself. It does not ask first, because it stops work and starts none. Needs the admin role.`)
+	cf := registerClientFlags(fs, false)
+	fs.example("zoomies updates cancel")
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	if err := fs.noMoreArgs(); err != nil {
+		return err
+	}
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+	var st updatesStatus
+	if _, err := client.del(ctx, "/updates/rollout", nil, &st); err != nil {
+		return plainAPIError(err)
+	}
+	if st.Rollout == nil {
+		fmt.Fprintln(e.out, "The rollout is cancelled.")
+		return nil
+	}
+	fmt.Fprintf(e.out, "Rollout %s. An update a host's helper was already handed finishes by itself; nothing new starts.\n", rolloutLine(st.Rollout))
 	return nil
 }
 

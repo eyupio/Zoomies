@@ -8,8 +8,10 @@ import (
 	"maps"
 	"net/http"
 	"slices"
+	"strings"
 
 	"github.com/eyupio/zoomies/internal/controller"
+	"github.com/eyupio/zoomies/internal/store"
 )
 
 // The update routes are transport. What an update would take, and why, is the
@@ -85,6 +87,142 @@ func (s *Server) handleUpdateController(w http.ResponseWriter, r *http.Request) 
 	}
 	s.auth.Auditor().Act(context.WithoutCancel(r.Context()), id, "update.controller_requested", "update", attemptID, detail)
 	writeJSON(w, http.StatusAccepted, status.For(isPlatform(r)))
+}
+
+// maxRolloutBodyBytes bounds the body of POST /updates/hosts. A list of host ids
+// for a fleet of thousands fits in it many times over, and the controller reads
+// every id against the fleet, so the bound is the server's general one cut to
+// what a list a person chose can need.
+const maxRolloutBodyBytes = 64 << 10
+
+// handleStartRollout answers POST /api/v1/updates/hosts: start a rollout of every
+// host behind this controller's release, or of the hosts the body names.
+//
+// It answers 202, because nothing is asked of a host here: the planner moves the
+// rollout on from its next pass, one host at a time, and the page follows it in
+// updates.updated. One press writes one rollout row and no request, so it can
+// never spend the helpers' start limit on its own.
+func (s *Server) handleStartRollout(w http.ResponseWriter, r *http.Request) {
+	r.Body = http.MaxBytesReader(w, r.Body, maxRolloutBodyBytes)
+	hostIDs, ok := decodeRolloutRequest(w, r)
+	if !ok {
+		return
+	}
+	id := Identity(r.Context())
+	status, err := s.ctrl.StartHostRollout(r.Context(), controller.UpdateActor{ID: id.ID, Name: id.Name}, hostIDs)
+	if errors.Is(err, store.ErrNotFound) {
+		// The only thing a start does not find is a host the body named, so it is
+		// the body to fix, and the controller's sentence names the id. The
+		// sentinel's own words are no use to the person reading it.
+		msg := strings.TrimPrefix(err.Error(), store.ErrNotFound.Error()+": ")
+		unprocessable(w, msg, []fieldError{{"host_ids", msg}})
+		return
+	}
+	if err != nil {
+		s.failUpdate(w, r, err)
+		return
+	}
+	detail := map[string]any{}
+	if len(hostIDs) > 0 {
+		detail["host_ids"] = dedupe(hostIDs)
+	}
+	s.auditRollout(r, "update.rollout_started", status, detail)
+	writeJSON(w, http.StatusAccepted, status.For(isPlatform(r)))
+}
+
+// handleResumeRollout answers POST /api/v1/updates/rollout/resume: let a halted
+// rollout carry on. It answers 202 for the same reason a start does: the next
+// host is asked on the planner's pass, not here.
+func (s *Server) handleResumeRollout(w http.ResponseWriter, r *http.Request) {
+	if !decodeNoUpdateBody(w, r) {
+		return
+	}
+	id := Identity(r.Context())
+	status, err := s.ctrl.ResumeRollout(r.Context(), controller.UpdateActor{ID: id.ID, Name: id.Name})
+	if err != nil {
+		s.failUpdate(w, r, err)
+		return
+	}
+	s.auditRollout(r, "update.rollout_resumed", status, map[string]any{})
+	writeJSON(w, http.StatusAccepted, status.For(isPlatform(r)))
+}
+
+// handleCancelRollout answers DELETE /api/v1/updates/rollout: end the open
+// rollout. It answers 200, because the cancel is done when it returns; an update
+// a helper was already handed finishes by itself and is recorded.
+func (s *Server) handleCancelRollout(w http.ResponseWriter, r *http.Request) {
+	id := Identity(r.Context())
+	status, err := s.ctrl.CancelRollout(r.Context(), controller.UpdateActor{ID: id.ID, Name: id.Name})
+	if err != nil {
+		s.failUpdate(w, r, err)
+		return
+	}
+	s.auditRollout(r, "update.rollout_cancelled", status, map[string]any{})
+	writeJSON(w, http.StatusOK, status.For(isPlatform(r)))
+}
+
+// auditRollout writes the row for a person's press once the controller has said
+// yes. The controller writes none for a person, so this is the only record of who
+// started, resumed or stopped a rollout. Detached from the request, because the
+// rollout has changed whether or not the browser is still waiting.
+func (s *Server) auditRollout(r *http.Request, action string, status *controller.UpdatesView, detail map[string]any) {
+	targetID := ""
+	if ro := status.Rollout; ro != nil {
+		targetID, detail["to"] = ro.ID, ro.Target
+	}
+	s.auth.Auditor().Act(context.WithoutCancel(r.Context()), Identity(r.Context()), action, "update", targetID, detail)
+}
+
+// dedupe is ids with each kept once, in the order first given, as the controller
+// reads them.
+func dedupe(ids []string) []string {
+	out := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	return out
+}
+
+// decodeRolloutRequest reads the optional body of POST /updates/hosts: no body,
+// or one without host_ids, is every host behind; host_ids is the hosts to take.
+//
+// A list that is there must name at least one host, each by a non-empty id. An
+// empty or null list is refused rather than read as every host, because a client
+// whose selection came out empty asked for none, and walking the whole fleet is
+// the opposite of that.
+func decodeRolloutRequest(w http.ResponseWriter, r *http.Request) ([]string, bool) {
+	const usage = `send a JSON object such as {"host_ids": ["hst_k3f9qz2m"]}, or no body to update every host behind`
+	fields, ok := readUpdateFields(w, r, usage)
+	if !ok {
+		return nil, false
+	}
+	for _, name := range slices.Sorted(maps.Keys(fields)) {
+		if name != "host_ids" {
+			unprocessable(w, "", []fieldError{{name, "this endpoint takes only host_ids; remove " + name}})
+			return nil, false
+		}
+	}
+	raw, ok := fields["host_ids"]
+	if !ok {
+		return nil, true
+	}
+	const want = "host_ids must be a list of host ids, such as [\"hst_k3f9qz2m\"]; leave it out to update every host behind"
+	var ids []string
+	if string(bytes.TrimSpace(raw)) == "null" || json.Unmarshal(raw, &ids) != nil {
+		unprocessable(w, "", []fieldError{{"host_ids", want}})
+		return nil, false
+	}
+	if len(ids) == 0 {
+		unprocessable(w, "", []fieldError{{"host_ids", "host_ids names no host; name at least one, or leave it out to update every host behind"}})
+		return nil, false
+	}
+	if slices.Contains(ids, "") {
+		unprocessable(w, "", []fieldError{{"host_ids", "host_ids holds an empty id; every entry must be a host id, as zoomies hosts list shows"}})
+		return nil, false
+	}
+	return ids, true
 }
 
 // updateRefusalCodes gives each refusal the controller can make the code a client

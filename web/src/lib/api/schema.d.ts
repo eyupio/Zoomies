@@ -4476,6 +4476,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/updates/hosts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update the hosts, one at a time
+         * @description Starts a rollout that takes every host behind this controller's release to it, or only the hosts `host_ids` names. It answers 202 with the status, whose `rollout` is the one just started: nothing is asked of a host here, and the controller moves the rollout on from its next pass, one host at a time, waiting for each to report the release before it asks the next. A host's failed or timed-out update halts the rollout until an administrator resumes or cancels it. Refused with `update.rollout_halted` while a halted rollout waits for a person, `update.in_progress` while one is running, `update.nothing_newer` when no host asked for is behind, and `update.host_cannot_update` when none of those behind can update itself. An id that names no host is a 422 on `host_ids` whose message names it, and so is an empty list or an empty id. Audited as `update.rollout_started` once it is accepted, and not before.
+         */
+        post: operations["startHostRollout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/updates/rollout/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Let a halted rollout carry on
+         * @description Lets the open rollout carry on after it halted. The failure it halted on stays on the host's attempt, and that host waits out its retry while the rollout goes on to the next. A rollout that is already running is left as it is. It answers 202 with the status, because the next host is asked on the controller's next pass and not here. With no open rollout it is a 404. Takes no body; a field sent is a 422 naming it. Audited as `update.rollout_resumed` once it is accepted.
+         */
+        post: operations["resumeRollout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/updates/rollout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Stop the rollout
+         * @description Ends the open rollout, running or halted. An update a host's helper has already been handed finishes by itself and is recorded; nothing new starts for the rollout, and in `auto` mode the controller does not start that release's rollout again by itself. It answers 200 with the status, whose `rollout` is the one just `cancelled`. With no open rollout it is a 404. Audited as `update.rollout_cancelled` once it is accepted.
+         */
+        delete: operations["cancelRollout"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agent/join": {
         parameters: {
             query?: never;
@@ -9597,6 +9657,15 @@ export interface components {
              * @example v1.3.5
              */
             tag?: string;
+        };
+        StartHostRolloutRequest: {
+            /**
+             * @description The hosts to take, by id. Left out, it is every host behind the controller's release. A host named twice is taken once. An empty list is refused rather than read as every host.
+             * @example [
+             *       "hst_k3f9qz2m"
+             *     ]
+             */
+            host_ids?: string[];
         };
         UpdatesStatus: {
             /**
@@ -17023,6 +17092,94 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             409: components["responses"]["UpdateRefused"];
             422: components["responses"]["Unprocessable"];
+        };
+    };
+    startHostRollout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["StartHostRolloutRequest"];
+            };
+        };
+        responses: {
+            /** @description Started. The `rollout` is `running`. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdatesStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["UpdateRefused"];
+            /** @description The body is over the 64 KiB this route reads. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    resumeRollout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Resumed. The `rollout` is `running`. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdatesStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["UpdateRefused"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    cancelRollout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancelled. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdatesStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["UpdateRefused"];
         };
     };
     agentJoin: {

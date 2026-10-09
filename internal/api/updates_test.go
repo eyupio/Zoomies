@@ -1596,3 +1596,403 @@ func TestAskingForAHostsUpdateSendsTheHostToEveryOpenPage(t *testing.T) {
 		t.Errorf("the frame is %s, want the host as a GET renders it", frame.data)
 	}
 }
+
+const (
+	updatesHostsPath   = "/api/v1/updates/hosts"
+	rolloutResumePath  = "/api/v1/updates/rollout/resume"
+	updatesRolloutPath = "/api/v1/updates/rollout"
+)
+
+// openRollout is the rollout the store holds open, or nil.
+func (h *harness) openRollout() *store.UpdateRollout {
+	h.t.Helper()
+	r, err := h.st.OpenUpdateRollout(h.ctx)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		h.t.Fatalf("OpenUpdateRollout: %v", err)
+	}
+	return r
+}
+
+// haltedRollout is a rollout to v1.3.5 the planner halted on a host's failure,
+// waiting for a person to look.
+func (h *harness) haltedRollout() *store.UpdateRollout {
+	h.t.Helper()
+	r := &store.UpdateRollout{Target: "v1.3.5", Trigger: store.UpdateTriggerManual, StartedBy: "someone"}
+	if err := h.st.CreateUpdateRollout(h.ctx, r); err != nil {
+		h.t.Fatalf("CreateUpdateRollout: %v", err)
+	}
+	if moved, err := h.st.HaltUpdateRollout(h.ctx, r.ID, "vm-1 could not update to v1.3.5."); err != nil || !moved {
+		h.t.Fatalf("HaltUpdateRollout: %v, %v", moved, err)
+	}
+	return r
+}
+
+// A rollout replaces the agent of every host it reaches, one after another, so it
+// is the administrator's, as one host's update is: an operator may not start it,
+// let a halted one go on, or stop it, and the refusal names the role they lack.
+func TestOnlyAnAdministratorMayStartResumeOrCancelARollout(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdateAHost()
+	h.updatableHost("vm-rollout")
+
+	for _, rt := range []struct{ method, path string }{
+		{http.MethodPost, updatesHostsPath},
+		{http.MethodPost, rolloutResumePath},
+		{http.MethodDelete, updatesRolloutPath},
+	} {
+		row := routeRow(t, rt.method, rt.path)
+		if row.role != store.RoleAdmin || row.action != auth.ActionUpdatesRollout {
+			t.Errorf("the route table says %s %s needs %s and %s; want admin and %s", rt.method, rt.path, row.role, row.action, auth.ActionUpdatesRollout)
+		}
+	}
+
+	for _, who := range []struct {
+		role   store.Role
+		cookie string
+	}{{store.RoleViewer, as.viewer}, {store.RoleOperator, as.operator}} {
+		for _, rt := range []struct{ method, path string }{
+			{http.MethodPost, updatesHostsPath},
+			{http.MethodPost, rolloutResumePath},
+			{http.MethodDelete, updatesRolloutPath},
+		} {
+			got := h.do(request{method: rt.method, path: rt.path, cookie: who.cookie})
+			got.mustStatus(t, http.StatusForbidden, string(who.role)+" calling "+rt.method+" "+rt.path)
+			if !strings.Contains(got.errorMessage(t), "admin") {
+				t.Errorf("the refusal does not name the admin role: %q", got.errorMessage(t))
+			}
+		}
+	}
+	if r := h.openRollout(); r != nil {
+		t.Fatalf("a rollout is open after only refused callers: %+v", r)
+	}
+
+	h.do(request{method: http.MethodPost, path: updatesHostsPath, cookie: as.admin}).
+		mustStatus(t, http.StatusAccepted, "starting a rollout as an administrator")
+	h.do(request{method: http.MethodPost, path: rolloutResumePath, cookie: as.admin}).
+		mustStatus(t, http.StatusAccepted, "resuming a rollout as an administrator")
+	h.do(request{method: http.MethodDelete, path: updatesRolloutPath, cookie: as.admin}).
+		mustStatus(t, http.StatusOK, "cancelling a rollout as an administrator")
+	if r := h.openRollout(); r != nil {
+		t.Errorf("a rollout is still open after it was cancelled: %+v", r)
+	}
+}
+
+// A token is held to the rollout's own scope: one minted to update a single host
+// cannot walk the fleet.
+func TestAScopedTokenNeedsTheUpdatesRolloutScope(t *testing.T) {
+	h := newHarness(t)
+	h.readyToUpdateAHost()
+	h.updatableHost("vm-scoped")
+
+	refused := h.do(request{method: http.MethodPost, path: updatesHostsPath,
+		token: h.token("one host", store.RoleAdmin, "hosts:update")})
+	refused.mustStatus(t, http.StatusForbidden, "a token scoped to one host's update")
+	if !strings.Contains(refused.errorMessage(t), "updates:rollout") {
+		t.Errorf("the refusal does not name the updates:rollout scope: %q", refused.errorMessage(t))
+	}
+	h.do(request{method: http.MethodPost, path: updatesHostsPath,
+		token: h.token("rollouts", store.RoleAdmin, "updates:rollout")}).
+		mustStatus(t, http.StatusAccepted, "a token scoped to updates:rollout")
+}
+
+// The answer is the status a GET would give, with the rollout in it, so the page
+// repaints from the answer and not from a guess.
+func TestStartingARolloutAnswersWithTheStatusThatHoldsIt(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdateAHost()
+	h.updatableHost("vm-a")
+	h.updatableHost("vm-b")
+
+	resp := h.do(request{method: http.MethodPost, path: updatesHostsPath, cookie: as.admin})
+	resp.mustStatus(t, http.StatusAccepted, "starting a rollout")
+	var status updatesResponse
+	resp.into(t, &status)
+	open := h.openRollout()
+	if open == nil {
+		t.Fatal("no rollout is open after an accepted start")
+	}
+	if status.Rollout == nil || status.Rollout.ID != open.ID || status.Rollout.Target != "v1.3.5" || status.Rollout.State != store.RolloutRunning {
+		t.Errorf("the answer's rollout is %+v, want the running rollout %s to v1.3.5", status.Rollout, open.ID)
+	}
+	if len(open.HostIDs) != 0 {
+		t.Errorf("a start with no host_ids recorded %v, want none: every host behind", open.HostIDs)
+	}
+}
+
+// A host named twice is one host, and the rollout takes only the hosts named.
+func TestARolloutOfNamedHostsTakesEachOnce(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdateAHost()
+	a := h.updatableHost("vm-a")
+	h.updatableHost("vm-b")
+
+	h.do(request{method: http.MethodPost, path: updatesHostsPath, cookie: as.admin,
+		body: map[string]any{"host_ids": []string{a.ID, a.ID}}}).
+		mustStatus(t, http.StatusAccepted, "starting a rollout of one host named twice")
+	open := h.openRollout()
+	if open == nil || !reflect.DeepEqual([]string(open.HostIDs), []string{a.ID}) {
+		t.Errorf("the rollout is %+v, want one of %s alone", open, a.ID)
+	}
+}
+
+// An id that names no host is the person's mistake, not the server's: it is a
+// 422 on host_ids whose message names the id, and nothing is started.
+func TestAnUnknownHostInARolloutIsRefusedByName(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdateAHost()
+	a := h.updatableHost("vm-a")
+
+	resp := h.do(request{method: http.MethodPost, path: updatesHostsPath, cookie: as.admin,
+		body: map[string]any{"host_ids": []string{a.ID, "hst_nobody"}}})
+	resp.mustStatus(t, http.StatusUnprocessableEntity, "a rollout naming a host nobody enrolled")
+	var env errorEnvelope
+	resp.into(t, &env)
+	if env.Error.Code != codeUnprocessable || env.Error.Field != "host_ids" {
+		t.Errorf("error = %+v, want unprocessable on host_ids", env.Error)
+	}
+	if !strings.Contains(env.Error.Message, "hst_nobody") || strings.HasPrefix(env.Error.Message, "not found") {
+		t.Errorf("message = %q, want a sentence naming hst_nobody", env.Error.Message)
+	}
+	if r := h.openRollout(); r != nil {
+		t.Errorf("a rollout was started for a list with an unknown host: %+v", r)
+	}
+	if rows := h.updateAudit("update.rollout_started"); len(rows) != 0 {
+		t.Errorf("%d audit rows for a start that did nothing, want none", len(rows))
+	}
+}
+
+// What the body may hold is a list of host ids and nothing else. An empty list,
+// or a null one, is refused rather than read as every host: a client whose
+// selection came out empty must not walk the whole fleet.
+func TestTheRolloutBodyIsChecked(t *testing.T) {
+	for _, tc := range []struct {
+		name, body, field, says string
+	}{
+		{"an empty id", `{"host_ids": ["hst_a", ""]}`, "host_ids", "empty id"},
+		{"an empty list", `{"host_ids": []}`, "host_ids", "names no host"},
+		{"a null list", `{"host_ids": null}`, "host_ids", "list of host ids"},
+		{"a list of numbers", `{"host_ids": [1]}`, "host_ids", "list of host ids"},
+		{"a string, not a list", `{"host_ids": "hst_a"}`, "host_ids", "list of host ids"},
+		{"a field the route does not take", `{"tag": "v1.3.5"}`, "tag", "remove tag"},
+		{"not an object", `["hst_a"]`, "", "send a JSON object"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			as := h.updateCallers()
+			h.readyToUpdateAHost()
+			h.updatableHost("vm-a")
+
+			resp := h.do(request{method: http.MethodPost, path: updatesHostsPath, cookie: as.admin,
+				rawBody: tc.body, headers: map[string]string{"Content-Type": "application/json"}})
+			resp.mustStatus(t, http.StatusUnprocessableEntity, tc.name)
+			var env errorEnvelope
+			resp.into(t, &env)
+			if env.Error.Field != tc.field {
+				t.Errorf("field = %q, want %q: %+v", env.Error.Field, tc.field, env)
+			}
+			if !strings.Contains(string(resp.body), tc.says) {
+				t.Errorf("the refusal does not say %q: %s", tc.says, resp.body)
+			}
+			if r := h.openRollout(); r != nil {
+				t.Errorf("a rollout was started from a refused body: %+v", r)
+			}
+		})
+	}
+}
+
+// Resuming takes no body, and is told so when it is sent one, as the host route
+// is: a 202 would tell its sender that whatever it asked for was done.
+func TestTheResumeRouteTakesNoBody(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdateAHost()
+	h.updatableHost("vm-a")
+	halted := h.haltedRollout()
+
+	resp := h.do(request{method: http.MethodPost, path: rolloutResumePath, cookie: as.admin, body: map[string]any{"host_ids": []string{"hst_a"}}})
+	resp.mustStatus(t, http.StatusUnprocessableEntity, "a resume with a body")
+	if r := h.openRollout(); r == nil || r.ID != halted.ID || r.State != store.RolloutHalted {
+		t.Errorf("the rollout is %+v after a refused resume, want %s still halted", r, halted.ID)
+	}
+}
+
+// The list is bounded well below the server's general limit: a fleet's worth of
+// ids fits many times over, and anything bigger is not a list a person chose.
+func TestAnOversizedRolloutBodyIsTooLarge(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdateAHost()
+	h.updatableHost("vm-a")
+
+	resp := h.do(request{method: http.MethodPost, path: updatesHostsPath, cookie: as.admin,
+		rawBody: `{"host_ids":["` + strings.Repeat("a", maxRolloutBodyBytes) + `"]}`, headers: map[string]string{"Content-Type": "application/json"}})
+	resp.mustStatus(t, http.StatusRequestEntityTooLarge, "an oversized body")
+	if r := h.openRollout(); r != nil {
+		t.Errorf("a rollout was started from a refused body: %+v", r)
+	}
+	if maxRolloutBodyBytes >= maxBodyBytes {
+		t.Errorf("the rollout body limit is %d, not below the server's %d", maxRolloutBodyBytes, maxBodyBytes)
+	}
+}
+
+// Each refusal of a start as a person meets it, from the state that causes it,
+// with nothing started and nothing audited.
+func TestStartingARolloutRefusesWithTheCodeOfTheStateThatCausesIt(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(h *harness)
+		code  string
+	}{
+		{"a halted rollout waits for a person", func(h *harness) {
+			h.readyToUpdateAHost()
+			h.updatableHost("vm-a")
+			h.haltedRollout()
+		}, "update.rollout_halted"},
+		{"no host is behind", func(h *harness) {
+			h.readyToUpdateAHost()
+			host := h.updatableHost("vm-current")
+			host.Version = "1.3.5"
+			if err := h.st.SetHostReported(h.ctx, host); err != nil {
+				h.t.Fatalf("SetHostReported: %v", err)
+			}
+		}, "update.nothing_newer"},
+		{"updating is off", func(h *harness) {
+			useVersion(h.t, "1.3.5")
+			h.updatableHost("vm-a")
+		}, "update.mode_off"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			as := h.updateCallers()
+			tc.setup(h)
+			before := h.openRollout()
+
+			resp := h.do(request{method: http.MethodPost, path: updatesHostsPath, cookie: as.admin})
+			resp.mustStatus(t, http.StatusConflict, tc.name)
+			if got := resp.errorCode(t); got != tc.code {
+				t.Errorf("code = %q, want %q", got, tc.code)
+			}
+			if after := h.openRollout(); !reflect.DeepEqual(before, after) {
+				t.Errorf("the open rollout went from %+v to %+v on a refusal", before, after)
+			}
+			if rows := h.updateAudit("update.rollout_started"); len(rows) != 0 {
+				t.Errorf("%d audit rows for a refused start, want none", len(rows))
+			}
+		})
+	}
+}
+
+// There is nothing to resume or cancel without an open rollout, and the answer
+// says so as a 404 rather than pretending it did something.
+func TestResumingOrCancellingWithNoRolloutIs404(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdateAHost()
+
+	for _, rt := range []struct{ method, path, verb string }{
+		{http.MethodPost, rolloutResumePath, "resume"},
+		{http.MethodDelete, updatesRolloutPath, "cancel"},
+	} {
+		resp := h.do(request{method: rt.method, path: rt.path, cookie: as.admin})
+		resp.mustStatus(t, http.StatusNotFound, rt.verb+" with no rollout")
+		if !strings.Contains(resp.errorMessage(t), "no rollout to "+rt.verb) {
+			t.Errorf("message = %q, want it to say there is no rollout to %s", resp.errorMessage(t), rt.verb)
+		}
+	}
+	if rows := h.updateAudit("update.rollout_resumed"); len(rows) != 0 {
+		t.Errorf("%d resume audit rows for a press that did nothing", len(rows))
+	}
+	if rows := h.updateAudit("update.rollout_cancelled"); len(rows) != 0 {
+		t.Errorf("%d cancel audit rows for a press that did nothing", len(rows))
+	}
+}
+
+// Resuming lets a halted rollout go on, and cancelling ends it; the open rollout
+// in the store is what each answer is judged on.
+func TestResumeLetsAHaltedRolloutGoOnAndCancelEndsIt(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdateAHost()
+	h.updatableHost("vm-a")
+	halted := h.haltedRollout()
+
+	resp := h.do(request{method: http.MethodPost, path: rolloutResumePath, cookie: as.admin})
+	resp.mustStatus(t, http.StatusAccepted, "resuming the halted rollout")
+	var status updatesResponse
+	resp.into(t, &status)
+	if status.Rollout == nil || status.Rollout.ID != halted.ID || status.Rollout.State != store.RolloutRunning {
+		t.Errorf("the answer's rollout is %+v, want %s running", status.Rollout, halted.ID)
+	}
+
+	resp = h.do(request{method: http.MethodDelete, path: updatesRolloutPath, cookie: as.admin})
+	resp.mustStatus(t, http.StatusOK, "cancelling the rollout")
+	resp.into(t, &status)
+	if status.Rollout == nil || status.Rollout.ID != halted.ID || status.Rollout.State != store.RolloutCancelled {
+		t.Errorf("the answer's rollout is %+v, want %s cancelled", status.Rollout, halted.ID)
+	}
+	if r := h.openRollout(); r != nil {
+		t.Errorf("a rollout is open after the cancel: %+v", r)
+	}
+}
+
+// The person who pressed each button is in the audit trail, under their own
+// name: the controller writes no row for a person, so a row missing here is a
+// press nobody can account for.
+func TestEachRolloutRouteRecordsAnAuditRowForTheCaller(t *testing.T) {
+	h := newHarness(t)
+	h.readyToUpdateAHost()
+	a := h.updatableHost("vm-a")
+	lead, _ := h.user("fleet-lead", store.RoleAdmin)
+	cookie := h.session(lead)
+
+	h.do(request{method: http.MethodPost, path: updatesHostsPath, cookie: cookie,
+		body: map[string]any{"host_ids": []string{a.ID}}}).
+		mustStatus(t, http.StatusAccepted, "starting a rollout")
+	open := h.openRollout()
+	if open == nil {
+		t.Fatal("no rollout is open")
+	}
+	if open.StartedBy != "fleet-lead" {
+		t.Errorf("the rollout says %q started it, want fleet-lead", open.StartedBy)
+	}
+	if _, err := h.st.HaltUpdateRollout(h.ctx, open.ID, "vm-a could not update."); err != nil {
+		t.Fatal(err)
+	}
+	h.do(request{method: http.MethodPost, path: rolloutResumePath, cookie: cookie}).
+		mustStatus(t, http.StatusAccepted, "resuming the rollout")
+	h.do(request{method: http.MethodDelete, path: updatesRolloutPath, cookie: cookie}).
+		mustStatus(t, http.StatusOK, "cancelling the rollout")
+
+	for _, tc := range []struct {
+		action string
+		detail map[string]any
+	}{
+		{"update.rollout_started", map[string]any{"to": "v1.3.5", "host_ids": []any{a.ID}}},
+		{"update.rollout_resumed", map[string]any{"to": "v1.3.5"}},
+		{"update.rollout_cancelled", map[string]any{"to": "v1.3.5"}},
+	} {
+		rows := h.updateAudit(tc.action)
+		if len(rows) != 1 {
+			t.Errorf("%d %s rows, want 1", len(rows), tc.action)
+			continue
+		}
+		row := rows[0]
+		if row.ActorID != lead.ID || row.ActorName != "fleet-lead" || row.TargetKind != "update" || row.TargetID != open.ID {
+			t.Errorf("%s row = %+v, want fleet-lead's, about the rollout %s", tc.action, row, open.ID)
+		}
+		var detail map[string]any
+		if err := json.Unmarshal([]byte(row.After), &detail); err != nil {
+			t.Fatalf("audit detail %q is not JSON: %v", row.After, err)
+		}
+		if !reflect.DeepEqual(detail, tc.detail) {
+			t.Errorf("%s detail = %v, want %v", tc.action, detail, tc.detail)
+		}
+	}
+}

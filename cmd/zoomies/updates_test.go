@@ -408,7 +408,7 @@ func TestUpdatesApplyHelpSaysItIsNotZoomiesUpgrade(t *testing.T) {
 
 func TestUpdatesGroupListsStatusCheckApplyAndHelper(t *testing.T) {
 	out, _ := runCLI(t, "updates", "--help")
-	for _, want := range []string{"status", "check", "apply", "helper"} {
+	for _, want := range []string{"status", "check", "apply", "resume", "cancel", "helper"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the updates group does not list %q:\n%s", want, out)
 		}
@@ -489,4 +489,267 @@ func TestUpdatesApplyDoesNotAskWhenThePromptCannotBeSeen(t *testing.T) {
 	if !strings.Contains(errOut.String(), "--yes") {
 		t.Errorf("the refusal does not name --yes:\n%s", errOut)
 	}
+}
+
+// rolloutStatusBody is the status with a running rollout of two hosts in it.
+const rolloutStatusBody = `{"mode":"manual","soak":"24h","running":{"version":"1.3.5","release":true},
+	"latest":null,"target":null,"reason":"Nothing newer.","checked_at":null,
+	"helper":{"state":"ready","reason":"","install_command":""},"controller":null,
+	"rollout":{"id":"rol_k3fqz2mx7abcd","target":"v1.3.5","state":"running","halted_reason":"","done":0,"total":2,"current":"vm-a"}}`
+
+// rolloutRecorder answers the host list with two hosts and every other request
+// with one status, and remembers the request that was not the list.
+type rolloutRecorder struct {
+	srv          *httptest.Server
+	method, path string
+	body         string
+	calls        int
+}
+
+func newRolloutRecorder(t *testing.T, status int, body string) *rolloutRecorder {
+	t.Helper()
+	rec := &rolloutRecorder{}
+	rec.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/hosts" {
+			_, _ = w.Write([]byte(`{"items":[{"id":"hst_aaaaaaaaaaaaa","name":"vm-a"},{"id":"hst_bbbbbbbbbbbbb","name":"vm-b"}],"total":2}`))
+			return
+		}
+		raw, _ := io.ReadAll(r.Body)
+		rec.method, rec.path, rec.body = r.Method, r.URL.Path, string(raw)
+		rec.calls++
+		w.WriteHeader(status)
+		_, _ = w.Write([]byte(body))
+	}))
+	t.Cleanup(rec.srv.Close)
+	return rec
+}
+
+// --hosts is every host behind, which is what no body says; a list would pin the
+// rollout to whichever hosts the CLI happened to see.
+func TestUpdatesApplyHostsStartsARolloutOfEveryHostBehind(t *testing.T) {
+	rec := newRolloutRecorder(t, http.StatusAccepted, rolloutStatusBody)
+	out, _ := runCLI(t, "updates", "apply", "--hosts", "--yes", "--url", rec.srv.URL)
+	if rec.method != http.MethodPost || rec.path != "/api/v1/updates/hosts" {
+		t.Errorf("apply --hosts sent %s %s, want POST /api/v1/updates/hosts", rec.method, rec.path)
+	}
+	if rec.body != "" {
+		t.Errorf("apply --hosts sent a body: %q", rec.body)
+	}
+	for _, want := range []string{"rol_k3fqz2mx7abcd", "v1.3.5", "one host at a time", "zoomies updates status"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("apply --hosts does not say %q:\n%s", want, out)
+		}
+	}
+}
+
+// A host is named the way a person knows it, or by the id a log line quoted;
+// either goes to the controller as the id, and a host named twice goes once.
+func TestUpdatesApplyHostSendsTheIDsOfTheHostsNamed(t *testing.T) {
+	for _, args := range [][]string{
+		{"--host", "vm-a", "--host", "hst_bbbbbbbbbbbbb", "--host", "VM-A"},
+		{"--host", "vm-a,hst_bbbbbbbbbbbbb"},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			rec := newRolloutRecorder(t, http.StatusAccepted, rolloutStatusBody)
+			runCLI(t, append([]string{"updates", "apply", "--yes", "--url", rec.srv.URL}, args...)...)
+			if rec.method != http.MethodPost || rec.path != "/api/v1/updates/hosts" {
+				t.Errorf("apply --host sent %s %s, want POST /api/v1/updates/hosts", rec.method, rec.path)
+			}
+			var got map[string]any
+			if err := json.Unmarshal([]byte(rec.body), &got); err != nil {
+				t.Fatalf("apply --host sent %q, which is not JSON: %v", rec.body, err)
+			}
+			want := map[string]any{"host_ids": []any{"hst_aaaaaaaaaaaaa", "hst_bbbbbbbbbbbbb"}}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("apply --host sent %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+// A name that is no host is reported with the names there are, and nothing is
+// asked of the controller.
+func TestUpdatesApplyHostRefusesANameThatIsNoHost(t *testing.T) {
+	rec := newRolloutRecorder(t, http.StatusAccepted, rolloutStatusBody)
+	_, errOut, code := runCLIFailing(t, "updates", "apply", "--host", "vm-nobody", "--yes", "--url", rec.srv.URL)
+	if code == exitOK {
+		t.Fatal("a host nobody enrolled exited 0")
+	}
+	if rec.calls != 0 {
+		t.Errorf("the controller was asked %d time(s) for a host that is not there", rec.calls)
+	}
+	for _, want := range []string{"vm-nobody", "vm-a", "vm-b"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, errOut)
+		}
+	}
+}
+
+// The three ways to say what to update cannot be said together: a rollout takes
+// hosts to the controller's own release, and --version is the controller's.
+func TestUpdatesApplyRefusesFlagsThatSayDifferentThings(t *testing.T) {
+	for _, args := range [][]string{
+		{"--hosts", "--host", "vm-a"},
+		{"--hosts", "--version", "v1.3.5"},
+		{"--host", "vm-a", "--version", "v1.3.5"},
+		{"--host", ""},
+	} {
+		t.Run(strings.Join(args, " "), func(t *testing.T) {
+			rec := newRolloutRecorder(t, http.StatusAccepted, rolloutStatusBody)
+			_, errOut, code := runCLIFailing(t, append([]string{"updates", "apply", "--yes", "--url", rec.srv.URL}, args...)...)
+			if code != exitUsage {
+				t.Errorf("exit code = %d, want %d\n%s", code, exitUsage, errOut)
+			}
+			if rec.calls != 0 {
+				t.Errorf("the controller was asked %d time(s)", rec.calls)
+			}
+		})
+	}
+}
+
+// Without a terminal the only yes is the flag, as for the controller's update,
+// and an address that cannot be used is reported before anything is asked.
+func TestUpdatesApplyHostsAsksAsTheControllerUpdateDoes(t *testing.T) {
+	rec := newRolloutRecorder(t, http.StatusAccepted, rolloutStatusBody)
+	e, out, errOut := newTestEnv(t)
+	e.in = strings.NewReader("yes\n")
+	if code := dispatch(context.Background(), e, []string{"updates", "apply", "--hosts", "--url", rec.srv.URL}); code == exitOK {
+		t.Fatalf("apply --hosts without a terminal or --yes exited 0:\n%s%s", out, errOut)
+	}
+	if rec.calls != 0 {
+		t.Errorf("a rollout was asked for %d time(s) with no yes", rec.calls)
+	}
+	if !strings.Contains(errOut.String(), "--yes") {
+		t.Errorf("the refusal does not name --yes:\n%s", errOut)
+	}
+
+	e, out, errOut = newTestEnv(t)
+	e.in = strings.NewReader("yes\n")
+	if code := dispatch(context.Background(), e, []string{"updates", "apply", "--hosts", "--url", "http://"}); code == exitOK {
+		t.Fatalf("apply --hosts against an address with no host exited 0:\n%s%s", out, errOut)
+	}
+	if !strings.Contains(errOut.String(), "is not a controller URL") || strings.Contains(errOut.String(), "--yes") {
+		t.Errorf("the address was not the first thing reported:\n%s", errOut)
+	}
+}
+
+// At a terminal the question is asked, and a no sends nothing.
+func TestUpdatesApplyHostsTakesANoAsANo(t *testing.T) {
+	prev := stdTerminal
+	stdTerminal = func(*os.File) bool { return true }
+	t.Cleanup(func() { stdTerminal = prev })
+
+	rec := newRolloutRecorder(t, http.StatusAccepted, rolloutStatusBody)
+	e, out, _ := newTestEnv(t)
+	inR, inW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	errR, errW, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { inR.Close(); inW.Close(); errR.Close(); errW.Close() })
+	if _, err := inW.WriteString("n\n"); err != nil {
+		t.Fatal(err)
+	}
+	e.in, e.err = inR, errW
+
+	if code := dispatch(context.Background(), e, []string{"updates", "apply", "--host", "vm-a", "--url", rec.srv.URL}); code != exitOK {
+		t.Fatalf("apply --host exited %d after a no", code)
+	}
+	if rec.calls != 0 {
+		t.Errorf("a rollout was asked for %d time(s) after a no", rec.calls)
+	}
+	if !strings.Contains(out.String(), "Nothing was asked of the controller.") {
+		t.Errorf("a no was not taken as a no:\n%s", out)
+	}
+}
+
+func TestUpdatesApplyHostsExitsNonZeroOnARefusalAndSaysWhichCode(t *testing.T) {
+	for _, tc := range []struct{ code, msg string }{
+		{"update.rollout_halted", "A rollout is halted and waits for you."},
+		{"update.nothing_newer", "No host runs a release behind v1.3.5."},
+	} {
+		t.Run(tc.code, func(t *testing.T) {
+			rec := newRolloutRecorder(t, http.StatusConflict, `{"error":{"code":"`+tc.code+`","message":"`+tc.msg+`"}}`)
+			_, errOut, code := runCLIFailing(t, "updates", "apply", "--hosts", "--yes", "--url", rec.srv.URL)
+			if code == exitOK {
+				t.Fatal("a refusal exited 0")
+			}
+			for _, want := range []string{tc.msg, tc.code} {
+				if !strings.Contains(errOut, want) {
+					t.Errorf("the refusal does not say %q:\n%s", want, errOut)
+				}
+			}
+		})
+	}
+}
+
+// Resuming sets hosts updating again, so it is asked about as starting is.
+func TestUpdatesResumePostsAndSaysWhereTheRolloutIs(t *testing.T) {
+	rec := newRolloutRecorder(t, http.StatusAccepted, rolloutStatusBody)
+	out, _ := runCLI(t, "updates", "resume", "--yes", "--url", rec.srv.URL)
+	if rec.method != http.MethodPost || rec.path != "/api/v1/updates/rollout/resume" || rec.body != "" {
+		t.Errorf("resume sent %s %s %q, want POST /api/v1/updates/rollout/resume with no body", rec.method, rec.path, rec.body)
+	}
+	for _, want := range []string{"rol_k3fqz2mx7abcd", "v1.3.5", "running"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("resume does not say %q:\n%s", want, out)
+		}
+	}
+
+	rec = newRolloutRecorder(t, http.StatusAccepted, rolloutStatusBody)
+	e, _, errOut := newTestEnv(t)
+	e.in = strings.NewReader("yes\n")
+	if code := dispatch(context.Background(), e, []string{"updates", "resume", "--url", rec.srv.URL}); code == exitOK || rec.calls != 0 {
+		t.Errorf("resume went ahead (exit %d, %d call(s)) with no terminal and no --yes", code, rec.calls)
+	}
+	if !strings.Contains(errOut.String(), "--yes") {
+		t.Errorf("the refusal does not name --yes:\n%s", errOut)
+	}
+}
+
+// Stopping changes nothing that is already happening, so it is not asked about.
+func TestUpdatesCancelDeletesTheRolloutWithoutAsking(t *testing.T) {
+	rec := newRolloutRecorder(t, http.StatusOK, strings.Replace(rolloutStatusBody, `"state":"running"`, `"state":"cancelled"`, 1))
+	e, out, errOut := newTestEnv(t)
+	e.in = strings.NewReader("")
+	if code := dispatch(context.Background(), e, []string{"updates", "cancel", "--url", rec.srv.URL}); code != exitOK {
+		t.Fatalf("cancel exited %d:\n%s", code, errOut)
+	}
+	if rec.method != http.MethodDelete || rec.path != "/api/v1/updates/rollout" {
+		t.Errorf("cancel sent %s %s, want DELETE /api/v1/updates/rollout", rec.method, rec.path)
+	}
+	for _, want := range []string{"rol_k3fqz2mx7abcd", "cancelled"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("cancel does not say %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestUpdatesResumeAndCancelSayWhenThereIsNoRollout(t *testing.T) {
+	for _, args := range [][]string{{"resume", "--yes"}, {"cancel"}} {
+		verb := args[0]
+		rec := newRolloutRecorder(t, http.StatusNotFound, `{"error":{"code":"not_found","message":"not found: there is no rollout to `+verb+`"}}`)
+		_, errOut, code := runCLIFailing(t, append([]string{"updates"}, append(args, "--url", rec.srv.URL)...)...)
+		if code == exitOK {
+			t.Errorf("%s with no rollout exited 0", verb)
+		}
+		if !strings.Contains(errOut, "no rollout to "+verb) {
+			t.Errorf("%s does not say there is no rollout:\n%s", verb, errOut)
+		}
+	}
+}
+
+func TestUpdatesStatusShowsTheRollout(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{"/api/v1/updates": strings.Replace(rolloutStatusBody, `"halted_reason":""`, `"halted_reason":"vm-a could not update`+hostileJSON+`"`, 1)})
+	out, _ := runCLI(t, "updates", "status", "--url", srv.URL)
+	for _, want := range []string{"Rollout", "rol_k3fqz2mx7abcd", "v1.3.5", "0 of 2", "vm-a could not update"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("status does not say %q:\n%s", want, out)
+		}
+	}
+	assertNoTerminalControl(t, "updates status", out, strings.Count(out, "\n"))
 }

@@ -856,6 +856,23 @@ export const checkForUpdates = () => api.post<Result<'checkForUpdates'>>('/updat
 export const updateController = (tag?: string) =>
   api.post<Result<'updateController'>>('/updates/controller', tag ? { body: { tag } } : {});
 
+/**
+ * Start a rollout (admin): every host behind the controller's release, or only `hostIds`. An
+ * empty list is refused by the server rather than read as every host, so it is not sent as one.
+ * Answers 202 with the status, whose `rollout` is the one just started.
+ */
+export const startHostRollout = (hostIds?: string[]) =>
+  api.post<Result<'startHostRollout'>>(
+    '/updates/hosts',
+    hostIds ? { body: { host_ids: hostIds } } : {},
+  );
+
+/** Let a halted rollout carry on (admin). Answers 202 with the status. */
+export const resumeRollout = () => api.post<Result<'resumeRollout'>>('/updates/rollout/resume', {});
+
+/** Stop the open rollout (admin). Answers 200 with the status. */
+export const cancelRollout = () => api.del<Result<'cancelRollout'>>('/updates/rollout');
+
 /* -- backups -------------------------------------------------------------- */
 
 export const listBackups = (signal?: AbortSignal) =>
