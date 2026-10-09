@@ -54,6 +54,32 @@ test('queue controls persist, filter and restore demand without changing GitHub 
   }
 });
 
+test('a start with a time of day narrows the queue to that minute', async ({ page, request }) => {
+  // The queue the page lists by default, from the API, so the expected count is
+  // worked out here and not by the helper under test.
+  const { items } = (await request
+    .get(
+      '/api/v1/provisioning?limit=500&sort=queued_at&order=asc&provisioning=ready&provisioning=expedited&provisioning=paused',
+    )
+    .then((r) => r.json())) as { items: { queued_at: string }[] };
+
+  // The minute of the newest job, so the cut falls inside the queue's span and
+  // not at a day boundary: a page that rounded to the day would keep every job.
+  const cut = new Date(items[items.length - 1]!.queued_at);
+  cut.setSeconds(0, 0);
+  const kept = items.filter((job) => Date.parse(job.queued_at) >= cut.getTime()).length;
+  expect(kept, 'the cut has to fall inside the queue').toBeGreaterThan(0);
+  expect(kept, 'the cut has to leave some out').toBeLessThan(items.length);
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const local = `${cut.getFullYear()}-${pad(cut.getMonth() + 1)}-${pad(cut.getDate())}T${pad(cut.getHours())}:${pad(cut.getMinutes())}`;
+  await goto(page, `/queue?since=${encodeURIComponent(local)}`, 'Queue');
+  await expect(page.getByText('matching items')).toContainText(`${kept} matching items`);
+  await expect(page.getByRole('group', { name: 'Queued between' }).getByLabel('From')).toHaveValue(
+    local,
+  );
+});
+
 test('queue views preserve combined filters and cancel leaves demand unchanged', async ({
   page,
 }) => {

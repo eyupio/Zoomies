@@ -171,6 +171,57 @@ test('a host facet narrows the jobs to the ones that ran there, and agrees with 
   await expect(facetTrigger(page, 'Host')).toHaveCount(0);
 });
 
+test('a start with a time of day keeps the jobs from that minute and shows it', async ({
+  page,
+}) => {
+  // Every job the page can list, from the API, so the expected count is worked
+  // out here and not by the helper under test.
+  const { items } = (await page.request
+    .get('/api/v1/jobs?managed=true&limit=500&sort=queued_at&order=asc')
+    .then((r) => r.json())) as { items: { queued_at: string }[] };
+  expect(items.length).toBe(FIXTURE.managedJobs);
+
+  // The middle job's own minute, so the cut falls inside the seed's span and not
+  // at a day boundary: a page that rounded to the day would keep every job.
+  const middle = new Date(items[Math.floor(items.length / 2)]!.queued_at);
+  middle.setSeconds(0, 0);
+  const kept = items.filter((job) => Date.parse(job.queued_at) >= middle.getTime()).length;
+  expect(kept, 'the cut has to fall inside the seed').toBeGreaterThan(0);
+  expect(kept).toBeLessThan(items.length);
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const local = `${middle.getFullYear()}-${pad(middle.getMonth() + 1)}-${pad(middle.getDate())}T${pad(middle.getHours())}:${pad(middle.getMinutes())}`;
+  await goto(page, `/jobs?since=${encodeURIComponent(local)}`, 'Jobs');
+  await expect(rowCount(page)).toContainText(`of ${kept} jobs`);
+
+  // The bound is shown where it can be read and changed: a date input given a
+  // time shows nothing, and the chip would then name a filter the field hides.
+  const range = page.getByRole('group', { name: 'Queued between' });
+  await expect(range.getByLabel('From')).toHaveValue(local);
+  await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText(
+    local.replace('T', ' '),
+  );
+
+  // An end at a minute takes the whole of that minute, as an end on a day takes
+  // the whole of that day, so a job queued at 17:00:40 is inside "to 17:00".
+  const keptByEnd = items.filter((job) => Date.parse(job.queued_at) < middle.getTime() + 60_000);
+  await goto(page, `/jobs?until=${encodeURIComponent(local)}`, 'Jobs');
+  await expect(rowCount(page)).toContainText(`of ${keptByEnd.length} jobs`);
+  await expect(range.getByLabel('to', { exact: true })).toHaveValue(local);
+  await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText(
+    local.replace('T', ' '),
+  );
+
+  // Clearing it puts every job back, and a bare date still means the whole day.
+  await goto(page, `/jobs?since=${encodeURIComponent(local)}`, 'Jobs');
+  await page
+    .getByRole('button', { name: `Remove the From filter ${local.replace('T', ' ')}` })
+    .click();
+  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
+  await goto(page, `/jobs?since=${local.slice(0, 10)}`, 'Jobs');
+  await expect(range.getByLabel('From')).toHaveValue(local.slice(0, 10));
+});
+
 test('the unmatched filter finds the job no pool claims and explains it', async ({ page }) => {
   await goto(page, '/jobs', 'Jobs');
   await expect(dataRows(jobs(page)).first()).toBeVisible();
