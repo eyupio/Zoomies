@@ -52,12 +52,12 @@ test('the page lists one row per run and opens on what is running', async ({ pag
 test('a run opens in place to the jobs inside it, and closes again from the keyboard', async ({
   page,
 }) => {
-  // The one run with a failure this fleet caused: its row says so, and so
-  // does the job under it.
+  // The runs with a failure this fleet caused, newest first: the lost
+  // runner's row says so, and so does the job under it.
   await goto(page, '/workflows?faulted=true', 'Workflows');
   const row = dataRows(runs(page)).first();
   await expect(row).toBeVisible();
-  await expect(dataRows(runs(page))).toHaveCount(1);
+  await expect(dataRows(runs(page))).toHaveCount(FIXTURE.faultedRuns);
   await expect(row).toContainText(`#${FIXTURE.faultedRun}`);
   await expect(row).toContainText('Runner lost');
   await expect(row).toContainText('1 succeeded · 1 failed');
