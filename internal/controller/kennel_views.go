@@ -290,14 +290,9 @@ func kennelDisabled(k config.Kennel) map[string]bool {
 		if (!k.WorkflowChecks && reads(kennel.SourceWorkflows)) || (!k.RepositorySetup && reads(kennel.SourceSetup)) || (!k.AgentGuidance && reads(kennel.SourceGuidance)) {
 			out[string(c.Code)] = true
 		}
-		if !k.SettingsChecks && reads(kennel.SourceSettings) {
-			out[string(c.Code)] = true
-		}
-		// Nothing reads a branch's required checks yet: the reader exists and the
-		// loop does not call it. A check that needs a source nobody reads would be
-		// skipped everywhere and cost every repository its best-in-show, so it is
-		// off until the read arrives with it.
-		if reads(kennel.SourceProtection) {
+		// Required checks are settings of the repository too, and are read under the
+		// same switch with the same permission.
+		if !k.SettingsChecks && (reads(kennel.SourceSettings) || reads(kennel.SourceProtection)) {
 			out[string(c.Code)] = true
 		}
 	}

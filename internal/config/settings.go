@@ -1052,7 +1052,7 @@ var registry = buildRegistry([]Setting{
 	},
 	{
 		Key: "kennel.settings_checks", Label: "Check repository settings", Env: "ZOOMIES_KENNEL_SETTINGS_CHECKS", Kind: KindBool, Scope: ScopeInstance, Live: true,
-		Summary: "Whether Kennel Club reads each repository's Actions settings, the default workflow token and the policy for fork pull requests. Off by default. Needs the App's Administration read permission, which GitHub offers no narrower form of and which is asked for separately; reads no file contents and changes no setting.",
+		Summary: "Whether Kennel Club reads each repository's Actions settings, the default workflow token and the policy for fork pull requests, and the status checks its default branch requires. Off by default. Needs the App's Administration read permission, which GitHub offers no narrower form of and which is asked for separately; reads no file contents and changes no setting.",
 	},
 	{
 		Key: "kennel.scope", Label: "Repositories to check", Env: "ZOOMIES_KENNEL_SCOPE", Kind: KindEnum, Scope: ScopeInstance, Live: true,
