@@ -1,5 +1,5 @@
 {
-  "version": 6,
+  "version": 7,
   "root": "clean",
   "visibility": "private",
   "files": [
@@ -48,6 +48,14 @@
       "reason": "needs what only a controller knows: what the fleet observed"
     },
     {
+      "code": "exposure.fork_approval_weak",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "exposure.private_fork_secrets",
+      "reason": "needs what only a controller knows: the repository's Actions settings"
+    },
+    {
       "code": "capacity.unserved_label",
       "reason": "needs what only a controller knows: what the fleet observed"
     },
@@ -84,8 +92,16 @@
       "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
     },
     {
+      "code": "token.default_write",
+      "reason": "needs what only a controller knows: the repository's Actions settings"
+    },
+    {
       "code": "ci.pins_without_updater",
       "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
+    },
+    {
+      "code": "protection.required_check_never_reports",
+      "reason": "needs what only a controller knows: what the fleet observed"
     }
   ]
 }
