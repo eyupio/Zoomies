@@ -34,6 +34,7 @@
   import RepositoryOverview from '$lib/kennel/RepositoryOverview.svelte';
   import RepositoryAgentGuidance from '$lib/kennel/RepositoryAgentGuidance.svelte';
   import RepositoryAiContext from '$lib/kennel/RepositoryAiContext.svelte';
+  import RepositoryProtection from '$lib/kennel/RepositoryProtection.svelte';
   import TrackSwitch from '$lib/kennel/TrackSwitch.svelte';
   import WaiveDialog from '$lib/kennel/WaiveDialog.svelte';
   import {
@@ -67,6 +68,7 @@
     { id: 'overview', label: 'Overview' },
     { id: 'ci', label: 'CI' },
     { id: 'agent-guidance', label: 'Agent guidance' },
+    { id: 'protection', label: 'Protection' },
     { id: 'ai-context', label: 'AI Context' },
   ] as const;
   const base = $derived(`/kennel/repositories/${encodeURIComponent(id)}`);
@@ -306,6 +308,8 @@
           <RepositoryOverview repo={current} refreshKey={reload} />
         {:else if tab === 'agent-guidance'}
           <RepositoryAgentGuidance repo={current} />
+        {:else if tab === 'protection'}
+          <RepositoryProtection repo={current} />
         {:else if tab === 'ai-context'}
           <RepositoryAiContext repo={current} />
         {:else if !current.tracking.tracked}
