@@ -28,7 +28,11 @@ func init() {
 		return withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA, OtherUnpinned: []Location{{0, 8}}})
 	}
 	positives[CodePermissionsUnset] = func() Snapshot {
-		return withWorkflowFile(publicRepo(), WorkflowFile{SHA: shaA, PermissionsUnset: []Location{{0, 4}}})
+		// Unset permissions are only a finding when the default token can write or
+		// is not known; see TestUnsetPermissionsAreJudgedAgainstTheDefaultTokenWhenItIsKnown.
+		s := withWorkflowFile(publicRepo(), WorkflowFile{SHA: shaA, PermissionsUnset: []Location{{0, 4}}})
+		s.Settings = &SettingsFacts{DefaultTokenWrite: true, ForkApproval: ApprovalAll}
+		return s
 	}
 	positives[CodeTargetCheckoutPRHead] = func() Snapshot {
 		return withWorkflowFile(publicRepo(), WorkflowFile{SHA: shaA, TargetCheckoutPRHead: []Location{{0, 8}}})
@@ -238,6 +242,7 @@ func TestWorkflowAdviceRequiresReadableCoverageAndNeverCallsPartialReadsClear(t 
 }
 func TestFirstPartyPinsAndPrivateTokenDeclarationsAreAdvice(t *testing.T) {
 	s := withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA, FirstPartyUnpinned: []Location{{0, 7}}, PermissionsUnset: []Location{{0, 4}}})
+	s.Settings.DefaultTokenWrite = true
 	for _, code := range []Code{CodeActionNotPinned, CodePermissionsUnset} {
 		f, ok := finding(Evaluate(s, Policy{}), code)
 		if !ok || f.Severity != SeverityInfo {

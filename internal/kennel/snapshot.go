@@ -30,7 +30,11 @@ type Snapshot struct {
 	Guidance  *GuidanceFacts
 	Setup     *SetupFacts
 	Runs      *RunFacts
-	Coverage  Coverage
+	Settings  *SettingsFacts
+	// Protection is nil until the default branch's required checks have been
+	// read and compared with the jobs the fleet saw.
+	Protection *ProtectionFacts
+	Coverage   Coverage
 }
 
 // Repo is what GitHub says about the repository itself.

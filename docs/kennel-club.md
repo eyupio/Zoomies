@@ -35,8 +35,8 @@ UI under **Kennel Club**. This is its Overview for the demo fleet:
 
 ## What it checks
 
-There are thirty checks, in six areas. Seven of them, in **exposure** and
-**capacity**, run whenever Kennel Club is on; the other twenty-three are opt-in,
+There are thirty-four checks, in seven areas. Seven of them, in **exposure** and
+**capacity**, run whenever Kennel Club is on; the other twenty-seven are opt-in,
 and [the switches that turn them on](#the-optional-checks) are described after
 them. Each has a stable code, so a waiver, a metric or a `disabled_checks`
 entry keeps meaning the same thing from one release to the next, and the same
@@ -203,6 +203,40 @@ Fix
 
 Verify
 :   Press Recheck after the change reaches the default branch; the finding closes when no pull_request_target workflow checks out the pull request's head.
+
+### `exposure.fork_approval_weak` { #exposure-fork_approval_weak }
+
+Area
+:   exposure
+
+Severity
+:   warning
+
+Detects
+:   A public repository this fleet serves asks for approval of fork pull requests only from contributors new to GitHub, so most outside contributors can start a job here.
+
+Fix
+:   Require approval for workflows from all outside contributors in the repository's Actions settings, so a maintainer reads a fork's pull request before it runs here.
+
+Verify
+:   Press Recheck after the setting changes; the finding closes when the approval policy covers every outside contributor.
+
+### `exposure.private_fork_secrets` { #exposure-private_fork_secrets }
+
+Area
+:   exposure
+
+Severity
+:   warning
+
+Detects
+:   A private repository lets fork pull requests run workflows and sends them secrets or a token that can write.
+
+Fix
+:   In the repository's Actions settings, stop sending secrets and write tokens to fork pull request workflows, or stop fork pull requests running workflows.
+
+Verify
+:   Press Recheck after the setting changes; the finding closes when fork pull requests are sent neither secrets nor a token that can write.
 
 ### `capacity.unserved_label` { #capacity-unserved_label }
 
@@ -493,6 +527,23 @@ Fix
 Verify
 :   Press Recheck after the change reaches the default branch; the finding closes when every job has a permissions block of its own or its workflow's.
 
+### `token.default_write` { #token-default_write }
+
+Area
+:   token
+
+Severity
+:   warning
+
+Detects
+:   The repository's default workflow token can write, so every workflow that sets no permissions runs with write access.
+
+Fix
+:   Set the default workflow permissions to read-only in the repository's Actions settings, then declare write permissions only on the workflows or jobs that need them.
+
+Verify
+:   Press Recheck after the setting changes; the finding closes when the default workflow token is read-only.
+
 ### `ci.workflow_unreadable` { #ci-workflow_unreadable }
 
 Area
@@ -561,6 +612,23 @@ Fix
 Verify
 :   Press Recheck after the change reaches the default branch; the finding closes when no run line or args interpolates a secret.
 
+### `protection.required_check_never_reports` { #protection-required_check_never_reports }
+
+Area
+:   protection
+
+Severity
+:   warning
+
+Detects
+:   A status check that GitHub Actions should post is required to merge, but no job this fleet saw in the window produced it.
+
+Fix
+:   Rename the required check to the name of the job that posts it, or remove it from the branch protection or ruleset if no job posts it any more.
+
+Verify
+:   Press Recheck after the required checks change; the finding closes when every required check pinned to GitHub Actions has a job of that name in the window.
+
 <!-- zoomies:catalogue-end -->
 
 **Exposure** is about strangers. Code from outside your project should never
@@ -579,7 +647,7 @@ change, the pools and runs involved, and where to look. The sentences come from
 Kennel Club and never from the repository, so a pull request title or a branch
 name cannot put words into an operator's page.
 
-The whole registry, all thirty, is served by `GET /api/v1/kennel/checks`, so a
+The whole registry, all thirty-four, is served by `GET /api/v1/kennel/checks`, so a
 script can read what is checked without scraping this page.
 
 **One finding can be worse than its usual severity.** On its own,
@@ -619,6 +687,14 @@ an all clear.
 and what its absence makes harder, and
 [the workflow checks](configuration.md#workflow-best-practice-checks) say what
 each detects and what is excluded.
+
+Four more checks read a repository's settings and the status checks its default
+branch requires: `token.default_write`, `exposure.fork_approval_weak`,
+`exposure.private_fork_secrets` and `protection.required_check_never_reports`.
+They need the App's **Administration** read permission, which GitHub offers no
+narrower form of, so they are asked for separately from the rest. Nothing reads
+those settings yet, so these four stay turned off and have no switch; the switch
+and the permission arrive with the read, and this page will say how to grant it.
 
 ## Agent guidance
 

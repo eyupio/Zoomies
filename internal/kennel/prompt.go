@@ -41,17 +41,42 @@ func Prompt(f Finding, paths map[string]string) string {
 		b.WriteString(strings.Join(lines, "\n") + "\n```\n\n")
 	}
 
-	b.WriteString("Before proposing a change, read the file's history")
-	if history != "" {
-		b.WriteString(" (git log -p -- " + history + ")")
+	if aSetting(f.Code) {
+		// Nothing in the repository's files resolves this, and an agent handed
+		// the file instructions would look for something to edit, such as the
+		// workflows' permissions, and change that instead of the setting.
+		b.WriteString("This is a setting on GitHub, not a file in the repository, so no edit to the repository's files resolves it, " +
+			"and it cannot be changed from here. Tell the person which setting to change and why, and leave the change to them: " +
+			"it is made in the repository's settings on GitHub.")
+	} else {
+		b.WriteString("Before proposing a change, read the file's history")
+		if history != "" {
+			b.WriteString(" (git log -p -- " + history + ")")
+		}
+		b.WriteString(" so the change respects why it is the way it is. Make the smallest change that resolves the finding, " +
+			"change nothing else, and say in the pull request what the finding was and how the change resolves it.")
 	}
-	b.WriteString(" so the change respects why it is the way it is. Make the smallest change that resolves the finding, " +
-		"change nothing else, and say in the pull request what the finding was and how the change resolves it.")
 	if ck, ok := Lookup(f.Code); ok {
 		b.WriteString(" The check is described at https://zoomies.sh/" + strings.Replace(ck.Docs, "kennel-club.md#", "kennel-club/#", 1) + ".")
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// aSetting is whether a finding is about a setting on GitHub and not about a
+// file in the repository. It is decided by what the check reads, so a new check
+// that reads a setting is one without anyone remembering to say so here.
+func aSetting(code Code) bool {
+	ck, ok := Lookup(code)
+	if !ok {
+		return false
+	}
+	for _, src := range append(append([]Source(nil), ck.Needs...), ck.Conditional...) {
+		if src == SourceSettings || src == SourceProtection {
+			return true
+		}
+	}
+	return false
 }
 
 // EvidenceText is one evidence item as a line a person reads: the kind, then
