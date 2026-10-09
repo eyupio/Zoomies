@@ -12171,7 +12171,7 @@ components:
           examples: [sudo zoomies updates helper install]
         upgrade_command:
           type: string
-          description: The command that updates the controller by hand on its host, for a person to copy. Set only when the state is `unsupported`, where it is the way.
+          description: The command that updates the controller by hand on its host, for a person to copy. Set only when the state is `unsupported`, where it is the way, and empty on Windows, which has no service `zoomies upgrade` can update, where `reason` says what to do by hand instead.
           examples: [sudo zoomies upgrade]
     UpdatesAttempt:
       type: object
