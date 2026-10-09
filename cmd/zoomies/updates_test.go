@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"io/fs"
 	"net/http"
@@ -508,11 +509,18 @@ type rolloutRecorder struct {
 
 func newRolloutRecorder(t *testing.T, status int, body string) *rolloutRecorder {
 	t.Helper()
+	return newRolloutRecorderWithHosts(t, status, body,
+		`{"items":[{"id":"hst_aaaaaaaaaaaaa","name":"vm-a"},{"id":"hst_bbbbbbbbbbbbb","name":"vm-b"}],"total":2}`)
+}
+
+// newRolloutRecorderWithHosts is newRolloutRecorder with the host list given.
+func newRolloutRecorderWithHosts(t *testing.T, status int, body, hosts string) *rolloutRecorder {
+	t.Helper()
 	rec := &rolloutRecorder{}
 	rec.srv = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if r.Method == http.MethodGet && r.URL.Path == "/api/v1/hosts" {
-			_, _ = w.Write([]byte(`{"items":[{"id":"hst_aaaaaaaaaaaaa","name":"vm-a"},{"id":"hst_bbbbbbbbbbbbb","name":"vm-b"}],"total":2}`))
+			_, _ = w.Write([]byte(hosts))
 			return
 		}
 		raw, _ := io.ReadAll(r.Body)
@@ -583,6 +591,69 @@ func TestUpdatesApplyHostRefusesANameThatIsNoHost(t *testing.T) {
 		if !strings.Contains(errOut, want) {
 			t.Errorf("the refusal does not say %q:\n%s", want, errOut)
 		}
+	}
+}
+
+// Two hosts whose names differ only in case are both what a name typed in
+// another case could mean, and guessing would restart the wrong host's agent. A
+// name typed exactly as one of them is that host.
+func TestUpdatesApplyHostRefusesANameTwoHostsAnswerTo(t *testing.T) {
+	const hosts = `{"items":[{"id":"hst_aaaaaaaaaaaaa","name":"vm-a"},{"id":"hst_ccccccccccccc","name":"VM-A"}],"total":2}`
+	rec := newRolloutRecorderWithHosts(t, http.StatusAccepted, rolloutStatusBody, hosts)
+	_, errOut, code := runCLIFailing(t, "updates", "apply", "--host", "Vm-A", "--yes", "--url", rec.srv.URL)
+	if code == exitOK || rec.calls != 0 {
+		t.Fatalf("a name two hosts answer to went ahead (exit %d, %d call(s)):\n%s", code, rec.calls, errOut)
+	}
+	for _, want := range []string{"Vm-A", "vm-a", "hst_aaaaaaaaaaaaa", "VM-A", "hst_ccccccccccccc", "id"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, errOut)
+		}
+	}
+
+	rec = newRolloutRecorderWithHosts(t, http.StatusAccepted, rolloutStatusBody, hosts)
+	runCLI(t, "updates", "apply", "--host", "VM-A", "--yes", "--url", rec.srv.URL)
+	if want := `{"host_ids":["hst_ccccccccccccc"]}`; strings.TrimSpace(rec.body) != want {
+		t.Errorf("a name typed exactly as one host's sent %q, want %s", rec.body, want)
+	}
+}
+
+// A fleet of hundreds would print every name in one refusal, burying the line
+// that says what was wrong; ten is enough to see the naming, and the rest are
+// counted.
+func TestUpdatesApplyHostListsAtMostTenHostsWhenANameIsNoHost(t *testing.T) {
+	var items []string
+	for i := range 15 {
+		items = append(items, fmt.Sprintf(`{"id":"hst_%013d","name":"vm-%02d"}`, i, i))
+	}
+	hosts := `{"items":[` + strings.Join(items, ",") + `],"total":15}`
+	rec := newRolloutRecorderWithHosts(t, http.StatusAccepted, rolloutStatusBody, hosts)
+	_, errOut, code := runCLIFailing(t, "updates", "apply", "--host", "vm-nobody", "--yes", "--url", rec.srv.URL)
+	if code == exitOK || rec.calls != 0 {
+		t.Fatalf("a host nobody enrolled went ahead (exit %d, %d call(s))", code, rec.calls)
+	}
+	for _, want := range []string{"vm-00", "vm-09", "and 5 more"} {
+		if !strings.Contains(errOut, want) {
+			t.Errorf("the refusal does not say %q:\n%s", want, errOut)
+		}
+	}
+	if strings.Contains(errOut, "vm-10") {
+		t.Errorf("the refusal lists more than ten hosts:\n%s", errOut)
+	}
+}
+
+// --hosts=false says "not the hosts", and reading it as "the controller" would
+// restart the controller nobody asked to update.
+func TestUpdatesApplyHostsFalseIsRefusedRatherThanUpdatingTheController(t *testing.T) {
+	rec := newRolloutRecorder(t, http.StatusAccepted, rolloutStatusBody)
+	_, errOut, code := runCLIFailing(t, "updates", "apply", "--hosts=false", "--yes", "--url", rec.srv.URL)
+	if code != exitUsage {
+		t.Errorf("exit code = %d, want %d\n%s", code, exitUsage, errOut)
+	}
+	if rec.calls != 0 {
+		t.Errorf("--hosts=false asked the controller %s %s", rec.method, rec.path)
+	}
+	if !strings.Contains(errOut, "--hosts") {
+		t.Errorf("the refusal does not name --hosts:\n%s", errOut)
 	}
 }
 

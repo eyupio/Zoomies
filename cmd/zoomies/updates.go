@@ -216,7 +216,13 @@ func updatesApply(ctx context.Context, e *env, args []string) error {
 	if fs.changed("host") && len(hostRefs) == 0 {
 		return usagef("updates apply", "--host needs a host's name or id, as zoomies hosts list shows; use --hosts for every host behind")
 	}
-	if *allHosts || len(hostRefs) > 0 {
+	// --hosts=false is refused rather than read as no flag at all: falling
+	// through would update the controller, which is the one thing the person
+	// typing --hosts did not mean.
+	if fs.changed("hosts") && !*allHosts {
+		return usagef("updates apply", "--hosts=false names nothing to update; leave --hosts out to update the controller, or give --hosts to update every host behind")
+	}
+	if fs.changed("hosts") || fs.changed("host") {
 		return applyRollout(ctx, e, cf, hostRefs, *yes)
 	}
 	// An untyped nil, so that a request without --version carries no body at all
@@ -315,28 +321,62 @@ func applyRollout(ctx context.Context, e *env, cf *clientFlags, refs []string, y
 // resolveHosts turns what an operator typed into host ids, each once, accepting
 // the name they know a host by or the id a log line quoted. The names it returns
 // are for the question, and safe to print.
+//
+// An id, or a name typed exactly as one host's, is that host. Otherwise the name
+// is matched without regard to case, and two hosts that it matches are refused
+// rather than guessed between, because the guess restarts a host's agent.
 func resolveHosts(ctx context.Context, client *apiClient, refs []string) (ids, names []string, err error) {
 	var out listResponse[hostItem]
 	if _, err := client.get(ctx, "/hosts", nil, &out); err != nil {
 		return nil, nil, plainAPIError(err)
 	}
 	for _, ref := range refs {
-		i := slices.IndexFunc(out.Items, func(h hostItem) bool { return h.ID == ref || strings.EqualFold(h.Name, ref) })
-		if i < 0 {
-			if len(out.Items) == 0 {
-				return nil, nil, fmt.Errorf("there are no hosts on this controller, so %q is not one", plain(ref))
-			}
-			var all []string
-			for _, h := range out.Items {
-				all = append(all, plain(h.Name))
-			}
-			return nil, nil, fmt.Errorf("no host is called %q or has that id; this controller has: %s", plain(ref), strings.Join(all, ", "))
+		h, err := resolveHost(out.Items, ref)
+		if err != nil {
+			return nil, nil, err
 		}
-		if h := out.Items[i]; !slices.Contains(ids, h.ID) {
+		if !slices.Contains(ids, h.ID) {
 			ids, names = append(ids, h.ID), append(names, plain(h.Name))
 		}
 	}
 	return ids, names, nil
+}
+
+// maxHostsNamed is how many hosts a refusal lists before it counts the rest: a
+// fleet of hundreds in one line would bury the sentence that says what was wrong.
+const maxHostsNamed = 10
+
+func resolveHost(hosts []hostItem, ref string) (hostItem, error) {
+	if i := slices.IndexFunc(hosts, func(h hostItem) bool { return h.ID == ref || h.Name == ref }); i >= 0 {
+		return hosts[i], nil
+	}
+	var like []hostItem
+	for _, h := range hosts {
+		if strings.EqualFold(h.Name, ref) {
+			like = append(like, h)
+		}
+	}
+	switch {
+	case len(like) == 1:
+		return like[0], nil
+	case len(like) > 1:
+		var each []string
+		for _, h := range like {
+			each = append(each, fmt.Sprintf("%s (%s)", plain(h.Name), plain(h.ID)))
+		}
+		return hostItem{}, fmt.Errorf("%q could be any of %s; name the host by its id, or exactly as it is written", plain(ref), strings.Join(each, ", "))
+	case len(hosts) == 0:
+		return hostItem{}, fmt.Errorf("there are no hosts on this controller, so %q is not one", plain(ref))
+	}
+	var some []string
+	for _, h := range hosts[:min(len(hosts), maxHostsNamed)] {
+		some = append(some, plain(h.Name))
+	}
+	list := strings.Join(some, ", ")
+	if more := len(hosts) - len(some); more > 0 {
+		list += fmt.Sprintf(", and %d more (zoomies hosts list shows them all)", more)
+	}
+	return hostItem{}, fmt.Errorf("no host is called %q or has that id; this controller has: %s", plain(ref), list)
 }
 
 // answeredYes reads one line of the answer to a [y/N] question.
