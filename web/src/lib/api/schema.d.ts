@@ -2491,7 +2491,7 @@ export interface paths {
         put?: never;
         /**
          * Update a host to this controller's release
-         * @description Asks the host's agent to have its update helper replace the agent's binary with the release this controller runs. It answers 202 with the host, whose `update` block holds the attempt as `requested`: the task goes out on the agent's own poll, because the controller never dials an agent, and the host is updated once its agent reports that release, which the page learns from the host's `host.updated` events. Everything that can refuse does so before anything is written, so a refusal leaves nothing in flight. A host can be asked when its `update.can_update` is true: its agent offers to update itself (it does only once the update helper is installed on the host), it is behind the controller's release, and no attempt for it is open. The agent inside the controller is updated with the controller, and is refused with `update.host_cannot_update`, as is a host that is not behind. A host that is not there is a 404. Takes no body; a field sent is a 422 naming it. Audited as `update.host_requested` once it is accepted, and not before. Below the `platform` role the text of a failed attempt in the answer is a fixed sentence for its state.
+         * @description Asks the host's agent to have its update helper replace the agent's binary with the release this controller runs. It answers 202 with the host, whose `update` block holds the attempt as `requested`: the task goes out on the agent's own poll, because the controller never dials an agent, and the host is updated once its agent reports that release, which the page learns from the host's `host.updated` events. Everything that can refuse does so before anything is written, so a refusal leaves nothing in flight. A host can be asked when its `update.can_update` is true: updating is on, its agent offers to update itself (it does only once the update helper is installed on the host), it is behind the controller's release, and no attempt for it is open. The agent inside the controller is updated with the controller, and is refused with `update.host_cannot_update`, as is a host that is not behind. A host that is not there is a 404. Takes no body; a field sent is a 422 naming it. Audited as `update.host_requested` once it is accepted, and not before. Below the `platform` role the text of a failed attempt in the answer is a fixed sentence for its state.
          */
         post: operations["requestHostUpdate"];
         delete?: never;
@@ -8400,7 +8400,7 @@ export interface components {
              * @example This host's agent does not offer to update itself, which it does only once the update helper is installed on the host. Run sudo zoomies updates helper install there, or update it with the command below.
              */
             reason: string;
-            /** @description Whether asking for an update now would be taken: the host's agent offers it, the host is behind the controller's release, the controller runs a release, it is not the agent inside the controller, and no attempt is open. `updates.mode` is not part of it; with the mode `off` every request is refused with `update.mode_off`. */
+            /** @description Whether asking for an update now would be taken: `updates.mode` is `manual` or `auto`, the host's agent offers it, the host is behind the controller's release, the controller runs a release, it is not the agent inside the controller, and no attempt is open. With the mode `off` it is false, and `reason` says that updating is off wherever turning it on would let the host be asked; where it would not, as for a host the update helper can never be installed on, `reason` says what is in the way instead. */
             can_update: boolean;
             /**
              * @description The attempt `state` describes
@@ -9398,7 +9398,7 @@ export interface components {
              */
             install_command: string;
             /**
-             * @description The command that updates the controller by hand on its host, for a person to copy. Set only when the state is `unsupported`, where it is the way.
+             * @description The command that updates the controller by hand on its host, for a person to copy. Set only when the state is `unsupported`, where it is the way, and empty on Windows, which has no service `zoomies upgrade` can update, where `reason` says what to do by hand instead.
              * @example sudo zoomies upgrade
              */
             upgrade_command: string;
