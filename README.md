@@ -451,7 +451,11 @@ fleet freely, asks before it changes anything and leaves the commands that
 reshape a host to you. Copy the folder into the agent's skills directory
 (`.claude/skills/` in a project, or `~/.claude/skills/` for every project, for
 Claude Code); an installer that takes a repository takes `eyupio/zoomies`. See
-[the CLI reference](docs/cli.md#the-zoomies-skill).
+[the CLI reference](docs/cli.md#the-zoomies-skill). A second skill,
+[`skills/zoomies-kennel`](skills/zoomies-kennel/SKILL.md), runs
+`zoomies kennel check` over a checkout's workflow files with nothing sent
+anywhere, summarises the findings with security first, and fixes only the ones
+you choose; see [the zoomies-kennel skill](docs/cli.md#the-zoomies-kennel-skill).
 
 ## Configuration
 

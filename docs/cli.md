@@ -659,6 +659,26 @@ authority it did not have: the token in `ZOOMIES_TOKEN` still decides what the
 controller will do, and a viewer token cannot make a change whatever the agent
 is asked.
 
+### The zoomies-kennel skill
+
+`skills/zoomies-kennel` is the second skill, for the workflow files in a
+checkout rather than the live fleet. It runs
+`zoomies kennel check --output json --prompts` in the repository, which reads
+`.github/workflows` from disk with the same parser and the same checks the
+controller runs and sends nothing anywhere, then summarises the findings with
+security first (the `exposure` area, then warnings, then the rest, each with
+its file and line), lists what could not be checked on a laptop, and asks
+which findings to act on. For each one chosen it takes the finding's prompt as
+the task: read the file's history, make the smallest change that resolves it,
+run the check again, and say in the pull request what the finding was. It
+never edits a workflow file without a selection, and it says what it read and
+that nothing left the machine. A test holds it to those sentences, and holds
+every command either skill names to one the binary has.
+
+Install it as the first: copy `skills/zoomies-kennel/` into the agent's skills
+directory, or take `eyupio/zoomies` with an installer that reads a
+repository's `skills/` folder, which installs both.
+
 ## Setting up and looking around
 
 | Command | What it does |
