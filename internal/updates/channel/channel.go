@@ -38,9 +38,10 @@ const (
 )
 
 const (
-	// maxDocumentBytes bounds the marker and the pointer, which hold a few paths
-	// and a name.
-	maxDocumentBytes = 4096
+	// MaxDocumentBytes bounds the marker and the pointer, which hold a few paths
+	// and a name. It is exported because the installer reads the same pointer as
+	// root with its own reader, and the two have to refuse the same sizes.
+	MaxDocumentBytes = 4096
 	// maxResultBytes bounds a result. A log tail of MaxLogTailBytes can grow to six
 	// times that once JSON has escaped every control character in it, and the
 	// limit only has to refuse a file that is nothing like one.
@@ -50,6 +51,9 @@ const (
 // ErrRequestPending is returned by WriteRequest while an earlier request is still
 // in the folder. The helper removes a request once it has read it, so one that
 // is still there has not been picked up, and a second would replace it unseen.
+//
+// It is a courtesy to a caller that asks twice in a row, not a lock: see
+// WriteRequest for what it does not guarantee.
 var ErrRequestPending = errors.New("an update request is already waiting for the helper")
 
 // Marker is the helper's own record of itself, written by whoever installs it.
@@ -115,7 +119,7 @@ func Locate(l Locator) (dir string, ok bool) {
 // whatever the reader's working directory happens to be.
 func ReadPointer(path string) (Pointer, error) {
 	var p Pointer
-	if err := readDocument(path, maxDocumentBytes, &p); err != nil {
+	if err := readDocument(path, MaxDocumentBytes, &p); err != nil {
 		return Pointer{}, err
 	}
 	return checkPointer(path, p)
@@ -124,8 +128,8 @@ func ReadPointer(path string) (Pointer, error) {
 // DecodePointer is ReadPointer for a pointer already read, by a caller that
 // opened and checked the file itself. name is what the refusals call it.
 func DecodePointer(name string, body []byte) (Pointer, error) {
-	if len(body) > maxDocumentBytes {
-		return Pointer{}, fmt.Errorf("%s is %d bytes, over the limit of %d", name, len(body), maxDocumentBytes)
+	if len(body) > MaxDocumentBytes {
+		return Pointer{}, fmt.Errorf("%s is %d bytes, over the limit of %d", name, len(body), MaxDocumentBytes)
 	}
 	var p Pointer
 	if err := decodeDocument(name, body, &p); err != nil {
@@ -164,7 +168,7 @@ func ReadResult(dir string) (updates.Result, bool, error) {
 // installed, which is an answer and not an error.
 func ReadMarker(dir string) (Marker, bool, error) {
 	var m Marker
-	found, err := readOptional(filepath.Join(dir, MarkerFile), maxDocumentBytes, &m)
+	found, err := readOptional(filepath.Join(dir, MarkerFile), MaxDocumentBytes, &m)
 	if err != nil || !found {
 		return Marker{}, false, err
 	}
@@ -192,6 +196,17 @@ const installHint = `run "sudo zoomies updates helper install" on this host, whi
 // path unit, which fires on request.json existing, never sees half a document.
 // On any failure the temporary file is removed, so a failed button leaves the
 // folder as it was.
+//
+// What it does not do: the look for an earlier request and the rename are two
+// steps, so two callers that overlap can both pass the look and the later
+// rename replaces the earlier request unseen. The refusal is a courtesy, and
+// the caller must serialise (the controller allows one open attempt at a time,
+// which is what keeps this from happening). A real no-clobber would need a hard
+// link, which not every filesystem a deployment mounts supports. Nor is the
+// folder itself synced after the rename, so a crash at that instant can lose
+// the request, and a crash before the rename leaves a .request-*.tmp file that
+// nothing sweeps; both are harmless, because the button simply asks again and
+// the helper ignores any name but request.json.
 func WriteRequest(dir string, r updates.Request) error {
 	body, err := json.Marshal(r)
 	if err != nil {
@@ -240,8 +255,9 @@ func WriteRequest(dir string, r updates.Request) error {
 		}
 	}()
 
-	// Explicit rather than left to the umask: the helper reads this as root, and
-	// the group is the one thing that may need to.
+	// Explicit rather than left to the umask, which could leave the file closed to
+	// the group. Root reads it whatever the mode, so 0640 is for an operator in the
+	// account's group who wants to look at a request that is waiting.
 	if err := f.Chmod(0o640); err != nil {
 		_ = f.Close()
 		return fmt.Errorf("cannot set the mode of the update request in %s: %w", dir, err)

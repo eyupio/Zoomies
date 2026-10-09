@@ -136,6 +136,46 @@ func TestWriteRequestRefusesWhileAnEarlierOneIsWaiting(t *testing.T) {
 	}
 }
 
+// A request.json that is a link is looked at without being followed, so a link
+// planted there (even a dangling one, which a following stat would call absent)
+// counts as an earlier request and is neither replaced nor written through.
+func TestWriteRequestCountsAPlantedLinkAsAWaitingRequest(t *testing.T) {
+	_, dir := updateFolder(t)
+	planted := filepath.Join(dir, RequestFile)
+	if err := os.Symlink(filepath.Join(dir, "nowhere"), planted); err != nil {
+		t.Skipf("cannot make a symbolic link here: %v", err)
+	}
+	err := WriteRequest(dir, testRequest("upd_aaaa"))
+	if !errors.Is(err, ErrRequestPending) {
+		t.Fatalf("WriteRequest = %v, want ErrRequestPending", err)
+	}
+	if info, err := os.Lstat(planted); err != nil || info.Mode()&fs.ModeSymlink == 0 {
+		t.Errorf("the planted link was replaced: %v, %v", info, err)
+	}
+	if got := names(t, dir); !slices.Equal(got, []string{RequestFile}) {
+		t.Errorf("the folder holds %v, want only the planted link", got)
+	}
+}
+
+// The helper's path unit fires on request.json existing, so the document has to
+// be complete before that name appears. The flush is the last step before the
+// rename: if the name is already there by then, the request is being written in
+// place and the helper could read half of it.
+func TestWriteRequestDoesNotShowTheNameUntilTheDocumentIsComplete(t *testing.T) {
+	_, dir := updateFolder(t)
+	original := syncRequest
+	t.Cleanup(func() { syncRequest = original })
+	syncRequest = func(f *os.File) error {
+		if _, err := os.Lstat(filepath.Join(dir, RequestFile)); err == nil {
+			t.Error("request.json existed before the document was flushed")
+		}
+		return original(f)
+	}
+	if err := WriteRequest(dir, testRequest("upd_aaaa")); err != nil {
+		t.Fatalf("WriteRequest: %v", err)
+	}
+}
+
 // Review Focus 1: a folder that has become a file. The button has to end in an
 // error that names the folder, with nothing written, not in a half-made file
 // the helper might one day find.
@@ -312,7 +352,7 @@ func TestReadMarkerRefusesWhatItCannotTrust(t *testing.T) {
 		"invalid json":      "{",
 		"an unknown field":  `{"v":1,"version":"1.3.4","extra":true}`,
 		"another version":   `{"v":9,"version":"1.3.4"}`,
-		"an oversized file": `{"v":1,"version":"` + strings.Repeat("x", maxDocumentBytes) + `"}`,
+		"an oversized file": `{"v":1,"version":"` + strings.Repeat("x", MaxDocumentBytes) + `"}`,
 	} {
 		t.Run(name, func(t *testing.T) {
 			_, dir := updateFolder(t)
@@ -362,7 +402,7 @@ func TestReadPointerRefusesWhatItCannotTrust(t *testing.T) {
 		"no version":        `{"dir":"/var/lib/zoomies/update"}`,
 		"no folder":         `{"v":1}`,
 		"a relative folder": `{"v":1,"dir":"update"}`,
-		"an oversized file": `{"v":1,"dir":"/var/lib/zoomies/update","account":"` + strings.Repeat("x", maxDocumentBytes) + `"}`,
+		"an oversized file": `{"v":1,"dir":"/var/lib/zoomies/update","account":"` + strings.Repeat("x", MaxDocumentBytes) + `"}`,
 		"two documents":     `{"v":1,"dir":"/a"}{"v":1,"dir":"/b"}`,
 	} {
 		t.Run(name, func(t *testing.T) {

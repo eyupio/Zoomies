@@ -78,6 +78,11 @@ var requestIDPattern = regexp.MustCompile(`^upd_[a-z0-9]+$`)
 // The checks run cheapest first, and the length before anything is decoded, so a
 // large file costs a comparison. Unknown fields are an error and not a shrug: a
 // field the helper does not know is something the writer hoped it would act on.
+//
+// encoding/json matches a field name without regard to case and, for a name that
+// appears twice, keeps the last value. Neither is refused here, because every
+// value is checked after decoding and the helper acts only on what this function
+// returns, so there is no second reading of the document for the two to disagree.
 func ParseRequest(body []byte) (Request, error) {
 	if len(body) > MaxRequestBytes {
 		return Request{}, fmt.Errorf("the request is %d bytes, over the limit of %d", len(body), MaxRequestBytes)
