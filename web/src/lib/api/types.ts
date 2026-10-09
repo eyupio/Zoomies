@@ -366,3 +366,5 @@ export type KennelCoverageState = Schemas['KennelCoverageState'];
 export type KennelCatalogueEntry = Schemas['KennelCatalogueEntry'];
 
 export type UpdatesStatus = Schemas['UpdatesStatus'];
+
+export type KennelGuidancePreview = Schemas['KennelGuidancePreview'];

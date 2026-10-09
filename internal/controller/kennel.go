@@ -141,7 +141,7 @@ func (c *Controller) KickKennel() {
 // kennelSettingsChanged is whether a change of configuration is one the loop
 // should act on at once.
 func kennelSettingsChanged(a, b config.Kennel) bool {
-	return a.Enabled != b.Enabled || a.RepositorySetup != b.RepositorySetup || a.WorkflowChecks != b.WorkflowChecks || a.Scope != b.Scope || a.RefreshInterval != b.RefreshInterval ||
+	return a.Enabled != b.Enabled || a.RepositorySetup != b.RepositorySetup || a.WorkflowChecks != b.WorkflowChecks || a.AgentGuidance != b.AgentGuidance || a.Scope != b.Scope || a.RefreshInterval != b.RefreshInterval ||
 		a.APIBudgetPercent != b.APIBudgetPercent || !slices.Equal(a.DisabledChecks, b.DisabledChecks)
 }
 
@@ -268,7 +268,7 @@ func (c *Controller) kennelInstallation(ctx context.Context, inst *store.Install
 		known[strings.ToLower(r.FullName)] = r
 		if r.Untracked == nil {
 			anyTracked = true
-			if kennelDue(r, in.now) || kennelSetupDue(r, in) || kennelWorkflowsDue(r, in) {
+			if kennelDue(r, in.now) || kennelSetupDue(r, in) || kennelWorkflowsDue(r, in) || kennelGuidanceDue(r, in) {
 				anyDue = true
 			}
 		}
@@ -520,7 +520,7 @@ func (c *Controller) kennelTouch(ctx context.Context, inst *store.Installation, 
 // read ended in.
 func (c *Controller) kennelRefresh(ctx context.Context, inst *store.Installation, row *store.KennelRepository, l *kennelListing, in kennelPassInput) kennel.CoverageState {
 	wm := parseKennelWatermark(row.Watermark)
-	due := kennelDue(row, in.now) || kennelSetupDue(row, in) || kennelWorkflowsDue(row, in)
+	due := kennelDue(row, in.now) || kennelSetupDue(row, in) || kennelWorkflowsDue(row, in) || kennelGuidanceDue(row, in)
 	var retry time.Duration
 	outcome := kennel.CoverageOK
 
@@ -560,6 +560,20 @@ func (c *Controller) kennelRefresh(ctx context.Context, inst *store.Installation
 			}
 			retry = max(retry, kennelRetryAfter(state))
 		}
+	}
+	if due && kennelGuidanceEnabled(in.policy) {
+		state := c.kennelReadGuidance(ctx, inst, row, &wm, l, in)
+		if state != kennel.CoverageOK {
+			if state == kennel.CoverageError || outcome == kennel.CoverageOK {
+				outcome = state
+			}
+			retry = max(retry, kennelRetryAfter(state))
+		}
+	}
+	if !kennelGuidanceEnabled(in.policy) {
+		wm.Guidance = nil
+		wm.GuidanceState = ""
+		wm.GuidanceFiles = nil
 	}
 	if !kennelWorkflowsEnabled(in.policy) {
 		wm.Workflows = nil
@@ -795,6 +809,10 @@ func (c *Controller) kennelSnapshot(ctx context.Context, inst *store.Installatio
 			RunnerGroupAllowsPublic: c.kennelRunnerGroupAllowsPublic(inst.ID, used),
 		},
 		Coverage: cov,
+	}
+	if kennelGuidanceEnabled(in.policy) {
+		snap.Guidance = wm.Guidance
+		cov[kennel.SourceGuidance] = kennel.SourceState{State: wm.GuidanceState}
 	}
 	if kennelSetupEnabled(in.policy) {
 		snap.Setup = wm.Setup

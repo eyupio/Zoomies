@@ -14,6 +14,7 @@ func okCoverage() Coverage {
 		SourceRuns:      {State: CoverageOK},
 		SourceSetup:     {State: CoverageOK},
 		SourceWorkflows: {State: CoverageOK},
+		SourceGuidance:  {State: CoverageOK},
 	}
 }
 
@@ -33,6 +34,7 @@ func publicRepo() Snapshot {
 		Coverage:  okCoverage(),
 		Setup:     completeSetup(),
 		Workflows: &WorkflowFacts{},
+		Guidance:  &GuidanceFacts{},
 	}
 }
 

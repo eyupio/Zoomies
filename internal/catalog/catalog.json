@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "bf3542b",
+  "generated_from": "dc583e88",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -4010,6 +4010,62 @@
       "area": "exposure",
       "docs_html": "https://zoomies.sh/kennel-club/#exposure-target_event_ran",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#exposure-target_event_ran"
+    },
+    {
+      "id": "guidance.broken_reference",
+      "kind": "check",
+      "title": "An instruction file imports or links to a missing repository path, or its Claude imports form a cycle.",
+      "category": "configuration",
+      "severity": "warning",
+      "detection": "runtime",
+      "detects": "An instruction file imports or links to a missing repository path, or its Claude imports form a cycle.",
+      "fix": "Preview agent guidance for unambiguous import repairs; review other broken links or import cycles and correct them manually. Use AI Context repair for damaged Zoomies-managed sections.",
+      "verify": "Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.",
+      "area": "guidance",
+      "docs_html": "https://zoomies.sh/kennel-club/#guidance-broken_reference",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#guidance-broken_reference"
+    },
+    {
+      "id": "guidance.duplicated",
+      "kind": "check",
+      "title": "A root or nested Claude instruction file repeats the root AGENTS.md in full.",
+      "category": "configuration",
+      "severity": "info",
+      "detection": "runtime",
+      "detects": "A root or nested Claude instruction file repeats the root AGENTS.md in full.",
+      "fix": "Preview agent guidance to replace the duplicate Claude file with an import of the shared AGENTS.md.",
+      "verify": "Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.",
+      "area": "guidance",
+      "docs_html": "https://zoomies.sh/kennel-club/#guidance-duplicated",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#guidance-duplicated"
+    },
+    {
+      "id": "guidance.missing",
+      "kind": "check",
+      "title": "No recognised agent instruction file was found on the default branch.",
+      "category": "configuration",
+      "severity": "info",
+      "detection": "runtime",
+      "detects": "No recognised agent instruction file was found on the default branch.",
+      "fix": "Preview agent guidance to propose an AGENTS.md and a Claude import, using commands declared in repository files.",
+      "verify": "Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.",
+      "area": "guidance",
+      "docs_html": "https://zoomies.sh/kennel-club/#guidance-missing",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#guidance-missing"
+    },
+    {
+      "id": "guidance.unreadable",
+      "kind": "check",
+      "title": "An instruction file is empty, is not regular UTF-8 text or exceeds the file or byte limits.",
+      "category": "configuration",
+      "severity": "warning",
+      "detection": "runtime",
+      "detects": "An instruction file is empty, is not regular UTF-8 text or exceeds the file or byte limits.",
+      "fix": "Keep instruction files as non-empty regular UTF-8 text under 64 KiB each, with at most 32 files inspected; split or shorten them and recheck.",
+      "verify": "Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.",
+      "area": "guidance",
+      "docs_html": "https://zoomies.sh/kennel-club/#guidance-unreadable",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#guidance-unreadable"
     },
     {
       "id": "setup.code_of_conduct",

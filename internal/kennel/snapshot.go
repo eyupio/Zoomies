@@ -27,6 +27,7 @@ type Snapshot struct {
 	Repo      Repo
 	Fleet     Fleet
 	Workflows *WorkflowFacts
+	Guidance  *GuidanceFacts
 	Setup     *SetupFacts
 	Runs      *RunFacts
 	Coverage  Coverage

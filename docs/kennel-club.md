@@ -18,10 +18,11 @@ So it is not a linter, and it has no opinion about your code. It says that a
 public repository's jobs run on a pool a stranger's pull request could damage,
 and that jobs have been waiting ten minutes for a label no pool serves.
 
-One optional area bends that rule, and says so: the **setup** checks report what
+Optional repository guidance checks bend that rule, and say so: the **setup** checks report what
 a repository lacks that makes it harder to maintain, such as a README or a
 security policy. They are off until you turn them on, and informational when they
-are on. See [the optional checks](#the-optional-checks).
+are on. The **guidance** checks inspect agent instruction files when separately
+enabled. See [the optional checks](#the-optional-checks).
 
 It is **off by default**, and off means off: nothing is read from GitHub,
 nothing is stored, and [AI Context](ai-context.md) carries on exactly as it was.
@@ -34,8 +35,8 @@ UI under **Kennel Club**. This is its Overview for the demo fleet:
 
 ## What it checks
 
-There are twenty checks, in five areas. Six of them, in **exposure** and
-**capacity**, run whenever Kennel Club is on; the other fourteen are opt-in,
+There are thirty checks, in six areas. Seven of them, in **exposure** and
+**capacity**, run whenever Kennel Club is on; the other twenty-three are opt-in,
 and [the switches that turn them on](#the-optional-checks) are described after
 them. Each has a stable code, so a waiver, a metric or a `disabled_checks`
 entry keeps meaning the same thing from one release to the next, and the same
@@ -49,6 +50,74 @@ The list below is generated from the registry the evaluator runs by
 and a test fails the build when a check is added without it being run.
 
 <!-- zoomies:catalogue-begin -->
+
+### `guidance.missing` { #guidance-missing }
+
+Area
+:   guidance
+
+Severity
+:   info
+
+Detects
+:   No recognised agent instruction file was found on the default branch.
+
+Fix
+:   Preview agent guidance to propose an AGENTS.md and a Claude import, using commands declared in repository files.
+
+Verify
+:   Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.
+
+### `guidance.broken_reference` { #guidance-broken_reference }
+
+Area
+:   guidance
+
+Severity
+:   warning
+
+Detects
+:   An instruction file imports or links to a missing repository path, or its Claude imports form a cycle.
+
+Fix
+:   Preview agent guidance for unambiguous import repairs; review other broken links or import cycles and correct them manually. Use AI Context repair for damaged Zoomies-managed sections.
+
+Verify
+:   Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.
+
+### `guidance.duplicated` { #guidance-duplicated }
+
+Area
+:   guidance
+
+Severity
+:   info
+
+Detects
+:   A root or nested Claude instruction file repeats the root AGENTS.md in full.
+
+Fix
+:   Preview agent guidance to replace the duplicate Claude file with an import of the shared AGENTS.md.
+
+Verify
+:   Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.
+
+### `guidance.unreadable` { #guidance-unreadable }
+
+Area
+:   guidance
+
+Severity
+:   warning
+
+Detects
+:   An instruction file is empty, is not regular UTF-8 text or exceeds the file or byte limits.
+
+Fix
+:   Keep instruction files as non-empty regular UTF-8 text under 64 KiB each, with at most 32 files inspected; split or shorten them and recheck.
+
+Verify
+:   Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.
 
 ### `exposure.public_repo_on_fleet` { #exposure-public_repo_on_fleet }
 
@@ -510,7 +579,7 @@ change, the pools and runs involved, and where to look. The sentences come from
 Kennel Club and never from the repository, so a pull request title or a branch
 name cannot put words into an operator's page.
 
-The whole registry, all twenty, is served by `GET /api/v1/kennel/checks`, so a
+The whole registry, all thirty, is served by `GET /api/v1/kennel/checks`, so a
 script can read what is checked without scraping this page.
 
 **One finding can be worse than its usual severity.** On its own,
@@ -528,14 +597,15 @@ what to change:
 
 ### The optional checks
 
-Fourteen checks read what is in a repository. Each group has a switch of its own
+Twenty-three checks read what is in a repository. Each group has a switch of its own
 and is **off by default**. Until a switch is on, its checks are shown as **Turned
 off** on the Overview, and nothing is read for them.
 
 | Area | Checks | Turned on by | What it reads | What a finding is |
 | --- | --- | --- | --- | --- |
 | `setup` | 10: a README, a licence, a security policy, a contribution guide, a code of conduct, issue and pull request templates, `CODEOWNERS`, dependency updates and a CI workflow | `kennel.repository_setup` (**Check repository setup**) | The default branch's file names, as one Git tree request for each repository. No file contents. | Informational. It never lowers a repository's standing. |
-| `ci` | 3: `ci.no_timeout`, `ci.no_concurrency`, `ci.action_not_pinned` | `kennel.workflow_checks` (**Check workflow best practices**) | The default branch's workflow files. | A warning, except `ci.no_concurrency`, which is a note, as is `ci.action_not_pinned` when only GitHub's own actions are affected. |
+| `guidance` | 4: missing instructions, broken references, exact duplication and unreadable files | `kennel.agent_guidance` (**Check agent guidance**) | Bounded instruction files and their local references. | Informational for absence and duplication; warnings for broken or unreadable guidance. |
+| `ci` | 7: `ci.no_timeout`, `ci.no_concurrency`, `ci.action_not_pinned` | `kennel.workflow_checks` (**Check workflow best practices**) | The default branch's workflow files. | A warning, except `ci.no_concurrency`, which is a note, as is `ci.action_not_pinned` when only GitHub's own actions are affected. |
 | `token` | 1: `token.permissions_unset` | the same switch | The same files. | A warning for a public repository, a note for a private one. |
 
 A setup finding says **repository-local**, because an account's default guidance
@@ -549,6 +619,46 @@ an all clear.
 and what its absence makes harder, and
 [the workflow checks](configuration.md#workflow-best-practice-checks) say what
 each detects and what is excluded.
+
+## Agent guidance
+
+The **Agent guidance** tab shows structural findings about a repository's
+instruction files. A healthy single-file setup is sufficient. These checks do
+not judge whether prose is correct or whether a declared command works.
+
+Enable **Check agent guidance** (`kennel.agent_guidance`) in Settings. Missing
+instructions and exact Claude duplication are informational; broken references,
+import cycles and files that cannot be inspected are warnings. Simple inline Markdown
+links and standalone Claude `@path` imports are checked against the same pinned
+tree. Links in fenced or inline examples, HTML comments, external links and
+fragment-only links are ignored. Reference-style Markdown links and heading anchors are not checked.
+
+An administrator presses **Preview guidance changes** to read the current default
+branch and see each file's current and proposed contents. The proposal can:
+
+* Create an initial `AGENTS.md` and a Claude import when guidance is absent.
+  Commands come only from explicit root Makefile targets or package.json scripts;
+  Zoomies never executes them or copies their script bodies into guidance.
+* Replace exact duplicates of the root `AGENTS.md` in `CLAUDE.md` or
+  `.claude/CLAUDE.md` with a relative import, preserving line endings and mode.
+* Correct a standalone Claude import when exactly one recognised guidance file
+  matches its name. Other prose stays as written.
+
+Ambiguous links, import cycles and differing instructions need manual review.
+For damaged Zoomies-owned context sections, use **Reinstall / repair** in
+[AI Context](ai-context.md). Guidance proposals do not install AI Context.
+
+**Open draft pull request** approves the exact preview. A changed default branch
+requires a fresh preview. The proposal branch is derived from the file changes;
+retries reconcile it, and an existing different proposal is preserved rather
+than overwritten or duplicated. Merge the draft in GitHub, then press
+**Recheck**. Turning checks off or stopping repository tracking prevents both
+reads and new proposals. No new assistant connection or source access is granted.
+
+The explicit preview and proposal use the source-setup GitHub API: repository
+metadata, default-branch refs, commits, trees and bounded blobs; publishing adds
+Git trees, a commit, a new branch ref and a draft pull request. These are separate
+from the background read-only endpoint list below.
 
 ## How to read a repository's standing
 
@@ -642,14 +752,14 @@ the repository it affects:
 
 A private repository costs no read beyond the repository listing Zoomies already
 makes, because the checks that need run history are about public repositories.
-The two opt-in sources are the exception: with either on, a private repository's
+The opt-in sources are the exception: with any on, a private repository's
 tree is read too, which is why they ask for *Contents*.
 
 ### Every GitHub request it may make
 
 The reader is held to a list, and a test runs it against a fake GitHub and fails
 on any request that is not on the list, so a new call is a visible change in
-review and not something found in a log. All of them are `GET`s, and the last two
+review and not something found in a log. All background reads are `GET`s, and the last two
 are made only when one of the opt-in switches is on.
 
 | Request | What for |
@@ -659,17 +769,19 @@ are made only when one of the opt-in switches is on.
 | `GET /repos/{owner}/{repo}/actions/runs/{run}` | One workflow run the fleet ran in a public repository. **Four fields are read**: the event that triggered it (held to a short allow-list before anything sees it), the repository it ran in, and the repository its head commit is in, which differ for a pull request from a fork, and the run's ID. Who triggered it, its branch, its title and its workflow's path are written by whoever opened the pull request, and are never read. |
 | `GET /orgs/{org}/actions/runner-groups` | Whether the organisation runner group a pool joins allows public repositories, so a finding can say so. |
 | `GET /rate_limit` | The limit the installation reports, which the budget is a share of. GitHub does not count this request against the limit. |
-| `GET /repos/{owner}/{repo}/git/trees/{tree}` | The default branch's file names, one conditional request for each repository on each refresh, for the setup checks and to find the workflow files. Inspection stops at 10,000 entries, and a truncated tree produces no "missing" findings. |
-| `GET /repos/{owner}/{repo}/git/blobs/{blob}` | One workflow file, pinned to the immutable blob the tree named. At most 50 files a refresh, each at most 256 KiB. The file is parsed and never executed, and what is kept is where each finding is, as the blob's SHA, a job's index and a line number, together with the file's path where it is one of the usual shape: no job name, expression or text. |
+| `GET /repos/{owner}/{repo}/git/trees/{tree}` | The default branch's file names, one conditional request for each repository on each refresh, for the setup checks and to find workflow and instruction files. Inspection stops at 10,000 entries, and a truncated tree produces no "missing" findings. |
+| `GET /repos/{owner}/{repo}/git/blobs/{blob}` | One workflow or instruction file, pinned to the immutable blob the tree named. At most 50 files a refresh, each at most 256 KiB. Agent guidance reads at most 32 files, each at most 64 KiB. The file is parsed and never executed, and what is kept is where each finding is, as the blob's SHA, a job's index and a line number, together with the file's path where it is one of the usual shape: no job name, expression or text. |
 
 ## What it never does
 
-* **It reads and does not write.** In this release Kennel Club makes no change
-  to GitHub, to a pool, to a runner or to a job. A finding is advice.
+* **Background checks only read.** Agent guidance changes are proposed only
+  when an administrator reviews a preview and asks for a draft pull request.
+  Kennel Club never merges it or changes a pool, runner or job.
 * **It reads no source code.** It looks at who ran what, where, and how long a
   job took. The only files it can read are the default branch's file names and
-  its workflow files, and only if you turned on `kennel.repository_setup` or
-  `kennel.workflow_checks`. AI Context is the part of Zoomies that reads source
+  its workflow and instruction files, and only if you turned on their respective
+  opt-in settings. A requested guidance preview also reads the root Makefile
+  and package.json for declared commands, capped at 512 KiB each. AI Context is the part of Zoomies that reads source
   for assistants, and Kennel Club does not touch it, which is also why turning
   one off leaves the other alone.
 * **It does not repeat a stranger's words.** The text of a finding is written by

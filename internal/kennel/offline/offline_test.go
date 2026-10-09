@@ -141,3 +141,13 @@ func TestGatePathKeepsOnlyAPlainWorkflowPath(t *testing.T) {
 		}
 	}
 }
+
+func TestGuidanceChecksAreReportedAsOutsideTheOfflineWorkflowCheck(t *testing.T) {
+	r, err := Check("testdata/findings", Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n, ok := notChecked(r, kennel.CodeGuidanceMissing); !ok || !strings.Contains(n.Reason, "workflow-only") {
+		t.Fatalf("unchecked guidance=%+v", n)
+	}
+}

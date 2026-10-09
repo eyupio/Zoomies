@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agentguidance"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/kennel"
 	"github.com/eyupio/zoomies/internal/store"
@@ -19,7 +20,7 @@ import (
 // words, would repaint a repository wrong.
 
 // KennelSources is the order a repository's sources are listed in.
-var KennelSources = []kennel.Source{kennel.SourceFleet, kennel.SourceMetadata, kennel.SourceRuns, kennel.SourceSetup, kennel.SourceWorkflows}
+var KennelSources = []kennel.Source{kennel.SourceFleet, kennel.SourceMetadata, kennel.SourceRuns, kennel.SourceSetup, kennel.SourceWorkflows, kennel.SourceGuidance}
 
 // KennelCoverageView is how far one source could be read, with the sentence that
 // says why when it could not, and the permission that would fix it.
@@ -149,6 +150,14 @@ func newKennelRepositoryView(r *store.KennelRepository) KennelRepositoryView {
 		v.Files = append(v.Files, KennelFileView{SHA: f.SHA, Path: gatedPath(f.Path)})
 		paths[f.SHA] = gatedPath(f.Path)
 	}
+	for _, f := range wm.GuidanceFiles {
+		p := ""
+		if agentguidance.SafePath(f.Path) {
+			p = f.Path
+		}
+		v.Files = append(v.Files, KennelFileView{SHA: f.SHA, Path: p})
+		paths[f.SHA] = p
+	}
 	v.Findings = make([]KennelFindingView, 0, len(ev.Findings))
 	for _, f := range ev.Findings {
 		v.Findings = append(v.Findings, KennelFindingView{Finding: f, Prompt: kennel.Prompt(f, paths)})
@@ -257,10 +266,13 @@ const kennelAttentionLines = 10
 
 // kennelDisabled turns the setting into the set the evaluator is given.
 func kennelDisabled(k config.Kennel) map[string]bool {
-	if len(k.DisabledChecks) == 0 && k.RepositorySetup && k.WorkflowChecks {
+	if len(k.DisabledChecks) == 0 && k.RepositorySetup && k.WorkflowChecks && k.AgentGuidance {
 		return nil
 	}
 	out := make(map[string]bool, len(k.DisabledChecks)+1)
+	if !k.AgentGuidance {
+		out[string(kennel.AreaGuidance)] = true
+	}
 	if !k.RepositorySetup {
 		out[string(kennel.AreaSetup)] = true
 	}
@@ -276,7 +288,7 @@ func kennelDisabled(k config.Kennel) map[string]bool {
 		reads := func(src kennel.Source) bool {
 			return slices.Contains(c.Needs, src) || slices.Contains(c.Conditional, src)
 		}
-		if (!k.WorkflowChecks && reads(kennel.SourceWorkflows)) || (!k.RepositorySetup && reads(kennel.SourceSetup)) {
+		if (!k.WorkflowChecks && reads(kennel.SourceWorkflows)) || (!k.RepositorySetup && reads(kennel.SourceSetup)) || (!k.AgentGuidance && reads(kennel.SourceGuidance)) {
 			out[string(c.Code)] = true
 		}
 	}

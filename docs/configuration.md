@@ -516,6 +516,7 @@ if you set `keep: 0` and never expect the page to say what is there.
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
+| `kennel.agent_guidance` | `ZOOMIES_KENNEL_AGENT_GUIDANCE` | at once | Check agent guidance: opt into bounded instruction-file reads and structural checks. Off by default. Needs Contents read; draft-PR repairs need Contents write and Pull requests write. |
 | `kennel.api_budget_percent` | `ZOOMIES_KENNEL_API_BUDGET_PERCENT` | at once | GitHub request budget: The share, from 5 to 50, of an installation's hourly GitHub request limit that Kennel Club may spend. Scaling, registration and polling come first, and Kennel Club stops altogether when less than half the limit is left. |
 | `kennel.disabled_checks` | `ZOOMIES_KENNEL_DISABLED_CHECKS` | at once | Checks turned off: Checks to turn off, by code (exposure.fork_code_ran) or by area (exposure, capacity, setup, ci, token). A check that is turned off is listed as turned off in Settings, not hidden, and a repository with none left to run is not given the badge. |
 | `kennel.enabled` | `ZOOMIES_KENNEL_ENABLED` | at once | Check repository standards: Whether Kennel Club runs. Off by default, and off means off: no request to GitHub, nothing stored, and AI Context carries on as it was. On, it reads facts about the repositories this fleet serves and keeps what it concludes. |
@@ -2496,3 +2497,27 @@ Before background image preparation, each agent waits a random duration from zer
 to **30s**, without holding a lifecycle or startup slot. Set **0s** to disable or
 up to **5m** to spread a large fleet further. This applies to manual prewarming too.
 It does not change GitHub/provider retry deadlines or foreground image pull policies.
+
+
+### Agent guidance checks
+
+Set `kennel.agent_guidance: true` to inspect agent instruction files in tracked
+repositories. This is independent of repository setup, workflow checks and
+AI Context freshness. The default is off.
+
+Kennel Club reads a default-branch inventory of at most 10,000 entries and up to
+32 instruction files, each at most 64 KiB. It recognises root and scoped
+`AGENTS.md`, `CLAUDE.md` and `GEMINI.md`, `.github/copilot-instructions.md` and
+Zoomies' `.zoomies/AI_CONTEXT.md`. Contents read permission is enough for checks
+and preview. Background reads share Kennel Club's budget and rate-limit holds.
+
+Missing guidance and exact duplication are informational. Broken local references,
+Claude import cycles and unreadable files are warnings. Missing guidance or
+paths are never inferred from a truncated inventory. A single supported file
+passes; there is no requirement to split a small project's guidance into folders.
+
+Administrators can preview changes from the repository's **Agent guidance** tab
+and open a draft pull request. This needs Contents write and Pull requests write,
+without Workflows write. The preview shows current and proposed contents and
+rejects changes made after review. Merge the proposal, then press **Recheck**.
+See [Agent guidance](kennel-club.md#agent-guidance) for the repair limits.

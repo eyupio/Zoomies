@@ -929,6 +929,8 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "GET", path: "/api/v1/kennel/checks", role: store.RoleViewer, action: auth.ActionKennelRead},
 		{method: "GET", path: "/api/v1/kennel/repositories", role: store.RoleViewer, action: auth.ActionKennelRead},
 		{method: "GET", path: "/api/v1/kennel/repositories/kcr_x", role: store.RoleViewer, action: auth.ActionKennelRead},
+		{method: "GET", path: "/api/v1/kennel/repositories/kcr_x/agent-guidance", role: store.RoleAdmin, action: auth.ActionKennelGuidancePreview},
+		{method: "POST", path: "/api/v1/kennel/repositories/kcr_x/agent-guidance", role: store.RoleAdmin, action: auth.ActionKennelGuidancePR, body: map[string]any{"plan_hash": "reviewed"}},
 		{method: "POST", path: "/api/v1/kennel/repositories/kcr_x/recheck", role: store.RoleOperator, action: auth.ActionKennelRecheck},
 		{method: "PUT", path: "/api/v1/kennel/repositories/kcr_x/waivers", role: store.RoleOperator, action: auth.ActionKennelWaive,
 			body: map[string]any{"code": "exposure.public_repo_on_fleet", "reason": "isolated hosts that are rebuilt for every job", "expires_at": "2099-01-01T00:00:00Z"}},

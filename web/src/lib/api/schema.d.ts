@@ -2687,6 +2687,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/kennel/repositories/{id}/agent-guidance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Inspect agent guidance and preview proposed changes
+         * @description Requires Kennel Club and kennel.agent_guidance to be enabled and the repository to be tracked. Pins the default branch, reads bounded instruction files and command manifests, and returns issues and before/after file contents. Contents read permission is sufficient. Repository text is untrusted and must be rendered as text. An incomplete inventory answers 409; it cannot produce a repair proposal.
+         */
+        get: operations["previewKennelGuidance"];
+        put?: never;
+        /**
+         * Open a draft pull request for reviewed agent guidance
+         * @description Recomputes the proposal and requires its exact plan_hash. Refuses changes after review. Needs Contents write and Pull requests write, without Workflows write. Uses a deterministic branch and reconciles retries without overwriting edited proposals or reopening closed PRs. Changes no workflows, installs no AI Context and grants no assistant access. Audited as kennel.guidance_pr. Merge the PR, then request Recheck to refresh the findings.
+         */
+        post: operations["createKennelGuidancePR"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/kennel/repositories/{id}/recheck": {
         parameters: {
             query?: never;
@@ -4690,8 +4717,34 @@ export interface components {
          * @enum {string}
          */
         KennelCoverageState: "ok" | "partial" | "denied" | "unavailable" | "held" | "error" | "not_read";
+        KennelGuidancePreview: {
+            base_commit: string;
+            base: string;
+            branch: string;
+            plan_hash: string;
+            issues: {
+                /** @enum {string} */
+                kind: "missing" | "broken_reference" | "duplicated" | "unreadable";
+                path: string;
+                sha: string;
+                line: number;
+            }[];
+            files: {
+                path: string;
+                /** @enum {string} */
+                mode: "100644" | "100755";
+                previous_sha: string;
+                before: string;
+                content: string;
+            }[];
+            pull_request?: {
+                number: number;
+                html_url: string;
+                branch: string;
+            };
+        };
         /** @enum {string} */
-        KennelSource: "fleet" | "metadata" | "runs" | "setup" | "workflows";
+        KennelSource: "fleet" | "metadata" | "runs" | "setup" | "workflows" | "guidance";
         KennelCounts: {
             error: number;
             warning: number;
@@ -4711,7 +4764,7 @@ export interface components {
             /** @description For a file, the 1-based line of the thing the finding is about. Absent when the finding is about the whole file. */
             line?: number;
         };
-        /** @description One workflow file of the default branch: the blob SHA a finding's file evidence names, and its path. The path is a stranger's text, gated to a plain name under `.github/workflows`; one that did not pass is empty, and the page says the workflow has an unusual name. Render it as text. */
+        /** @description One workflow or agent instruction file of the default branch: the blob SHA a finding's file evidence names, and its path. The path is a stranger's text, gated to a plain name under `.github/workflows` for workflows, or a plain repository path for guidance; one that did not pass is empty, and the page says the file has an unusual name. Render it as text. */
         KennelFile: {
             sha: string;
             path: string;
@@ -13916,6 +13969,66 @@ export interface operations {
             };
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
+        };
+    };
+    previewKennelGuidance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A proposal, including an empty files array when changes require manual review. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelGuidancePreview"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    createKennelGuidancePR: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    plan_hash: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The proposal and its draft pull request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelGuidancePreview"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     recheckKennelRepository: {

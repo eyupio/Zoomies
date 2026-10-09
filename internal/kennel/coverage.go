@@ -16,6 +16,7 @@ const (
 	// SourceSetup is a default-branch file inventory, with no file contents.
 	SourceSetup     Source = "setup"
 	SourceWorkflows Source = "workflows"
+	SourceGuidance  Source = "guidance"
 )
 
 // CoverageState is how far a source could be read.
@@ -73,7 +74,7 @@ func (s Source) Permission() string {
 		return "Repository permissions: Metadata: Read-only"
 	case SourceRuns:
 		return "Repository permissions: Actions: Read-only"
-	case SourceSetup, SourceWorkflows:
+	case SourceSetup, SourceWorkflows, SourceGuidance:
 		return "Repository permissions: Contents: Read-only"
 	}
 	return ""
@@ -92,6 +93,8 @@ func (s Source) Label() string {
 		return "Repository setup files"
 	case SourceWorkflows:
 		return "Workflow best practices"
+	case SourceGuidance:
+		return "Agent guidance"
 	}
 	return "Something else"
 }

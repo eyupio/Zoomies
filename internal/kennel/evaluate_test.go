@@ -348,7 +348,7 @@ func TestACheckTheOperatorTurnedOffIsNeitherRunNorAGap(t *testing.T) {
 // Turning every check off asks not to be told. It is not the same as being
 // clear, and must not earn a badge.
 func TestAFleetWithEveryCheckTurnedOffIsNotBestInShow(t *testing.T) {
-	ev := Evaluate(privateRepo(), Policy{Disabled: map[string]bool{"exposure": true, "capacity": true, "setup": true, "ci": true, "token": true}})
+	ev := Evaluate(privateRepo(), Policy{Disabled: map[string]bool{"exposure": true, "capacity": true, "setup": true, "ci": true, "token": true, "guidance": true}})
 	if ev.Complete || ev.State() == StateBestInShow {
 		t.Errorf("complete=%v state=%s with nothing checked", ev.Complete, ev.State())
 	}
