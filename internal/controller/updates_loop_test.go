@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -809,5 +810,52 @@ func TestEveryAnswerAgreesThatADescribeBuildIsNotUpdatedFromHere(t *testing.T) {
 			h.openHostAttempt(behind)
 			h.noAttemptFor(host)
 		})
+	}
+}
+
+// Two failures of one release on one host hand it to an operator, and that must
+// hold however busy the rest of the fleet has been since: reading only the
+// newest attempts would lose the two failures behind five hundred others, and
+// the planner would try a third time.
+func TestTwoFailuresStillHoldAHostBehindFiveHundredNewerAttempts(t *testing.T) {
+	h := newHarness(t)
+	h.autoFleet("auto")
+	// A newer release still soaking, so that the release the controller would
+	// take is not the one its hosts are taken to.
+	h.readTheList(releaseEntry("v1.3.5", whenAgo(10*24*time.Hour), rolloutAssets(t)...),
+		releaseEntry("v1.3.6", whenAgo(time.Hour), rolloutAssets(t)...))
+	host := h.updatableHost("vm-a")
+	for range 2 {
+		a := &store.UpdateAttempt{Scope: store.UpdateScopeHost, HostID: host.ID, FromVersion: "1.3.4", ToVersion: "v1.3.5",
+			Trigger: store.UpdateTriggerAuto, RequestedBy: "zoomies auto-update"}
+		if err := h.st.CreateUpdateAttempt(h.ctx, a); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.st.FinishUpdateAttempt(h.ctx, a.ID, store.UpdateFailed, "the download failed"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.advance(time.Hour)
+	for i := range 501 {
+		a := &store.UpdateAttempt{Scope: store.UpdateScopeHost, HostID: fmt.Sprintf("host_gone%03d", i), FromVersion: "1.3.3", ToVersion: "v1.3.4",
+			Trigger: store.UpdateTriggerManual, RequestedBy: "alice"}
+		if err := h.st.CreateUpdateAttempt(h.ctx, a); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.st.FinishUpdateAttempt(h.ctx, a.ID, store.UpdateSucceeded, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.agentBeat(host, "1.3.4", nil)
+	h.pass(h.c)
+	h.pass(h.c)
+	if got := h.openRollout(); got != nil {
+		t.Errorf("auto started %+v for a host it has failed twice to update", got)
+	}
+	if open := h.openAttempts(); len(open) != 0 {
+		t.Errorf("auto asked again: %+v", open)
+	}
+	if got := h.status().Reason; !strings.Contains(got, "an operator must act") {
+		t.Errorf("the status says %q, want that an operator must act", got)
 	}
 }

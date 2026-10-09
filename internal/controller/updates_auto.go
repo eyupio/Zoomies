@@ -14,13 +14,6 @@ import (
 	"github.com/eyupio/zoomies/internal/version"
 )
 
-// updateHistoryRead is how many of the newest attempts the planner reads for a
-// machine's failures. Two failures of one release on one machine end the
-// retrying, and an attempt is at least half an hour after the last, so the
-// failures that matter are always among the newest; an open attempt is read
-// separately, however old.
-const updateHistoryRead = 500
-
 // autoUpdateActor is the planner as an attempt, a request and a rollout record
 // who asked: the auto-update identity's name, which the audit log uses too.
 func autoUpdateActor() UpdateActor {
@@ -39,8 +32,8 @@ type updatesPicture struct {
 	// nil.
 	rollout, last *store.UpdateRollout
 	hosts         []*store.Host
-	// attempts is the newest attempts, open and ended, newest first, with every
-	// open attempt among them however old.
+	// attempts is the attempts to the releases machines would be taken to now
+	// and the rollouts' steps, open and ended, with every open attempt.
 	attempts []store.UpdateAttempt
 }
 
@@ -84,7 +77,25 @@ func (c *Controller) updatesSnapshot(ctx context.Context, cfg config.Updates, he
 	}
 	s.Rollout, s.LastRollout = rolloutFacts(pic.rollout), rolloutFacts(pic.last)
 
-	recent, err := c.st.ListUpdateAttempts(ctx, "", "", updateHistoryRead)
+	// What the planner decides on is a machine's attempts to the release it
+	// would be taken to now (the hosts' target and the controller's choice) and
+	// the rollouts' steps, not the newest attempts fleet-wide: a host's two
+	// failures must hold however many other attempts are newer.
+	var tags, rollouts []string
+	if target := hostTarget(); target != "" {
+		tags = append(tags, target)
+	}
+	choice := updates.Choose(updates.ChooseInput{Mode: s.Mode, Soak: s.Soak, Now: s.Now, Running: s.Running,
+		Releases: s.Releases, GOOS: s.GOOS, GOARCH: s.GOARCH})
+	if tag := choice.Release.Tag; tag != "" && !slices.Contains(tags, tag) {
+		tags = append(tags, tag)
+	}
+	for _, r := range []*store.UpdateRollout{pic.rollout, pic.last} {
+		if r != nil {
+			rollouts = append(rollouts, r.ID)
+		}
+	}
+	recent, err := c.st.UpdateAttemptsFor(ctx, tags, rollouts)
 	if err != nil {
 		return nil, fmt.Errorf("reading the update attempts: %w", err)
 	}

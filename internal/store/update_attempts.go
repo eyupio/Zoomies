@@ -135,6 +135,39 @@ func (s *Store) ListUpdateAttempts(ctx context.Context, scope, hostID string, li
 		ORDER BY requested_at DESC, id DESC LIMIT ?3`, scope, hostID, limit)
 }
 
+// maxAttemptsFor bounds UpdateAttemptsFor. Two tags and two rollouts hold a few
+// attempts per machine, since the planner stops after two failures of one tag;
+// this is far above any fleet and is there so a fault cannot read the table whole.
+const maxAttemptsFor = 5000
+
+// UpdateAttemptsFor returns the attempts, open or ended, that take a machine to
+// one of tags or are steps of one of rollouts, newest first.
+//
+// It is what the planner reads instead of the newest attempts fleet-wide: the
+// failures that hand a machine to an operator are the ones to the release it
+// would be taken to now, however many other attempts are newer.
+func (s *Store) UpdateAttemptsFor(ctx context.Context, tags, rollouts []string) ([]UpdateAttempt, error) {
+	var cond []string
+	var args []any
+	in := func(col string, vals []string) {
+		if len(vals) == 0 {
+			return
+		}
+		cond = append(cond, col+" IN ("+strings.TrimSuffix(strings.Repeat("?, ", len(vals)), ", ")+")")
+		for _, v := range vals {
+			args = append(args, v)
+		}
+	}
+	in("to_version", tags)
+	in("rollout_id", rollouts)
+	if len(cond) == 0 {
+		return nil, nil
+	}
+	args = append(args, maxAttemptsFor)
+	return s.queryUpdateAttempts(ctx, `SELECT `+updateAttemptCols+` FROM update_attempts
+		WHERE `+strings.Join(cond, " OR ")+` ORDER BY requested_at DESC, id DESC LIMIT ?`, args...)
+}
+
 func (s *Store) queryUpdateAttempts(ctx context.Context, query string, args ...any) ([]UpdateAttempt, error) {
 	rows, err := s.read.QueryContext(ctx, query, args...)
 	if err != nil {

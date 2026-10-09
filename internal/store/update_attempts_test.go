@@ -275,3 +275,42 @@ func TestUpdateAttemptsListNewestFirstForOneTargetOrAll(t *testing.T) {
 		t.Errorf("every attempt = %d rows (%v), want 5", len(got), err)
 	}
 }
+
+// The planner reads the attempts to the releases it would take machines to, and
+// a rollout's steps, and nothing else: however many other attempts are newer, a
+// machine's failures to its release are among what it reads.
+func TestUpdateAttemptsForReadsByReleaseAndByRollout(t *testing.T) {
+	ctx := context.Background()
+	s, clock := updateAttemptStore(t)
+	toTarget := mustCreateAttempt(t, s, hostAttempt("host_a"))
+	if _, err := s.FinishUpdateAttempt(ctx, toTarget.ID, UpdateFailed, "no"); err != nil {
+		t.Fatal(err)
+	}
+	step := hostAttempt("host_b")
+	step.ToVersion, step.RolloutID = "v1.3.4", "rol_1"
+	mustCreateAttempt(t, s, step)
+	for i := range 3 {
+		clock.at = clock.at.Add(time.Minute)
+		other := hostAttempt("host_c")
+		other.ToVersion = "v1.2." + string(rune('0'+i))
+		mustCreateAttempt(t, s, other)
+		if _, err := s.FinishUpdateAttempt(ctx, other.ID, UpdateSucceeded, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got, err := s.UpdateAttemptsFor(ctx, []string{"v1.3.5"}, []string{"rol_1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]bool{}
+	for _, a := range got {
+		ids[a.ID] = true
+	}
+	if len(got) != 2 || !ids[toTarget.ID] || !ids[step.ID] {
+		t.Errorf("UpdateAttemptsFor = %+v, want the attempt to v1.3.5 and the rollout's step", got)
+	}
+	if got, err := s.UpdateAttemptsFor(ctx, nil, nil); err != nil || len(got) != 0 {
+		t.Errorf("UpdateAttemptsFor with nothing asked = %+v, %v, want nothing", got, err)
+	}
+}
