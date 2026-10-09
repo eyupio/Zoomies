@@ -1378,8 +1378,9 @@ test('a viewer is asked to involve an operator rather than shown an update comma
     await signedInAs(page, 'viewer');
     await goto(page, `/hosts/${credentials.host_id}`, name);
     const panel = page.getByRole('region', { name: 'No health report yet' });
-    await expect(panel).toContainText('Updating an agent needs an administrator');
-    await expect(panel).toContainText('or an operator, who can run its upgrade command');
+    await expect(panel).toContainText('An agent is updated by an administrator');
+    await expect(panel).toContainText('by an operator, who can run its upgrade command');
+    await expect(panel).toContainText('Ask an administrator or an operator');
     await expect(panel).not.toContainText('never updates a host itself');
     await expect(panel.locator('pre')).toHaveCount(0);
     await expect(panel.getByRole('button')).toHaveCount(0);

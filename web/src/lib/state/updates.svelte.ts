@@ -1,5 +1,6 @@
 /**
- * What the update mode would take, for the Settings page that shows it.
+ * What the update mode would take, for the Settings page that shows it, and
+ * the hosts' rollout, for it and for the Hosts page.
  *
  * The controller works the status out when asked and stores none of it: a soak
  * ends when the clock passes it and no row is written, so the only thing that
@@ -12,7 +13,13 @@
  * administrator is not sent the `updates.*` rows, and the status carries them
  * beside the sentence they explain.
  */
-import { getUpdates, updateController } from '../api/client';
+import {
+  cancelRollout,
+  getUpdates,
+  resumeRollout,
+  startHostRollout,
+  updateController,
+} from '../api/client';
 import { events } from '../api/sse';
 import type { SseStatus } from '../api/sse';
 import type { UpdatesStatus } from '../api/types';
@@ -63,6 +70,43 @@ class Updates {
    */
   async updateController(tag: string): Promise<void> {
     this.adopt(await updateController(tag));
+  }
+
+  /**
+   * Start a rollout of every host behind the controller's release. Never with a
+   * list: the one button that calls this means every host, and a list built
+   * from a selection could be empty, which the server refuses.
+   */
+  startRollout(): Promise<void> {
+    return this.#act(() => startHostRollout());
+  }
+
+  /** Let a halted rollout carry on. A refusal throws, with the controller's sentence in it. */
+  resumeRollout(): Promise<void> {
+    return this.#act(resumeRollout);
+  }
+
+  /** End the open rollout. A refusal throws, with the controller's sentence in it. */
+  cancelRollout(): Promise<void> {
+    return this.#act(cancelRollout);
+  }
+
+  /**
+   * Take the status a rollout action answered with, as a frame would be.
+   *
+   * The controller starts a pass as it answers, and that pass's frame can
+   * arrive before the answer does: a host asked to update, say, after a status
+   * that has not asked it yet. Taken last, the answer would put the older
+   * picture over the newer one until something else moved. So when a frame
+   * landed while the call was out, the document is read again as well, and the
+   * page ends on whichever is newest.
+   */
+  async #act(call: () => Promise<UpdatesStatus>): Promise<void> {
+    const before = this.#frames;
+    const status = await call();
+    const overtaken = before !== this.#frames;
+    this.adopt(status);
+    if (overtaken) void this.refresh();
   }
 
   /**

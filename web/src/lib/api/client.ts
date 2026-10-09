@@ -857,8 +857,9 @@ export const updateController = (tag?: string) =>
   api.post<Result<'updateController'>>('/updates/controller', tag ? { body: { tag } } : {});
 
 /**
- * Start a rollout (admin): every host behind the controller's release, or only `hostIds`. An
- * empty list is refused by the server rather than read as every host, so it is not sent as one.
+ * Start a rollout (admin): every host behind the controller's release when called with no
+ * argument, or only `hostIds`. An empty array is sent as it is and refused by the server, which
+ * never reads it as every host; a page means every host only by calling this with no argument.
  * Answers 202 with the status, whose `rollout` is the one just started.
  */
 export const startHostRollout = (hostIds?: string[]) =>

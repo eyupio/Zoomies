@@ -126,7 +126,7 @@ test('the mode is read as text, with what it would do beside it, and is not a co
 
   await expect(mode(page)).toContainText('Manual');
   await expect(mode(page)).toContainText(
-    'Zoomies offers the newest release that can be installed on this system, with an Update button for this controller and for each host whose update helper is installed.',
+    'Zoomies offers the newest release that can be installed on this system, with an Update button for this controller and for each host whose update helper is installed, and one on the Hosts page that updates every host behind this controller, one at a time.',
   );
   await expect(mode(page)).toContainText('24 hours');
   // Where the controls are is a link, for the roles that can open that page.
@@ -1102,4 +1102,116 @@ test('nothing scrolls sideways at 360px while an update is open, failed or being
     'the dialog fits',
   ).toBe(true);
   await expectNoSidewaysScroll(page, 'the Updates page with the confirmation open');
+});
+
+/* -- the hosts' rollout ------------------------------------------------------ */
+
+const hostsRollout = (page: Page) =>
+  page.getByRole('region', { name: 'Updating hosts', exact: true });
+
+/** The planner's sentence for a rollout auto has started, as the controller words it. */
+const AUTO_STARTED =
+  'Starting a rollout to v1.3.0, the release the controller runs: 2 hosts are behind it and are updated one at a time.';
+
+/**
+ * No stream: a frame from the real controller, which has no such rollout, would
+ * put its own status over the one served.
+ */
+async function quiet(page: Page): Promise<void> {
+  await page.route('**/api/v1/events*', (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+      body: '',
+    }),
+  );
+}
+
+function rolledOut(state: 'running' | 'halted' | 'done' | 'cancelled'): UpdatesStatus {
+  return {
+    ...waiting(),
+    reason: AUTO_STARTED,
+    rollout: {
+      id: 'rol_e2erollout01',
+      target: 'v1.3.0',
+      state,
+      halted_reason:
+        state === 'halted'
+          ? "The update of build-02 to v1.3.0 did not succeed, so the rollout is halted. Read why on the host's card, then resume the rollout or cancel it."
+          : '',
+      done: state === 'done' ? 2 : 1,
+      total: 2,
+      current: state === 'running' ? 'build-02' : '',
+    },
+  };
+}
+
+test('in auto the planner’s sentence is shown as it was given, and the mode says what auto does by itself', async ({
+  page,
+}) => {
+  await serve(page, () => rolledOut('running'));
+  await quiet(page);
+  await goto(page, PAGE, 'Updates');
+
+  await expect(take(page).getByText(AUTO_STARTED, { exact: true })).toBeVisible();
+  await expect(mode(page)).toContainText('Auto');
+  await expect(mode(page)).toContainText(
+    'it updates this controller through its update helper, then every host behind the controller, one at a time.',
+  );
+  await expect(mode(page)).toContainText(
+    'A host whose update fails halts the rollout until an administrator resumes or cancels it.',
+  );
+  await expect(mode(page)).not.toContainText('takes no release by itself yet');
+});
+
+test('the rollout is shown with its progress, a halted one in the draining colour, and an administrator is sent to Hosts to act on it', async ({
+  page,
+}) => {
+  let state: Parameters<typeof rolledOut>[0] = 'running';
+  await serve(page, () => rolledOut(state));
+  await quiet(page);
+  await goto(page, PAGE, 'Updates');
+  await expect(hostsRollout(page)).toContainText('Rolling out');
+  await expect(hostsRollout(page)).toContainText('1 of 2 hosts updated.');
+  await expect(hostsRollout(page)).toContainText('build-02 is being updated now.');
+
+  state = 'halted';
+  await reload(page, 'Updates');
+  await expect(hostsRollout(page)).toContainText('The rollout to v1.3.0 is halted');
+  await expect(hostsRollout(page)).toContainText(
+    'The update of build-02 to v1.3.0 did not succeed',
+  );
+  await expect(hostsRollout(page).locator('[data-tone="draining"]')).toHaveText('Halted');
+  const link = hostsRollout(page).getByRole('link', {
+    name: 'Resume or cancel it on the Hosts page',
+  });
+  await expect(link).toHaveAttribute('href', '/hosts');
+  // Nothing here acts on it: that is the Hosts page's, beside the hosts it moves.
+  await expect(hostsRollout(page).getByRole('button')).toHaveCount(0);
+
+  state = 'done';
+  await reload(page, 'Updates');
+  await expect(hostsRollout(page)).toContainText('The rollout to v1.3.0 is done');
+  await expect(hostsRollout(page).locator('[data-tone="idle"]')).toHaveText('Done');
+  await expect(hostsRollout(page).getByRole('link')).toHaveCount(0);
+
+  // An operator reads it and is sent nowhere.
+  state = 'halted';
+  await signedInAs(page, 'operator');
+  await reload(page, 'Updates');
+  await expect(hostsRollout(page)).toContainText('Halted');
+  // Counted in the document and not the accessibility tree, which can leave a
+  // link out for reasons of its own and so pass for the wrong one.
+  await expect(hostsRollout(page).locator('a')).toHaveCount(0);
+  await expect(hostsRollout(page)).not.toContainText('Hosts page');
+  await expectAccessibleStructure(page);
+});
+
+test('nothing scrolls sideways at 360px with a halted rollout', async ({ page }) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  await serve(page, () => rolledOut('halted'));
+  await quiet(page);
+  await goto(page, PAGE, 'Updates');
+  await expect(hostsRollout(page)).toContainText('Halted');
+  await expectNoSidewaysScroll(page, 'the Updates page with a halted rollout');
 });

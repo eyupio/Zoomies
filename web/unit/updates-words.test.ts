@@ -5,11 +5,14 @@ import {
   attemptWords,
   buildText,
   confirmControllerUpdate,
+  confirmRollout,
   controllerOffer,
   describeMode,
   modeLabel,
   modeSettingHref,
   releaseHref,
+  rolloutOffer,
+  rolloutWords,
   runsRelease,
   soakNote,
   soakText,
@@ -17,6 +20,8 @@ import {
   UPDATE_RESTART,
   updateState,
   type ControllerAttempt,
+  type Rollout,
+  type RolloutHost,
 } from '../src/lib/updates/words.ts';
 import { atLeast, type Role, type UpdatesStatus } from '../src/lib/api/types.ts';
 
@@ -69,21 +74,24 @@ test('each mode says what it would do, and auto says what its wait costs', () =>
   );
   assert.equal(
     describeMode('manual'),
-    'Zoomies offers the newest release that can be installed on this system, with an Update button for this controller and for each host whose update helper is installed. Nothing moves until someone presses one.',
+    'Zoomies offers the newest release that can be installed on this system, with an Update button for this controller and for each host whose update helper is installed, and one on the Hosts page that updates every host behind this controller, one at a time. Nothing moves until someone presses one.',
   );
   assert.equal(
     describeMode('auto'),
-    'Zoomies would take the newest release that can be installed on this system once it has been public for the soak. A newer release restarts the wait, so if releases are published faster than the soak, auto never takes one. In this release auto takes no release by itself yet, and the Update buttons work as they do in manual.',
+    'Zoomies takes the newest release that can be installed on this system once it has been public for the soak: it updates this controller through its update helper, then every host behind the controller, one at a time. A newer release restarts the wait, so if releases are published faster than the soak, auto never takes one. A host whose update fails halts the rollout until an administrator resumes or cancels it.',
   );
 });
 
-// Auto takes nothing by itself yet, so a sentence in the future tense would
-// promise what nothing keeps: it is described in the conditional, and says it
-// does not act yet, until the part that acts has landed. Manual does act, on a
-// press, and says so as it is; neither promises.
-test('auto is described in the conditional and says it does not act yet, and neither mode promises', () => {
-  assert.match(describeMode('auto'), /\bwould\b/);
-  assert.match(describeMode('auto'), /takes no release by itself yet/);
+// Auto acts by itself now, so it is described as it is, and an operator who
+// chooses it is told what it does to the hosts and what stops it. Neither mode
+// promises: what happens is the controller's sentence, shown beside this.
+test('auto says what it does by itself and what halts it, and neither mode promises', () => {
+  assert.doesNotMatch(describeMode('auto'), /\bwould\b|\byet\b/);
+  assert.match(describeMode('auto'), /one at a time/);
+  assert.match(
+    describeMode('auto'),
+    /halts the rollout until an administrator resumes or cancels it/,
+  );
   assert.doesNotMatch(describeMode('manual'), /\bwould\b/);
   for (const mode of ['manual', 'auto'] as const) {
     assert.doesNotMatch(describeMode(mode), /\bwill\b|\binstalling\b/, mode);
@@ -530,4 +538,175 @@ test('the restart state is worded for an update, never for a restore', () => {
   assert.match(UPDATE_RESTART.stuckDown(900), /zoomies updates helper status/);
   assert.match(UPDATE_RESTART.stuckDown(900), /journalctl -u zoomies-update/);
   assert.doesNotMatch(all, /\u2014| -- /);
+});
+
+/* -- the hosts' rollout ----------------------------------------------------- */
+
+function rollout(overrides: Partial<Rollout> = {}): Rollout {
+  return {
+    id: 'rol_k3fqz2mx7abcd',
+    target: 'v1.3.0',
+    state: 'running',
+    halted_reason: '',
+    done: 1,
+    total: 3,
+    current: 'build-02',
+    ...overrides,
+  };
+}
+
+const HALTED_BECAUSE =
+  "The update of build-02 to v1.3.0 did not succeed, so the rollout is halted. Read why on the host's card, then resume the rollout or cancel it.";
+
+test('a running rollout says how far it has got and which host is being updated now', () => {
+  const words = rolloutWords(rollout());
+  assert.equal(words.label, 'Rolling out');
+  assert.equal(words.title, 'Updating hosts to v1.3.0');
+  assert.equal(words.progress, '1 of 3 hosts updated.');
+  assert.equal(words.detail, 'build-02 is being updated now.');
+  assert.equal(words.open, true);
+  assert.equal(words.canResume, false);
+  assert.match(words.live, /1 of 3 hosts updated/);
+  // Between two hosts there is nobody to name, and nothing is made up.
+  assert.equal(rolloutWords(rollout({ current: '' })).detail, '');
+  assert.equal(rolloutWords(rollout({ done: 0, total: 1 })).progress, '0 of 1 host updated.');
+});
+
+// Held until an operator acts is what the draining colour means, so a halted
+// rollout wears it, names the host in the controller's own sentence, and says
+// what each of the two ways on does.
+test('a halted rollout names the host in the controller’s words and says to resume or cancel', () => {
+  const words = rolloutWords(
+    rollout({ state: 'halted', current: '', halted_reason: HALTED_BECAUSE }),
+  );
+  assert.equal(words.label, 'Halted');
+  assert.equal(words.tone, 'draining');
+  assert.equal(words.title, 'The rollout to v1.3.0 is halted');
+  assert.equal(words.detail, HALTED_BECAUSE);
+  assert.match(words.detail, /build-02/);
+  assert.match(words.next, /^Resume goes on to the next host/);
+  assert.match(words.next, /Cancel stops the rollout/);
+  assert.equal(words.open, true);
+  assert.equal(words.canResume, true);
+  assert.match(words.live, /halted/);
+  // A halted rollout whose sentence did not arrive still says how to go on.
+  const bare = rolloutWords(rollout({ state: 'halted', current: '', halted_reason: '' }));
+  assert.match(bare.detail, /did not succeed/);
+  assert.match(bare.next, /Resume/);
+  assert.match(bare.next, /Cancel/);
+});
+
+test('a rollout that is done is idle, and one that was cancelled says so without alarm', () => {
+  const done = rolloutWords(rollout({ state: 'done', done: 3, total: 3, current: '' }));
+  assert.equal(done.label, 'Done');
+  assert.equal(done.tone, 'idle');
+  assert.equal(done.title, 'The rollout to v1.3.0 is done');
+  assert.equal(done.progress, '3 of 3 hosts updated.');
+  assert.equal(done.open, false);
+  assert.equal(done.canResume, false);
+
+  const cancelled = rolloutWords(rollout({ state: 'cancelled', current: '' }));
+  assert.equal(cancelled.label, 'Cancelled');
+  assert.equal(cancelled.tone, 'neutral');
+  assert.equal(cancelled.title, 'The rollout to v1.3.0 was cancelled');
+  assert.equal(cancelled.open, false);
+});
+
+// The status colours are a fixed mapping: running is news (accent, as an update
+// in flight is), halted is held, done is idle. Danger is a host's failed update,
+// which its card shows; the rollout itself never wears it.
+test('each rollout state has the colour the mapping gives it', () => {
+  const tones = Object.fromEntries(
+    (['running', 'halted', 'done', 'cancelled'] as const).map((state) => [
+      state,
+      rolloutWords(rollout({ state })).tone,
+    ]),
+  );
+  assert.deepEqual(tones, {
+    running: 'accent',
+    halted: 'draining',
+    done: 'idle',
+    cancelled: 'neutral',
+  });
+});
+
+function rolloutHost(overrides: Partial<RolloutHost> = {}): RolloutHost {
+  return {
+    embedded: false,
+    version_skew: 'behind',
+    update: { state: 'none', reason: 'This host runs 1.2.0.', can_update: true, attempt_id: '' },
+    ...overrides,
+  };
+}
+
+// The count is the controller's: each host's own update block says whether it
+// can be asked, which is the same answer its card's button is drawn from.
+test('the hosts action counts the hosts whose own update block says they can be updated', () => {
+  const hosts = [
+    rolloutHost(),
+    rolloutHost(),
+    rolloutHost({
+      update: { state: 'none', reason: 'No helper.', can_update: false, attempt_id: '' },
+    }),
+    rolloutHost({ version_skew: undefined, update: undefined }),
+  ];
+  assert.deepEqual(rolloutOffer(status(), hosts, true), {
+    kind: 'offer',
+    count: 2,
+    tag: 'v1.3.0',
+  });
+  assert.equal(rolloutOffer(status(), [hosts[2]!], true).kind, 'none');
+});
+
+test('the hosts action is an administrator’s, and is not offered while a rollout is open', () => {
+  const hosts = [rolloutHost()];
+  assert.equal(rolloutOffer(status(), hosts, false).kind, 'none');
+  assert.equal(rolloutOffer(null, hosts, true).kind, 'none');
+  for (const state of ['running', 'halted'] as const) {
+    assert.equal(rolloutOffer(status({ rollout: rollout({ state }) }), hosts, true).kind, 'none');
+  }
+  for (const state of ['done', 'cancelled'] as const) {
+    assert.equal(rolloutOffer(status({ rollout: rollout({ state }) }), hosts, true).kind, 'offer');
+  }
+});
+
+// As on a host's card: with the mode off the action is there and cannot be
+// pressed, with the reason beside it as text, for as long as a host is behind.
+test('with updating off the hosts action is disabled and says why, while a host is behind', () => {
+  const off = status({ mode: 'off' });
+  const behind = rolloutHost({
+    update: { state: 'none', reason: 'Updating is off.', can_update: false, attempt_id: '' },
+  });
+  assert.deepEqual(rolloutOffer(off, [behind], true), {
+    kind: 'off',
+    sentence: 'Updating is off. Set updates.mode to manual or auto to update hosts from here.',
+  });
+  assert.equal(rolloutOffer(off, [rolloutHost({ version_skew: undefined })], true).kind, 'none');
+  assert.equal(rolloutOffer(off, [rolloutHost({ embedded: true })], true).kind, 'none');
+  assert.equal(rolloutOffer(off, [behind], false).kind, 'none');
+});
+
+// The confirmation is the last thing before a fleet of agents restart, so each
+// thing it promises is pinned, and none of it is more than the code does: the
+// restart does not wait for jobs, so it is not said to.
+test('the rollout confirmation names the release and the hosts and says what a failure does', () => {
+  const words = confirmRollout('v1.3.0', 2);
+  assert.equal(words.title, 'Update 2 hosts');
+  assert.equal(words.description, 'Update 2 hosts to v1.3.0, one at a time?');
+  assert.equal(words.confirmLabel, 'Update 2 hosts');
+  const lines = words.consequences.join('\n');
+  assert.match(lines, /Each host’s agent restarts when its turn comes/);
+  assert.match(lines, /Jobs that are running keep running/);
+  assert.match(lines, /does not wait for them to finish/);
+  assert.match(lines, /one host’s update fails or times out, the rollout halts/);
+  assert.match(lines, /until an administrator resumes or cancels it/);
+  assert.doesNotMatch(`${words.description}\n${lines}`, /\u2014| -- /);
+  assert.equal(confirmRollout('v1.3.0', 1).title, 'Update 1 host');
+});
+
+test('nothing a rollout says carries an em dash or its stand-in', () => {
+  for (const state of ['running', 'halted', 'done', 'cancelled'] as const) {
+    const words = rolloutWords(rollout({ state, halted_reason: '' }));
+    assert.doesNotMatch(JSON.stringify(words), /\u2014| -- /, state);
+  }
 });

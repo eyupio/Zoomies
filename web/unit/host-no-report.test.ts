@@ -41,10 +41,12 @@ test('a behind or different agent may be too old, and an operator gets the contr
     assert.equal(r.kind, 'release');
     assert.match(r.description, /may be too old to send OS reports/);
     assert.equal(r.command, UPGRADE);
-    // Zoomies can now update a host, so the line under the command says when it
-    // does and no longer says it never will.
-    assert.match(r.after ?? '', /only when an administrator presses Update/);
-    assert.doesNotMatch(r.after ?? '', /never runs it for you/);
+    // Zoomies can update a host, on a press or by itself in auto, so the line
+    // under the command says when it does and claims neither never nor only.
+    assert.match(r.after ?? '', /when an administrator presses Update on the host’s card/);
+    assert.match(r.after ?? '', /starts a rollout from the Hosts page/);
+    assert.match(r.after ?? '', /while updates\.mode is auto/);
+    assert.doesNotMatch(r.after ?? '', /never runs it for you|\bonly when\b/);
     assert.equal(r.copyLabel, 'Copy the upgrade command');
     assert.equal(r.note, 'Updates it.');
   }
@@ -62,12 +64,14 @@ test('the upgrade command is never built from a host field and never reaches a v
   const viewer = run(evil, false);
   assert.equal(viewer.kind, 'release');
   assert.equal(viewer.command, null);
-  // Both ways of updating are named, because a viewer can ask either person, and
-  // neither is claimed to be something Zoomies does by itself.
-  assert.match(viewer.detail, /needs an administrator, who can press Update/);
+  // Both people who can update it are named, because a viewer can ask either,
+  // and so is auto, which updates it by itself where the helper is.
+  assert.match(viewer.detail, /an administrator, who can press Update/);
   // The button is there only where the helper is, so the sentence says so.
   assert.match(viewer.detail, /press Update on its host card where the update helper is installed/);
-  assert.match(viewer.detail, /or an operator, who can run its upgrade command/);
+  assert.match(viewer.detail, /an operator, who can run its upgrade command/);
+  assert.match(viewer.detail, /while updates\.mode is auto/);
+  assert.doesNotMatch(viewer.detail, /\bneeds an administrator\b/);
   assert.doesNotMatch(viewer.detail, /never updates a host itself/);
   // No command to offer: say so rather than invent one.
   const none = run(host({ version_skew: 'differs' }));

@@ -18,7 +18,7 @@
   import { hostSignals } from '$lib/insights/signals';
   import MetricGrid from '$lib/components/MetricGrid.svelte';
   import { tick } from 'svelte';
-  import { ChevronDown, ChevronRight, Plus, Server } from '@lucide/svelte';
+  import { ChevronDown, ChevronRight, CircleArrowUp, Plus, Server } from '@lucide/svelte';
   import {
     clearHostThrottle,
     listJoinTokens,
@@ -36,6 +36,10 @@
   import { remember, remembered } from '$lib/state/prefs.svelte';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
+  import { updates } from '$lib/state/updates.svelte';
+  import RolloutStatus from '$lib/updates/RolloutStatus.svelte';
+  import StartRolloutDialog from '$lib/updates/StartRolloutDialog.svelte';
+  import { rolloutIsOpen, rolloutOffer, rolloutWords, type RolloutOffer } from '$lib/updates/words';
   import Button from '$lib/components/Button.svelte';
   import EmptyState from '$lib/components/EmptyState.svelte';
   import LoadingBoundary from '$lib/components/LoadingBoundary.svelte';
@@ -256,6 +260,89 @@
     return () => controller.abort();
   });
 
+  /* -- updating every host that is behind -------------------------------------
+   * Admin only. The status is the document Settings → Updates reads, followed
+   * over the stream, because a rollout moves on the controller's passes and not
+   * on anything this page does. The count on the button is the hosts whose own
+   * update block says they can be asked, the same answer their cards' buttons
+   * are drawn from.
+   * ------------------------------------------------------------------------ */
+
+  $effect(() => {
+    if (!canAdmin) return;
+    return updates.follow();
+  });
+  const updateStatus = $derived(canAdmin ? updates.status : null);
+  const rolloutAction = $derived(rolloutOffer(updateStatus, hosts, canAdmin));
+  const rollout = $derived(updateStatus?.rollout ?? null);
+  // An ended rollout stays on this page only once it has watched it end: the
+  // status keeps the last one for good, and a card for a rollout that finished
+  // last month would sit above the hosts with nothing to do. Settings → Updates
+  // always shows it.
+  let watched = $state('');
+  $effect(() => {
+    if (rollout && rolloutIsOpen(rollout)) watched = rollout.id;
+  });
+  const shownRollout = $derived(
+    rollout && (rolloutIsOpen(rollout) || rollout.id === watched) ? rollout : null,
+  );
+  const rolloutText = $derived(shownRollout ? rolloutWords(shownRollout) : null);
+
+  let rolloutConfirm = $state(false);
+  // What the button said when it was pressed, so a host joining while the
+  // dialog is open cannot change the number the administrator agreed to.
+  let rolloutCount = $state(0);
+  let rolloutTag = $state('');
+  let rolloutBusy = $state(false);
+
+  // After a press the button that was pressed is gone, and focus would fall to
+  // the page. It goes to the rollout, after the frames in which a dialog hands
+  // focus back to an opener it can no longer find.
+  function landOnRollout(): void {
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        document.getElementById('hosts-rollout')?.focus();
+        setTimeout(() => {
+          const held = document.activeElement;
+          if (!held || held === document.body || held.id === 'page-heading')
+            document.getElementById('hosts-rollout')?.focus();
+        }, 250);
+      }),
+    );
+  }
+
+  function askRollout(offer: Extract<RolloutOffer, { kind: 'offer' }>): void {
+    rolloutCount = offer.count;
+    rolloutTag = offer.tag;
+    rolloutConfirm = true;
+  }
+
+  async function startRollout(): Promise<boolean> {
+    try {
+      await updates.startRollout();
+      landOnRollout();
+    } catch (cause) {
+      toasts.fromError(cause, 'The rollout was not started');
+    }
+    // Closed either way: a refusal is a toast in the controller's words.
+    return true;
+  }
+
+  async function moveRollout(resume: boolean): Promise<void> {
+    rolloutBusy = true;
+    try {
+      await (resume ? updates.resumeRollout() : updates.cancelRollout());
+      landOnRollout();
+    } catch (cause) {
+      toasts.fromError(
+        cause,
+        resume ? 'The rollout was not resumed' : 'The rollout was not cancelled',
+      );
+    } finally {
+      rolloutBusy = false;
+    }
+  }
+
   /* -- actions ----------------------------------------------------------------- */
 
   let editing = $state<Host | null>(null);
@@ -349,14 +436,68 @@
           · {hosts.filter((h) => h.connection === 'tailcat').length} via Tailcat{/if}
       </p>
     {/if}
+    {#if rolloutAction.kind === 'off'}
+      <!-- The reason is text beside the action, as on a host's card: a phone has no hover. -->
+      <p class="summary">{rolloutAction.sentence}</p>
+    {/if}
   {/snippet}
   <Button variant="secondary" href="/usage?group_by=host">Usage history</Button>
+  {#if rolloutAction.kind === 'offer'}
+    {@const offer = rolloutAction}
+    <Button variant="secondary" icon={CircleArrowUp} onclick={() => askRollout(offer)}
+      >Update {pluralise(offer.count, 'host')}</Button
+    >
+  {:else if rolloutAction.kind === 'off'}
+    <Button variant="secondary" icon={CircleArrowUp} disabled>Update hosts</Button>
+  {/if}
   {#if canAdmin}
     <Button variant="primary" icon={Plus} href="/hosts/new">Add a host</Button>
   {/if}
 </PageHeader>
 
 <div class="content">
+  {#if canAdmin}
+    <!-- Always in the page for an administrator, because a region that appears
+         with its words already in it is not reliably read out. -->
+    <p class="sr-only" role="status" aria-live="polite">{rolloutText?.live ?? ''}</p>
+  {/if}
+  {#if canAdmin && shownRollout}
+    <!-- Focusable by script only: after a press the button that was pressed is
+         gone, and focus comes here rather than falling to the page. -->
+    <section class="panel" id="hosts-rollout" aria-labelledby="hosts-rollout-heading" tabindex="-1">
+      <header>
+        <div>
+          <h2 id="hosts-rollout-heading">Host rollout</h2>
+          <p>Every host behind the controller's release, updated one at a time.</p>
+        </div>
+      </header>
+      <div class="rollout-body">
+        <RolloutStatus
+          rollout={shownRollout}
+          sentence={shownRollout.state === 'running' ? (updateStatus?.reason ?? '') : ''}
+        >
+          {#snippet actions()}
+            {#if rolloutText?.canResume}
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={rolloutBusy}
+                onclick={() => void moveRollout(true)}>Resume the rollout</Button
+              >
+            {/if}
+            {#if rolloutText?.open}
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={rolloutBusy}
+                onclick={() => void moveRollout(false)}>Cancel the rollout</Button
+              >
+            {/if}
+          {/snippet}
+        </RolloutStatus>
+      </div>
+    </section>
+  {/if}
   <!--
     A failed reconcile once the hosts are on screen is not an error state: the
     cache still holds every host and the stream keeps updating them. Only a
@@ -569,6 +710,12 @@
 <HostLabelsDialog bind:open={editOpen} host={editing} onclose={() => (editing = null)} />
 <HostDeleteDialog bind:open={deleteOpen} host={deleting} onclose={() => (deleting = null)} />
 <HostUpdateDialog bind:open={updateOpen} host={updating} onclose={() => (updating = null)} />
+<StartRolloutDialog
+  bind:open={rolloutConfirm}
+  tag={rolloutTag}
+  count={rolloutCount}
+  onconfirm={startRollout}
+/>
 
 <style>
   .capacity-map {
@@ -703,6 +850,9 @@
   }
   .panel-body {
     padding: var(--z-space-3) 0;
+  }
+  .rollout-body {
+    padding: var(--z-space-4) var(--z-space-5);
   }
   .need-admin {
     margin: 0;

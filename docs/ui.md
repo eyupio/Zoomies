@@ -500,6 +500,31 @@ the machine, held back for the daemon whatever the operator sets.
 ![The Hosts page scrolled to its host cards, below the capacity map: each card shows its connection state beside a health link, then the slots in use, committed CPU and memory, the memory it can lend and its backends](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
 ![The Hosts page scrolled to its host cards, below the capacity map: each card shows its connection state beside a health link, then the slots in use, committed CPU and memory, the memory it can lend and its backends](screenshots/hosts-light.webp#only-light){ .zoomies-shot }
 
+### Updating every host that is behind
+
+An administrator sees **Update N hosts** in the page header when hosts are
+behind the controller's release and can update themselves; the count is the
+hosts whose own card offers **Update**, read from the same answer. Its
+confirmation names the release and the number of hosts and says what follows:
+one host at a time, the one running the fewest jobs first, each agent restarting
+when its turn comes without waiting for its jobs (they keep running and the new
+agent takes them over), and the first failure halting the rollout. The request
+names no hosts, which the API reads as every host behind. With `updates.mode`
+off the action is drawn and cannot be pressed, and the reason is the line under
+the page title, as it is on a card.
+
+While a rollout is open the button gives way to a **Host rollout** panel above
+the hosts: how many hosts it has updated of how many, the host being updated
+now, and the controller's sentence for what it is doing or waiting on.
+**Rolling out** is news; **Halted** wears the draining colour, because it is
+held until a person acts, and says which host failed in the controller's words,
+with **Resume the rollout** (the host that failed waits out its retry while the
+next goes) and **Cancel the rollout** (an update a host has already been handed
+finishes by itself). The failed host's card wears the danger colour, a finished
+rollout reads **Done** in the idle one, and a host that is behind stays a
+neutral fact. Operators and viewers see neither the button nor the panel; the
+rollout is on Settings → Updates for everyone.
+
 **Tags and size class.** A host's tags are the labels pools select it by, and its
 card lists them in two groups: those stored on the host, which **Edit** changes,
 and those the controller works out from the machine (`os`, `arch` and, while a
@@ -715,19 +740,27 @@ in [Backup and restore](backup-and-restore.md).
 
 Which release the update mode would take, and when, and for the platform role
 the one thing on the page that installs anything: the **Update** button for this
-controller. A host is updated from its own card on **Hosts**.
+controller. A host is updated from its own card on **Hosts**, or with every
+other host that is behind in a [rollout](#updating-every-host-that-is-behind).
 
 At the top is one line saying what the mode does about the newest release
 that can be installed on this system (*Manual offers v1.3.2 and waits for a
-person to take it*, or *Auto would take v1.3.2 in 18 hours*; auto takes no
-release by itself yet) and under it the controller's own sentence for why,
-exactly as the API gives it. Then the release
+person to take it*, or *Auto would take v1.3.2 in 18 hours*) and under it the
+controller's own sentence for what happens next and why, exactly as the API
+gives it: in `auto` that is the planner's, which says when it updates this
+controller, which host a rollout is updating and what it is waiting on. Below
+the release, while there is one, is the hosts' rollout as it stands, the same
+block the Hosts page shows; an administrator is sent there to resume or cancel
+it. Then the release
 itself, linked to its notes when the address GitHub gave for it is an `https`
 one, with how long ago it was published and when the list was last read.
 
-The mode and the soak follow, as text with a sentence of what each would do.
-Auto's says what its wait costs: a newer release restarts the wait, so if
-releases are published faster than the soak, auto never takes one. Both are
+The mode and the soak follow, as text with a sentence of what each does.
+Auto's says what it does by itself (this controller first, through its update
+helper, then every host behind it, one at a time), what its wait costs (a newer
+release restarts the wait, so if releases are published faster than the soak,
+auto never takes one) and what stops it: a host whose update fails halts the
+rollout until an administrator resumes or cancels it. Both are
 settings that only the platform role changes, on the Configuration page; this
 page shows them to everybody, because an administrator is not sent those rows
 and still has to be able to tell what the controller is set to do. Last is the

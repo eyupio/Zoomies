@@ -12,6 +12,10 @@
   was given. The mode is text, not a control: it is changed where the setting is,
   by the role that may.
 
+  The hosts' rollout is shown here as it stands, with the planner's sentence
+  above it; it is started, resumed and cancelled on the Hosts page, beside the
+  hosts it moves.
+
   The one thing here that acts is the platform role's Update button for this
   controller. Everything about it is read from the status and not remembered by
   the page: whether an attempt is open, how the last one ended and whether the
@@ -26,6 +30,7 @@
   import { authFailureText, sentence } from '$lib/errors';
   import { session } from '$lib/state/session.svelte';
   import { updates } from '$lib/state/updates.svelte';
+  import RolloutStatus from '$lib/updates/RolloutStatus.svelte';
   import UpdateControllerDialog from '$lib/updates/UpdateControllerDialog.svelte';
   import {
     attemptWords,
@@ -35,6 +40,7 @@
     modeLabel,
     modeSettingHref,
     releaseHref,
+    rolloutIsOpen,
     soakNote,
     soakText,
     targetLine,
@@ -69,6 +75,7 @@
   const settingHref = $derived(modeSettingHref((role) => session.can(role)));
 
   const canUpdate = $derived(session.can('platform'));
+  const canAdmin = $derived(session.can('admin'));
   const offer = $derived(status ? controllerOffer(status, canUpdate) : null);
   const attempt = $derived(status?.controller ?? null);
   const attemptText = $derived(
@@ -297,6 +304,15 @@
           </div>
         {/if}
       </Panel>
+
+      {#if status.rollout}
+        <Panel title="Updating hosts">
+          <RolloutStatus rollout={status.rollout} />
+          {#if canAdmin && rolloutIsOpen(status.rollout)}
+            <p class="note"><a href="/hosts">Resume or cancel it on the Hosts page</a>.</p>
+          {/if}
+        </Panel>
+      {/if}
 
       <Panel title="Update mode">
         <dl class="facts">
