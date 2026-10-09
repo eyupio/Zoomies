@@ -8988,7 +8988,7 @@ export interface components {
             /** @description A sentence that says what the state means. It names no path. */
             reason: string;
             /**
-             * @description The command that installs the helper, for a person with root on the host to run. Empty when it is ready.
+             * @description The command that installs the helper, for a person with root on the host to run. Empty when it is ready, and empty where it cannot be installed at all because the helper is a pair of systemd units and the controller's host is not Linux.
              * @example sudo zoomies updates helper install
              */
             install_command: string;

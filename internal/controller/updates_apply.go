@@ -33,6 +33,18 @@ const (
 	maxRequestedBy = 128
 )
 
+// helperPlatform is the operating system this controller runs on, as far as the
+// update helper is concerned. It is a variable so that the answer for a platform
+// the suite is not running on can be tested.
+var helperPlatform = runtime.GOOS
+
+// helperInstallable is whether the update helper can exist on this platform at
+// all: it is a pair of systemd units, and `zoomies updates helper install`
+// refuses anywhere else. What it cannot see is a Linux host without systemd, or a
+// container that runs no runners and so has no shared folder; the installer says
+// so itself when it is run there.
+func helperInstallable() bool { return helperPlatform == "linux" }
+
 // The helper's states as the status names them.
 const (
 	HelperReady   = "ready"
@@ -83,6 +95,13 @@ func (c *Controller) probeUpdateHelper() helperProbe {
 		Reason: "No update helper is installed on this controller's host, so the controller cannot update itself. " +
 			"Somebody with root on the host can install it with the command below; until then, update it with zoomies upgrade.",
 		InstallCommand: helperInstallCommand,
+	}
+	if !helperInstallable() {
+		missing.Reason = "The update helper is a pair of systemd units, and this controller's host (" + helperPlatform + ") cannot run them, " +
+			"so the controller cannot update itself. Update it on its host with zoomies upgrade."
+		missing.InstallCommand = ""
+		return helperProbe{view: missing, refusal: "the update helper is a pair of systemd units, which " + helperPlatform +
+			" cannot run, so this controller cannot update itself; update it on its host with zoomies upgrade"}
 	}
 	dir, ok := c.updateDir()
 	if !ok {

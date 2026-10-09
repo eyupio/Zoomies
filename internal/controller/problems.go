@@ -2680,14 +2680,25 @@ func (c *Controller) controllerUpdateProblems() []Problem {
 			Title:    "this controller has no update helper, so it cannot update itself",
 			Detail: fmt.Sprintf("updates.mode is %s, so this release build of Zoomies may be asked to update itself, but the update helper that would replace its binary "+
 				"is not installed on its host. Nothing else is affected: runners, pools and jobs carry on.", mode),
-			Fix: "have somebody with root on the controller's host run `" + helperInstallCommand + "`, " +
-				"or set updates.mode to off if this controller is to be upgraded by hand with `zoomies upgrade`.",
+			Fix: missingHelperFix(),
 		})
 	}
 	if p, ok := failedUpdateProblem(sight.last); ok {
 		out = append(out, p)
 	}
 	return out
+}
+
+// missingHelperFix is what to do about a missing helper. Where the helper cannot
+// be installed the command would only refuse, so the fix is the upgrade by hand
+// that works there.
+func missingHelperFix() string {
+	if !helperInstallable() {
+		return "the update helper is a pair of systemd units, which this controller's host (" + helperPlatform + ") cannot run, " +
+			"so upgrade it by hand with `zoomies upgrade` and set updates.mode to off."
+	}
+	return "have somebody with root on the controller's host run `" + helperInstallCommand + "`, " +
+		"or set updates.mode to off if this controller is to be upgraded by hand with `zoomies upgrade`."
 }
 
 // failedUpdateProblem is the problem for the controller's latest attempt, when

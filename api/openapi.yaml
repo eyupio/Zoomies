@@ -11544,7 +11544,7 @@ components:
           description: A sentence that says what the state means. It names no path.
         install_command:
           type: string
-          description: The command that installs the helper, for a person with root on the host to run. Empty when it is ready.
+          description: The command that installs the helper, for a person with root on the host to run. Empty when it is ready, and empty where it cannot be installed at all because the helper is a pair of systemd units and the controller's host is not Linux.
           examples: [sudo zoomies updates helper install]
     UpdatesAttempt:
       type: object

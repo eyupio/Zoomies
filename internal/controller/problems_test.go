@@ -1314,6 +1314,20 @@ func TestAMissingHelperRaisesAPlatformProblemOnlyWhenTheModeIsNotOff(t *testing.
 		}
 	})
 
+	// The command would refuse on this platform, so the fix is the upgrade that
+	// works there.
+	t.Run("manual with the helper missing on a platform that cannot have one", func(t *testing.T) {
+		withHelperPlatform(t, "windows")
+		h := newHarness(t)
+		withVersion(t, "1.3.4")
+		h.inMode("manual")
+		h.pass(h.c)
+		p := h.problem(t, "controller.update_helper_missing")
+		if strings.Contains(p.Fix, "helper install") || !strings.Contains(p.Fix, "zoomies upgrade") {
+			t.Errorf("fix = %q, want it to leave out the install command and name zoomies upgrade", p.Fix)
+		}
+	})
+
 	t.Run("it clears when the helper is installed", func(t *testing.T) {
 		h := newHarness(t)
 		withVersion(t, "1.3.4")
