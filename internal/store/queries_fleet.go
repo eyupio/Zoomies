@@ -959,6 +959,11 @@ func (s *Store) DeleteHostForgettingMachine(ctx context.Context, id, machineID s
 		if err != nil {
 			return err
 		}
+		// An update asked of a host that is going nothing will report on, so
+		// it closes here rather than waiting for its timeout to say the same.
+		if err := cancelUpdateAttemptsForHost(ctx, tx, s.Now(), id); err != nil {
+			return err
+		}
 		runners, err = deletedIDs(ctx, tx, `DELETE FROM runners WHERE host_id = ? RETURNING id`, id)
 		if err != nil {
 			return err

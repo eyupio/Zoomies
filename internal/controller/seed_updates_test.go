@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"os"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -120,6 +121,40 @@ func TestTheUpdatesFixtureHoldsAutoBackAndSaysWhyThroughTheNewerRelease(t *testi
 	}
 	if age["v1.3.1"] <= 24*time.Hour || age["v1.3.2"] >= 24*time.Hour || age["v1.3.1"] <= age["v1.3.2"] {
 		t.Errorf("ages = %v, want v1.3.1 older than the 24h soak and v1.3.2 younger than it", age)
+	}
+}
+
+// The browser suite presses Update, and the controller refuses to ask for an
+// update unless a helper's marker is in its update folder. The fixture has no
+// helper, so it has to stand one in at the folder it was given, and send the
+// controller's requests there: a request written anywhere else would be one
+// the suite cannot answer.
+func TestTheUpdatesFixtureStandsInAHelperAtTheFolderItWasGiven(t *testing.T) {
+	h := newHarness(t)
+	withVersion(t, "dev")
+	h.inMode("manual")
+	folder := t.TempDir()
+	t.Setenv(UpdatesSeedEnvVar, folder)
+
+	if err := h.c.seedUpdates(h.ctx); err != nil {
+		t.Fatalf("seedUpdates: %v", err)
+	}
+
+	if got, ok := h.c.updateDir(); !ok || got != folder {
+		t.Errorf("updateDir = %q, %v, want %q: requests must go where the suite will read them", got, ok, folder)
+	}
+	if got := h.status().Helper; got.State != HelperReady || got.InstallCommand != "" {
+		t.Errorf("helper = %+v, want ready with nothing to install", got)
+	}
+	view, err := h.c.RequestControllerUpdate(h.ctx, UpdateActor{ID: "usr_e2e", Name: "e2e"}, "v1.3.2")
+	if err != nil {
+		t.Fatalf("RequestControllerUpdate: %v", err)
+	}
+	if view.Controller == nil || view.Controller.State != "requested" || view.Controller.To != "v1.3.2" {
+		t.Errorf("controller = %+v, want a requested attempt for v1.3.2", view.Controller)
+	}
+	if _, err := os.Stat(filepath.Join(folder, "request.json")); err != nil {
+		t.Errorf("the request was not written into the fixture's folder: %v", err)
 	}
 }
 

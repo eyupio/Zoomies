@@ -317,8 +317,9 @@ the page opens on *Running*, which is the question an operator arrives with. Tha
 that already carries a filter keeps it, so the problems drawer's unmatched link
 and the Overview's outcome links still show what they promised.
 
-The rest of the filters (repository, workflow, pool, label, outcome, dates)
-live in the URL alongside it, so a view can be pasted into a chat. A queued job
+The rest of the filters (repository, workflow, pool, host, label, outcome, dates)
+live in the URL alongside it, so a view can be pasted into a chat. *Host* is the
+host a job ran on, so it is not offered on the Queue, whose jobs have not run yet. A queued job
 that no enabled pool claims is one filter away, *Unmatched only*, and the
 problems drawer links straight to it: on an organisation that also rents
 runners elsewhere, most such jobs are somebody else's rather than a fault.

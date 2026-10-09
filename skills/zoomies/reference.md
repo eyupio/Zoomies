@@ -1200,18 +1200,90 @@ Run "zoomies hosts join-token <subcommand> --help" for the flags each one takes.
 
 ### zoomies updates
 
-Release updates, and the helper that applies them
+Release updates: what is on offer, asking the controller to update itself, and the helper that does it
 
 ```text
-Release updates, and the helper that applies them. To upgrade this host by hand, use "zoomies upgrade".
+Release updates: what the controller would take, asking it to check or to update itself, and the helper that applies them. To upgrade this host by hand, use "zoomies upgrade".
 
 Usage:
   zoomies updates <subcommand> [flags]
 
 Subcommands:
+  status                             What an update would take, the helper's state and the controller's last attempt
+  check                              Read the list of releases from GitHub now and say what it leaves
+  apply [--version tag] [--yes]      Ask the controller to update itself, through the root helper
   helper <install|remove|run|status>  The root-owned helper on this host that applies an update
 
 Run "zoomies updates <subcommand> --help" for the flags each one takes.
+```
+
+#### zoomies updates status
+
+What an update would take, the helper's state and the controller's last attempt
+
+```text
+What an update would take: the mode and soak, the build that is running, the release the mode would take and why, whether the update helper is installed on the controller's host, and the controller's open or last update attempt. It changes nothing. For the helper on this host, use "zoomies updates helper status".
+
+Usage:
+  zoomies updates status
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --output=table             table, json or yaml
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+
+Examples:
+  zoomies updates status
+  zoomies updates status --output json
+```
+
+#### zoomies updates check
+
+Read the list of releases from GitHub now and say what it leaves
+
+```text
+Read the list of releases from GitHub now instead of waiting for the scheduled check, and say what the controller makes of it. At most one request a minute goes to GitHub; asking again inside the minute answers the status as it stands. Needs the admin role.
+
+Usage:
+  zoomies updates check
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --output=table             table, json or yaml
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+
+Examples:
+  zoomies updates check
+```
+
+#### zoomies updates apply
+
+Ask the controller to update itself, through the root helper
+
+```text
+Ask the controller to update ITSELF: it writes a request for the root-owned update helper on its own host, and the helper replaces the controller's binary and restarts the service. This is not "zoomies upgrade", which upgrades the host you run it on and needs no controller. Needs the platform role, an update mode other than off, and a helper installed on the controller's host ("zoomies updates status" says whether it is). The controller answers at once and the helper on its own time; follow the attempt with "zoomies updates status". Runners and jobs already running carry on through the restart. Without --version it takes the newest release that can be installed on the controller's system.
+
+Usage:
+  zoomies updates apply [--version tag] [--yes]
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+  --version                  the release to take, such as v1.3.5; left out, the newest the controller can install
+  --yes                      do not ask for confirmation; needed when there is no terminal to ask at
+
+Examples:
+  zoomies updates apply
+  zoomies updates apply --version v1.3.5 --yes
 ```
 
 #### zoomies updates helper

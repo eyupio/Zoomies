@@ -1,15 +1,22 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  attemptIsOpen,
+  attemptWords,
   buildText,
+  confirmControllerUpdate,
+  controllerOffer,
   describeMode,
   modeLabel,
   modeSettingHref,
   releaseHref,
+  runsRelease,
   soakNote,
   soakText,
   targetLine,
+  UPDATE_RESTART,
   updateState,
+  type ControllerAttempt,
 } from '../src/lib/updates/words.ts';
 import { atLeast, type Role, type UpdatesStatus } from '../src/lib/api/types.ts';
 
@@ -33,6 +40,12 @@ function status(overrides: Partial<UpdatesStatus> = {}): UpdatesStatus {
     reason:
       'Available: v1.3.2 is newer than the v1.3.0 running now; manual mode waits for someone to update.',
     checked_at: '2026-10-08T11:58:00Z',
+    helper: {
+      state: 'missing',
+      reason: "No update helper is installed on this controller's host.",
+      install_command: 'sudo zoomies updates helper install',
+    },
+    controller: null,
     ...overrides,
   };
 }
@@ -260,4 +273,209 @@ test('the link to the mode setting is offered to the platform role and to no one
   for (const held of ['admin', 'operator', 'viewer'] as const) {
     assert.equal(modeSettingHref(as(held)), null, held);
   }
+});
+
+/* -- updating the controller ---------------------------------------------- */
+
+/** An attempt from 1.3.0 to v1.3.2 in the given state, as the status carries it. */
+function attempt(state: ControllerAttempt['state'], error = ''): ControllerAttempt {
+  return {
+    id: 'upd_k3fqz2mx7abcd',
+    state,
+    from: '1.3.0',
+    to: 'v1.3.2',
+    trigger: 'manual',
+    requested_at: '2026-10-08T11:00:00Z',
+    finished_at: state === 'requested' ? null : '2026-10-08T11:05:00Z',
+    error,
+  };
+}
+
+/** A manual status that can be updated: a ready helper and a newer release on offer. */
+function updatable(overrides: Partial<UpdatesStatus> = {}): UpdatesStatus {
+  return status({
+    helper: { state: 'ready', reason: 'The update helper is installed.', install_command: '' },
+    ...overrides,
+  });
+}
+
+test('an attempt in flight is told in the present, and says the page waits for the controller', () => {
+  const words = attemptWords(attempt('requested'), '1.3.0');
+  assert.equal(words.title, 'Updating to v1.3.2');
+  assert.equal(words.label, 'In progress');
+  assert.equal(words.open, true);
+  assert.match(words.detail, /from 1\.3\.0/);
+  assert.match(words.detail, /says how it ended when the controller does, and not before/);
+  // Nothing in it may read as having worked.
+  assert.doesNotMatch(`${words.title} ${words.detail}`, /updated|succeeded|done|complete/i);
+});
+
+test('an attempt the controller closed as succeeded is told as done, with the build it runs', () => {
+  const words = attemptWords(attempt('succeeded'), '1.3.2');
+  assert.equal(words.title, 'Updated to v1.3.2');
+  assert.equal(words.detail, 'This controller was on 1.3.0 and runs 1.3.2 now.');
+  assert.equal(words.open, false);
+  assert.equal(words.tone, 'accent');
+  assert.equal(words.lookAt, '');
+});
+
+// The new process records the ending a moment after it starts. In that moment the
+// status already carries the answer, in the build it reports; and the converse
+// is the rule that matters, that waiting does not make an old build a new one.
+test('an open attempt is shown as done only when the controller reports the release it asked for', () => {
+  assert.equal(attemptWords(attempt('requested'), '1.3.2').title, 'Updated to v1.3.2');
+  assert.equal(attemptWords(attempt('requested'), 'v1.3.2').title, 'Updated to v1.3.2');
+  assert.equal(attemptWords(attempt('requested'), '1.3.0').title, 'Updating to v1.3.2');
+  assert.equal(attemptWords(attempt('requested'), '1.3.1').title, 'Updating to v1.3.2');
+  assert.equal(attemptWords(attempt('requested'), '').title, 'Updating to v1.3.2');
+  assert.equal(attemptIsOpen(attempt('requested'), '1.3.0'), true);
+  assert.equal(attemptIsOpen(attempt('requested'), '1.3.2'), false);
+  assert.equal(attemptIsOpen(null, '1.3.0'), false);
+});
+
+test('builds are compared without the v that release tags carry and binaries do not', () => {
+  assert.equal(runsRelease('1.3.2', 'v1.3.2'), true);
+  assert.equal(runsRelease('v1.3.2', 'v1.3.2'), true);
+  assert.equal(runsRelease('1.3.2', 'v1.3.20'), false);
+  assert.equal(runsRelease('dev', 'v1.3.2'), false);
+  assert.equal(runsRelease('', ''), false);
+});
+
+test('an attempt that failed says so, keeps the old build in view and points at the helper', () => {
+  const words = attemptWords(attempt('failed', 'checksum mismatch'), '1.3.0');
+  assert.equal(words.title, 'The update to v1.3.2 did not succeed');
+  assert.equal(words.detail, 'This controller still runs 1.3.0.');
+  assert.equal(words.label, 'Failed');
+  assert.equal(words.tone, 'danger');
+  assert.equal(words.open, false);
+  assert.match(words.lookAt, /zoomies updates helper status/);
+  assert.match(words.lookAt, /zoomies-update/);
+});
+
+// Ninety minutes with no answer is the case where there is nothing else to read,
+// so it names where to look.
+test('an attempt that timed out says how long it waited and where to look', () => {
+  const words = attemptWords(attempt('timed_out'), '1.3.0');
+  assert.equal(words.title, 'The update to v1.3.2 timed out');
+  assert.equal(
+    words.detail,
+    'No answer came from the update helper within 90 minutes, and this controller still runs 1.3.0.',
+  );
+  assert.equal(words.label, 'Timed out');
+  assert.equal(words.tone, 'danger');
+  assert.equal(words.open, false);
+  assert.match(words.lookAt, /zoomies updates helper status/);
+  assert.match(words.lookAt, /journalctl -u zoomies-update/);
+});
+
+// "Still" is a claim about the old build. An attempt that was recorded as an
+// ending without the update, and is read after the controller has come to run
+// the release (somebody upgraded by hand, or the service came up late), must not
+// say the controller still runs something it does not.
+test('an attempt that did not succeed does not say the controller still runs a build it no longer runs', () => {
+  for (const state of ['failed', 'timed_out', 'cancelled'] as const) {
+    const words = attemptWords(attempt(state), '1.3.2');
+    assert.doesNotMatch(words.detail, /\bstill\b/, state);
+    assert.match(words.detail, /This controller runs 1\.3\.2 now\.$/, state);
+  }
+});
+
+test('an attempt that was cancelled says so without alarm', () => {
+  const words = attemptWords(attempt('cancelled'), '1.3.0');
+  assert.equal(words.title, 'The update to v1.3.2 was cancelled');
+  assert.equal(words.tone, 'neutral');
+  assert.equal(words.open, false);
+  assert.equal(words.lookAt, '');
+});
+
+test('the words for an attempt contain no em dash and no stand-in for one', () => {
+  for (const state of ['requested', 'succeeded', 'failed', 'timed_out', 'cancelled'] as const) {
+    const words = attemptWords(attempt(state), '1.3.0');
+    const all = [words.title, words.detail, words.lookAt, words.label].join('\n');
+    assert.doesNotMatch(all, /\u2014| -- /, state);
+  }
+});
+
+test('the button is offered to the platform role for the release the status names', () => {
+  assert.deepEqual(controllerOffer(updatable(), true), { kind: 'offer', tag: 'v1.3.2' });
+});
+
+// The reasons are checked in the order an operator would clear them, so that the
+// one shown is always the first thing standing in the way.
+test('no button is offered below the platform role, and the page says which role it needs', () => {
+  const offer = controllerOffer(updatable(), false);
+  assert.deepEqual(offer, {
+    kind: 'none',
+    sentence: 'Updating the controller needs the platform role.',
+    installCommand: '',
+  });
+});
+
+test('no button is offered while updating is off, for a build that is not a release, or with nothing newer', () => {
+  const none = (status: UpdatesStatus) => {
+    const offer = controllerOffer(status, true);
+    assert.equal(offer.kind, 'none');
+    return offer.kind === 'none' ? offer.sentence : '';
+  };
+  assert.match(none(updatable({ mode: 'off' })), /^Updating is off\./);
+  assert.match(
+    none(updatable({ running: { version: 'dev', release: false } })),
+    /not from a release/,
+  );
+  assert.match(
+    none(updatable({ target: { tag: 'v1.3.0', newer: false, due_at: null } })),
+    /No newer release is on offer/,
+  );
+  assert.match(none(updatable({ target: null })), /No newer release is on offer/);
+});
+
+test("with no helper the controller's own sentence is shown, with the command that installs it", () => {
+  const offer = controllerOffer(status(), true);
+  assert.deepEqual(offer, {
+    kind: 'none',
+    sentence: "No update helper is installed on this controller's host.",
+    installCommand: 'sudo zoomies updates helper install',
+  });
+});
+
+test('while an attempt is open there is no button, and once it ends there is one again', () => {
+  assert.deepEqual(controllerOffer(updatable({ controller: attempt('requested') }), true), {
+    kind: 'in-flight',
+  });
+  for (const state of ['failed', 'timed_out', 'cancelled', 'succeeded'] as const) {
+    assert.equal(
+      controllerOffer(updatable({ controller: attempt(state) }), true).kind,
+      'offer',
+      state,
+    );
+  }
+});
+
+// The confirmation is the last thing between a click and a restart, so each thing
+// it promises is pinned: the release it names, the restart, the jobs, the copy.
+test('the confirmation names the release and says what the restart does to jobs and the database', () => {
+  const words = confirmControllerUpdate('v1.3.2', '1.3.0');
+  assert.equal(words.description, 'Update this controller from 1.3.0 to v1.3.2?');
+  assert.equal(words.confirmLabel, 'Update to v1.3.2');
+  const lines = words.consequences.join('\n');
+  assert.match(lines, /The controller restarts\./);
+  assert.match(lines, /Jobs that are running keep running\./);
+  assert.match(lines, /If the release changes the database, a copy of it is kept first/);
+  assert.match(lines, /A release that changes nothing there takes none\./);
+  assert.doesNotMatch(`${words.description}\n${lines}`, /\u2014| -- /);
+});
+
+test('the restart state is worded for an update, never for a restore', () => {
+  const all = JSON.stringify([
+    UPDATE_RESTART.titles,
+    UPDATE_RESTART.stopping,
+    UPDATE_RESTART.starting,
+    UPDATE_RESTART.back,
+    UPDATE_RESTART.stuckDown(900),
+  ]);
+  assert.doesNotMatch(all, /restore|staged|sign-in|fence/i);
+  assert.match(UPDATE_RESTART.stuckDown(900), /15 minutes/);
+  assert.match(UPDATE_RESTART.stuckDown(900), /zoomies updates helper status/);
+  assert.match(UPDATE_RESTART.stuckDown(900), /journalctl -u zoomies-update/);
+  assert.doesNotMatch(all, /\u2014| -- /);
 });

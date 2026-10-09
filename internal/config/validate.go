@@ -1811,7 +1811,7 @@ func (c *Config) validateUpdates(add func(Finding)) {
 			Code: "updates.mode", Severity: SeverityError, Setting: "updates.mode",
 			Title: fmt.Sprintf("%q is not a release update mode", u.Mode),
 			Fix: "choose off, which says that a release exists and nothing more; manual, which adds the Update buttons and moves nothing " +
-				"without a click; or auto, which takes a release once it has been public for updates.soak. " + updatesNotInstalledYet,
+				"without a click; or auto, which takes a release once it has been public for updates.soak. " + updatesControllerOnlyYet,
 		})
 	}
 	if u.Soak < 0 {
@@ -1844,7 +1844,7 @@ func (c *Config) validateUpdates(add func(Finding)) {
 		Title: "the update mode is auto",
 		Detail: "the controller takes the newest release " + taken + ", and the hosts that have opted in then follow it, " +
 			"one at a time. Nobody is asked first, updating the controller restarts it, and there is no automatic rollback: a migration is one way. " +
-			updatesNotInstalledYet,
+			updatesControllerOnlyYet,
 		Fix: "nothing to change if that is what you want. Set updates.mode to manual to take each update yourself, or to off to be told that a release exists and nothing more.",
 	})
 	if u.Soak == 0 {

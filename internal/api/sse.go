@@ -243,6 +243,23 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				}
 				data = filtered
 			}
+			if ev.Kind == events.KindUpdates {
+				// The same status GET /updates serves this caller, chosen per
+				// subscriber. Resolved per frame, like the problems list, for the
+				// reason it is: a platform account may keep the stream open
+				// across a demotion.
+				id, err := s.resolveIdentity(r)
+				platform := err == nil && id != nil && id.Role.AtLeast(store.RolePlatform)
+				filtered, ok := updatesFor(data, platform)
+				if !ok && !platform {
+					// Unfilterable, and the unfiltered frame is exactly what this
+					// subscriber is not entitled to, so it is dropped. The page
+					// keeps what it had until the next change, and GET /updates
+					// repairs it on any reload.
+					continue
+				}
+				data = filtered
+			}
 			if ev.Kind == events.KindAudit {
 				// The same row GET /audit serves this caller, resolved per
 				// frame for the reason the others are. A frame that will not
@@ -556,6 +573,27 @@ func problemsFor(data []byte, platform bool) ([]byte, bool) {
 		return data, false
 	}
 	out, err := json.Marshal(controller.NewProblemsViewFor(view.Items, platform))
+	if err != nil {
+		return data, false
+	}
+	return out, true
+}
+
+// updatesFor narrows an already-rendered update status to one audience, and
+// reports whether it could, as problemsFor does for the problems list.
+//
+// A platform subscriber is sent the frame as it came, untouched. ok is false
+// when the payload is not a status this version understands, and the caller drops
+// it for anybody below the platform rather than guess what is in it.
+func updatesFor(data []byte, platform bool) ([]byte, bool) {
+	if platform {
+		return data, true
+	}
+	var view controller.UpdatesView
+	if err := json.Unmarshal(data, &view); err != nil {
+		return data, false
+	}
+	out, err := json.Marshal(view.For(false))
 	if err != nil {
 		return data, false
 	}

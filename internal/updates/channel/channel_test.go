@@ -492,3 +492,114 @@ func TestLocateFindsNothingOtherwise(t *testing.T) {
 		t.Errorf("an unusable pointer was followed to %q", dir)
 	}
 }
+
+// writeRaw puts bytes at request.json as if somebody had, without the care
+// WriteRequest takes.
+func writeRaw(t *testing.T, dir string, body []byte) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, RequestFile), body, 0o640); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The service takes back its own request once the attempt it belongs to has
+// ended, so that a helper that never ran does not leave a request that refuses
+// every later press.
+func TestWithdrawRequestRemovesTheRequestWithThatID(t *testing.T) {
+	_, dir := updateFolder(t)
+	if err := WriteRequest(dir, testRequest("upd_mine")); err != nil {
+		t.Fatal(err)
+	}
+	got, err := WithdrawRequest(dir, "upd_mine")
+	if err != nil || got != RequestWithdrawn {
+		t.Fatalf("WithdrawRequest = %v, %v; want RequestWithdrawn", got, err)
+	}
+	if left := names(t, dir); len(left) != 0 {
+		t.Errorf("the folder still holds %v", left)
+	}
+}
+
+func TestWithdrawRequestFindsNothingToWithdraw(t *testing.T) {
+	_, dir := updateFolder(t)
+	if got, err := WithdrawRequest(dir, "upd_mine"); err != nil || got != RequestAbsent {
+		t.Errorf("an empty folder: WithdrawRequest = %v, %v; want RequestAbsent", got, err)
+	}
+	if got, err := WithdrawRequest(filepath.Join(dir, "gone"), "upd_mine"); err != nil || got != RequestAbsent {
+		t.Errorf("no folder: WithdrawRequest = %v, %v; want RequestAbsent", got, err)
+	}
+}
+
+// Anything in request.json that is not provably this attempt's is somebody
+// else's business: another attempt's request, a file that is not a request, or a
+// link. It is left exactly where it is, and the answer says so.
+func TestWithdrawRequestLeavesWhatIsNotItsOwn(t *testing.T) {
+	foreign, err := json.Marshal(testRequest("upd_theirs"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name  string
+		plant func(t *testing.T, dir string) bool
+	}{
+		{"another attempt's request", func(t *testing.T, dir string) bool { writeRaw(t, dir, foreign); return true }},
+		{"a file that is not a request", func(t *testing.T, dir string) bool { writeRaw(t, dir, []byte(`{"id":"upd_mine"`)); return true }},
+		{"a request over the size limit", func(t *testing.T, dir string) bool {
+			writeRaw(t, dir, append([]byte(`{"id":"upd_mine","pad":"`), make([]byte, updates.MaxRequestBytes)...))
+			return true
+		}},
+		{"a folder", func(t *testing.T, dir string) bool {
+			if err := os.Mkdir(filepath.Join(dir, RequestFile), 0o750); err != nil {
+				t.Fatal(err)
+			}
+			return true
+		}},
+		{"a link to this attempt's own request", func(t *testing.T, dir string) bool {
+			mine, err := json.Marshal(testRequest("upd_mine"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "elsewhere.json"), mine, 0o640); err != nil {
+				t.Fatal(err)
+			}
+			return os.Symlink("elsewhere.json", filepath.Join(dir, RequestFile)) == nil
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, dir := updateFolder(t)
+			if !tc.plant(t, dir) {
+				t.Skip("cannot make a symbolic link here")
+			}
+			before, err := os.Lstat(filepath.Join(dir, RequestFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			got, err := WithdrawRequest(dir, "upd_mine")
+			if err != nil || got != RequestNotOurs {
+				t.Fatalf("WithdrawRequest = %v, %v; want RequestNotOurs", got, err)
+			}
+			after, err := os.Lstat(filepath.Join(dir, RequestFile))
+			if err != nil || !os.SameFile(before, after) || before.Mode() != after.Mode() {
+				t.Errorf("request.json was touched: before %v, after %v (%v)", before, after, err)
+			}
+		})
+	}
+}
+
+// The folder itself must be the one the installer made, as WriteRequest
+// insists: a link in its place is refused, and nothing behind it is removed.
+func TestWithdrawRequestRefusesAFolderThatIsALink(t *testing.T) {
+	parent, dir := updateFolder(t)
+	if err := WriteRequest(dir, testRequest("upd_mine")); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(parent, "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Skipf("cannot make a symbolic link here: %v", err)
+	}
+	if _, err := WithdrawRequest(link, "upd_mine"); err == nil {
+		t.Error("WithdrawRequest through a linked folder succeeded")
+	}
+	if got := names(t, dir); !slices.Equal(got, []string{RequestFile}) {
+		t.Errorf("the folder holds %v, want the request still there", got)
+	}
+}

@@ -7,17 +7,30 @@
   sent the `updates.*` rows and the status carries them beside the sentence that
   depends on them.
 
-  It is written in the conditional because it only reads: the line says what the
-  mode would do, the controller's sentence under it says why, as it was given,
-  and nothing on the page moves a release. The mode is text, not a control, for
-  the same reason -- it is changed where the setting is, by the role that may.
+  What the mode would take is written in the conditional, because the line says
+  what the mode would do and the controller's sentence under it says why, as it
+  was given. The mode is text, not a control: it is changed where the setting is,
+  by the role that may.
+
+  The one thing here that acts is the platform role's Update button for this
+  controller. Everything about it is read from the status and not remembered by
+  the page: whether an attempt is open, how the last one ended and whether the
+  button is offered all come from `controller` and `helper`, so a reload, a
+  reconnecting stream or a second tab shows the same. The page never says an
+  update worked before the controller has: success is the attempt closed as
+  succeeded, or the build it reports being the release asked for.
 -->
 <script lang="ts">
   import { ExternalLink } from '@lucide/svelte';
+  import { ApiError } from '$lib/api/client';
+  import { authFailureText, sentence } from '$lib/errors';
   import { session } from '$lib/state/session.svelte';
   import { updates } from '$lib/state/updates.svelte';
+  import UpdateControllerDialog from '$lib/updates/UpdateControllerDialog.svelte';
   import {
+    attemptWords,
     buildText,
+    controllerOffer,
     describeMode,
     modeLabel,
     modeSettingHref,
@@ -25,15 +38,27 @@
     soakNote,
     soakText,
     targetLine,
+    UPDATE_RESTART,
     updateState,
   } from '$lib/updates/words';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
+  import CopyButton from '$lib/components/CopyButton.svelte';
   import LoadingBoundary from '$lib/components/LoadingBoundary.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Panel from '$lib/components/Panel.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
+  import RestartWait from './RestartWait.svelte';
+
+  /*
+    How long the controller is given to answer again once this page has lost it.
+    An upgrade waits up to thirty minutes for a controller that is migrating a
+    large database, so a page that gave up in two would be calling a slow start a
+    failed one. After this it stops promising and says where to look; the attempt
+    itself is the controller's to close, at ninety minutes at the latest.
+  */
+  const RESTART_LIMIT_S = 900;
 
   const status = $derived(updates.status);
   // Both are worked out when a status arrives, and not on a timer: that is when
@@ -42,6 +67,89 @@
   const line = $derived(status ? targetLine(status) : '');
   const href = $derived(releaseHref(status?.latest?.url));
   const settingHref = $derived(modeSettingHref((role) => session.can(role)));
+
+  const canUpdate = $derived(session.can('platform'));
+  const offer = $derived(status ? controllerOffer(status, canUpdate) : null);
+  const attempt = $derived(status?.controller ?? null);
+  const attemptText = $derived(
+    status && attempt ? attemptWords(attempt, status.running.version) : null,
+  );
+
+  let confirming = $state(false);
+  // The release the button named when it was pressed. The request carries this
+  // one and the dialog names it, so a newer release arriving while the dialog is
+  // open cannot change what the operator agreed to.
+  let asked = $state('');
+  // Why the last press was refused, in the controller's words. It belongs to the
+  // press and not to the status: a refusal opens no attempt, so nothing in the
+  // status would carry it.
+  let refusal = $state('');
+
+  // The page has lost the controller while an update is open: what a restart
+  // looks like from here. `connecting` is not that, it is how every page load
+  // begins, so only a stream that was up and went is taken for one. Held so that
+  // the restart state stays up until the stream is back, however briefly it
+  // flickers, and dropped as soon as no attempt is open.
+  let restarting = $state(false);
+  $effect(() => {
+    if (!attemptText?.open) {
+      restarting = false;
+    } else if (updates.stream === 'reconnecting' || updates.stream === 'offline') {
+      restarting = true;
+    }
+  });
+
+  let progress = $state<HTMLElement | null>(null);
+  let focusProgress = $state(false);
+
+  // After a press the button is gone and the dialog's opener with it, so focus
+  // would fall to the page. It goes to the state that replaced the button. The
+  // dialog gives focus back a frame or two after it closes, and finding its
+  // opener gone sends it to the page heading; so this asks after those frames,
+  // and once more a moment later if focus has still been left on the page.
+  function landOn(target: HTMLElement): void {
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() => {
+        target.focus();
+        setTimeout(() => {
+          const held = document.activeElement;
+          if (!held || held === document.body || held.id === 'page-heading') target.focus();
+        }, 250);
+      }),
+    );
+  }
+
+  $effect(() => {
+    if (focusProgress && !confirming && offer?.kind === 'in-flight' && progress) {
+      focusProgress = false;
+      landOn(progress);
+    }
+  });
+
+  function ask(tag: string): void {
+    refusal = '';
+    asked = tag;
+    confirming = true;
+  }
+
+  async function start(tag: string): Promise<boolean> {
+    // Before the status lands, because the effect that moves focus runs as soon
+    // as it does.
+    focusProgress = true;
+    try {
+      await updates.updateController(tag);
+      return true;
+    } catch (cause) {
+      focusProgress = false;
+      // Closed either way: the dialog has nothing more to ask, and the sentence
+      // is on the page where the button was.
+      refusal =
+        cause instanceof ApiError && cause.status >= 400 && cause.status < 500
+          ? sentence(cause.message)
+          : authFailureText(cause);
+      return true;
+    }
+  }
 
   $effect(() => updates.follow());
 </script>
@@ -111,6 +219,78 @@
         {/if}
       </Panel>
 
+      <Panel title="Update this controller">
+        {#if attempt && attemptText}
+          {#if restarting && attemptText.open}
+            <RestartWait
+              reason={`Updating from ${attempt.from} to ${attempt.to}`}
+              copy={UPDATE_RESTART}
+              begin="starting"
+              returnTo="/settings/updates"
+              startLimit={RESTART_LIMIT_S}
+              answering={() => updates.stream === 'live'}
+            />
+          {:else}
+            <section
+              class="attempt"
+              data-state={attemptText.open ? 'requested' : attempt.state}
+              aria-labelledby="update-attempt-title"
+              tabindex="-1"
+              bind:this={progress}
+            >
+              <div class="attempt-head">
+                <Badge tone={attemptText.tone} label={attemptText.label} dot={false} />
+                <h3 id="update-attempt-title">{attemptText.title}</h3>
+              </div>
+              <p class="reason">{attemptText.detail}</p>
+              {#if attempt.error && !attemptText.open && attempt.state !== 'timed_out' && attempt.state !== 'succeeded'}
+                <!-- Text from the update helper or the controller: shown as it came, never as markup. -->
+                <p class="helper-says">{attempt.error}</p>
+              {/if}
+              {#if attemptText.lookAt}<p class="detail">{attemptText.lookAt}</p>{/if}
+              <dl class="facts">
+                <dt>Asked</dt>
+                <dd>
+                  <RelativeTime value={attempt.requested_at} />
+                  {attempt.trigger === 'auto' ? 'by the update mode' : 'by a person'}
+                </dd>
+                {#if attempt.finished_at}
+                  <dt>Ended</dt>
+                  <dd><RelativeTime value={attempt.finished_at} /></dd>
+                {/if}
+              </dl>
+            </section>
+          {/if}
+        {/if}
+
+        <!-- Said politely and from a region that is always there, because one that appears with its words in it is not reliably read out. -->
+        <p class="sr-only" role="status" aria-live="polite">
+          {restarting && attemptText?.open
+            ? UPDATE_RESTART.titles.starting
+            : (attemptText?.title ?? '')}
+        </p>
+
+        {#if offer?.kind === 'offer'}
+          <div class="act">
+            {#if refusal}<p class="refusal" role="alert">{refusal}</p>{/if}
+            <Button variant="primary" onclick={() => ask(offer.tag)}>Update to {offer.tag}</Button>
+          </div>
+        {:else if offer?.kind === 'none'}
+          <div class="act">
+            {#if refusal}<p class="refusal" role="alert">{refusal}</p>{/if}
+            <p class="reason" id="update-offer-reason">{offer.sentence}</p>
+            {#if offer.installCommand}
+              <CopyButton
+                value={offer.installCommand}
+                label="Copy the install command"
+                showValue
+                showLabel
+              />
+            {/if}
+          </div>
+        {/if}
+      </Panel>
+
       <Panel title="Update mode">
         <dl class="facts">
           <dt>Mode</dt>
@@ -143,6 +323,15 @@
   {/if}
 </LoadingBoundary>
 
+{#if status}
+  <UpdateControllerDialog
+    bind:open={confirming}
+    tag={asked}
+    running={status.running.version}
+    onconfirm={() => start(asked)}
+  />
+{/if}
+
 <style>
   .stack {
     display: flex;
@@ -170,6 +359,60 @@
     line-height: var(--z-leading-base);
     font-weight: var(--z-weight-semibold);
     color: var(--z-text);
+    overflow-wrap: anywhere;
+  }
+  .attempt {
+    padding: var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-sunken);
+  }
+  .attempt[data-state='failed'],
+  .attempt[data-state='timed_out'] {
+    border-color: var(--z-danger-border);
+    background: var(--z-danger-subtle);
+  }
+  .attempt-head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: var(--z-space-2);
+    margin-bottom: var(--z-space-2);
+  }
+  .attempt-head h3 {
+    margin: 0;
+    font-size: var(--z-text-base);
+    font-weight: var(--z-weight-semibold);
+    color: var(--z-text);
+    overflow-wrap: anywhere;
+  }
+  .attempt .facts {
+    margin-top: var(--z-space-3);
+  }
+  .helper-says {
+    max-width: var(--z-measure-prose);
+    margin: var(--z-space-2) 0 0;
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+    color: var(--z-text);
+    white-space: pre-wrap;
+    overflow-wrap: anywhere;
+  }
+  .act {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: var(--z-space-3);
+  }
+  .attempt + .sr-only + .act {
+    margin-top: var(--z-space-4);
+  }
+  .refusal {
+    max-width: var(--z-measure-prose);
+    margin: 0;
+    font-size: var(--z-text-sm);
+    line-height: var(--z-leading-sm);
+    color: var(--z-danger);
     overflow-wrap: anywhere;
   }
   /* The controller's sentence is one or two and says whatever the state needs,

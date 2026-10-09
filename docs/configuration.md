@@ -305,6 +305,7 @@ retention:
   runner_sessions: 8760h        # ZOOMIES_RETENTION_RUNNER_SESSIONS (365 days of the usage ledger's runner sessions, which outlive the rows above)
   webhooks: 168h                # ZOOMIES_RETENTION_WEBHOOKS
   machines: 168h                # ZOOMIES_RETENTION_MACHINES  (7 days of deleted-machine rows -- what was rented, when, and what it cost)
+  update_attempts: 2160h        # ZOOMIES_RETENTION_UPDATE_ATTEMPTS (90 days of finished update attempts, so why a host is behind stays answerable; 24h at least, 0 keeps all)
 
 limits:                         # fleet-wide ceilings; 0 is unlimited, and every one is 0 by default except job_stats_window
   hosts: 0                      # ZOOMIES_LIMITS_HOSTS             -- enrolled hosts
@@ -617,6 +618,7 @@ the validator says so with `limits.loopback`.
 | `retention.runners` | `ZOOMIES_RETENTION_RUNNERS` | at once | Keep finished runners for: How long finished runners are kept. |
 | `retention.samples` | `ZOOMIES_RETENTION_SAMPLES` | at once | Keep Overview samples for: How long the Overview's samples are kept. |
 | `retention.scaling_events` | `ZOOMIES_RETENTION_SCALING_EVENTS` | at once | Keep scaling history for: How long scaling decisions are kept. Audit rows are not covered by this, or by anything: they are never deleted. |
+| `retention.update_attempts` | `ZOOMIES_RETENTION_UPDATE_ATTEMPTS` | at once | Keep update history for: How long a finished attempt to update the controller or a host is kept, so why a host is behind stays answerable. An attempt still open is never removed. 0 keeps every attempt. |
 | `retention.webhooks` | `ZOOMIES_RETENTION_WEBHOOKS` | at once | Keep webhook deliveries for: How long webhook deliveries are kept. |
 
 ### `runners`
@@ -726,7 +728,7 @@ operator's browser sees.
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
 | `updates.check_interval` | `ZOOMIES_UPDATE_CHECK_INTERVAL` | at once | Update check interval: How often github.com is asked which release of Zoomies is current. 0 never asks, and is the one request that is not about your fleet. Nothing is ever downloaded by it. |
-| `updates.mode` | `ZOOMIES_UPDATE_MODE` | at once | Release update mode: What this controller does about a newer release of Zoomies. `off` (default) says that one exists and nothing more. `manual` adds Update buttons for the controller and its hosts, and nothing moves without a click. `auto` takes the newest release once it has been public for `updates.soak`, and the hosts that have opted in then follow it, one at a time. In this release it only shows what the mode would take on Settings → Updates; it installs nothing yet. Only the `platform` role changes it, and an assistant connected over MCP cannot. A mode other than `off` beside `updates.check_interval: 0` raises the `updates.mode_without_check` warning, and `auto` raises the `updates.auto` notice so that unattended updating is never silent. |
+| `updates.mode` | `ZOOMIES_UPDATE_MODE` | at once | Release update mode: What this controller does about a newer release of Zoomies. `off` (default) says that one exists and nothing more. `manual` adds Update buttons for the controller and its hosts, and nothing moves without a click. `auto` takes the newest release once it has been public for `updates.soak`, and the hosts that have opted in then follow it, one at a time. In this release only the controller can be updated from here, with the Update button on Settings → Updates, in manual and in auto alike; hosts are still upgraded by hand with the command on their card, and auto takes no release by itself yet. Only the `platform` role changes it, and an assistant connected over MCP cannot. A mode other than `off` beside `updates.check_interval: 0` raises the `updates.mode_without_check` warning, and `auto` raises the `updates.auto` notice so that unattended updating is never silent. |
 | `updates.soak` | `ZOOMIES_UPDATE_SOAK` | at once | Release update soak: How long a release must have been public before `auto` takes it, counted from when GitHub published it. A newer release restarts the wait, so one that is replaced quickly is never installed. `24h` is the default. `0` removes the wait, which under `auto` raises the `updates.auto_without_soak` warning. `manual` ignores it, because a person pressing the button is the soak. |
 
 ## The settings that matter most
@@ -1161,7 +1163,7 @@ role can change it:
 | `manual` | Update buttons appear, for the controller, for one host and for every host that is behind. Nothing moves without a click. |
 | `auto` | The controller takes the newest release once it has been public for `updates.soak`, and the hosts that have opted in then follow it, one at a time. The buttons stay, and mean "now, without the wait". |
 
-In this release it only shows what the mode would take on Settings → Updates; it installs nothing yet.
+In this release only the controller can be updated from here, with the Update button on Settings → Updates, in manual and in auto alike; hosts are still upgraded by hand with the command on their card, and auto takes no release by itself yet.
 
 `updates.soak` is how long a release must have been public before `auto` takes
 it, counted from when GitHub published it. A newer release restarts the wait, so

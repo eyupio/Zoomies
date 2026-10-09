@@ -61,6 +61,7 @@ type metrics struct {
 	elasticCPUDecisions                                                                          *prometheus.CounterVec
 	elasticCPUFactor                                                                             *prometheus.HistogramVec
 	elasticMemoryDecisions, elasticMemoryNearLimit                                               *prometheus.CounterVec
+	updateAttempts                                                                               *prometheus.CounterVec
 }
 
 // UnmatchedPool is the `pool` label for work no pool here claims.
@@ -323,6 +324,12 @@ func newMetrics(c *Controller) *metrics {
 			Name: "zoomies_elastic_memory_near_limit_total",
 			Help: "Runners that came within a tenth of a memory limit, by pool and policy mode, counted once per runner: the evidence of whether a pool's jobs would use the valve at all.",
 		}, []string{"pool", "mode"}),
+		// Counted as an attempt ends and not as it starts, so that the rate of
+		// failures is a rate of answers: an attempt in flight is in GET /updates.
+		updateAttempts: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "zoomies_update_attempts_total",
+			Help: "Update attempts that have ended, by what was updated (controller or host) and how: succeeded, failed or timed_out.",
+		}, []string{"kind", "result"}),
 	}
 	m.buildInfo.WithLabelValues(version.Version, version.Commit).Set(1)
 
@@ -334,6 +341,7 @@ func newMetrics(c *Controller) *metrics {
 		m.imagePrewarms, m.imagePrewarmDuration, m.runtimeFailures, m.imagePullFailures,
 		m.elasticCPUDecisions, m.elasticCPUFactor,
 		m.elasticMemoryDecisions, m.elasticMemoryNearLimit,
+		m.updateAttempts,
 		m.startupWait, m.dindReady, m.queuedToCreate, m.createToContainer, m.containerToRegistered, m.registeredToReady, m.queuedToStarted,
 		m.schedulingLatency, m.cleanupDuration,
 		&fleetCollector{c: c},

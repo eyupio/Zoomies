@@ -1280,7 +1280,10 @@ for the Updates page. The binary the suite drives is a `dev` build, which no
 release comparison accepts, so on every other fixture that page can only say the
 build is left alone. This makes the controller report 1.3.0 and read a release
 list holding v1.3.1 and v1.3.2, and its value is the folder the suite makes for
-the controller to do its updating through. The `updates` and `updates-mobile`
+the controller to do its updating through. That folder also holds the marker an
+installed update helper leaves, so the Update button is offered, and nothing
+answers the request a press writes there: the spec plays the helper by writing
+a `result.json` into it. The `updates` and `updates-mobile`
 projects run `tests/updates.spec.ts` against one controller of their own, in
 manual mode, which is the mode whose sentences do not move with the clock;
 states it cannot make, an auto soak or a list nobody has read, are served to the

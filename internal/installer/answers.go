@@ -447,7 +447,7 @@ pool:
   # max_runners: 4
 
 # Adds the update helper, so this host can be updated from the web UI.
-# The web UI cannot ask for updates yet; a later release adds that, and installing the helper now only makes this host ready for it.
+# On the controller's host the platform role can then update the controller from Settings → Updates; the web UI cannot update other hosts yet, so on an agent host installing it now only makes the host ready for a later release.
 # The helper is a pair of systemd units that run "zoomies upgrade" as root for a
 # validated request, which names a release and nothing else; the account Zoomies
 # runs as can trigger an upgrade by writing one. That is a grant of root, so it

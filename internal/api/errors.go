@@ -41,6 +41,27 @@ const (
 	codeInternal      = "internal"
 )
 
+// The refusals of an update. Each is a 409 with a code of its own because a
+// client does something different about each: a page offers the Settings link
+// for one, the install command for another, and waits for a third.
+const (
+	codeUpdateModeOff          = "update.mode_off"
+	codeUpdateCheckDisabled    = "update.check_disabled"
+	codeUpdateHelperMissing    = "update.helper_missing"
+	codeUpdateInProgress       = "update.in_progress"
+	codeUpdateNotARelease      = "update.not_a_release"
+	codeUpdateNothingNewer     = "update.nothing_newer"
+	codeUpdateHostCannotUpdate = "update.host_cannot_update"
+	codeUpdateRolloutHalted    = "update.rollout_halted"
+)
+
+// codeUpdateCheckFailed is the one update code that is not a refusal and not a 409:
+// the request was fine and GitHub, or the network to it, did not let the check
+// finish. It is a 502 so that a client can tell a thing to retry from a thing to
+// change, and so that the controller's log is not given an error for a failure
+// that is somebody else's.
+const codeUpdateCheckFailed = "update.check_failed"
+
 // statusClientClosed is nginx's 499: the client hung up before the response.
 // No client ever reads it -- by then there is none -- but the access log
 // separates a request the browser abandoned from one the controller failed.

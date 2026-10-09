@@ -5,10 +5,12 @@ import (
 	"fmt"
 	"net/url"
 	"runtime"
+	"strings"
 	"time"
 	"unicode"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/updates"
 	"github.com/eyupio/zoomies/internal/version"
 )
@@ -46,6 +48,45 @@ type UpdatesView struct {
 	Reason string `json:"reason"`
 	// CheckedAt is when the list Latest was chosen from was read.
 	CheckedAt *time.Time `json:"checked_at"`
+	// Helper says whether this controller can update itself, and if not, how a
+	// person with root on its host makes it able to.
+	Helper UpdatesHelper `json:"helper"`
+	// Controller is this controller's latest update attempt, open or ended, and
+	// null when it has never had one.
+	Controller *UpdatesAttempt `json:"controller"`
+}
+
+// UpdatesHelper is the update helper beside the controller, as far as the
+// controller can see it: its marker, in the folder the installer recorded.
+type UpdatesHelper struct {
+	// State is ready or missing.
+	State string `json:"state"`
+	// Reason is the sentence the page shows. It names no path, because every role
+	// reads it.
+	Reason string `json:"reason"`
+	// InstallCommand is what installs the helper, for a person to copy, and empty
+	// when it is ready.
+	InstallCommand string `json:"install_command"`
+}
+
+// UpdatesAttempt is one request to update, and how it ended.
+type UpdatesAttempt struct {
+	ID string `json:"id"`
+	// State is requested until it ends, then succeeded, failed, timed_out or
+	// cancelled.
+	State string `json:"state"`
+	// From is the build that asked, as it reports itself, and To the release tag
+	// it asked for.
+	From string `json:"from"`
+	To   string `json:"to"`
+	// Trigger is manual for a person and auto for the update mode.
+	Trigger     string     `json:"trigger"`
+	RequestedAt time.Time  `json:"requested_at"`
+	FinishedAt  *time.Time `json:"finished_at"`
+	// Error is why it did not succeed, often the helper's own sentence, and empty
+	// otherwise. Below the platform role it is a fixed sentence for the state (see
+	// For), because the text can name a folder on the controller's host.
+	Error string `json:"error"`
 }
 
 // UpdatesRunning is the build being updated, as it reports itself: a release
@@ -78,6 +119,40 @@ type UpdatesTarget struct {
 	DueAt *time.Time `json:"due_at"`
 }
 
+// For is the status as one audience may read it. The platform reads it whole.
+//
+// An attempt's error is often the helper's own sentence, or the controller's
+// about a folder it could not write, and either can name a path on the
+// controller's host. That host is the platform's to know about, so every other
+// role is given a sentence for the state in its place, and still learns that the
+// attempt ended and how. The helper's own sentence stays: it is fixed, and names
+// no path, because every role reads it.
+//
+// It narrows a copy. The view is rendered once and handed to every audience, and
+// the attempt it points to is shared.
+func (v UpdatesView) For(platform bool) UpdatesView {
+	if platform || v.Controller == nil || v.Controller.Error == "" {
+		return v
+	}
+	attempt := *v.Controller
+	attempt.Error = withheldAttemptError(attempt.State)
+	v.Controller = &attempt
+	return v
+}
+
+// withheldAttemptError is what a role below the platform reads where the text of
+// an attempt's error would be. It is keyed on the state alone, so that it can
+// never carry anything the error did.
+func withheldAttemptError(state string) string {
+	switch state {
+	case store.UpdateTimedOut:
+		return "The update helper did not answer in time. Whoever holds the platform role can read the detail."
+	case store.UpdateCancelled:
+		return "The update was cancelled. Whoever holds the platform role can read the detail."
+	}
+	return "The update did not succeed. Whoever holds the platform role can read why."
+}
+
 // UpdatesView works out the status now.
 func (c *Controller) UpdatesView(ctx context.Context) (*UpdatesView, error) {
 	// Loaded once, so that a settings change between two loads cannot give one
@@ -89,6 +164,16 @@ func (c *Controller) UpdatesView(ctx context.Context) (*UpdatesView, error) {
 		Mode:    string(mode),
 		Soak:    config.TidyDuration(cfg.Soak),
 		Running: UpdatesRunning{Version: version.Version, Release: fromRelease},
+		Helper:  c.probeUpdateHelper().view,
+	}
+	// The last attempt is shown in every mode: one that was in flight when
+	// updating was switched off still ends, and the page says how.
+	attempts, err := c.st.ListUpdateAttempts(ctx, store.UpdateScopeController, "", 1)
+	if err != nil {
+		return nil, fmt.Errorf("reading the controller's update attempts: %w", err)
+	}
+	if len(attempts) > 0 {
+		view.Controller = attemptView(attempts[0])
 	}
 
 	state := c.latestRelease()
@@ -141,6 +226,33 @@ func (c *Controller) UpdatesView(ctx context.Context) (*UpdatesView, error) {
 		view.Target.DueAt = &due
 	}
 	return view, nil
+}
+
+// attemptView is an attempt as the status shows it.
+func attemptView(a store.UpdateAttempt) *UpdatesAttempt {
+	out := &UpdatesAttempt{
+		ID: a.ID, State: a.State, From: a.FromVersion, To: a.ToVersion, Trigger: a.Trigger,
+		RequestedAt: a.RequestedAt.UTC(), Error: withoutDirectionControls(a.Error),
+	}
+	if a.FinishedAt != nil {
+		at := a.FinishedAt.UTC()
+		out.FinishedAt = &at
+	}
+	return out
+}
+
+// withoutDirectionControls is s with the characters that change the direction
+// text is shown in, or end a line the browser would not otherwise end, taken out.
+// The update folder is writable by the service, so the helper's sentence in it is
+// not trusted to be plain text, and the page shows it as written, which an
+// override would reorder. Line breaks are kept: a real sentence has them.
+func withoutDirectionControls(s string) string {
+	return strings.Map(func(r rune) rune {
+		if isBidiControl(r) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // unreadReason says why there is nothing to offer yet, for a mode that wants a

@@ -1,14 +1,19 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/installer"
@@ -23,12 +28,31 @@ var updatesEUID = os.Geteuid
 // a test can stand one up of its own.
 var updateHelperStateDir = installer.UpdateHelperStateDir
 
+// stdTerminal says whether a file is a terminal; a variable so that a test can
+// stand a pipe in for one.
+var stdTerminal = func(f *os.File) bool { return term.IsTerminal(int(f.Fd())) }
+
+// canAskAt is whether somebody is at a terminal to be asked a question that is
+// written to prompt: the input and the writer that shows the prompt are both
+// terminals. It deliberately does not use canAsk, which also requires stdout to
+// be a terminal that wants colour: NO_COLOR, or a redirected stdout, says
+// nothing about whether anyone can see this prompt, and a redirected stderr
+// would leave the command waiting on a question nobody can read.
+func canAskAt(in io.Reader, prompt io.Writer) bool {
+	i, ok := in.(*os.File)
+	p, ok2 := prompt.(*os.File)
+	return ok && ok2 && stdTerminal(i) && stdTerminal(p)
+}
+
 // helperStatusTailLines is how much of the last run's log tail status prints:
 // the end, where the reason is, and not the whole run.
 const helperStatusTailLines = 20
 
 func runUpdates(ctx context.Context, e *env, args []string) error {
-	return runGroup(ctx, e, "updates", `Release updates, and the helper that applies them. To upgrade this host by hand, use "zoomies upgrade".`, []*subcommand{
+	return runGroup(ctx, e, "updates", `Release updates: what the controller would take, asking it to check or to update itself, and the helper that applies them. To upgrade this host by hand, use "zoomies upgrade".`, []*subcommand{
+		{"status", "", "What an update would take, the helper's state and the controller's last attempt", updatesStatusCmd},
+		{"check", "", "Read the list of releases from GitHub now and say what it leaves", updatesCheck},
+		{"apply", "[--version tag] [--yes]", "Ask the controller to update itself, through the root helper", updatesApply},
 		{"helper", "<install|remove|run|status>", "The root-owned helper on this host that applies an update", runUpdatesHelper},
 	}, args)
 }
@@ -42,9 +66,198 @@ func runUpdatesHelper(ctx context.Context, e *env, args []string) error {
 	}, args)
 }
 
+func updatesStatusCmd(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies updates status",
+		"What an update would take: the mode and soak, the build that is running, the release the mode would take and why, whether the update helper is installed on the controller's host, and the controller's open or last update attempt. It changes nothing. For the helper on this host, use \"zoomies updates helper status\".")
+	cf := registerClientFlags(fs, true)
+	fs.example("zoomies updates status", "zoomies updates status --output json")
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	if err := fs.noMoreArgs(); err != nil {
+		return err
+	}
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+	p, err := cf.printer(e)
+	if err != nil {
+		return err
+	}
+	var st updatesStatus
+	raw, err := client.get(ctx, "/updates", nil, &st)
+	if err != nil {
+		return plainAPIError(err)
+	}
+	if p.structured() {
+		return p.emit(raw)
+	}
+
+	// Every string below came from the controller, and the attempt's error can be
+	// a line of the helper's log, so each goes through plain before it is placed
+	// in a row of the CLI's own.
+	release := "a release build"
+	if !st.Running.Release {
+		release = "not from a release, so it is never offered an update"
+	}
+	rows := [][2]string{
+		{"Mode", plain(st.Mode)},
+		{"Soak", plain(st.Soak)},
+		{"Running", fmt.Sprintf("%s (%s)", plain(st.Running.Version), release)},
+	}
+	if st.Latest != nil {
+		rows = append(rows, [2]string{"Latest", fmt.Sprintf("%s, published %s", plain(st.Latest.Tag), p.relTime(st.Latest.PublishedAt))})
+	}
+	if st.Target != nil {
+		target := plain(st.Target.Tag) + ", newer than the running build"
+		if !st.Target.Newer {
+			target = plain(st.Target.Tag) + ", not newer than the running build"
+		}
+		if st.Target.DueAt != nil {
+			target += ", due " + p.relTime(*st.Target.DueAt)
+		}
+		rows = append(rows, [2]string{"Target", target})
+	}
+	rows = append(rows,
+		[2]string{"Checked", p.relTimePtr(st.CheckedAt)},
+		[2]string{"Reason", plain(st.Reason)},
+		[2]string{"Helper", plain(st.Helper.State) + ": " + plain(st.Helper.Reason)},
+	)
+	if st.Helper.InstallCommand != "" {
+		rows = append(rows, [2]string{"Install", plain(st.Helper.InstallCommand)})
+	}
+	if a := st.Controller; a != nil {
+		rows = append(rows, [2]string{"Attempt", fmt.Sprintf("%s %s: %s to %s (%s), requested %s",
+			plain(a.ID), plain(a.State), plain(a.From), plain(a.To), plain(a.Trigger), p.relTime(a.RequestedAt))})
+		if a.FinishedAt != nil {
+			rows = append(rows, [2]string{"Finished", p.relTime(*a.FinishedAt)})
+		}
+		if a.Error != "" {
+			rows = append(rows, [2]string{"Error", plain(a.Error)})
+		}
+	} else {
+		rows = append(rows, [2]string{"Attempt", "none yet"})
+	}
+	p.keyValues(rows)
+	return nil
+}
+
+func updatesCheck(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies updates check",
+		"Read the list of releases from GitHub now instead of waiting for the scheduled check, and say what the controller makes of it. At most one request a minute goes to GitHub; asking again inside the minute answers the status as it stands. Needs the admin role.")
+	cf := registerClientFlags(fs, true)
+	fs.example("zoomies updates check")
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	if err := fs.noMoreArgs(); err != nil {
+		return err
+	}
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+	p, err := cf.printer(e)
+	if err != nil {
+		return err
+	}
+	var st updatesStatus
+	raw, err := client.post(ctx, "/updates/check", nil, nil, &st)
+	if err != nil {
+		return plainAPIError(err)
+	}
+	if p.structured() {
+		return p.emit(raw)
+	}
+	p.note("%s", plain(st.Reason))
+	return nil
+}
+
+func updatesApply(ctx context.Context, e *env, args []string) error {
+	fs := newFlagSet(e, "zoomies updates apply [--version tag] [--yes]",
+		`Ask the controller to update ITSELF: it writes a request for the root-owned update helper on its own host, and the helper replaces the controller's binary and restarts the service. This is not "zoomies upgrade", which upgrades the host you run it on and needs no controller. Needs the platform role, an update mode other than off, and a helper installed on the controller's host ("zoomies updates status" says whether it is). The controller answers at once and the helper on its own time; follow the attempt with "zoomies updates status". Runners and jobs already running carry on through the restart. Without --version it takes the newest release that can be installed on the controller's system.`)
+	cf := registerClientFlags(fs, false)
+	version := fs.String("version", "", "the release to take, such as v1.3.5; left out, the newest the controller can install")
+	yes := fs.Bool("yes", false, "do not ask for confirmation; needed when there is no terminal to ask at")
+	fs.example("zoomies updates apply", "zoomies updates apply --version v1.3.5 --yes")
+	if err := fs.parse(args); err != nil {
+		return err
+	}
+	if err := fs.noMoreArgs(); err != nil {
+		return err
+	}
+	// An untyped nil, so that a request without --version carries no body at all
+	// and not the JSON null a nil map would encode to.
+	var body any
+	var tag string
+	if fs.changed("version") {
+		tag = strings.TrimSpace(*version)
+		if tag == "" {
+			return usagef("updates apply", "--version needs a release tag such as v1.3.5; leave it out to take the newest")
+		}
+		body = map[string]any{"tag": tag}
+	}
+
+	// Before the question, so that an address or a credential that cannot be used
+	// is reported while the person can still put it right, and not after a yes.
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+
+	if !*yes {
+		if !canAskAt(e.in, e.err) {
+			return usagef("updates apply", "this asks the controller to update itself and restart, and there is no terminal to ask you at; run it again with --yes to say yes")
+		}
+		what := "the newest release the controller can install"
+		if tag != "" {
+			what = tag
+		}
+		fmt.Fprintf(e.err, "Ask the controller to update itself to %s? It restarts the controller's service through its root helper. [y/N] ", what)
+		line, _ := bufio.NewReader(e.in).ReadString('\n')
+		if answer := strings.ToLower(strings.TrimSpace(line)); answer != "y" && answer != "yes" {
+			fmt.Fprintln(e.out, "Nothing was asked of the controller.")
+			return nil
+		}
+	}
+
+	var st updatesStatus
+	if _, err := client.post(ctx, "/updates/controller", nil, body, &st); err != nil {
+		return plainAPIError(err)
+	}
+	a := st.Controller
+	if a == nil {
+		fmt.Fprintln(e.out, `The controller accepted the request. Follow it with "zoomies updates status".`)
+		return nil
+	}
+	fmt.Fprintf(e.out, "The controller accepted attempt %s: %s to %s, %s. The helper answers on its own time; follow it with \"zoomies updates status\".\n",
+		plain(a.ID), plain(a.From), plain(a.To), plain(a.State))
+	return nil
+}
+
+// plainAPIError makes a refusal safe to print and says which code it was. The
+// message is the controller's sentence for the person to act on, so it is kept
+// whole; what changes is that terminal control in it, or in its detail, is
+// replaced, and that the stable code is named beside it, because a script and a
+// support thread both go by the code. A 401 and a 403 are left to apiError,
+// which knows what to say about a credential and a role.
+func plainAPIError(err error) error {
+	var ae *apiError
+	if !errors.As(err, &ae) {
+		return err
+	}
+	safe := *ae
+	safe.message, safe.detail, safe.field = plain(ae.message), plain(ae.detail), plain(ae.field)
+	if ae.status == http.StatusUnauthorized || ae.status == http.StatusForbidden || ae.code == "" {
+		return &safe
+	}
+	return fmt.Errorf("%w (%s)", &safe, plain(ae.code))
+}
+
 func updatesHelperInstall(ctx context.Context, e *env, args []string) error {
 	flags := newFlagSet(e, "zoomies updates helper install [--config-dir path]",
-		`Install the update helper, which lets the controller update this host when an administrator asks or the update mode says so. `+installer.UpdateHelperNotUsedYet+` It makes the update folder, owned by the account zoomies runs as, writes root's pointer to it in `+installer.UpdateHelperStateDir+`, and installs and starts the zoomies-update units, which run "zoomies updates helper run" as root when the service writes a request. Everything the helper would refuse is refused here first. Nothing installs the helper but its owner: the controller's update mode cannot.`)
+		`Install the update helper, which lets the controller update this host when an administrator asks or the update mode says so. `+installer.UpdateHelperControllerOnlyYet+` It makes the update folder, owned by the account zoomies runs as, writes root's pointer to it in `+installer.UpdateHelperStateDir+`, and installs and starts the zoomies-update units, which run "zoomies updates helper run" as root when the service writes a request. Everything the helper would refuse is refused here first. Nothing installs the helper but its owner: the controller's update mode cannot.`)
 	configDir := flags.String("config-dir", "", "the deployment's configuration directory, where zoomies.yaml and deployment.json are (default: "+config.ConfigDir()+")")
 	flags.example("sudo zoomies updates helper install")
 	if err := flags.parse(args); err != nil {
