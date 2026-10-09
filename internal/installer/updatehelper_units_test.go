@@ -59,6 +59,10 @@ func newInstallHost(t *testing.T, deployment Deployment) *installHost {
 	mustDo(t, os.WriteFile(h.binary, []byte("#!/bin/sh\n"), 0o755))
 	mustDo(t, os.MkdirAll(h.stateDir, 0o750))
 	mustDo(t, os.MkdirAll(h.configDir, 0o755))
+	// Where the temporary folder is must not decide whether an install is
+	// refused: a CI runner's is under /home. The tests of that refusal say which
+	// prefixes are protected.
+	protectHomes(t)
 	h.opts = InstallHelperOptions{
 		Deployment: deployment, StateDir: h.stateDir, ConfigDir: h.configDir, BinaryPath: h.binary,
 		ServiceUID: installUID(), Account: "zoomies", Out: h.out,
@@ -69,6 +73,27 @@ func newInstallHost(t *testing.T, deployment Deployment) *installHost {
 		now:            func() time.Time { return t0 },
 	}
 	return h
+}
+
+// protectHomes sets the folders the helper's unit is taken to keep read-only
+// for one test, and none by default.
+func protectHomes(t *testing.T, prefixes ...string) {
+	t.Helper()
+	was := protectedHomes
+	protectedHomes = prefixes
+	t.Cleanup(func() { protectedHomes = was })
+}
+
+// The list is the unit's ProtectHome=read-only, which covers exactly these. A
+// release that leaves it empty would let the install write a unit the upgrade
+// then cannot use, and no other test would notice, since they set their own.
+func TestTheFoldersTheInstallTreatsAsHomeDirectoriesAreTheUnitsOwn(t *testing.T) {
+	if got, want := protectedHomes, []string{"/home", "/root", "/run/user"}; !slices.Equal(got, want) {
+		t.Fatalf("protectedHomes = %v, want %v", got, want)
+	}
+	if err := checkUnitPath("/home/ada/zoomies"); err == nil {
+		t.Error("a path under /home was accepted with the default list")
+	}
 }
 
 func (h *installHost) folder() string { return filepath.Join(h.stateDir, "update") }
@@ -381,14 +406,15 @@ func TestTheHelperIsRefusedPathsItsUnitCouldNotUse(t *testing.T) {
 
 // A link out of a home directory is a path in one, wherever the link is.
 func TestTheHelperIsRefusedAPathThatALinkPutsInAHomeDirectory(t *testing.T) {
-	if _, err := os.Lstat("/root"); err != nil {
-		t.Skip("this host has no /root to point a link at")
-	}
-	link := filepath.Join(t.TempDir(), "state")
-	mustDo(t, os.Symlink("/root", link))
+	base := t.TempDir()
+	home := filepath.Join(base, "home")
+	mustDo(t, os.Mkdir(home, 0o755))
+	protectHomes(t, home)
+	link := filepath.Join(base, "state")
+	mustDo(t, os.Symlink(home, link))
 	err := checkUnitPath(filepath.Join(link, "zoomies-missing", "update"))
 	if err == nil || !strings.Contains(err.Error(), "which the helper's unit keeps read-only") {
-		t.Errorf("want a refusal of a path that is really in /root, got: %v", err)
+		t.Errorf("want a refusal of a path that is really in %s, got: %v", home, err)
 	}
 }
 
@@ -494,6 +520,46 @@ func TestAContainerInstallUsesTheSharedFolderAndWritesNoPointer(t *testing.T) {
 		return strings.HasPrefix(l, "docker inspect") && strings.Contains(l, SharedHostDir) && strings.HasSuffix(l, " zoomies")
 	}) {
 		t.Errorf("the container was not asked what it mounts at %s: %v", SharedHostDir, h.runner.lines())
+	}
+}
+
+// The upgrade the helper runs rewrites a container deployment's Compose file
+// and environment file, and the unit keeps /home read-only, so a deployment that
+// keeps either there would fail at the first request. That is refused at install.
+func TestAContainerDeploymentKeptInAHomeDirectoryIsRefusedAtInstall(t *testing.T) {
+	for _, name := range []string{"its directory", "its environment file", "a link out of a home path"} {
+		t.Run(name, func(t *testing.T) {
+			h := newInstallHost(t, DeploymentCompose)
+			home := filepath.Join(h.base, "home")
+			mustDo(t, os.Mkdir(home, 0o755))
+			protectHomes(t, home)
+			rec := DeploymentRecord{Deployment: DeploymentCompose, Container: "zoomies", Directory: h.configDir}
+			switch name {
+			case "its directory":
+				rec.Directory = filepath.Join(home, "zoomies")
+			case "its environment file":
+				rec.EnvFile = filepath.Join(home, ".env")
+			default:
+				link := filepath.Join(h.base, "env-link")
+				mustDo(t, os.Symlink(home, link))
+				rec.EnvFile = filepath.Join(link, "zoomies.env")
+			}
+			if _, err := WriteDeploymentRecord(h.configDir, rec); err != nil {
+				t.Fatal(err)
+			}
+			// The container does mount the shared folder, so only the paths can refuse it.
+			h.runner.answer = func(args []string) (string, error) {
+				if len(args) > 0 && args[0] == "inspect" {
+					return h.stateDir + "\n", nil
+				}
+				return "", nil
+			}
+			err := InstallUpdateHelper(context.Background(), h.opts)
+			if err == nil || !strings.Contains(err.Error(), "which the helper's unit keeps read-only") {
+				t.Fatalf("want a refusal of a deployment kept in a home directory, got: %v", err)
+			}
+			h.installedNothing(t)
+		})
 	}
 }
 

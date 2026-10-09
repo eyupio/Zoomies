@@ -93,7 +93,8 @@ KillMode=mixed
 # No ProtectSystem: the upgrade writes the binary, the unit files and the
 # deployment's Compose and environment files, and pulls images with the
 # credentials root holds. Home directories stay read-only, which is why the
-# installer refuses a deployment that keeps any of these in one.
+# installer refuses the binary, the configuration directory, the update folder
+# and a container deployment's directory and environment file in one.
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectHome=read-only
@@ -463,6 +464,15 @@ func (o InstallHelperOptions) checkSharedMount(ctx context.Context) error {
 	rec, ok := ReadDeploymentRecord(o.ConfigDir)
 	if !ok {
 		return fmt.Errorf("there is no deployment record in %s, so the helper cannot tell which container it would update; pass --config-dir with the deployment's configuration directory", o.ConfigDir)
+	}
+	// The upgrade rewrites these two, and the unit keeps home directories read-only.
+	for _, path := range []string{rec.Directory, rec.EnvFile} {
+		if path == "" {
+			continue
+		}
+		if err := checkUnitPath(path); err != nil {
+			return err
+		}
 	}
 	container := containerOr(rec)
 	format := `{{range .Mounts}}{{if eq .Destination "` + SharedHostDir + `"}}{{.Source}}{{end}}{{end}}`
