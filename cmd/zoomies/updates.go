@@ -108,6 +108,9 @@ func updatesStatusCmd(ctx context.Context, e *env, args []string) error {
 	if st.Helper.InstallCommand != "" {
 		rows = append(rows, [2]string{"Install", plain(st.Helper.InstallCommand)})
 	}
+	if st.Helper.UpgradeCommand != "" {
+		rows = append(rows, [2]string{"Upgrade", plain(st.Helper.UpgradeCommand)})
+	}
 	if a := st.Controller; a != nil {
 		rows = append(rows, [2]string{"Attempt", fmt.Sprintf("%s %s: %s to %s (%s), requested %s",
 			plain(a.ID), plain(a.State), plain(a.From), plain(a.To), plain(a.Trigger), p.relTime(a.RequestedAt))})

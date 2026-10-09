@@ -955,6 +955,7 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	// After the row has the version the agent reports: that version, and not the
 	// task's answer, is what says an update arrived.
 	c.noteHostUpdate(ctx, h, req.Update)
+	c.noteHelperUnsupported(hostID, req.UpdateUnsupported)
 
 	if req.Usage != nil {
 		usage := store.ObserveHostUsage(h.Usage, *req.Usage, c.lentCPUPercent(ctx, h, req.Runners, now), h.MemoryMB, now)

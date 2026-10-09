@@ -49,7 +49,7 @@ type UpdatesView struct {
 	// CheckedAt is when the list Latest was chosen from was read.
 	CheckedAt *time.Time `json:"checked_at"`
 	// Helper says whether this controller can update itself, and if not, how a
-	// person with root on its host makes it able to.
+	// person with root on its host makes it able to, or why nobody can.
 	Helper UpdatesHelper `json:"helper"`
 	// Controller is this controller's latest update attempt, open or ended, and
 	// null when it has never had one.
@@ -59,14 +59,18 @@ type UpdatesView struct {
 // UpdatesHelper is the update helper beside the controller, as far as the
 // controller can see it: its marker, in the folder the installer recorded.
 type UpdatesHelper struct {
-	// State is ready or missing.
+	// State is ready, missing, or unsupported where it can never be installed.
 	State string `json:"state"`
 	// Reason is the sentence the page shows. It names no path, because every role
 	// reads it.
 	Reason string `json:"reason"`
 	// InstallCommand is what installs the helper, for a person to copy, and empty
-	// when it is ready.
+	// when it is ready or cannot be installed.
 	InstallCommand string `json:"install_command"`
+	// UpgradeCommand is what updates the controller by hand on its host, for a
+	// person to copy, and empty unless the helper cannot be installed: anywhere
+	// else the helper is the way, and the command would be a second answer.
+	UpgradeCommand string `json:"upgrade_command"`
 }
 
 // UpdatesAttempt is one request to update, and how it ended.

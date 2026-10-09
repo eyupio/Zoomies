@@ -26,6 +26,7 @@ import (
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/updates"
 )
 
 const testWebhookSecret = "s3cret-for-tests"
@@ -139,6 +140,7 @@ func newHarness(t *testing.T) *harness {
 		Logger:     slog.New(slog.DiscardHandler),
 		Clock:      func() time.Time { return time.Now().Add(time.Duration(offset.Load())) },
 		UpdateDir:  updateDir,
+		HelperHost: func() updates.HelperHost { return helperHostForTests },
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
@@ -422,16 +424,17 @@ func (h *harness) restart() *Controller {
 	h.t.Helper()
 	bus := events.New()
 	c, err := New(Options{
-		Store:     h.st,
-		Config:    h.cfg,
-		Key:       h.key,
-		Auth:      auth.New(h.st, h.cfg, bus),
-		Events:    bus,
-		GitHub:    h.factory,
-		Providers: h.providers,
-		Logger:    slog.New(slog.DiscardHandler),
-		Clock:     func() time.Time { return time.Now().Add(time.Duration(h.offset.Load())) },
-		UpdateDir: h.updateDir,
+		Store:      h.st,
+		Config:     h.cfg,
+		Key:        h.key,
+		Auth:       auth.New(h.st, h.cfg, bus),
+		Events:     bus,
+		GitHub:     h.factory,
+		Providers:  h.providers,
+		Logger:     slog.New(slog.DiscardHandler),
+		Clock:      func() time.Time { return time.Now().Add(time.Duration(h.offset.Load())) },
+		UpdateDir:  h.updateDir,
+		HelperHost: func() updates.HelperHost { return helperHostForTests },
 	})
 	if err != nil {
 		h.t.Fatalf("restarting the controller: %v", err)

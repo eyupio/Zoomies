@@ -10656,12 +10656,15 @@ components:
       properties:
         state:
           type: string
-          enum: [none, requested, succeeded, failed, timed_out, cancelled]
+          enum: [none, unsupported, requested, succeeded, failed, timed_out, cancelled]
           description: >-
             The latest attempt's state: `requested` until the host reports the release or 90
             minutes pass, then `succeeded`, `failed`, `timed_out`, or `cancelled` when the host
             was removed. `none` when there is no attempt to show, including one that failed
-            before the host reached its release some other way.
+            before the host reached its release some other way. `unsupported` in place of `none`
+            for a host behind the controller that the update helper can never be installed on
+            (not Linux, no systemd, or a container under a rootless runtime): `reason` says
+            which, and the host is updated with `upgrade_command`.
         reason:
           type: string
           description: >-
@@ -11692,22 +11695,28 @@ components:
             `manual`, where the person asking is the only wait, and whenever `newer` is false.
     UpdatesHelper:
       type: object
-      required: [state, reason, install_command]
+      required: [state, reason, install_command, upgrade_command]
       properties:
         state:
           type: string
-          enum: [ready, missing]
+          enum: [ready, missing, unsupported]
           description: >-
             Whether the update helper is installed on the controller's host. Only a helper,
             installed by somebody with root there, can replace the controller's binary, so
-            without one the controller cannot update itself.
+            without one the controller cannot update itself. `unsupported` is a host it can
+            never be installed on: not Linux, no systemd, a container that runs no runners and so
+            has no shared folder, or a container under a rootless runtime.
         reason:
           type: string
-          description: A sentence that says what the state means. It names no path.
+          description: A sentence that says what the state means, and for `unsupported` which cause it is. It names no path.
         install_command:
           type: string
-          description: The command that installs the helper, for a person with root on the host to run. Empty when it is ready, and empty where it cannot be installed at all because the helper is a pair of systemd units and the controller's host is not Linux.
+          description: The command that installs the helper, for a person with root on the host to run. Empty when it is ready, and when it is `unsupported`.
           examples: [sudo zoomies updates helper install]
+        upgrade_command:
+          type: string
+          description: The command that updates the controller by hand on its host, for a person to copy. Set only when the state is `unsupported`, where it is the way.
+          examples: [sudo zoomies upgrade]
     UpdatesAttempt:
       type: object
       required: [id, state, from, to, trigger, requested_at, finished_at, error]
@@ -11843,6 +11852,15 @@ components:
         backends: { type: array, items: { $ref: "#/components/schemas/BackendInfo" } }
         runners: { type: array, items: { $ref: "#/components/schemas/RunnerReport" } }
         update: { $ref: "#/components/schemas/AgentUpdateReport" }
+        update_unsupported:
+          type: string
+          enum: [os, no-systemd, rootless, no-shared-folder]
+          description: >-
+            Why the update helper can never be installed on this host: not Linux, no systemd, a
+            container under a rootless runtime, or a container without the shared folder. Absent
+            where it could be, where it is installed, where the agent cannot tell, and from an
+            older agent, all of which the controller reads as a helper not yet installed. A word
+            the controller does not know is read the same way.
     AgentUpdateReport:
       type: object
       description: >-

@@ -245,6 +245,17 @@ fail: it prints the helper's own sentence, says the helper was not added, and
 finishes. Put the refusal right and run `sudo zoomies updates helper install`.
 `--check` asks nothing and adds nothing.
 
+Where the helper can never be installed, the web UI does not suggest it. A
+controller on macOS or Windows, on a Linux host that systemd does not run, in a
+container that runs no runners (and so does not mount the shared folder), or in
+a container under a rootless runtime shows its helper as **unsupported** on
+Settings → Updates, with the reason and `sudo zoomies upgrade` to copy instead
+of the install command, and raises no `controller.update_helper_missing`. A host
+behind the controller for one of the same reasons (its agent says which on its
+heartbeat; an agent too old to say is known only by an operating system other
+than Linux) shows **Update by command** on its card with the reason and no
+button, and the upgrade command beneath it is the way.
+
 The same question is asked once more, in the same words, at the end of a fresh
 `zoomies init` and of `zoomies agent join`, once the service is installed (for a
 container deployment, once it is up and has its shared folder). It follows the

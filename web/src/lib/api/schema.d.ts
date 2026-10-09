@@ -8151,10 +8151,10 @@ export interface components {
         /** @description The host's part in updating Zoomies from the web UI: whether it can be updated from here, why in a sentence, and its latest attempt while that attempt still says something about the host. Nothing in it moves with the clock or with a heartbeat. */
         HostUpdate: {
             /**
-             * @description The latest attempt's state: `requested` until the host reports the release or 90 minutes pass, then `succeeded`, `failed`, `timed_out`, or `cancelled` when the host was removed. `none` when there is no attempt to show, including one that failed before the host reached its release some other way.
+             * @description The latest attempt's state: `requested` until the host reports the release or 90 minutes pass, then `succeeded`, `failed`, `timed_out`, or `cancelled` when the host was removed. `none` when there is no attempt to show, including one that failed before the host reached its release some other way. `unsupported` in place of `none` for a host behind the controller that the update helper can never be installed on (not Linux, no systemd, or a container under a rootless runtime): `reason` says which, and the host is updated with `upgrade_command`.
              * @enum {string}
              */
-            state: "none" | "requested" | "succeeded" | "failed" | "timed_out" | "cancelled";
+            state: "none" | "unsupported" | "requested" | "succeeded" | "failed" | "timed_out" | "cancelled";
             /**
              * @description The card's sentence: why the host can or cannot be updated, or how its attempt stands. For a failed, timed-out or cancelled attempt only the `platform` role is given the reason recorded for it, which can be the update helper's own and name a path on the host; every other role is given a fixed sentence for the state, in every response and on the event stream alike.
              * @example This host's agent does not offer to update itself, which it does only once the update helper is installed on the host. Run sudo zoomies updates helper install there, or update it with the command below.
@@ -9071,17 +9071,22 @@ export interface components {
         };
         UpdatesHelper: {
             /**
-             * @description Whether the update helper is installed on the controller's host. Only a helper, installed by somebody with root there, can replace the controller's binary, so without one the controller cannot update itself.
+             * @description Whether the update helper is installed on the controller's host. Only a helper, installed by somebody with root there, can replace the controller's binary, so without one the controller cannot update itself. `unsupported` is a host it can never be installed on: not Linux, no systemd, a container that runs no runners and so has no shared folder, or a container under a rootless runtime.
              * @enum {string}
              */
-            state: "ready" | "missing";
-            /** @description A sentence that says what the state means. It names no path. */
+            state: "ready" | "missing" | "unsupported";
+            /** @description A sentence that says what the state means, and for `unsupported` which cause it is. It names no path. */
             reason: string;
             /**
-             * @description The command that installs the helper, for a person with root on the host to run. Empty when it is ready, and empty where it cannot be installed at all because the helper is a pair of systemd units and the controller's host is not Linux.
+             * @description The command that installs the helper, for a person with root on the host to run. Empty when it is ready, and when it is `unsupported`.
              * @example sudo zoomies updates helper install
              */
             install_command: string;
+            /**
+             * @description The command that updates the controller by hand on its host, for a person to copy. Set only when the state is `unsupported`, where it is the way.
+             * @example sudo zoomies upgrade
+             */
+            upgrade_command: string;
         };
         UpdatesAttempt: {
             /** @example upd_k3fqz2mx7abcd */
@@ -9185,6 +9190,11 @@ export interface components {
             backends?: components["schemas"]["BackendInfo"][];
             runners?: components["schemas"]["RunnerReport"][];
             update?: components["schemas"]["AgentUpdateReport"];
+            /**
+             * @description Why the update helper can never be installed on this host: not Linux, no systemd, a container under a rootless runtime, or a container without the shared folder. Absent where it could be, where it is installed, where the agent cannot tell, and from an older agent, all of which the controller reads as a helper not yet installed. A word the controller does not know is read the same way.
+             * @enum {string}
+             */
+            update_unsupported?: "os" | "no-systemd" | "rootless" | "no-shared-folder";
         };
         /** @description The outcome of an `update_agent` task, sent on the heartbeat of the agent that replaced the one that took it, because the task's own result cannot be sent by a process that restarted. Repeated until the controller has recorded it. Absent when there is nothing to report, and from an agent that cannot update itself (one that does not advertise `self-update`). */
         AgentUpdateReport: {

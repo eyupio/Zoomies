@@ -2640,9 +2640,9 @@ func (c *Controller) newerReleaseProblems() []Problem {
 		fix = "upgrade with the same method you installed by."
 	}
 	// Only when the button would work: the mode allows it and the helper has been
-	// seen. A page that says to press something that refuses is worse than the
-	// general advice.
-	if sight := c.updateSightNow(); c.updateMode() != updates.ModeOff && sight.looked && !sight.helperMissing {
+	// seen ready. A page that says to press something that refuses is worse than
+	// the general advice.
+	if sight := c.updateSightNow(); c.updateMode() != updates.ModeOff && sight.looked && sight.helper == HelperReady {
 		fix = "update from Settings → Updates; the release notes are at " + latest.URL
 		if latest.URL == "" {
 			fix = "update from Settings → Updates."
@@ -2674,34 +2674,24 @@ func (c *Controller) controllerUpdateProblems() []Problem {
 	// Only a release build can be updated by the button, and RequestControllerUpdate
 	// refuses any other before it looks for the helper, so for a build from main a
 	// missing helper changes nothing and the warning would name a fix that does
-	// nothing.
+	// nothing. Nor is one that can never be installed a warning: nothing is to be
+	// done about it, and Settings → Updates says why and how to upgrade instead.
 	_, fromRelease := version.Release(version.Version)
-	if mode := c.updateMode(); mode != updates.ModeOff && fromRelease && sight.helperMissing {
+	if mode := c.updateMode(); mode != updates.ModeOff && fromRelease && sight.helper == HelperMissing {
 		out = append(out, Problem{
 			Code:     "controller.update_helper_missing",
 			Severity: config.SeverityWarning,
 			Title:    "this controller has no update helper, so it cannot update itself",
 			Detail: fmt.Sprintf("updates.mode is %s, so this release build of Zoomies may be asked to update itself, but the update helper that would replace its binary "+
 				"is not installed on its host. Nothing else is affected: runners, pools and jobs carry on.", mode),
-			Fix: missingHelperFix(),
+			Fix: "have somebody with root on the controller's host run `" + helperInstallCommand + "`, " +
+				"or set updates.mode to off if this controller is to be upgraded by hand with `zoomies upgrade`.",
 		})
 	}
 	if p, ok := failedUpdateProblem(sight.last); ok {
 		out = append(out, p)
 	}
 	return out
-}
-
-// missingHelperFix is what to do about a missing helper. Where the helper cannot
-// be installed the command would only refuse, so the fix is the upgrade by hand
-// that works there.
-func missingHelperFix() string {
-	if !helperInstallable() {
-		return "the update helper is a pair of systemd units, which this controller's host (" + helperPlatform + ") cannot run, " +
-			"so upgrade it by hand with `zoomies upgrade` and set updates.mode to off."
-	}
-	return "have somebody with root on the controller's host run `" + helperInstallCommand + "`, " +
-		"or set updates.mode to off if this controller is to be upgraded by hand with `zoomies upgrade`."
 }
 
 // failedUpdateProblem is the problem for the controller's latest attempt, when
@@ -2795,6 +2785,18 @@ func (c *Controller) hostUpdateProblems(ctx context.Context, out *[]Problem) err
 			continue
 		}
 		if version.CompareBuilds(h.Version, target) != version.SkewBehind {
+			continue
+		}
+		if cause := c.hostHelperUnsupported(h); cause != "" {
+			*out = append(*out, Problem{
+				Code:     "host.update_unavailable",
+				Severity: config.SeverityInfo,
+				Title:    fmt.Sprintf("host %s is behind this controller and cannot be updated from here", label),
+				Detail: fmt.Sprintf("its agent runs %s and this controller runs %s, but the update helper cannot be installed on it: %s. "+
+					"Nothing is wrong meanwhile: it places work as normal.", reportedVersion(h.Version), target, helperUnsupportedWhy(cause, "its agent")),
+				Fix:        fmt.Sprintf("update %s by hand with the command on its card.", label),
+				TargetKind: "host", TargetID: h.ID,
+			})
 			continue
 		}
 		*out = append(*out, Problem{

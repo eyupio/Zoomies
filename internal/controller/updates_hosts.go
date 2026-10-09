@@ -30,7 +30,8 @@ type HostUpdateView struct {
 	// State is the latest attempt's state while it says something about the
 	// host: requested, succeeded, failed, timed_out or cancelled. It is none when
 	// there is no such attempt, including one that failed before the host
-	// reached its release some other way.
+	// reached its release some other way, and unsupported in its place for a
+	// host behind the controller that the helper can never be installed on.
 	State string `json:"state"`
 	// Reason is the sentence the card shows. For an attempt that ended without
 	// the update it is the reason recorded for it, often the helper's own, which
@@ -42,8 +43,13 @@ type HostUpdateView struct {
 	AttemptID string `json:"attempt_id"`
 }
 
-// HostUpdateNone is the state of a host with no attempt worth showing.
-const HostUpdateNone = "none"
+// The states of a host with no attempt worth showing.
+const (
+	HostUpdateNone = "none"
+	// HostUpdateUnsupported is a host behind the controller that the update
+	// helper can never be installed on, so the command on its card is the way.
+	HostUpdateUnsupported = "unsupported"
+)
 
 // For is the update block as one audience may read it. The platform reads it
 // whole; every other role is given a fixed sentence for an ended attempt in
@@ -77,28 +83,35 @@ func (v HostView) For(platform bool) HostView {
 // and the planner all ask it, so the button and the planner never disagree.
 //
 // target is the release the host would be taken to, empty when this controller
-// is not a release.
-func hostCanSelfUpdate(h *store.Host, target string) (can bool, why string) {
+// is not a release; unsupported is why the helper can never be installed on the
+// host, or nothing known. A host that cannot have it is said to be so only where
+// that is why it cannot be updated, so the card never explains a helper to a
+// host that has nothing to update.
+func hostCanSelfUpdate(h *store.Host, target string, unsupported updates.HelperUnsupported) (can bool, why string, cannotHaveHelper bool) {
 	switch {
 	case h.Embedded:
-		return false, "This is the agent inside the controller, so it is updated with the controller, from Settings → Updates."
+		return false, "This is the agent inside the controller, so it is updated with the controller, from Settings → Updates.", false
 	case target == "":
-		return false, "This controller is not running a release, so there is no release to take its hosts to. Install a release on the controller with zoomies upgrade first."
+		return false, "This controller is not running a release, so there is no release to take its hosts to. Install a release on the controller with zoomies upgrade first.", false
 	case strings.TrimSpace(h.Version) == "":
-		return false, "This host's agent has not said which version it runs, so Zoomies cannot tell whether " + target + " is newer. Update it on the host with zoomies upgrade."
+		return false, "This host's agent has not said which version it runs, so Zoomies cannot tell whether " + target + " is newer. Update it on the host with zoomies upgrade.", false
 	}
 	switch version.CompareBuilds(h.Version, target) {
 	case version.SkewNone, version.SkewAhead:
-		return false, "This host already runs " + target + " or a later release, so there is nothing to update."
+		return false, "This host already runs " + target + " or a later release, so there is nothing to update.", false
 	case version.SkewDiffers:
 		return false, "This host runs the build " + reportedVersion(h.Version) + ", which is not a release, so Zoomies cannot tell whether " +
-			target + " is newer. Update it on the host with the command below."
+			target + " is newer. Update it on the host with the command below.", false
 	}
 	if !h.Supports(agent.FeatureSelfUpdate) {
+		if unsupported != "" {
+			return false, "The update helper cannot be installed on this host: " + helperUnsupportedWhy(unsupported, "its agent") +
+				". Update it on the host with the command below.", true
+		}
 		return false, "This host's agent does not offer to update itself, which it does only once the update helper is installed on the host. " +
-			"Run sudo zoomies updates helper install there, or update it with the command below."
+			"Run sudo zoomies updates helper install there, or update it with the command below.", false
 	}
-	return true, "This host runs " + reportedVersion(h.Version) + " and can be updated to " + target + "."
+	return true, "This host runs " + reportedVersion(h.Version) + " and can be updated to " + target + ".", false
 }
 
 // hostTarget is the release every host is taken to: the one this controller
@@ -142,7 +155,7 @@ func (c *Controller) RequestHostUpdate(ctx context.Context, by UpdateActor, host
 	if target == "" {
 		return nil, ErrUpdateNotARelease
 	}
-	if can, why := hostCanSelfUpdate(h, target); !can {
+	if can, why, _ := hostCanSelfUpdate(h, target, c.hostHelperUnsupported(h)); !can {
 		return nil, &hostCannotUpdateError{sentence: why}
 	}
 
@@ -472,14 +485,18 @@ func (c *Controller) hostAttempt(hostID string) (store.UpdateAttempt, bool) {
 func (c *Controller) forgetHostUpdates(hostID string) {
 	c.updates.hostMu.Lock()
 	delete(c.updates.hostLast, hostID)
+	delete(c.updates.hostUnsupported, hostID)
 	c.updates.hostMu.Unlock()
 }
 
 // hostUpdateView renders a host's part in updating from what the loop last saw.
 func (c *Controller) hostUpdateView(h *store.Host) *HostUpdateView {
 	target := hostTarget()
-	can, why := hostCanSelfUpdate(h, target)
+	can, why, cannotHaveHelper := hostCanSelfUpdate(h, target, c.hostHelperUnsupported(h))
 	out := &HostUpdateView{State: HostUpdateNone, Reason: why, CanUpdate: can}
+	if cannotHaveHelper {
+		out.State = HostUpdateUnsupported
+	}
 	a, ok := c.hostAttempt(h.ID)
 	if !ok {
 		return out

@@ -59,6 +59,10 @@ type updatesState struct {
 	// says so, which closes the attempt as failed with that sentence.
 	handedMu sync.Mutex
 	handed   map[string]bool
+	// hostUnsupported is why each host's agent last said the helper cannot be
+	// installed on its host, under hostMu. Memory only, like handed: every beat
+	// says it again.
+	hostUnsupported map[string]updates.HelperUnsupported
 }
 
 // updateSight is what the update loop last saw of the things the problems list
@@ -70,8 +74,9 @@ type updateSight struct {
 	// looked says the loop has looked at all. Before it has, nothing is known and
 	// nothing is raised: a controller that has only just started has not seen a
 	// helper missing.
-	looked        bool
-	helperMissing bool
+	looked bool
+	// helper is the helper's state: ready, missing or unsupported.
+	helper string
 	// last is the controller's latest update attempt, open or ended, or nil.
 	last *store.UpdateAttempt
 }
@@ -231,7 +236,7 @@ func (c *Controller) lookAtUpdates(ctx context.Context) {
 	c.updates.lookMu.Lock()
 	defer c.updates.lookMu.Unlock()
 
-	missing := c.probeUpdateHelper().view.State == HelperMissing
+	helper := c.probeUpdateHelper().view.State
 	attempts, err := c.st.ListUpdateAttempts(ctx, store.UpdateScopeController, "", 1)
 	if err != nil && ctx.Err() == nil {
 		c.log.Warn("could not read the controller's latest update attempt for the problems list; the next pass will try again", "error", err)
@@ -240,7 +245,7 @@ func (c *Controller) lookAtUpdates(ctx context.Context) {
 	c.updates.sightMu.Lock()
 	defer c.updates.sightMu.Unlock()
 	c.updates.sight.looked = true
-	c.updates.sight.helperMissing = missing
+	c.updates.sight.helper = helper
 	if err != nil {
 		return
 	}
