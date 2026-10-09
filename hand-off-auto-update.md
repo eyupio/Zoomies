@@ -15,15 +15,20 @@ Merged into `main` (all merged by the owner, jnnngs, not by me):
 * Part 3 (#757, follow-up #759): `update_attempts` table (migration 0086), the controller updates itself, routes `POST /api/v1/updates/check` (admin) and `/updates/controller` (platform), problems, CLI `zoomies updates status|check|apply`, the Update button.
 * Part 4 (#786, follow-ups #789): agents write the helper request and report back; the controller updates a host (`POST /api/v1/hosts/{id}/update`, admin); host card Update button; the "manual, with the reason" unsupported state; the drill with a job running; the manual real-systemd checklist `roadmap/in-product-updates-manual-check.md`.
 
-Open PR: **#797** (`claude/zf232-4-followup`): with `updates.mode` off a host card offered an enabled Update button that was always refused; now a disabled button with the reason. Conflicts with `main` were resolved at 5e7573f4; its CI and the Codex review were pending. Merge it when green (the user asked me to merge my own PRs when green).
+Updated at the second pause (9 October 2026, 14:10Z). #797 is merged. Everything through Part 4 is on `main`.
 
-Not merged / in flight: **Part 5** on branch `claude/zf232-5-auto` (based on `main` at 7cc97058; remote head 7d2b672e, local head 8cb1a53f plus uncommitted work):
+**Part 5** is on branch `claude/zf232-5-auto` (pushed, head 474300fd, includes a merge of `main` at 31a56a59). No PR is open yet; the user asked for the Part 5 PR "when ready", meaning after 5.4, 5.5 and the part review.
 
-* 5.1 done: `update_rollouts` table (migration 0090, reuses `retention.update_attempts`).
-* 5.2 done: `internal/updates/plan.go` `Decide(Snapshot) Plan`, pure. A review found two Critical safety issues and several Important contract gaps; commit 8cb1a53f ("Have the planner work out failures itself, follow a rollout's hosts, and never take a build that is not a release") addresses them (a describe/dirty build is never "behind"; manual mode cancels an auto-started rollout; rollout membership; failures derived in `Decide`; helper state enum). That commit is local, NOT yet pushed. A scoped re-review of it was offered by the reviewer and not yet done.
-* 5.3 in progress (an implementer subagent was mid-task; uncommitted controller changes in `/home/user/zoomies`: `updatesSnapshot` builder, applier, `AutoUpdateIdentity()`, `StartHostRollout`/`ResumeRollout`/`CancelRollout`, `UpdatesView.Rollout`). If the working tree is gone, redo 5.3 from `roadmap/in-product-updates-plan.md` plus the carries below.
+* 5.1 done (`update_rollouts`, migration 0090, unshipped; re-check `main`'s highest migration before relying on the number).
+* 5.2 done (`internal/updates/plan.go`, `Decide`, fixes in 8cb1a53f).
+* 5.3 built and merged with `main` (`internal/controller/updates_loop.go` and `updates_auto.go`, `StartHostRollout`/`ResumeRollout`/`CancelRollout`, `auth.AutoUpdateIdentity()`, `UpdatesView.Rollout`, and the Codex fix that reads the update mode once per request). The post-merge full test run was still going at the pause.
+* **The 5.3 review (opus) found no Critical issue and three Important fixes, NOT yet done** (an implementer was sent them but may not survive the pause; redo them if the branch head is still 474300fd):
+  1. Move the release-build gate (`TargetTag(h.Version)`, so a describe or dirty build is never "behind") into `hostCanSelfUpdate` (`updates_hosts.go`), drop the duplicate gates in `plan.go` and `updates_auto.go`, and test that the card, `RequestHostUpdate`, the planner and `rolloutView.Total` agree.
+  2. The failure cap reads the 500 newest attempts fleet-wide, and retention prunes failed rows. Read the relevant attempts directly (ended attempts for the current target, the open or last rollout's attempts, open attempts); test with more than 500 newer attempts.
+  3. `autoUpdateHost` must re-read `OpenUpdateRollout` and require the same id, state running and (manual) trigger manual before asking a host; test a cancel between snapshot and apply.
+  Minors: validate `StartHostRollout` host ids with one `ListHosts`, a cap and the id in the error; count open attempts of an absent host as blocking; audit `update.timed_out` in both closers or neither; fix docs/api-surface.md:156; reword the cancel sentence (plan.go ~3109) to "...so auto will not start another rollout to vX until a newer release is out or somebody starts one"; keep and comment that a failed manual press on a member host halts the rollout; record the `UpdatesView` snapshot cost as a known gap.
 
-Remaining plan tasks after 5.3: 5.4 (rollout routes and CLI), 5.5 (rollout progress in the UI), Part 5 review and PR; 6.1 (rollout-restart drill and `test/upgrade/helper-check.sh` against a fake systemctl), 6.2 (documentation and screenshots), Part 6 review and a final seam review of the whole feature.
+Remaining after that: 5.4 (rollout routes and CLI; the handler audits a person's press per R4; validate `host_ids`), 5.5 (rollout progress in the UI), the Part 5 opus review, then open the Part 5 PR (draft, base `main`) and merge it only when every check is green. Then Part 6: 6.1 (rollout-restart drill and `test/upgrade/helper-check.sh` against a fake systemctl), 6.2 (documentation and screenshots), the Part 6 review, and a final seam review of the whole feature.
 
 ## Carries for the remaining tasks (important)
 
