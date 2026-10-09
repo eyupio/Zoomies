@@ -100,6 +100,7 @@ function waiting(): UpdatesStatus {
       upgrade_command: '',
     },
     controller: null,
+    rollout: null,
   };
 }
 

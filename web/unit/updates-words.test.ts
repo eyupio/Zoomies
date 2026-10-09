@@ -47,6 +47,7 @@ function status(overrides: Partial<UpdatesStatus> = {}): UpdatesStatus {
       upgrade_command: '',
     },
     controller: null,
+    rollout: null,
     ...overrides,
   };
 }
