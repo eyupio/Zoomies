@@ -449,8 +449,8 @@ func TestTheRequestNamesWhoAskedWithinWhatTheHelperAccepts(t *testing.T) {
 	}{
 		{"a plain name", UpdateActor{ID: "usr_1", Name: "alice"}, "alice"},
 		{"a long name is cut at a whole character", UpdateActor{ID: "usr_1", Name: long}, strings.Repeat("é", 64)},
-		{"control characters and an override are dropped", UpdateActor{ID: "usr_1", Name: "mal\x1b[31mlory‮\n "}, "mal[31mlory"},
-		{"a name with nothing printable gives way to the id", UpdateActor{ID: "usr_1", Name: "‮\x00"}, "usr_1"},
+		{"control characters and an override are dropped", UpdateActor{ID: "usr_1", Name: "mal\x1b[31mlory\u202e\n "}, "mal[31mlory"},
+		{"a name with nothing printable gives way to the id", UpdateActor{ID: "usr_1", Name: "\u202e\x00"}, "usr_1"},
 		{"nobody at all", UpdateActor{}, "unknown"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -474,7 +474,7 @@ func TestTheRequestNamesWhoAskedWithinWhatTheHelperAccepts(t *testing.T) {
 	// and the attempt records the same name.
 	h := newHarness(t)
 	h.readyToUpdate()
-	if _, err := h.c.RequestControllerUpdate(h.ctx, UpdateActor{ID: "usr_2", Name: long + "‮"}, ""); err != nil {
+	if _, err := h.c.RequestControllerUpdate(h.ctx, UpdateActor{ID: "usr_2", Name: long + "\u202e"}, ""); err != nil {
 		t.Fatalf("RequestControllerUpdate: %v", err)
 	}
 	req := h.takeRequest()
