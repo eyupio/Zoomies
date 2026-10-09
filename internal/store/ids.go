@@ -54,6 +54,8 @@ const (
 	PrefixHostAcceptance = "hca"
 	// PrefixUpdateAttempt names one request to update the controller or a host.
 	PrefixUpdateAttempt = "upd"
+	// PrefixUpdateRollout names one walk of the fleet to a new release.
+	PrefixUpdateRollout = "rol"
 )
 
 var idEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)

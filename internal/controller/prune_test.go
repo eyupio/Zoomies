@@ -235,6 +235,48 @@ func TestPruningTakesOldUpdateAttemptsButNeverAnOpenOne(t *testing.T) {
 	}
 }
 
+// A halted rollout is a fleet waiting for a person, and the only record that
+// it is. It follows retention.update_attempts once it has ended, like the
+// attempts it was made of, and not before.
+func TestPruningTakesOldRolloutsButNeverAnOpenOne(t *testing.T) {
+	h := newHarness(t)
+	finished := &store.UpdateRollout{Target: "v1.3.5", Trigger: store.UpdateTriggerManual}
+	if err := h.st.CreateUpdateRollout(h.ctx, finished); err != nil {
+		t.Fatalf("CreateUpdateRollout: %v", err)
+	}
+	if ok, err := h.st.FinishUpdateRollout(h.ctx, finished.ID, store.RolloutDone); err != nil || !ok {
+		t.Fatalf("FinishUpdateRollout = %v, %v", ok, err)
+	}
+	open := &store.UpdateRollout{Target: "v1.3.6", Trigger: store.UpdateTriggerAuto}
+	if err := h.st.CreateUpdateRollout(h.ctx, open); err != nil {
+		t.Fatalf("CreateUpdateRollout: %v", err)
+	}
+	if ok, err := h.st.HaltUpdateRollout(h.ctx, open.ID, "a host did not come back"); err != nil || !ok {
+		t.Fatalf("HaltUpdateRollout = %v, %v", ok, err)
+	}
+
+	h.c.UpdateConfig(func(c *config.Config) { c.Retention = config.Retention{UpdateAttempts: 24 * time.Hour} })
+	h.advance(12 * time.Hour)
+	h.c.prune(h.ctx)
+	if got, err := h.st.OpenUpdateRollout(h.ctx); err != nil || got.ID != open.ID {
+		t.Fatalf("inside the window the open rollout = %+v (%v), want it kept", got, err)
+	}
+
+	h.advance(48 * time.Hour)
+	h.c.prune(h.ctx)
+	if got, err := h.st.OpenUpdateRollout(h.ctx); err != nil || got.ID != open.ID || got.State != store.RolloutHalted {
+		t.Fatalf("after the window the open rollout = %+v (%v), want the halted one kept", got, err)
+	}
+	// Cancelling the open one makes it prunable, so a cutoff a year out takes
+	// exactly one row: the finished rollout went in the pass above.
+	if ok, err := h.st.FinishUpdateRollout(h.ctx, open.ID, store.RolloutCancelled); err != nil || !ok {
+		t.Fatalf("FinishUpdateRollout = %v, %v", ok, err)
+	}
+	if n, err := h.st.PruneUpdateRollouts(h.ctx, time.Now().Add(365*24*time.Hour)); err != nil || n != 1 {
+		t.Errorf("PruneUpdateRollouts = %d, %v, want only the rollout just cancelled to remain", n, err)
+	}
+}
+
 // The prune pass is what rolls usage up. Without it the roll-up never moves,
 // the report falls back to rows a week's retention has already taken, and last
 // month's runner-hours quietly disappear.

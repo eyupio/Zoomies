@@ -844,7 +844,7 @@ var registry = buildRegistry([]Setting{
 	{
 		Key: "retention.update_attempts", Label: "Keep update history for", Env: "ZOOMIES_RETENTION_UPDATE_ATTEMPTS", Kind: KindDuration, Scope: ScopePlatform, Live: true,
 		Floor:   24 * time.Hour,
-		Summary: "How long a finished attempt to update the controller or a host is kept, so why a host is behind stays answerable. An attempt still open is never removed. 0 keeps every attempt.",
+		Summary: "How long a finished attempt to update the controller or a host, and the rollout that grouped it, is kept, so why a host is behind stays answerable. One still open is never removed. 0 keeps every one.",
 	},
 
 	// ---------------------------------------------------------------------
