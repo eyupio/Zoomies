@@ -191,6 +191,12 @@ License (AGPL-3.0). You pay for the machines you run it on.
 [What self-hosted runners cost](costs.md) works through the sums against
 GitHub's hosted runner prices.
 
+## Should I self-host runners at all?
+
+Sometimes. [Should you self-host GitHub Actions runners?](should-i-self-host.md)
+lists what a runner fleet has to do, which parts Zoomies handles and which it
+leaves to you, and when renting runners is the better choice.
+
 ## Are GitHub self-hosted runners still free?
 
 Yes. GitHub charges nothing for minutes on self-hosted runners. In December 2025 it

@@ -300,6 +300,33 @@ func TestCheckingAProviderRecordsWhatItFound(t *testing.T) {
 	}
 }
 
+// The sentence on a card is a finding's title, and the detail that says what to
+// do about it used to exist only in the tab that pressed Check. Reading the
+// provider back has to carry the whole result, or the next page load is
+// "no bridge called vmbr0" again with nothing to act on.
+func TestAProviderKeepsTheWholeOfItsLastCheck(t *testing.T) {
+	h := newHarness(t)
+	operator, _ := h.user("operator", store.RoleOperator)
+	cookie := h.session(operator)
+	prov := h.provider("proxmox-lab")
+
+	h.do(request{method: http.MethodPost, path: "/api/v1/providers/" + prov.ID + "/check", cookie: cookie}).
+		mustStatus(t, http.StatusOK, "check a provider")
+
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/providers/" + prov.ID, cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "read the provider back")
+	var got struct {
+		LastCheck *providerCheckResponse `json:"last_check"`
+	}
+	resp.into(t, &got)
+	if got.LastCheck == nil {
+		t.Fatalf("the provider does not carry its last check: %s", truncate(resp.body))
+	}
+	if got.LastCheck.ProviderID != prov.ID || !got.LastCheck.Reachable || got.LastCheck.CheckedAt.IsZero() {
+		t.Errorf("the kept check is not the one that ran: %+v", got.LastCheck)
+	}
+}
+
 // A build with no driver for a stored provider's kind must say so rather than
 // answering 500: the row was legal when it was written, and the fix is an
 // upgrade, which is a sentence rather than a request ID.

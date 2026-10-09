@@ -160,7 +160,7 @@ func TestAReconcilePassCannotWriteBackAnOperatorsProviderEdit(t *testing.T) {
 	}
 
 	// And the observations do not disturb the configuration either.
-	if err := s.SetProviderChecked(ctx, p.ID, s.Now(), "the node refused the credential"); err != nil {
+	if err := s.SetProviderChecked(ctx, p.ID, s.Now(), "the node refused the credential", ""); err != nil {
 		t.Fatal(err)
 	}
 	if err := s.SetProviderSwept(ctx, p.ID, s.Now()); err != nil {
