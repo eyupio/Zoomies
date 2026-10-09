@@ -100,12 +100,18 @@ func HelperOptionsFromPointer(stateDir string) (HelperOptions, error) {
 // runs it, under a temporary folder.
 func helperOptionsFromPointer(stateDir string, owner func(os.FileInfo) (uid, gid int, ok bool), top string) (HelperOptions, error) {
 	ownerOf := func(fi os.FileInfo) (int, bool) { uid, _, ok := owner(fi); return uid, ok }
+	path := filepath.Join(stateDir, channel.PointerFile)
+	// Looked at before openStateDir, which makes the folder when it is missing:
+	// a host without the helper must not get root's folder from a unit left
+	// behind, or from somebody running this by hand.
+	if _, err := os.Lstat(stateDir); errors.Is(err, fs.ErrNotExist) {
+		return HelperOptions{}, fmt.Errorf(`the update helper is not installed on this host: %s is missing; run "sudo zoomies updates helper install" to install it`, path)
+	}
 	root, err := openStateDir(stateDir)
 	if err != nil {
 		return HelperOptions{}, err
 	}
 	defer root.Close()
-	path := filepath.Join(stateDir, channel.PointerFile)
 	if _, err := root.Lstat(channel.PointerFile); errors.Is(err, fs.ErrNotExist) {
 		return HelperOptions{}, fmt.Errorf(`the update helper is not installed on this host: %s is missing; run "sudo zoomies updates helper install" to install it`, path)
 	}

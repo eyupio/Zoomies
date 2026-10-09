@@ -296,7 +296,7 @@ func TestANativeUpgradeCreatesTheSharedFolderWithApproval(t *testing.T) {
 	requirePOSIX(t)
 	shared := filepath.Join(t.TempDir(), "shared")
 	opts := UpgradeOptions{ConfigDir: t.TempDir(), Mode: ModeAgent, BinaryPath: "/custom/bin/zoomies", AssumeYes: true,
-		shared: &sharedTarget{dir: shared, uid: -1, gid: -1}}
+		shared: &sharedTarget{dir: shared, uid: -1, gid: -1}, helperHost: noHelperHost(t.TempDir())}
 	opts.run = func(_ context.Context, name string, args ...string) (string, error) {
 		line := name + " " + strings.Join(args, " ")
 		if strings.Contains(line, "LoadState") {

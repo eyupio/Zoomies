@@ -871,3 +871,18 @@ func TestTheHelperAcceptsAFolderAboveTheBinaryThatOnlyTheRootGroupCanWrite(t *te
 		t.Errorf("a folder only the root group can write was refused: %v", err)
 	}
 }
+
+// A host that never had the helper has no state directory, and the unit that
+// runs this is only there if somebody installed it. Running it anyway (by hand,
+// or from a unit left behind) must say the helper is not installed and leave the
+// filesystem as it was, not make root's folder for a helper that is not there.
+func TestReadingRootsPointerNeverMakesTheStateDirectory(t *testing.T) {
+	missing := filepath.Join(t.TempDir(), "zoomies-update")
+	_, err := helperOptionsFromPointer(missing, fileOwner, "/")
+	if err == nil || !strings.Contains(err.Error(), "not installed") || !strings.Contains(err.Error(), "helper install") {
+		t.Fatalf("want a refusal saying the helper is not installed, got: %v", err)
+	}
+	if _, err := os.Lstat(missing); !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("reading the pointer made the state directory (%v)", err)
+	}
+}
