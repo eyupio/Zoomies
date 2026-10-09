@@ -83,9 +83,19 @@ func (s *Server) mcpChallenge(r *http.Request, errCode string) string {
 
 // metadataJSON writes a public discovery document. Anybody may read it --
 // that is its purpose -- including a browser-based client on another origin.
-func metadataJSON(w http.ResponseWriter, v any) {
+//
+// cacheable says the answer is the same for every caller, which it is only
+// when server.external_url is set: without it the issuer and the endpoints
+// below are filled from each request's Host header, and a shared cache keyed
+// by URL alone would then hand one caller's answer back to another and send
+// the next client to a forged authorisation server.
+func metadataJSON(w http.ResponseWriter, cacheable bool, v any) {
 	w.Header().Set("Access-Control-Allow-Origin", "*")
-	w.Header().Set("Cache-Control", "public, max-age=300")
+	if cacheable {
+		w.Header().Set("Cache-Control", "public, max-age=300")
+	} else {
+		w.Header().Set("Cache-Control", "no-store")
+	}
 	writeJSON(w, http.StatusOK, v)
 }
 
@@ -94,7 +104,7 @@ func metadataJSON(w http.ResponseWriter, v any) {
 // appended, which a client tries first.
 func (s *Server) handleProtectedResource(w http.ResponseWriter, r *http.Request) {
 	p := s.oauthPolicy(r)
-	metadataJSON(w, map[string]any{
+	metadataJSON(w, s.externalURLSet(), map[string]any{
 		"resource":                 p.Resource(),
 		"authorization_servers":    []string{p.Issuer},
 		"scopes_supported":         auth.MCPScopes,
@@ -102,6 +112,12 @@ func (s *Server) handleProtectedResource(w http.ResponseWriter, r *http.Request)
 		"resource_name":            "Zoomies",
 		"resource_documentation":   "https://zoomies.sh/connect-claude/",
 	})
+}
+
+// externalURLSet reports whether server.external_url names an address, which
+// is what decides whether a discovery document is the same for every caller.
+func (s *Server) externalURLSet() bool {
+	return strings.TrimSpace(s.cfg().Server.ExternalURL) != ""
 }
 
 // handleAuthorizationServer is RFC 8414 authorisation server metadata.
@@ -132,7 +148,7 @@ func (s *Server) handleAuthorizationServer(w http.ResponseWriter, r *http.Reques
 	if p.OpenRegistration {
 		doc["registration_endpoint"] = p.Issuer + "/oauth/register"
 	}
-	metadataJSON(w, doc)
+	metadataJSON(w, s.externalURLSet(), doc)
 }
 
 // oauthError writes an RFC 6749 error body. These endpoints speak OAuth's
