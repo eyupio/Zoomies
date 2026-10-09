@@ -1121,3 +1121,31 @@ export const createProviderSetup = () =>
 
 export const getProviderSetup = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getProviderSetup'>>(`/provider-setups/${enc(id)}`, { signal });
+
+/* -- the assistant's providers -------------------------------------------- */
+
+export const listAssistantProviders = (signal?: AbortSignal) =>
+  api.get<Result<'listAssistantProviders'>>('/assistant/providers', { signal });
+
+export const listAssistantProviderKinds = (signal?: AbortSignal) =>
+  api.get<Result<'listAssistantProviderKinds'>>('/assistant/providers/kinds', { signal });
+
+export const createAssistantProvider = (body: Body<'createAssistantProvider'>) =>
+  api.post<Result<'createAssistantProvider'>>('/assistant/providers', { body });
+
+export const updateAssistantProvider = (id: string, body: Body<'updateAssistantProvider'>) =>
+  api.patch<Result<'updateAssistantProvider'>>(`/assistant/providers/${enc(id)}`, { body });
+
+/** The name typed to confirm travels in the body; a mismatch is a 409. */
+export const deleteAssistantProvider = (id: string, name: string) =>
+  api.del<Result<'deleteAssistantProvider'>>(`/assistant/providers/${enc(id)}`, { body: { name } });
+
+/** Test a provider that has not been saved, with the key the form holds. */
+export const checkAssistantDraft = (body: Body<'checkAssistantDraft'>) =>
+  api.post<Result<'checkAssistantDraft'>>('/assistant/providers/check', { body });
+
+export const checkAssistantProvider = (id: string) =>
+  api.post<Result<'checkAssistantProvider'>>(`/assistant/providers/${enc(id)}/check`, {});
+
+export const setDefaultAssistantProvider = (id: string) =>
+  api.post<Result<'setDefaultAssistantProvider'>>(`/assistant/providers/${enc(id)}/default`, {});

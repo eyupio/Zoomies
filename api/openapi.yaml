@@ -80,6 +80,8 @@ tags:
     description: Agents, their capacity, and enrolment.
   - name: providers
     description: Where machines are rented from, and the machines themselves.
+  - name: assistant
+    description: The models the in-UI assistant may talk to, chosen and tested by an administrator.
   - name: kennel
     description: >-
       Kennel Club: the standards the fleet's repositories are held to, where a
@@ -4835,6 +4837,192 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/Provider" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /assistant/providers:
+    get:
+      operationId: listAssistantProviders
+      tags: [assistant]
+      summary: List the assistant's providers
+      description: >-
+        One row per model the assistant may talk to. The key is never in the response and
+        has no field it could be in: `key_configured` says one is sealed on the row.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/AssistantProvider" }
+    post:
+      operationId: createAssistantProvider
+      tags: [assistant]
+      summary: Add a provider
+      description: >-
+        The key is sealed with the instance key before the row is written. A base URL on
+        this machine or a private network is refused unless `assistant.allow_private_provider`
+        is on; the 422 names the switch.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssistantProviderInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantProvider" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /assistant/providers/check:
+    post:
+      operationId: checkAssistantDraft
+      tags: [assistant]
+      summary: Test a provider before saving it
+      description: >-
+        Runs the check against the body as a form has it, with the key the form holds, so a
+        key need not be saved to be tested. Nothing is written. A check that fails is still
+        a 200: the verdict is in the body.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssistantProviderInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantProviderCheck" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /assistant/providers/kinds:
+    get:
+      operationId: listAssistantProviderKinds
+      tags: [assistant]
+      summary: The kinds of provider a person may add
+      description: >-
+        Each kind with the address a hosted one has, or an empty string for the kind whose
+        address has to be typed.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [kind, default_base_url]
+                      properties:
+                        kind: { $ref: "#/components/schemas/AssistantProviderKind" }
+                        default_base_url: { type: string }
+
+  /assistant/providers/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: getAssistantProvider
+      tags: [assistant]
+      summary: One provider
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantProvider" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: updateAssistantProvider
+      tags: [assistant]
+      summary: Change a provider
+      description: >-
+        Every field is optional and independent. An empty or absent `api_key` leaves the
+        sealed key alone; a non-empty one replaces it. The default is not changed here.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssistantProviderInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantProvider" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    delete:
+      operationId: deleteAssistantProvider
+      tags: [assistant]
+      summary: Remove a provider
+      description: >-
+        The body carries the provider's name, typed to confirm; a name that does not match
+        is a 409 and nothing is removed. Removing the default leaves no default.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        "204": { description: Removed }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /assistant/providers/{id}/check:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: checkAssistantProvider
+      tags: [assistant]
+      summary: Test a provider
+      description: >-
+        Runs the provider's check and one token of completion, and records the result on
+        the row, so the page shows it after a reload and not only in the tab that pressed
+        Test. A check that fails is still a 200; `ok` and `error` say so. Audited, because
+        it uses the key.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantProviderCheck" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /assistant/providers/{id}/default:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: setDefaultAssistantProvider
+      tags: [assistant]
+      summary: Make this the provider that answers
+      description: One provider is the default at a time; this one becomes it and the previous one stops being it, in one write.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantProvider" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /machines:
@@ -11323,6 +11511,64 @@ components:
           type: array
           description: Answers that are legal and still cost something.
           items: { $ref: "#/components/schemas/Problem" }
+
+    AssistantProviderKind:
+      type: string
+      enum: [fake, openai_compatible, anthropic, openai]
+      description: >-
+        Which protocol the provider speaks. `openai_compatible` covers Ollama, LM Studio,
+        vLLM, llama.cpp, OpenRouter and the gateways; `fake` is the demo's built-in model
+        and cannot be created elsewhere.
+
+    AssistantProviderCheck:
+      type: object
+      required: [ok, latency_ms, usage_reported, checked_at]
+      properties:
+        ok: { type: boolean }
+        model: { type: string, description: The model that answered. }
+        latency_ms: { type: integer, format: int64 }
+        usage_reported: { type: boolean, description: Whether the provider counts tokens, which is what the limits in a later slice rest on. }
+        error: { type: string, description: Why the check failed, written for a person and never carrying the request. }
+        checked_at: { type: string, format: date-time }
+
+    AssistantProvider:
+      type: object
+      required: [id, name, kind, base_url, model, key_configured, enabled, is_default, local, created_at, updated_at]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/AssistantProviderKind" }
+        base_url: { type: string, description: Empty for a hosted kind means the kind's own address. }
+        model: { type: string }
+        key_configured: { type: boolean, description: A key is sealed on the row. The key itself never leaves this process. }
+        enabled: { type: boolean }
+        is_default: { type: boolean }
+        local: { type: boolean, description: The address names this machine or a private network. }
+        last_check: { $ref: "#/components/schemas/AssistantProviderCheck" }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    AssistantProviderInput:
+      type: object
+      description: >-
+        Creating, editing and checking a provider take the same body. On a PATCH every
+        field is optional; what is not named is left alone.
+      properties:
+        id:
+          type: string
+          description: >-
+            On a draft check only: the saved provider this draft is an edit of, so a blank
+            `api_key` borrows the sealed key that row holds. Ignored elsewhere.
+        name: { type: string }
+        kind: { $ref: "#/components/schemas/AssistantProviderKind" }
+        base_url: { type: string, description: Required for openai_compatible; optional for the hosted kinds, whose own address is used when it is empty. }
+        model: { type: string }
+        enabled: { type: boolean }
+        api_key:
+          type: string
+          description: >-
+            Sealed with the instance key and never returned. An empty string leaves the
+            stored key alone, so a form with a blank key box does not erase it.
 
     ProviderCheck:
       type: object

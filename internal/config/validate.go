@@ -1127,6 +1127,20 @@ func (c *Config) Validate() Findings {
 				"if it does, this warning is the acknowledgement and the setting can stay on.",
 		})
 	}
+	// The assistant's own switch is the narrower cousin of the one above, and
+	// is named for the same reason: a switch that opens a way to this
+	// machine's neighbourhood is not silent.
+	if c.Assistant.AllowPrivateProvider {
+		add(Finding{
+			Code: "egress.private_provider_allowed", Severity: SeverityWarning, Setting: AllowPrivateProviderSetting,
+			Title: "the assistant may be pointed at a private address",
+			Detail: "an assistant provider's base URL may name this machine, a link-local address or a private network, which is where a " +
+				"local model lives and also where the cloud metadata service and an admin port bound to loopback live. An administrator " +
+				"who can add a provider can aim the assistant's requests there and read the answer back out of a failed check.",
+			Fix: "turn " + AllowPrivateProviderSetting + " off unless the model really runs on this machine or on a network you own; " +
+				"if it does, this warning is the acknowledgement and the setting can stay on.",
+		})
+	}
 	for _, o := range c.OutboundURLs() {
 		if f := CheckOutboundURL(o.Setting, o.Value, c.Security.AllowPrivateEgress); f != nil {
 			f.Severity = SeverityWarning

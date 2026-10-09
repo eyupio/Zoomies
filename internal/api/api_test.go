@@ -920,6 +920,21 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "POST", path: "/api/v1/providers/" + ids.provider + "/pause", role: store.RoleOperator, action: auth.ActionProvidersPause},
 		{method: "POST", path: "/api/v1/providers/" + ids.provider + "/resume", role: store.RoleOperator, action: auth.ActionProvidersPause},
 
+		// The assistant's providers. A loopback address with the private
+		// switch off is a 422, which is an answer and not a refusal of the
+		// caller, and it dials nothing.
+		{method: "GET", path: "/api/v1/assistant/providers", role: store.RoleAdmin, action: auth.ActionAssistantRead},
+		{method: "POST", path: "/api/v1/assistant/providers", role: store.RoleAdmin, action: auth.ActionAssistantWrite,
+			body: map[string]any{"kind": "openai_compatible", "name": "made-by-the-route-walk", "base_url": "http://127.0.0.1:11434/v1", "model": "m"}},
+		{method: "POST", path: "/api/v1/assistant/providers/check", role: store.RoleAdmin, action: auth.ActionAssistantWrite,
+			body: map[string]any{"kind": "openai_compatible", "base_url": "http://127.0.0.1:11434/v1", "model": "m"}},
+		{method: "GET", path: "/api/v1/assistant/providers/kinds", role: store.RoleAdmin, action: auth.ActionAssistantRead},
+		{method: "GET", path: "/api/v1/assistant/providers/missing", role: store.RoleAdmin, action: auth.ActionAssistantRead},
+		{method: "PATCH", path: "/api/v1/assistant/providers/missing", role: store.RoleAdmin, body: map[string]any{}, action: auth.ActionAssistantWrite},
+		{method: "DELETE", path: "/api/v1/assistant/providers/missing", role: store.RoleAdmin, body: map[string]any{"name": "x"}, action: auth.ActionAssistantWrite},
+		{method: "POST", path: "/api/v1/assistant/providers/missing/check", role: store.RoleAdmin, action: auth.ActionAssistantWrite},
+		{method: "POST", path: "/api/v1/assistant/providers/missing/default", role: store.RoleAdmin, action: auth.ActionAssistantWrite},
+
 		{method: "GET", path: "/api/v1/machines", role: store.RoleViewer, action: auth.ActionMachinesRead},
 		{method: "GET", path: "/api/v1/machines/" + ids.machine, role: store.RoleViewer, action: auth.ActionMachinesRead},
 		{method: "POST", path: "/api/v1/machines/missing/drain", role: store.RoleOperator, action: auth.ActionMachinesDrain},

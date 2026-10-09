@@ -2073,3 +2073,47 @@ func machineTimeline(m *store.Machine) []MachineTimelineEntry {
 	}
 	return out
 }
+
+// AssistantProviderView is one of the assistant's providers as the API
+// renders it. The key has no field it could be in: KeyConfigured says one is
+// sealed on the row, which is all a form needs. Local says the address is on
+// this machine or a private network, which is what the page shows beside
+// the local-only switch.
+type AssistantProviderView struct {
+	ID            string                  `json:"id"`
+	Name          string                  `json:"name"`
+	Kind          string                  `json:"kind"`
+	BaseURL       string                  `json:"base_url"`
+	Model         string                  `json:"model"`
+	KeyConfigured bool                    `json:"key_configured"`
+	Enabled       bool                    `json:"enabled"`
+	IsDefault     bool                    `json:"is_default"`
+	Local         bool                    `json:"local"`
+	LastCheck     *AssistantProviderCheck `json:"last_check,omitempty"`
+	CreatedAt     time.Time               `json:"created_at"`
+	UpdatedAt     time.Time               `json:"updated_at"`
+}
+
+// AssistantProviderView renders one row.
+func (c *Controller) AssistantProviderView(p *store.AssistantProvider) AssistantProviderView {
+	v := AssistantProviderView{
+		ID: p.ID, Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, Model: p.Model,
+		KeyConfigured: len(p.KeyEnc) > 0, Enabled: p.Enabled, IsDefault: p.IsDefault,
+		Local:     assistantAddressIsLocal(p.BaseURL),
+		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+	}
+	if len(p.LastCheck) > 0 {
+		var check AssistantProviderCheck
+		if err := json.Unmarshal(p.LastCheck, &check); err == nil {
+			v.LastCheck = &check
+		}
+	}
+	return v
+}
+
+// assistantAddressIsLocal reads the address the way the egress check does:
+// an IP literal or a name that can only be local counts; any other name is
+// not called local, because a name is not an address.
+func assistantAddressIsLocal(raw string) bool {
+	return config.CheckProviderURL(raw, false) != nil
+}

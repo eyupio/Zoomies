@@ -50,6 +50,7 @@ type Config struct {
 	Kennel         Kennel         `yaml:"kennel"`
 	UI             UI             `yaml:"ui"`
 	Backup         Backup         `yaml:"backup"`
+	Assistant      Assistant      `yaml:"assistant"`
 
 	// Bootstrap is the first identity an unattended install asks for. It is
 	// read from the environment only -- see Bootstrap.
@@ -541,6 +542,21 @@ type Database struct {
 }
 
 // Security holds instance-wide security settings.
+// Assistant is the in-UI assistant's own two switches. Its providers live in
+// the database and are managed on the Assistant settings page; these decide
+// where a provider may be and where its traffic may go.
+type Assistant struct {
+	// AllowPrivateProvider lets a provider's base URL name this machine or a
+	// private network. It is the assistant's own switch rather than
+	// security.allow_private_egress because a local model is the normal case
+	// here and the blanket switch would open every other URL with it.
+	AllowPrivateProvider bool `yaml:"allow_private_provider"`
+	// LocalOnly makes the assistant's dialer refuse any connection that
+	// resolves to a public address, so that nothing the assistant is told
+	// can leave the machine or the LAN whatever a provider row says.
+	LocalOnly bool `yaml:"local_only"`
+}
+
 type Security struct {
 	// EncryptionKey is a base64 or hex 32-byte key. Prefer EncryptionKeyFile
 	// or the ZOOMIES_ENCRYPTION_KEY environment variable; a key written into

@@ -3137,6 +3137,144 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/assistant/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List the assistant's providers
+         * @description One row per model the assistant may talk to. The key is never in the response and has no field it could be in: `key_configured` says one is sealed on the row.
+         */
+        get: operations["listAssistantProviders"];
+        put?: never;
+        /**
+         * Add a provider
+         * @description The key is sealed with the instance key before the row is written. A base URL on this machine or a private network is refused unless `assistant.allow_private_provider` is on; the 422 names the switch.
+         */
+        post: operations["createAssistantProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/providers/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a provider before saving it
+         * @description Runs the check against the body as a form has it, with the key the form holds, so a key need not be saved to be tested. Nothing is written. A check that fails is still a 200: the verdict is in the body.
+         */
+        post: operations["checkAssistantDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/providers/kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * The kinds of provider a person may add
+         * @description Each kind with the address a hosted one has, or an empty string for the kind whose address has to be typed.
+         */
+        get: operations["listAssistantProviderKinds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/providers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /** One provider */
+        get: operations["getAssistantProvider"];
+        put?: never;
+        post?: never;
+        /**
+         * Remove a provider
+         * @description The body carries the provider's name, typed to confirm; a name that does not match is a 409 and nothing is removed. Removing the default leaves no default.
+         */
+        delete: operations["deleteAssistantProvider"];
+        options?: never;
+        head?: never;
+        /**
+         * Change a provider
+         * @description Every field is optional and independent. An empty or absent `api_key` leaves the sealed key alone; a non-empty one replaces it. The default is not changed here.
+         */
+        patch: operations["updateAssistantProvider"];
+        trace?: never;
+    };
+    "/assistant/providers/{id}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Test a provider
+         * @description Runs the provider's check and one token of completion, and records the result on the row, so the page shows it after a reload and not only in the tab that pressed Test. A check that fails is still a 200; `ok` and `error` say so. Audited, because it uses the key.
+         */
+        post: operations["checkAssistantProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/providers/{id}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Make this the provider that answers
+         * @description One provider is the default at a time; this one becomes it and the previous one stops being it, in one write.
+         */
+        post: operations["setDefaultAssistantProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/machines": {
         parameters: {
             query?: never;
@@ -8663,6 +8801,56 @@ export interface components {
             errors: components["schemas"]["FieldError"][];
             /** @description Answers that are legal and still cost something. */
             warnings: components["schemas"]["Problem"][];
+        };
+        /**
+         * @description Which protocol the provider speaks. `openai_compatible` covers Ollama, LM Studio, vLLM, llama.cpp, OpenRouter and the gateways; `fake` is the demo's built-in model and cannot be created elsewhere.
+         * @enum {string}
+         */
+        AssistantProviderKind: "fake" | "openai_compatible" | "anthropic" | "openai";
+        AssistantProviderCheck: {
+            ok: boolean;
+            /** @description The model that answered. */
+            model?: string;
+            /** Format: int64 */
+            latency_ms: number;
+            /** @description Whether the provider counts tokens */
+            usage_reported: boolean;
+            /** @description Why the check failed */
+            error?: string;
+            /** Format: date-time */
+            checked_at: string;
+        };
+        AssistantProvider: {
+            id: string;
+            name: string;
+            kind: components["schemas"]["AssistantProviderKind"];
+            /** @description Empty for a hosted kind means the kind's own address. */
+            base_url: string;
+            model: string;
+            /** @description A key is sealed on the row. The key itself never leaves this process. */
+            key_configured: boolean;
+            enabled: boolean;
+            is_default: boolean;
+            /** @description The address names this machine or a private network. */
+            local: boolean;
+            last_check?: components["schemas"]["AssistantProviderCheck"];
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        /** @description Creating, editing and checking a provider take the same body. On a PATCH every field is optional; what is not named is left alone. */
+        AssistantProviderInput: {
+            /** @description On a draft check only: the saved provider this draft is an edit of, so a blank `api_key` borrows the sealed key that row holds. Ignored elsewhere. */
+            id?: string;
+            name?: string;
+            kind?: components["schemas"]["AssistantProviderKind"];
+            /** @description Required for openai_compatible; optional for the hosted kinds */
+            base_url?: string;
+            model?: string;
+            enabled?: boolean;
+            /** @description Sealed with the instance key and never returned. An empty string leaves the stored key alone, so a form with a blank key box does not erase it. */
+            api_key?: string;
         };
         ProviderCheck: {
             provider_id: string;
@@ -14693,6 +14881,235 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["Provider"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listAssistantProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["AssistantProvider"][];
+                    };
+                };
+            };
+        };
+    };
+    createAssistantProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantProviderInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantProvider"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    checkAssistantDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantProviderInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantProviderCheck"];
+                };
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    listAssistantProviderKinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: {
+                            kind: components["schemas"]["AssistantProviderKind"];
+                            default_base_url: string;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    getAssistantProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantProvider"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    deleteAssistantProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    updateAssistantProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantProviderInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantProvider"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    checkAssistantProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantProviderCheck"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    setDefaultAssistantProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantProvider"];
                 };
             };
             404: components["responses"]["NotFound"];
