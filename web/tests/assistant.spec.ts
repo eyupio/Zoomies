@@ -34,7 +34,7 @@ test('a private address is refused until the switch is on, the key is never show
   await page.getByRole('button', { name: 'Add a provider' }).first().click();
   const form = dialog(page, 'Add a provider');
   await form.getByRole('textbox', { name: 'Name' }).fill('Local Ollama');
-  await form.getByLabel('Provider').selectOption('openai-compatible');
+  await form.getByLabel('Provider', { exact: true }).selectOption('openai-compatible');
   await form.getByRole('textbox', { name: 'Base URL' }).fill('http://127.0.0.1:11434/v1');
   await form.getByRole('textbox', { name: 'Model' }).fill('llama3');
   await form.getByLabel('API key').fill('sk-spec-not-a-real-key');
@@ -130,7 +130,7 @@ test('Ollama Cloud and OpenCode Go are in the provider list and fill in their ad
   await goto(page, '/settings/assistant', 'Assistant');
   await page.getByRole('button', { name: 'Add a provider' }).first().click();
   const form = dialog(page, 'Add a provider');
-  const provider = form.getByLabel('Provider');
+  const provider = form.getByLabel('Provider', { exact: true });
   const address = form.getByRole('textbox', { name: 'Base URL' });
   const name = form.getByRole('textbox', { name: 'Name' });
 
@@ -175,6 +175,6 @@ test('the model is chosen from the provider’s own list once it has been loaded
   expect(asked[0]).toMatchObject({ kind: 'openai_compatible', base_url: 'https://ollama.com/v1' });
 
   // Changing provider forgets a list that was another provider's.
-  await form.getByLabel('Provider').selectOption('opencode-go');
+  await form.getByLabel('Provider', { exact: true }).selectOption('opencode-go');
   await expect(form.getByRole('textbox', { name: 'Model' })).toBeVisible();
 });
