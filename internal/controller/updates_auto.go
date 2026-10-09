@@ -14,13 +14,6 @@ import (
 	"github.com/eyupio/zoomies/internal/version"
 )
 
-// updateHistoryRead is how many of the newest attempts the planner reads for a
-// machine's failures. Two failures of one release on one machine end the
-// retrying, and an attempt is at least half an hour after the last, so the
-// failures that matter are always among the newest; an open attempt is read
-// separately, however old.
-const updateHistoryRead = 500
-
 // autoUpdateActor is the planner as an attempt, a request and a rollout record
 // who asked: the auto-update identity's name, which the audit log uses too.
 func autoUpdateActor() UpdateActor {
@@ -39,8 +32,8 @@ type updatesPicture struct {
 	// nil.
 	rollout, last *store.UpdateRollout
 	hosts         []*store.Host
-	// attempts is the newest attempts, open and ended, newest first, with every
-	// open attempt among them however old.
+	// attempts is the attempts to the releases machines would be taken to now
+	// and the rollouts' steps, open and ended, with every open attempt.
 	attempts []store.UpdateAttempt
 }
 
@@ -84,7 +77,25 @@ func (c *Controller) updatesSnapshot(ctx context.Context, cfg config.Updates, he
 	}
 	s.Rollout, s.LastRollout = rolloutFacts(pic.rollout), rolloutFacts(pic.last)
 
-	recent, err := c.st.ListUpdateAttempts(ctx, "", "", updateHistoryRead)
+	// What the planner decides on is a machine's attempts to the release it
+	// would be taken to now (the hosts' target and the controller's choice) and
+	// the rollouts' steps, not the newest attempts fleet-wide: a host's two
+	// failures must hold however many other attempts are newer.
+	var tags, rollouts []string
+	if target := hostTarget(); target != "" {
+		tags = append(tags, target)
+	}
+	choice := updates.Choose(updates.ChooseInput{Mode: s.Mode, Soak: s.Soak, Now: s.Now, Running: s.Running,
+		Releases: s.Releases, GOOS: s.GOOS, GOARCH: s.GOARCH})
+	if tag := choice.Release.Tag; tag != "" && !slices.Contains(tags, tag) {
+		tags = append(tags, tag)
+	}
+	for _, r := range []*store.UpdateRollout{pic.rollout, pic.last} {
+		if r != nil {
+			rollouts = append(rollouts, r.ID)
+		}
+	}
+	recent, err := c.st.UpdateAttemptsFor(ctx, tags, rollouts)
 	if err != nil {
 		return nil, fmt.Errorf("reading the update attempts: %w", err)
 	}
@@ -115,6 +126,7 @@ func (c *Controller) updatesSnapshot(ctx context.Context, cfg config.Updates, he
 	for i := range s.Hosts {
 		byHost[s.Hosts[i].ID] = &s.Hosts[i]
 	}
+	var gone []updates.HostFacts
 	for _, a := range pic.attempts {
 		facts := attemptFacts(a)
 		switch {
@@ -122,14 +134,20 @@ func (c *Controller) updatesSnapshot(ctx context.Context, cfg config.Updates, he
 			s.Controller = &facts
 		case a.Scope == store.UpdateScopeController:
 			s.ControllerEnded = append(s.ControllerEnded, facts)
+		case byHost[a.HostID] == nil && a.State == store.UpdateRequested:
+			// A host with no row and an attempt still open: deleting a host
+			// cancels its attempt in the same transaction, so this is a race
+			// or a fault, and something may still be restarting. It blocks the
+			// next start as any open attempt does, and times out as one.
+			gone = append(gone, updates.HostFacts{ID: a.HostID, Name: a.HostID, Open: &facts})
 		case byHost[a.HostID] == nil:
-			// A host that is gone; its attempt was cancelled with it.
 		case a.State == store.UpdateRequested:
 			byHost[a.HostID].Open = &facts
 		default:
 			byHost[a.HostID].Ended = append(byHost[a.HostID].Ended, facts)
 		}
 	}
+	s.Hosts = append(s.Hosts, gone...)
 	pic.snap = s
 	return pic, nil
 }
@@ -221,11 +239,10 @@ func (c *Controller) autoTimeOut(ctx context.Context, pic *updatesPicture, step 
 		return false
 	}
 	a := pic.attempts[i]
-	if !c.endAttempt(ctx, a, store.UpdateTimedOut, timedOutText(a)) {
-		return false
-	}
-	c.autoAudit(ctx, "update.timed_out", a.ID, map[string]any{"scope": a.Scope, "host": a.HostID, "to": a.ToVersion, "reason": step.Reason})
-	return true
+	// Not audited: the pass's own closer records the same time-out without a
+	// row, and which of the two saw the ninetieth minute first is chance. The
+	// attempt's state and error are the record.
+	return c.endAttempt(ctx, a, store.UpdateTimedOut, timedOutText(a))
 }
 
 func (c *Controller) autoRequestController(ctx context.Context, step updates.Action) bool {
@@ -240,6 +257,18 @@ func (c *Controller) autoRequestController(ctx context.Context, step updates.Act
 
 func (c *Controller) autoUpdateHost(ctx context.Context, pic *updatesPicture, step updates.Action) bool {
 	if pic.rollout == nil {
+		return false
+	}
+	// Read again: a person may have cancelled or halted the rollout, or switched
+	// to manual, since the snapshot, and a host asked now would restart after
+	// they said stop. Only the same rollout, still running, and in manual one a
+	// person started, is moved on.
+	now, err := c.st.OpenUpdateRollout(ctx)
+	if err != nil || now.ID != pic.rollout.ID || now.State != store.RolloutRunning ||
+		(c.updateMode() != updates.ModeAuto && now.Trigger != store.UpdateTriggerManual) {
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			c.log.Warn("automatic updating could not read the open rollout again before asking a host; the next pass will decide again", "error", err)
+		}
 		return false
 	}
 	_, attempt, err := c.requestHostUpdate(ctx, autoUpdateActor(), step.HostID,
@@ -328,29 +357,34 @@ func (c *Controller) StartHostRollout(ctx context.Context, by UpdateActor, hostI
 	if err := c.refuseOverOpenRollout(ctx); err != nil {
 		return nil, err
 	}
-	var hosts []*store.Host
-	var ids store.StringSlice
-	if len(hostIDs) == 0 {
-		list, err := c.st.ListHosts(ctx)
-		if err != nil {
-			return nil, fmt.Errorf("listing the hosts: %w", err)
-		}
-		hosts = list
+	// One listing of the fleet, and the ids read against it: a repeated id is
+	// one host, and the list can never be longer than the fleet.
+	fleet, err := c.st.ListHosts(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing the hosts: %w", err)
 	}
-	for _, id := range hostIDs {
-		if slices.Contains(ids, id) {
-			continue
+	hosts := fleet
+	var ids store.StringSlice
+	if len(hostIDs) > 0 {
+		byID := make(map[string]*store.Host, len(fleet))
+		for _, h := range fleet {
+			byID[h.ID] = h
 		}
-		h, err := c.st.GetHost(ctx, id)
-		if err != nil {
-			return nil, err
+		hosts = nil
+		for _, id := range hostIDs {
+			h, ok := byID[id]
+			if !ok {
+				return nil, fmt.Errorf("%w: no host has the id %q; list the hosts to find it", store.ErrNotFound, cutAt(id, 64))
+			}
+			if slices.Contains(ids, id) {
+				continue
+			}
+			hosts, ids = append(hosts, h), append(ids, id)
 		}
-		hosts, ids = append(hosts, h), append(ids, id)
 	}
 	behind, able := 0, 0
 	for _, h := range hosts {
-		// The planner's own test: only a release build is behind.
-		if _, ok := updates.TargetTag(h.Version); !ok || h.Embedded || version.CompareBuilds(h.Version, target) != version.SkewBehind {
+		if !hostBehind(h, target) {
 			continue
 		}
 		behind++

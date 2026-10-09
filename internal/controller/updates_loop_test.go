@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -765,4 +766,197 @@ func TestThePlannersSnapshotSaysWhatTheCardSaysWithUpdatingOff(t *testing.T) {
 		t.Errorf("snapshot says %v %q and the card %v %q, want both unable, with the same sentence that updating is off",
 			got.CanSelfUpdate, got.WhyNot, card.CanUpdate, card.Reason)
 	}
+}
+
+// A describe build such as 1.3.5-3-gabcdef1 is ahead of v1.3.5, and CompareBuilds
+// reads its suffix as a pre-release, which would put it behind. The card, the
+// button, the planner and the rollout's count must all say the one thing: it is
+// not a release build, and nothing here takes it anywhere.
+func TestEveryAnswerAgreesThatADescribeBuildIsNotUpdatedFromHere(t *testing.T) {
+	for _, v := range []string{"1.3.5-3-gabcdef1", "v1.3.5-dirty", "1.3.4-2-gabcdef1"} {
+		t.Run(v, func(t *testing.T) {
+			h := newHarness(t)
+			h.autoFleet("manual")
+			host := h.agentHost("vm-describe", v, agent.FeatureSelfUpdate)
+			behind := h.updatableHost("vm-behind")
+
+			card := h.view(host.ID).Update
+			if card.CanUpdate || !strings.Contains(card.Reason, "not a release build") {
+				t.Errorf("the card says %v %q, want it unable, because the build is not a release", card.CanUpdate, card.Reason)
+			}
+			if _, err := h.c.RequestHostUpdate(h.ctx, alice, host.ID); !errors.Is(err, ErrUpdateHostCannotUpdate) || !strings.Contains(err.Error(), "not a release build") {
+				t.Errorf("the button: err = %v, want the card's refusal", err)
+			}
+			if _, err := h.c.StartHostRollout(h.ctx, alice, []string{host.ID}); !errors.Is(err, ErrUpdateNothingNewer) {
+				t.Errorf("a rollout of it alone: err = %v, want ErrUpdateNothingNewer, since it is not behind", err)
+			}
+			pic, err := h.c.updatesSnapshot(h.ctx, h.c.cfg().Updates, h.c.probeUpdateHelper())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, f := range pic.snap.Hosts {
+				if f.ID == host.ID && (f.CanSelfUpdate || f.WhyNot != card.Reason) {
+					t.Errorf("the planner is told %v %q, want what the card says", f.CanSelfUpdate, f.WhyNot)
+				}
+			}
+
+			if _, err := h.c.StartHostRollout(h.ctx, alice, nil); err != nil {
+				t.Fatalf("StartHostRollout: %v", err)
+			}
+			if r := h.status().Rollout; r == nil || r.Total != 1 {
+				t.Errorf("the rollout counts %+v, want one host: vm-behind, and not the describe build", r)
+			}
+			h.pass(h.c)
+			h.openHostAttempt(behind)
+			h.noAttemptFor(host)
+		})
+	}
+}
+
+// Two failures of one release on one host hand it to an operator, and that must
+// hold however busy the rest of the fleet has been since: reading only the
+// newest attempts would lose the two failures behind five hundred others, and
+// the planner would try a third time.
+func TestTwoFailuresStillHoldAHostBehindFiveHundredNewerAttempts(t *testing.T) {
+	h := newHarness(t)
+	h.autoFleet("auto")
+	// A newer release still soaking, so that the release the controller would
+	// take is not the one its hosts are taken to.
+	h.readTheList(releaseEntry("v1.3.5", whenAgo(10*24*time.Hour), rolloutAssets(t)...),
+		releaseEntry("v1.3.6", whenAgo(time.Hour), rolloutAssets(t)...))
+	host := h.updatableHost("vm-a")
+	for range 2 {
+		a := &store.UpdateAttempt{Scope: store.UpdateScopeHost, HostID: host.ID, FromVersion: "1.3.4", ToVersion: "v1.3.5",
+			Trigger: store.UpdateTriggerAuto, RequestedBy: "zoomies auto-update"}
+		if err := h.st.CreateUpdateAttempt(h.ctx, a); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.st.FinishUpdateAttempt(h.ctx, a.ID, store.UpdateFailed, "the download failed"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.advance(time.Hour)
+	for i := range 501 {
+		a := &store.UpdateAttempt{Scope: store.UpdateScopeHost, HostID: fmt.Sprintf("host_gone%03d", i), FromVersion: "1.3.3", ToVersion: "v1.3.4",
+			Trigger: store.UpdateTriggerManual, RequestedBy: "alice"}
+		if err := h.st.CreateUpdateAttempt(h.ctx, a); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.st.FinishUpdateAttempt(h.ctx, a.ID, store.UpdateSucceeded, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h.agentBeat(host, "1.3.4", nil)
+	h.pass(h.c)
+	h.pass(h.c)
+	if got := h.openRollout(); got != nil {
+		t.Errorf("auto started %+v for a host it has failed twice to update", got)
+	}
+	if open := h.openAttempts(); len(open) != 0 {
+		t.Errorf("auto asked again: %+v", open)
+	}
+	if got := h.status().Reason; !strings.Contains(got, "an operator must act") {
+		t.Errorf("the status says %q, want that an operator must act", got)
+	}
+}
+
+// A cancel, or a switch to manual, between the planner reading the rollout and
+// the applier asking the host must stop that host's update too: otherwise one
+// more machine restarts after a person said stop.
+func TestARolloutStoppedBetweenThePlanAndItsStepAsksNoHost(t *testing.T) {
+	for _, stop := range []struct {
+		name string
+		do   func(h *harness)
+	}{
+		{"cancelled", func(h *harness) {
+			if _, err := h.c.CancelRollout(h.ctx, alice); err != nil {
+				h.t.Fatalf("CancelRollout: %v", err)
+			}
+		}},
+		{"switched to manual", func(h *harness) { h.inMode("manual") }},
+		{"halted", func(h *harness) {
+			if _, err := h.st.HaltUpdateRollout(h.ctx, h.openRollout().ID, "vm-z did not come back"); err != nil {
+				h.t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(stop.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.autoFleet("auto")
+			host := h.updatableHost("vm-a")
+			h.pass(h.c)
+			pic, err := h.c.updatesSnapshot(h.ctx, h.c.cfg().Updates, h.c.probeUpdateHelper())
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan := updates.Decide(pic.snap)
+			if len(plan.Actions) != 1 || plan.Actions[0].Kind != updates.ActionUpdateHost {
+				t.Fatalf("the plan is %+v, want vm-a's update", plan.Actions)
+			}
+			stop.do(h)
+			h.c.applyUpdatePlan(h.ctx, pic, plan)
+			h.noAttemptFor(host)
+		})
+	}
+}
+
+// Host ids are read against one listing of the fleet: a repeated id is one host,
+// an embedded agent is never a rollout's (it goes with the controller), and an
+// id that names no host is refused with that id, so the caller knows which.
+func TestARolloutsHostIdsAreReadOnceAgainstTheFleet(t *testing.T) {
+	h := newHarness(t)
+	h.autoFleet("manual")
+	host := h.updatableHost("vm-a")
+	embedded := &store.Host{
+		Name: "controller", Capacity: 4, Embedded: true, Backends: store.StringSlice{"docker"}, Labels: store.StringMap{},
+		OS: "linux", Arch: "amd64", LastHeartbeat: time.Now(),
+	}
+	if err := h.st.CreateHost(h.ctx, embedded); err != nil {
+		t.Fatal(err)
+	}
+	embedded.Version, embedded.Features = "1.3.4", []string{agent.FeatureSelfUpdate}
+	if err := h.st.SetHostReported(h.ctx, embedded); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.c.StartHostRollout(h.ctx, alice, []string{embedded.ID}); !errors.Is(err, ErrUpdateNothingNewer) {
+		t.Errorf("a rollout of the embedded agent alone: err = %v, want ErrUpdateNothingNewer", err)
+	}
+	_, err := h.c.StartHostRollout(h.ctx, alice, []string{host.ID, "host_nothere"})
+	if !errors.Is(err, store.ErrNotFound) || !strings.Contains(err.Error(), "host_nothere") {
+		t.Errorf("with an id that names no host: err = %v, want ErrNotFound naming it", err)
+	}
+	if _, err := h.c.StartHostRollout(h.ctx, alice, []string{host.ID, host.ID, embedded.ID}); err != nil {
+		t.Fatalf("StartHostRollout: %v", err)
+	}
+	if r := h.openRollout(); len(r.HostIDs) != 2 {
+		t.Errorf("the rollout is for %v, want each id once", r.HostIDs)
+	}
+}
+
+// An open attempt whose host has no row is still something under way, and the
+// planner starts nothing beside it, as it would beside any open attempt.
+func TestAnOpenAttemptOfAHostWithNoRowStillBlocksTheNextStart(t *testing.T) {
+	h := newHarness(t)
+	h.autoFleet("auto")
+	host := h.updatableHost("vm-a")
+	ghost := &store.UpdateAttempt{Scope: store.UpdateScopeHost, HostID: "host_gone", FromVersion: "1.3.4", ToVersion: "v1.3.5",
+		Trigger: store.UpdateTriggerManual, RequestedBy: "alice"}
+	if err := h.st.CreateUpdateAttempt(h.ctx, ghost); err != nil {
+		t.Fatal(err)
+	}
+	h.c.applyUpdatePlan(h.ctx, h.mustPicture(), updates.Decide(h.mustPicture().snap))
+	h.c.applyUpdatePlan(h.ctx, h.mustPicture(), updates.Decide(h.mustPicture().snap))
+	if got := h.openRollout(); got != nil {
+		t.Errorf("auto started %+v beside an open attempt", got)
+	}
+	h.noAttemptFor(host)
+}
+
+func (h *harness) mustPicture() *updatesPicture {
+	h.t.Helper()
+	pic, err := h.c.updatesSnapshot(h.ctx, h.c.cfg().Updates, h.c.probeUpdateHelper())
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	return pic
 }
