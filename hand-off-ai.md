@@ -100,6 +100,22 @@ when the key field loses focus or on a button. The Ollama Cloud address is from 
 address and key page are from third-party guides and **unverified**, and models it serves over the Anthropic Messages
 format are not supported. The chat box is on Settings, Assistant, below the cards; making it easier to find is undecided.
 
+### 2c. Eli (read this first for the assistant)
+The assistant is named **Eli** (Extremely Lively Intelligence). Plan: `roadmap/plans/2026-10-09-zf-235e-eli.md`. Built:
+* The conversation (`web/src/lib/assistant/`): our own Markdown parser (`markdown.ts`, no HTML is ever injected, 17 parser
+  mutants killed), `ConversationView`, `Conversation` (a module-level store), `EliWidget` (floating button and panel, `E`
+  opens it, mounted in `App.svelte` when `eli.available`: administrator and an enabled default provider).
+* The tool loop (`internal/controller/assistant_tools.go`): up to 6 rounds and 12 calls, a fixed allowlist of 14 read tools
+  (`AssistantFleetTools`), called in process as the person chatting (`inProcessAPI` with `direct`), results fenced and capped.
+  `assistant_providers.fleet_access` (migration 0091) is a per-provider switch, **off by default**; with it off the model gets
+  no tools. A test makes every new MCP read tool be put on the list or named as left off.
+* Audit: `assistant.chat` (provider, model, fleet_access, tools, outcome, never the words) and `assistant.provider.fleet_access`.
+* The browser specs now run locally: `PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium npx playwright test --project=chromium`.
+  Playwright reuses a server already on port 8099 outside CI, so kill a stray one or you test an old binary.
+* Not done: redaction (7c), per-person limits, stored conversations, write tools and the confirmation card, and the second
+  plan (Claude, ChatGPT, Copilot through their own signed-in CLIs, which cannot run in the distroless controller image).
+* Nothing has been tried against a real model: how well Ollama Cloud and others choose tools is unknown.
+
 ### 3. Smaller loose ends
 * Stage 3 debt: a missing Contents permission shows as "unavailable, this GitHub does not offer it", which is misleading;
   fixing it means telling a missing permission from a missing endpoint.

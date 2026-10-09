@@ -7,6 +7,7 @@
   exactly the draft in the form, so a key is proved when it is typed.
 -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { supportHint } from '$lib/errors';
   import {
     ApiError,
@@ -50,6 +51,7 @@
   let model = $state('');
   let apiKey = $state('');
   let enabled = $state(true);
+  let fleetAccess = $state(false);
 
   let kinds = $state<readonly { kind: AssistantProviderKind; default_base_url: string }[]>([]);
   // The provider's own list of models, once it has been asked. Empty means not
@@ -63,27 +65,37 @@
   let refusal = $state('');
   let tested = $state('');
 
+  // The form starts from the provider being edited when it opens, and from nothing
+  // it later reads. The reset is untracked on purpose: loading the models reads the
+  // form's own fields, so tracking them made every keystroke, and every change of
+  // a switch, run the reset again, which put the saved values back and asked the
+  // provider for its models once more, without end.
   $effect(() => {
     if (!open) return;
     const r = editing;
-    const start = r ? presetFor(r.kind, r.base_url) : PRESETS.find((p) => p.id === DEFAULT_PRESET);
-    presetId = start?.id ?? DEFAULT_PRESET;
-    name = r?.name ?? start?.name ?? '';
-    kind = r?.kind ?? start?.kind ?? 'openai_compatible';
-    baseURL = r?.base_url ?? start?.baseURL ?? '';
-    model = r?.model ?? '';
-    apiKey = '';
-    enabled = r ? r.enabled : true;
-    errors = {};
-    refusal = '';
-    tested = '';
-    models = [];
-    modelsNote = '';
-    // Editing a provider that already has what it needs: its list is one look away.
-    if (r) void loadModels();
-    void listAssistantProviderKinds()
-      .then((result) => (kinds = result.items ?? []))
-      .catch(() => (kinds = []));
+    untrack(() => {
+      const start = r
+        ? presetFor(r.kind, r.base_url)
+        : PRESETS.find((p) => p.id === DEFAULT_PRESET);
+      presetId = start?.id ?? DEFAULT_PRESET;
+      name = r?.name ?? start?.name ?? '';
+      kind = r?.kind ?? start?.kind ?? 'openai_compatible';
+      baseURL = r?.base_url ?? start?.baseURL ?? '';
+      model = r?.model ?? '';
+      apiKey = '';
+      enabled = r ? r.enabled : true;
+      fleetAccess = r ? r.fleet_access : false;
+      errors = {};
+      refusal = '';
+      tested = '';
+      models = [];
+      modelsNote = '';
+      // Editing a provider that already has what it needs: its list is one look away.
+      if (r) void loadModels();
+      void listAssistantProviderKinds()
+        .then((result) => (kinds = result.items ?? []))
+        .catch(() => (kinds = []));
+    });
   });
 
   // Until the controller has said which kinds it offers, every preset is; after,
@@ -135,6 +147,7 @@
       base_url: baseURL.trim(),
       model: model.trim(),
       enabled,
+      fleet_access: fleetAccess,
     };
     // Absent leaves the sealed key alone; a new provider sends what it has.
     if (apiKey !== '' || !editing) body.api_key = apiKey;
@@ -299,6 +312,12 @@
     </Field>
 
     <Switch bind:checked={enabled} label="The assistant may use this provider" />
+
+    <Switch
+      bind:checked={fleetAccess}
+      label="Let Eli read this fleet through this provider"
+      description="Eli can look at runners, jobs, pools and hosts to answer, and it only reads. What it reads is sent to this provider: runner, job, repository and branch names, and log excerpts when it asks for them. That stays on this network for a provider on this machine or a private one, and leaves it for a hosted one, so leave this off if you do not want that."
+    />
 
     {#if tested}
       <p class="tested">{tested}</p>

@@ -163,6 +163,12 @@ type inProcessAPI struct {
 	// is accepted on /mcp alone, and the specification forbids passing it on,
 	// so the route sees the connection's identity instead.
 	as *auth.Identity
+	// direct is a caller that was already authenticated by this server, such
+	// as the assistant acting for the person chatting: its identity is handed
+	// to the route as it is, and no credential is forwarded, so what the route
+	// allows is what that person is allowed and nothing about the request that
+	// carried it matters.
+	direct bool
 }
 
 func (a inProcessAPI) Call(ctx context.Context, method, path string, q url.Values) ([]byte, error) {
@@ -214,7 +220,10 @@ func (a inProcessAPI) do(ctx context.Context, method, path string, q url.Values,
 	req.Host = a.from.Host
 	req.TLS = a.from.TLS
 	forward := []string{"Authorization", "Forwarded", "X-Forwarded-For", "X-Forwarded-Proto", "X-Forwarded-Host", "X-Real-IP"}
-	if a.as != nil && a.as.Kind == auth.KindConnection {
+	if a.direct {
+		forward = forward[1:]
+		req = req.WithContext(context.WithValue(req.Context(), ctxInProcess, a.as))
+	} else if a.as != nil && a.as.Kind == auth.KindConnection {
 		forward = forward[1:]
 		req = req.WithContext(context.WithValue(req.Context(), ctxInProcess, a.as))
 		req = req.WithContext(context.WithValue(req.Context(), contextCredentialCheck{}, func(ctx context.Context) (*auth.Identity, error) { return a.s.authenticateMCP(a.from.WithContext(ctx)) }))

@@ -26,6 +26,9 @@ type assistantProviderInput struct {
 	Model   *string `json:"model"`
 	Enabled *bool   `json:"enabled"`
 	APIKey  *string `json:"api_key"`
+	// FleetAccess lets the assistant read this fleet through the provider. It
+	// is the administrator's decision per provider, and absent leaves it as it was.
+	FleetAccess *bool `json:"fleet_access"`
 }
 
 func (in assistantProviderInput) apply(p *store.AssistantProvider) {
@@ -43,6 +46,9 @@ func (in assistantProviderInput) apply(p *store.AssistantProvider) {
 	}
 	if in.Enabled != nil {
 		p.Enabled = *in.Enabled
+	}
+	if in.FleetAccess != nil {
+		p.FleetAccess = *in.FleetAccess
 	}
 }
 
@@ -179,6 +185,12 @@ func (s *Server) handleUpdateAssistantProvider(w http.ResponseWriter, r *http.Re
 	}
 	view := s.ctrl.AssistantProviderView(fresh)
 	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "assistant_provider", row.ID, before, view)
+	if before.FleetAccess != view.FleetAccess {
+		// Its own row, because it is the one setting that decides whether a
+		// stranger's model is shown this fleet, and it should be findable as that.
+		s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "assistant.provider.fleet_access", "assistant_provider", row.ID,
+			map[string]any{"name": view.Name, "fleet_access": view.FleetAccess, "local": view.Local})
+	}
 	writeJSON(w, http.StatusOK, view)
 }
 

@@ -16,7 +16,7 @@ test('the frames of an answer are read in order', () => {
     { kind: 'delta', text: 'Hello' },
     { kind: 'delta', text: ' there' },
     { kind: 'usage', inputTokens: 7, outputTokens: 4 },
-    { kind: 'done', provider: 'Ollama', model: 'llama3' },
+    { kind: 'done', provider: 'Ollama', model: 'llama3', fleetAccess: false, tools: [] },
   ]);
 });
 
@@ -29,7 +29,7 @@ test('a frame cut anywhere by the network is read once it is whole', () => {
       got,
       [
         { kind: 'delta', text: 'split' },
-        { kind: 'done', provider: 'p', model: 'm' },
+        { kind: 'done', provider: 'p', model: 'm', fleetAccess: false, tools: [] },
       ],
       `cut at ${cut}`,
     );
@@ -61,4 +61,32 @@ test('text with newlines and characters beyond one byte survives', () => {
 test('a frame that never ends is held and not guessed at', () => {
   const p = new FrameParser();
   assert.deepEqual(p.push('event: delta\ndata: {"text":"a"}\n'), []);
+});
+
+test('a look at the fleet is a frame, and the end says which tools were used', () => {
+  const got = new FrameParser().push(
+    frame('tool', { name: 'fleet_status', status: 'running' }) +
+      frame('tool', { name: 'fleet_status', status: 'done' }) +
+      frame('done', {
+        provider: 'p',
+        model: 'm',
+        fleet_access: true,
+        tools: ['fleet_status', 7, 'list_jobs'],
+      }),
+  );
+  assert.deepEqual(got, [
+    { kind: 'tool', name: 'fleet_status', status: 'running' },
+    { kind: 'tool', name: 'fleet_status', status: 'done' },
+    {
+      kind: 'done',
+      provider: 'p',
+      model: 'm',
+      fleetAccess: true,
+      tools: ['fleet_status', 'list_jobs'],
+    },
+  ]);
+});
+
+test('a tool frame with a status this page does not know is left unsaid', () => {
+  assert.deepEqual(new FrameParser().push(frame('tool', { name: 'x', status: 'exploded' })), []);
 });

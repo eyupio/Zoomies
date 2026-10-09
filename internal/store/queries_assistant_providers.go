@@ -10,34 +10,37 @@ import (
 // API key sealed with the instance key and is never rendered; LastCheck is
 // the JSON the last check returned, which the controller writes and reads.
 type AssistantProvider struct {
-	ID            string
-	Name          string
-	Kind          string
-	BaseURL       string
-	Model         string
-	KeyEnc        []byte
-	Enabled       bool
-	IsDefault     bool
+	ID        string
+	Name      string
+	Kind      string
+	BaseURL   string
+	Model     string
+	KeyEnc    []byte
+	Enabled   bool
+	IsDefault bool
+	// FleetAccess is whether the assistant may read this fleet through the
+	// provider. Off unless an administrator turned it on for this one.
+	FleetAccess   bool
 	LastCheck     []byte
 	LastCheckedAt *time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
 
-const assistantProviderCols = `id, name, kind, base_url, model, key_enc, enabled, is_default,
+const assistantProviderCols = `id, name, kind, base_url, model, key_enc, enabled, is_default, fleet_access,
 	last_check, last_checked_at, created_at, updated_at`
 
 func scanAssistantProvider(sc interface{ Scan(...any) error }) (*AssistantProvider, error) {
 	var p AssistantProvider
-	var enabled, isDefault int
+	var enabled, isDefault, fleetAccess int
 	var created, updated int64
 	var check sql.NullString
 	var checked sql.NullInt64
-	if err := sc.Scan(&p.ID, &p.Name, &p.Kind, &p.BaseURL, &p.Model, &p.KeyEnc, &enabled, &isDefault,
+	if err := sc.Scan(&p.ID, &p.Name, &p.Kind, &p.BaseURL, &p.Model, &p.KeyEnc, &enabled, &isDefault, &fleetAccess,
 		&check, &checked, &created, &updated); err != nil {
 		return nil, err
 	}
-	p.Enabled, p.IsDefault = enabled == 1, isDefault == 1
+	p.Enabled, p.IsDefault, p.FleetAccess = enabled == 1, isDefault == 1, fleetAccess == 1
 	if check.Valid {
 		p.LastCheck = []byte(check.String)
 	}
@@ -84,21 +87,21 @@ func (s *Store) CreateAssistantProvider(ctx context.Context, p *AssistantProvide
 	now := s.Now()
 	p.CreatedAt, p.UpdatedAt = now, now
 	_, err := s.exec(ctx, `INSERT INTO assistant_providers
-		(id, name, kind, base_url, model, enabled, is_default, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-		p.ID, p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), ms(now), ms(now))
+		(id, name, kind, base_url, model, enabled, is_default, fleet_access, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
+		p.ID, p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), boolInt(p.FleetAccess), ms(now), ms(now))
 	return wrapWrite(err)
 }
 
 // UpdateAssistantProvider persists the operator's half of a row: name, kind,
-// address, model and whether it is enabled. The key and the default have
+// address, model, whether it is enabled and whether it may read the fleet. The key and the default have
 // their own writers, so a form submitted from yesterday's page carries
 // neither.
 func (s *Store) UpdateAssistantProvider(ctx context.Context, p *AssistantProvider) error {
 	now := s.Now()
 	res, err := s.exec(ctx, `UPDATE assistant_providers
-		SET name=?, kind=?, base_url=?, model=?, enabled=?, updated_at=? WHERE id=?`,
-		p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), ms(now), p.ID)
+		SET name=?, kind=?, base_url=?, model=?, enabled=?, fleet_access=?, updated_at=? WHERE id=?`,
+		p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), boolInt(p.FleetAccess), ms(now), p.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}

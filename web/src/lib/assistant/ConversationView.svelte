@@ -7,12 +7,21 @@
   at the bottom: scrolling up to read stops it, and a button offers the way back.
 -->
 <script lang="ts">
-  import { ArrowDown, ArrowUp, RotateCcw, Square } from '@lucide/svelte';
+  import {
+    ArrowDown,
+    ArrowUp,
+    Check,
+    LoaderCircle,
+    RotateCcw,
+    Square,
+    TriangleAlert,
+  } from '@lucide/svelte';
   import { tick } from 'svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import type { Conversation } from './conversation.svelte';
   import EliAvatar from './EliAvatar.svelte';
   import Markdown from './Markdown.svelte';
+  import { toolLabel } from './tools';
 
   interface Props {
     conversation: Conversation;
@@ -20,6 +29,8 @@
     answering?: { name: string; model: string };
     /** What to put in the box's place of a hint when nothing can be asked yet. */
     closedHint?: string;
+    /** Whether Eli can read the fleet through whoever is answering. */
+    fleetAccess?: boolean;
     /** The height of the whole view. The log scrolls inside it. */
     height?: string;
   }
@@ -27,16 +38,26 @@
     conversation,
     answering,
     closedHint = 'Add a provider, test it and make it the default to ask Eli something.',
+    fleetAccess = false,
     height = 'min(70vh, 40rem)',
   }: Props = $props();
 
-  // Things Eli can answer without seeing the fleet, so the first click is never a refusal.
-  const STARTERS = [
+  // What to offer first. Without the fleet these are things Eli can answer
+  // without seeing it, so the first click is never a refusal; with it they are
+  // questions only looking can answer.
+  const GENERAL = [
     'How do labels decide which pool runs a job?',
     'Why might a job sit queued?',
     'How do ephemeral runners work?',
     'What should I check when a host goes unhealthy?',
   ];
+  const ABOUT_THE_FLEET = [
+    'How is the fleet doing right now?',
+    'Is anything wrong that I should look at?',
+    'Which jobs are queued, and why?',
+    'How busy are the pools?',
+  ];
+  const starters = $derived(fleetAccess ? ABOUT_THE_FLEET : GENERAL);
 
   let draft = $state('');
   let box = $state<HTMLTextAreaElement | null>(null);
@@ -57,7 +78,9 @@
 
   $effect(() => {
     void growth;
-    if (atBottom) void tick().then(() => scroller?.scrollTo({ top: scroller.scrollHeight }));
+    // An empty conversation is a greeting to read from its top, not a log to follow.
+    if (atBottom && conversation.turns.length > 0)
+      void tick().then(() => scroller?.scrollTo({ top: scroller.scrollHeight }));
   });
 
   function onscroll(): void {
@@ -108,12 +131,17 @@
           <EliAvatar size={48} />
           <p class="title">Hi, I'm Eli</p>
           <p class="sub">
-            Ask me about Zoomies, GitHub Actions or running a runner fleet. I cannot see this fleet
-            yet, so for anything about yours, paste what I need.
+            {#if fleetAccess}
+              Ask me about Zoomies, GitHub Actions or this fleet. I can look at its runners, jobs,
+              pools and hosts, and I only read: I never change anything.
+            {:else}
+              Ask me about Zoomies, GitHub Actions or running a runner fleet. I cannot see this
+              fleet yet, so for anything about yours, paste what I need.
+            {/if}
           </p>
           {#if answering}
             <ul class="starters" aria-label="Things to ask">
-              {#each STARTERS as starter (starter)}
+              {#each starters as starter (starter)}
                 <li>
                   <button type="button" class="starter" onclick={() => void ask(starter)}
                     >{starter}</button
@@ -135,6 +163,27 @@
             <EliAvatar />
             <div class="body">
               <p class="name">Eli</p>
+              {#if turn.tools && turn.tools.length > 0}
+                <ul class="looks" aria-label="What Eli looked at">
+                  {#each turn.tools as look, k (k)}
+                    <li data-status={look.status}>
+                      {#if look.status === 'running'}
+                        <LoaderCircle size={12} class="spin" aria-hidden="true" />
+                      {:else if look.status === 'failed'}
+                        <TriangleAlert size={12} aria-hidden="true" />
+                      {:else}
+                        <Check size={12} aria-hidden="true" />
+                      {/if}
+                      {look.status === 'running'
+                        ? 'Looking at'
+                        : look.status === 'failed'
+                          ? 'Could not look at'
+                          : 'Looked at'}
+                      {toolLabel(look.name)}
+                    </li>
+                  {/each}
+                </ul>
+              {/if}
               {#if turn.content}
                 <Markdown source={turn.content} />
               {:else if turn.streaming}
@@ -349,6 +398,43 @@
   .meta {
     margin-left: auto;
     color: var(--z-text-subtle);
+  }
+
+  .looks {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-1);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+  .looks li {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-1);
+    padding: var(--z-nudge-1) var(--z-space-2);
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+    background: var(--z-surface-sunken);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-full);
+  }
+  .looks li[data-status='failed'] {
+    color: var(--z-danger);
+    border-color: var(--z-danger-border);
+  }
+  .looks :global(.spin) {
+    animation: turn 1s linear infinite;
+  }
+  @keyframes turn {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .looks :global(.spin) {
+      animation: none;
+    }
   }
 
   .thinking {
