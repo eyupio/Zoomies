@@ -8686,8 +8686,10 @@ export interface components {
             endpoint?: string;
             /** @description QEMU templates detected by the setup command. */
             templates?: components["schemas"]["ProxmoxSetupTemplate"][];
-            /** @description Returned only at creation; contains the short-lived setup capability. */
+            /** @description Returned only at creation; the whole setup script, contains the short-lived setup capability. */
             command?: string;
+            /** @description Returned only at creation; the same setup as two lines that fetch the hosted connect-proxmox.sh. Contains the short-lived setup capability. */
+            short_command?: string;
         };
         /** @description Creating and editing a provider take the same body. On a PATCH every field is optional and independent; what is not named is left alone. */
         ProviderInput: {

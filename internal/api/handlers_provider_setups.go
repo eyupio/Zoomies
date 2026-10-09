@@ -25,6 +25,9 @@ type providerSetupView struct {
 	Name      string                  `json:"name,omitempty"`
 	Endpoint  string                  `json:"endpoint,omitempty"`
 	Command   string                  `json:"command,omitempty"`
+	// ShortCommand fetches the hosted connector script; Command is the same work
+	// written out in full.
+	ShortCommand string `json:"short_command,omitempty"`
 }
 
 func (s *Server) handleCreateProviderSetup(w http.ResponseWriter, r *http.Request) {
@@ -74,7 +77,11 @@ func (s *Server) handleCreateProviderSetup(w http.ResponseWriter, r *http.Reques
 	if pinned, ok := version.InstallTag(version.Version); ok {
 		tag = pinned
 	}
-	writeJSON(w, http.StatusCreated, providerSetupView{ID: p.ID, ExpiresAt: p.ExpiresAt, Command: proxmoxsetup.Command(controllerURL, p.ID, token, tag)})
+	writeJSON(w, http.StatusCreated, providerSetupView{
+		ID: p.ID, ExpiresAt: p.ExpiresAt,
+		Command:      proxmoxsetup.Command(controllerURL, p.ID, token, tag),
+		ShortCommand: proxmoxsetup.ShortCommand(controllerURL, p.ID, token, tag),
+	})
 }
 
 // The host capability binds one connection and acknowledges identical retries.
