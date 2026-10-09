@@ -260,6 +260,72 @@ test('an organisation App asks for administration read only when the operator ti
   expect(asked.at(-1)).not.toHaveProperty('kennel_settings');
 });
 
+/**
+ * Read access to contents is read access to the code, and only Kennel Club's
+ * checks of a repository's files need it. It is asked for only when the operator
+ * ticks the box, and the migration wizard's write, which includes it, is not
+ * listed twice.
+ */
+test('the App asks for read access to contents only when the operator ticks the box', async ({
+  page,
+}) => {
+  const asked: Record<string, unknown>[] = [];
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    const meta = (await response.json()) as Record<string, unknown>;
+    meta.external_url = 'https://zoomies.example.test';
+    meta.webhook_url = 'https://zoomies.example.test/webhooks/github';
+    await route.fulfill({ response, json: meta });
+  });
+  await page.route('**/api/v1/installations/manifest', async (route) => {
+    asked.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        post_url: 'https://github.com/settings/apps/new',
+        manifest: '{"name":"zoomies-acme"}',
+        state: 'a-state',
+      }),
+    });
+  });
+  await goto(page, '/installations', 'Installations');
+  await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Connect GitHub' });
+  const files = dialog.getByRole('checkbox', { name: /read repository files/ });
+  const migration = dialog.getByRole('checkbox', { name: /migration pull requests/ });
+  const continueButton = dialog.getByRole('button', { name: 'Continue', exact: true });
+  const created = dialog.getByRole('button', { name: 'Create the App on GitHub' });
+
+  // Unticked, and the list names no contents permission at all.
+  await expect(files).not.toBeChecked();
+  await expect(dialog).not.toContainText('contents:');
+
+  await files.check();
+  await expect(dialog).toContainText('contents: read');
+  await dialog.getByLabel('Organisation login').fill('acme');
+  await continueButton.click();
+  await expect(created).toBeVisible();
+  expect(asked.at(-1)).toMatchObject({ target: 'acme', kennel_files: true });
+
+  // The wizard's write includes read, so the list says the one the App will hold.
+  await dialog.getByRole('button', { name: 'Back' }).click();
+  await migration.check();
+  await expect(dialog).toContainText('contents: write');
+  await expect(dialog).not.toContainText('contents: read');
+  await continueButton.click();
+  await expect(created).toBeVisible();
+  expect(asked.at(-1)).toMatchObject({ kennel_files: true, migration: true });
+
+  // Unticking both takes the permission out of the list and out of the request.
+  await dialog.getByRole('button', { name: 'Back' }).click();
+  await migration.uncheck();
+  await files.uncheck();
+  await expect(dialog).not.toContainText('contents:');
+  await continueButton.click();
+  await expect(created).toBeVisible();
+  expect(asked.at(-1)).toMatchObject({ kennel_files: false, migration: false });
+});
+
 test('the first step asks for one thing, and keeps the two optional answers behind a fold', async ({
   page,
 }) => {

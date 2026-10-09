@@ -1501,7 +1501,8 @@ export interface paths {
          *     `migration` is true, because nothing else in Zoomies writes to a
          *     repository. An organisation App also asks for `administration` read
          *     when `kennel_settings` is true, for the Kennel Club checks of a
-         *     repository's settings.
+         *     repository's settings, and `contents` read when `kennel_files` is true,
+         *     for the checks of a repository's files.
          */
         post: operations["createAppManifest"];
         delete?: never;
@@ -12228,6 +12229,17 @@ export interface operations {
                      * @default false
                      */
                     kennel_settings?: boolean;
+                    /**
+                     * @description Also request `contents` read, for the Kennel Club checks of a
+                     *     repository's workflow files, instruction files and file names.
+                     *     Read access to contents is read access to code, so leave it off
+                     *     for a fleet that will not turn those checks on. It is not
+                     *     lowered when `migration` already requests `contents` write.
+                     *     Adding it later is possible, but GitHub holds the change until
+                     *     the account's owner accepts it on the installation.
+                     * @default false
+                     */
+                    kennel_files?: boolean;
                 };
             };
         };

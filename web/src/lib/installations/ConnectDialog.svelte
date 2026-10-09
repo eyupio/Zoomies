@@ -174,6 +174,14 @@
    * Administration write already, so the question is not put to one.
    */
   let kennelSettings = $state(false);
+  /**
+   * Whether the App also asks for Contents read, for Kennel Club's checks of a
+   * repository's workflow files, instruction files and file names. Off unless the
+   * operator says so: read access to contents is read access to the code. The
+   * migration wizard's Contents write includes it, so the list names the one that
+   * the App will hold and not both.
+   */
+  let kennelFiles = $state(false);
   let code = $state('');
   let installationId = $state('');
   /**
@@ -283,6 +291,7 @@
     appName = '';
     migration = false;
     kennelSettings = false;
+    kennelFiles = false;
     code = '';
     installationId = '';
     appIdInput = '';
@@ -479,6 +488,9 @@
     ...(kennelSettings && targetType !== 'repo'
       ? ["administration: read, for Kennel Club's checks of repository settings"]
       : []),
+    ...(kennelFiles && !migration
+      ? ["contents: read, for Kennel Club's checks of workflow and instruction files"]
+      : []),
     ...(migration
       ? [
           'contents: write, read and rewrite workflow files for the migration wizard',
@@ -553,6 +565,7 @@
         api_base_url: apiBase.trim() || undefined,
         migration,
         kennel_settings: targetType === 'repo' ? undefined : kennelSettings,
+        kennel_files: kennelFiles,
       });
       postUrl = result.post_url ?? '';
       manifest = result.manifest ?? '';
@@ -586,6 +599,7 @@
       appName.trim(),
       migration,
       kennelSettings && targetType !== 'repo',
+      kennelFiles,
     ]);
   }
   $effect(() => {
@@ -1047,9 +1061,19 @@
               description="Adds write access to contents, pull requests and workflows, which only the migration wizard uses. Runners do not need it. Adding it later is not a click: the account's owner has to approve the change on GitHub."
             />
 
-            <!-- The same for the one permission Kennel Club's checks of a
-                 repository's settings need. A repository App holds it already,
-                 so only an organisation App is asked. -->
+            <!-- The same for read access to contents, which only Kennel Club's
+                 checks of a repository's files need and which is read access to
+                 the code. The wizard's write includes it, and the list names the
+                 one the App will hold. -->
+            <Checkbox
+              bind:checked={kennelFiles}
+              label="Also let Kennel Club read repository files"
+              description="Adds read access to contents, which only Kennel Club's checks of workflow files, instruction files and file names use, on private repositories. That is read access to code. Adding it later is not a click: the account's owner has to approve the change on GitHub."
+            />
+
+            <!-- And for the one permission Kennel Club's checks of a repository's
+                 settings need. A repository App holds it already, so only an
+                 organisation App is asked. -->
             {#if targetType !== 'repo'}
               <Checkbox
                 bind:checked={kennelSettings}

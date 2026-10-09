@@ -141,6 +141,36 @@ func TestManifestAsksForAdministrationReadOnlyWhenTheRequestSaysSo(t *testing.T)
 	}
 }
 
+// Read access to contents is read access to code, so the request must say so: a
+// client written before the question existed gets an App that cannot read it, and
+// the migration wizard's write is not lowered to read.
+func TestManifestAsksForContentsReadOnlyWhenTheRequestSaysSo(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	contents := func(body map[string]any) string {
+		t.Helper()
+		resp := h.do(request{method: http.MethodPost, path: "/api/v1/installations/manifest", cookie: h.session(admin), body: body})
+		resp.mustStatus(t, http.StatusOK, "building a manifest")
+		var m struct {
+			Permissions map[string]string `json:"default_permissions"`
+		}
+		if err := json.Unmarshal([]byte(resp.json(t)["manifest"].(string)), &m); err != nil {
+			t.Fatalf("the manifest is not JSON: %v", err)
+		}
+		return m.Permissions["contents"]
+	}
+
+	if got := contents(map[string]any{"target": "acme", "target_type": "org"}); got != "" {
+		t.Errorf("an App asks for contents:%s without being asked to", got)
+	}
+	if got := contents(map[string]any{"target": "acme", "target_type": "org", "kennel_files": true}); got != "read" {
+		t.Errorf("contents = %q, want read", got)
+	}
+	if got := contents(map[string]any{"target": "acme", "target_type": "org", "kennel_files": true, "migration": true}); got != "write" {
+		t.Errorf("with the migration wizard contents = %q, want write", got)
+	}
+}
+
 // The user's click posts to Zoomies first. The controller validates the
 // handshake, then preserves the POST across a redirect to GitHub so Android
 // cannot dispatch the clicked URL to a different browser or app.
