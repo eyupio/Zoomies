@@ -229,11 +229,13 @@ func (c *Candidate) Install(opts SelfUpdateOptions) error {
 	previous := opts.BinaryPath + PreviousSuffix
 	staged := previous + ".new"
 	_ = os.Remove(staged)
-	if err := linkFile(opts.BinaryPath, staged); err != nil {
+	if linkErr := linkFile(opts.BinaryPath, staged); linkErr != nil {
 		_ = os.Remove(staged)
 		if err := copyBinary(opts.BinaryPath, staged); err != nil {
 			_ = os.Remove(staged)
-			return fmt.Errorf("keep %s as %s: %w; the installed binary was left in place", opts.BinaryPath, previous, err)
+			// Both are named: the copy's error alone would hide that a link was tried
+			// first, and why it was not enough.
+			return fmt.Errorf("keep %s as %s: it could not be linked (%v) or copied (%w); the installed binary was left in place", opts.BinaryPath, previous, linkErr, err)
 		}
 	}
 	if err := os.Rename(staged, previous); err != nil {

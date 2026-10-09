@@ -345,6 +345,24 @@ func TestACandidateThatHangsIsStoppedAndSaidSo(t *testing.T) {
 	}
 }
 
+// A Ctrl-C during the check kills the child, which then exits non-zero like a
+// refusal would. Telling the operator the release needs a change they must make
+// would be wrong: they stopped it.
+func TestInterruptingTheCheckIsNotTheReleaseRefusingTheDeployment(t *testing.T) {
+	path := scriptCandidate(t, `exec sleep 30`)
+	ctx, cancel := context.WithCancel(context.Background())
+	time.AfterFunc(300*time.Millisecond, cancel)
+	t.Cleanup(cancel)
+	err := candidatePreflight("/usr/local/bin/zoomies", deploymentSelector{})(ctx, path)
+	if err == nil {
+		t.Fatal("an interrupted check passed the pre-flight")
+	}
+	var refusal *candidateRefusal
+	if errors.As(err, &refusal) {
+		t.Fatalf("an interrupt was reported as the release refusing the deployment: %v", err)
+	}
+}
+
 // The advice has to fit what happened: --no-download is no answer to a release
 // that needs a change, and --yes is no answer to an operator who passed it.
 func TestARefusalFromTheCandidateSaysWhatToDo(t *testing.T) {

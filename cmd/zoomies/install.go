@@ -416,8 +416,11 @@ func candidatePreflight(installed string, sel deploymentSelector) func(context.C
 		if tctx.Err() == context.DeadlineExceeded && ctx.Err() == nil {
 			return fmt.Errorf("the downloaded release did not finish checking this deployment within %s; check that the container runtime answers, then run `zoomies upgrade` again: %w", candidateTimeout, err)
 		}
+		// A Ctrl-C kills the child too, and its ExitError would otherwise read as
+		// the release refusing the deployment, with advice to change something that
+		// was never wrong.
 		var exit *exec.ExitError
-		if errors.As(err, &exit) {
+		if errors.As(err, &exit) && ctx.Err() == nil {
 			return &candidateRefusal{err}
 		}
 		return err

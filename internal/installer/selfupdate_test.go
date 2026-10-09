@@ -310,6 +310,9 @@ func TestInstallRefusesToReplaceWhenThePreviousBinaryCannotBeKept(t *testing.T) 
 	if err == nil || !strings.Contains(err.Error(), "left in place") {
 		t.Fatalf("err = %v", err)
 	}
+	if !strings.Contains(err.Error(), "operation not permitted") {
+		t.Fatalf("the error hides why the link failed: %v", err)
+	}
 	if _, err := os.Stat(bin); !os.IsNotExist(err) {
 		t.Fatalf("the candidate was renamed over a binary that could not be kept: %v", err)
 	}
