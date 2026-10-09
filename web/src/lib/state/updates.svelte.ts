@@ -23,18 +23,23 @@ import {
 import { events } from '../api/sse';
 import type { SseStatus } from '../api/sse';
 import type { UpdatesStatus } from '../api/types';
+import { FrameReads } from './frame-reads';
 
 class Updates {
   #status = $state<UpdatesStatus | null>(null);
   #error = $state<unknown>(null);
   #loading = $state(false);
   #stream = $state<SseStatus>(events.status);
-  #asking: Promise<void> | null = null;
-  /**
-   * How many frames have been taken. A read that began before one landed is
-   * older than it, and must not put its answer over it.
-   */
-  #frames = 0;
+  /** The reads of the document, kept in order against the frames taken. */
+  #reads = new FrameReads<UpdatesStatus>({
+    get: getUpdates,
+    answer: (status) => {
+      this.#status = status;
+      this.#error = null;
+    },
+    failed: (cause) => (this.#error = cause),
+    busy: (loading) => (this.#loading = loading),
+  });
 
   /** `null` until the controller has answered once. */
   get status(): UpdatesStatus | null {
@@ -99,14 +104,15 @@ class Updates {
    * that has not asked it yet. Taken last, the answer would put the older
    * picture over the newer one until something else moved. So when a frame
    * landed while the call was out, the document is read again as well, and the
-   * page ends on whichever is newest.
+   * page ends on whichever is newest. That read is a fresh one: a read already
+   * in flight began before the answer was taken, and its answer is dropped.
    */
   async #act(call: () => Promise<UpdatesStatus>): Promise<void> {
-    const before = this.#frames;
+    const before = this.#reads.frames;
     const status = await call();
-    const overtaken = before !== this.#frames;
+    const overtaken = before !== this.#reads.frames;
     this.adopt(status);
-    if (overtaken) void this.refresh();
+    if (overtaken) void this.#reads.fresh();
   }
 
   /**
@@ -114,28 +120,12 @@ class Updates {
    * what is known as it was and says so through `error`.
    */
   refresh(): Promise<void> {
-    this.#asking ??= this.#read().finally(() => (this.#asking = null));
-    return this.#asking;
-  }
-
-  async #read(): Promise<void> {
-    const before = this.#frames;
-    this.#loading = true;
-    try {
-      const status = await getUpdates();
-      if (before === this.#frames) this.#status = status;
-      this.#error = null;
-    } catch (cause) {
-      // A frame that landed meanwhile is an answer, and a good one.
-      if (before === this.#frames) this.#error = cause;
-    } finally {
-      this.#loading = false;
-    }
+    return this.#reads.refresh();
   }
 
   /** Take a frame from the stream, which is the newest thing there is. */
   adopt(status: UpdatesStatus): void {
-    this.#frames += 1;
+    this.#reads.took();
     this.#status = status;
     this.#error = null;
   }
