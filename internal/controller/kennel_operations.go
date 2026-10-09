@@ -386,6 +386,7 @@ func (c *Controller) SetKennelTracking(ctx context.Context, repositoryID string,
 			// minute unless it is woken.
 			c.KickKennel()
 		}
+		c.publishDerived(ctx)
 	}
 	v, err := c.KennelRepository(ctx, row.ID)
 	return v, was, changed, err
