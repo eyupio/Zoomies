@@ -1424,12 +1424,14 @@ evidence on every workflow finding (a blob SHA, a job index and a line, with
 the path shown only where it passes a grammar), waivers that lapse when the
 file changes, and the owed checks `exposure.target_checkout_pr_head`,
 `ci.workflow_unreadable`, `ci.pins_without_updater`, `ci.label_unserved` and
-`ci.secret_on_command_line`.
+`ci.secret_on_command_line` (#761); part two, which finishes ZF-229c:
+`capacity.matrix_exceeds_pool`, a prompt on every open finding with the
+page's Copy button, `zoomies kennel` with its five readers, and
+`zoomies kennel check [path]`, the same checks over a checkout with nothing
+sent anywhere, held by golden JSON (#767).
 
-**Open:** part two of ZF-229c, `capacity.matrix_exceeds_pool`, `zoomies
-kennel`, including `zoomies kennel check [path]` offline, and the prompt a
-finding offers an agent with its button; Stage 4 (ZF-229d, repository
-settings); Stage 5 (ZF-229e, fix by pull request); the documentation page.
+**Open:** Stage 4 (ZF-229d, repository settings); Stage 5 (ZF-229e, fix by
+pull request); the documentation page.
 
 Depends on ZF-227. Size L.
 
