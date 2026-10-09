@@ -1,6 +1,7 @@
 package api
 
 import (
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -277,6 +278,56 @@ func (s *Server) handleCheckAssistantDraft(w http.ResponseWriter, r *http.Reques
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "assistant.provider.check", "assistant_provider", "",
 		map[string]any{"draft": true, "kind": draft.Kind, "ok": check.OK, "model": check.Model})
 	writeJSON(w, http.StatusOK, check)
+}
+
+// handleAssistantModels lists the models a provider, as the form has it, says it
+// serves. It spends the form's key the way a draft check does, so it is the same
+// role, and writes nothing. A provider that would not answer is a 502 with the
+// adapter's words, which never carry the request or the key.
+func (s *Server) handleAssistantModels(w http.ResponseWriter, r *http.Request) {
+	var in assistantProviderInput
+	if !decode(w, r, &in) {
+		return
+	}
+	draft := &store.AssistantProvider{Enabled: true}
+	if in.ID != nil && *in.ID != "" {
+		row, err := s.ctrl.Store().GetAssistantProvider(r.Context(), *in.ID)
+		if err != nil {
+			s.fail(w, r, "reading the assistant provider", err)
+			return
+		}
+		draft = row
+	}
+	in.apply(draft)
+	if draft.Name == "" {
+		draft.Name = "draft"
+	}
+	if draft.Model == "" {
+		// The list is how a model is chosen, so asking for it before one is
+		// chosen must not be refused for want of one.
+		draft.Model = "unset"
+	}
+	if errs := s.validateAssistantProvider(draft, in.BaseURL != nil); len(errs) > 0 {
+		unprocessable(w, "the models of this provider cannot be listed as described", errs)
+		return
+	}
+	key := ""
+	if in.APIKey != nil {
+		key = *in.APIKey
+	}
+	models, err := s.ctrl.ListAssistantModels(r.Context(), draft, key)
+	switch {
+	case errors.Is(err, controller.ErrAssistantCannotList):
+		conflict(w, err.Error())
+		return
+	case err != nil:
+		writeError(w, http.StatusBadGateway, errorEnvelope{Error: errorBody{Code: codeAssistantProviderFailed, Message: err.Error()}})
+		return
+	}
+	if models == nil {
+		models = []string{}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"items": models})
 }
 
 func (s *Server) handleDefaultAssistantProvider(w http.ResponseWriter, r *http.Request) {

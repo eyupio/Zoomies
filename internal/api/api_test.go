@@ -939,6 +939,8 @@ func routeTable(ids fixtureIDs) []route {
 			body: map[string]any{"kind": "openai_compatible", "name": "made-by-the-route-walk", "base_url": "http://127.0.0.1:11434/v1", "model": "m"}},
 		{method: "POST", path: "/api/v1/assistant/providers/check", role: store.RoleAdmin, action: auth.ActionAssistantWrite,
 			body: map[string]any{"kind": "openai_compatible", "base_url": "http://127.0.0.1:11434/v1", "model": "m"}},
+		{method: "POST", path: "/api/v1/assistant/providers/models", role: store.RoleAdmin, action: auth.ActionAssistantWrite,
+			body: map[string]any{"kind": "openai_compatible", "base_url": "http://127.0.0.1:11434/v1"}},
 		{method: "GET", path: "/api/v1/assistant/providers/kinds", role: store.RoleAdmin, action: auth.ActionAssistantRead},
 		{method: "GET", path: "/api/v1/assistant/providers/missing", role: store.RoleAdmin, action: auth.ActionAssistantRead},
 		{method: "PATCH", path: "/api/v1/assistant/providers/missing", role: store.RoleAdmin, body: map[string]any{}, action: auth.ActionAssistantWrite},

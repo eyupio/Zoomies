@@ -336,6 +336,7 @@ running beside it, and the gateway's Tailcat address is handled the same way:
 | GET | `/api/v1/assistant/providers` | admin | The models the in-UI assistant may talk to. The key is never in the response; `key_configured` says one is sealed on the row, and `local` says the address is this machine or a private network. |
 | POST | `/api/v1/assistant/providers` | admin | Adds one. The key is sealed with the instance key before the row is written; a private address is a 422 naming `assistant.allow_private_provider` until that switch is on. |
 | POST | `/api/v1/assistant/providers/check` | admin | Tests a provider as a form has it, with the key the form holds, writing nothing. A check that fails is a 200 whose body says why. |
+| POST | `/api/v1/assistant/providers/models` | admin | Asks a provider, as a form has it, which models it serves, with the key the form holds (or the saved row's), and answers `{ "items": [...] }` sorted and without repeats. The model need not be chosen yet and nothing is written. A provider that would not answer is a 502 with `assistant.provider_failed`; one with no list to give is a 409. |
 | GET | `/api/v1/assistant/providers/kinds` | admin | The kinds a person may add, each with the address a hosted one has. |
 | GET | `/api/v1/assistant/providers/{id}` | admin | One provider. |
 | PATCH | `/api/v1/assistant/providers/{id}` | admin | Changes one; every field optional. An empty `api_key` leaves the sealed key alone. |

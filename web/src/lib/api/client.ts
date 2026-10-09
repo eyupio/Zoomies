@@ -1201,6 +1201,10 @@ export async function streamAssistantChat(
   }
 }
 
+/** The models a provider, as a form has it, says it serves. Nothing is saved. */
+export const listAssistantModels = (body: Body<'listAssistantModels'>, signal?: AbortSignal) =>
+  api.post<Result<'listAssistantModels'>>('/assistant/providers/models', { body, signal });
+
 export const listAssistantProviders = (signal?: AbortSignal) =>
   api.get<Result<'listAssistantProviders'>>('/assistant/providers', { signal });
 

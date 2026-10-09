@@ -662,6 +662,22 @@ everybody, marked rather than hidden.
 ![Settings: the section's rail beside the Users page, listing one administrator](screenshots/settings-dark.webp#only-dark){ .zoomies-shot }
 ![Settings: the section's rail beside the Users page, listing one administrator](screenshots/settings-light.webp#only-light){ .zoomies-shot }
 
+### Assistant
+
+Where an administrator connects the model the assistant talks to. A new provider
+starts as **Ollama Cloud** with its address already filled in; **OpenCode Go**,
+a local or other OpenAI-compatible server, Anthropic and OpenAI are one choice
+away, and an address or name you have already typed is never overwritten by
+changing the choice. Once the key is entered the **model** is chosen from the
+list the provider itself offers (**Load the list of models** fetches it, and it
+loads by itself when you leave the key field), so a model the provider has
+retired cannot be picked by mistake. A provider that will not list its models
+leaves the field as a box to type the name into.
+
+Under the provider cards sits **Ask the assistant**, a plain chat with the
+default provider. It cannot see the fleet yet and says so; the conversation
+lives in the page and is gone when you leave it.
+
 ### Backups
 
 The one settings page that is a tool rather than a form, because a backup is

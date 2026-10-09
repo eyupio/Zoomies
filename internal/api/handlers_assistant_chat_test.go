@@ -251,3 +251,77 @@ func TestANamedProviderIsTheOneAsked(t *testing.T) {
 		t.Errorf("the second saw %d requests and the default %d", len(second.Requests()), len(first.Requests()))
 	}
 }
+
+// The Add form asks a provider which models it serves, with the key the form
+// holds and before any model has been chosen, and nothing is stored.
+func TestTheModelsOfADraftProviderAreListedWithTheFormsKeyAndNothingIsStored(t *testing.T) {
+	h, cookie := assistantAdmin(t, func(c *config.Config) { c.Assistant.AllowPrivateProvider = true })
+	srv := assistanttest.NewOpenAI(t)
+	srv.Models = []string{"b-model", "a-model"}
+	body := map[string]any{"kind": "openai_compatible", "base_url": srv.URL + "/v1", "api_key": "sk-test"}
+	resp := h.do(request{method: http.MethodPost, path: assistantProviders + "/models", cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusOK, "listing")
+	items, _ := resp.json(t)["items"].([]any)
+	if len(items) != 2 || items[0] != "a-model" || items[1] != "b-model" {
+		t.Errorf("items = %v", items)
+	}
+	if reqs := srv.Requests(); len(reqs) != 1 || reqs[0].Header.Get("Authorization") != "Bearer sk-test" {
+		t.Errorf("requests = %+v", reqs)
+	}
+	if rows, _ := h.st.ListAssistantProviders(h.ctx); len(rows) != 0 {
+		t.Errorf("listing stored %d rows", len(rows))
+	}
+}
+
+// A saved provider's list uses the key it holds when the box is blank.
+func TestTheModelsOfASavedProviderUseItsSealedKey(t *testing.T) {
+	h, cookie, srv := chatHarness(t)
+	rows, _ := h.st.ListAssistantProviders(h.ctx)
+	h.do(request{method: http.MethodPost, path: assistantProviders + "/models", cookie: cookie, body: map[string]any{"id": rows[0].ID}}).
+		mustStatus(t, http.StatusOK, "listing a saved provider's models")
+	reqs := srv.Requests()
+	if len(reqs) == 0 || reqs[len(reqs)-1].Header.Get("Authorization") != "Bearer sk-test" {
+		t.Errorf("the sealed key was not used: %+v", reqs)
+	}
+}
+
+func TestListingModelsIsAdminOnlyAndAFailureIsABadGatewayWithoutTheKey(t *testing.T) {
+	h, cookie, srv := chatHarness(t)
+	_, viewer := h.user("viewer-models", store.RoleViewer)
+	h.do(request{method: http.MethodPost, path: assistantProviders + "/models", cookie: viewer, body: map[string]any{}}).
+		mustStatus(t, http.StatusForbidden, "a viewer")
+
+	srv.Status, srv.Body = 401, `{"error":{"message":"bad key sk-test"}}`
+	body := map[string]any{"kind": "openai_compatible", "base_url": srv.URL + "/v1", "api_key": "sk-test"}
+	resp := h.do(request{method: http.MethodPost, path: assistantProviders + "/models", cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusBadGateway, "a refused key")
+	if strings.Contains(string(resp.body), "sk-test") || !strings.Contains(string(resp.body), "assistant.provider_failed") {
+		t.Errorf("the refusal: %s", resp.body)
+	}
+}
+
+// A provider with nothing to offer answers an empty list and not null, which is
+// what the page's dropdown iterates over.
+func TestAnEmptyModelListIsAnEmptyArray(t *testing.T) {
+	h, cookie := assistantAdmin(t, func(c *config.Config) { c.Assistant.AllowPrivateProvider = true })
+	srv := assistanttest.NewOpenAI(t)
+	srv.Models = []string{}
+	body := map[string]any{"kind": "openai_compatible", "base_url": srv.URL + "/v1"}
+	resp := h.do(request{method: http.MethodPost, path: assistantProviders + "/models", cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusOK, "listing")
+	if items, ok := resp.json(t)["items"].([]any); !ok || len(items) != 0 {
+		t.Errorf("items = %s", resp.body)
+	}
+}
+
+// Listing spends the form's key against the form's address, so it is refused for
+// the addresses a check would be: a private one when private providers are off.
+func TestModelsAreNotListedFromAnAddressACheckWouldRefuse(t *testing.T) {
+	h, cookie := assistantAdmin(t)
+	body := map[string]any{"kind": "openai_compatible", "base_url": "http://127.0.0.1:1/v1", "api_key": "sk-test"}
+	resp := h.do(request{method: http.MethodPost, path: assistantProviders + "/models", cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusUnprocessableEntity, "a private address")
+	if !strings.Contains(string(resp.body), "base_url") {
+		t.Errorf("the refusal does not name the field: %s", resp.body)
+	}
+}

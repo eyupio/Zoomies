@@ -391,6 +391,7 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionAssistantRead)).Get("/", s.handleListAssistantProviders)
 			r.With(s.require(auth.ActionAssistantWrite)).Post("/", s.handleCreateAssistantProvider)
 			r.With(s.require(auth.ActionAssistantWrite)).Post("/check", s.handleCheckAssistantDraft)
+			r.With(s.require(auth.ActionAssistantWrite)).Post("/models", s.handleAssistantModels)
 			r.With(s.require(auth.ActionAssistantRead)).Get("/kinds", s.handleAssistantProviderKinds)
 			r.With(s.require(auth.ActionAssistantRead)).Get("/{id}", s.handleGetAssistantProvider)
 			r.With(s.require(auth.ActionAssistantWrite)).Patch("/{id}", s.handleUpdateAssistantProvider)

@@ -3221,6 +3221,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/assistant/providers/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * List the models a provider serves
+         * @description Asks the provider, as the body has it, which models it serves, with the key the form holds (or the saved row's, when `id` names one and the key is blank), so the Add form can offer a list and not a box to type a spelling into. The model need not be chosen yet. Nothing is written. A provider that would not answer is a 502 with code `assistant.provider_failed`; one that has no list to give is a 409, and its model is typed.
+         */
+        post: operations["listAssistantModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/assistant/providers/kinds": {
         parameters: {
             query?: never;
@@ -15175,6 +15195,43 @@ export interface operations {
                 };
             };
             422: components["responses"]["Unprocessable"];
+        };
+    };
+    listAssistantModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantProviderInput"];
+            };
+        };
+        responses: {
+            /** @description The model names, sorted and without repeats */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: string[];
+                    };
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+            /** @description The provider would not answer. The code is `assistant.provider_failed`. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
         };
     };
     listAssistantProviderKinds: {
