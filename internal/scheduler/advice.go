@@ -34,16 +34,36 @@ const (
 // rewrite a workflow is not something to put on the strength of one.
 const AdviceMinRuns = 5
 
-// Advice is one thing to change in one job's runs-on, and why.
+// The states an advice row can be in. A job with too few runs used to be left
+// out of the list, and an agent asking why a job had no advice could not tell
+// "nothing to say" from "not enough known yet"; now it is a row that says so.
+const (
+	AdviceStateOK            = "ok"
+	AdviceStateNotEnoughData = "not_enough_data"
+)
+
+// Advice is one thing to change in one job's runs-on, and why, with the figures
+// it rests on beside it.
 type Advice struct {
 	Repo     string `json:"repo"`
 	Workflow string `json:"workflow"`
 	JobName  string `json:"job_name"`
-	Kind     string `json:"kind"`
+	// Kind is what is wrong, empty for a row with too few runs to say.
+	Kind string `json:"kind"`
+	// State is ok, or not_enough_data for a job the fleet has measured fewer
+	// than MinRuns runs of. MinRuns travels with the row so a client prints
+	// "N of 5" from the payload and never from a literal of its own.
+	State   string `json:"state"`
+	MinRuns int    `json:"min_runs"`
 	// Asked is the class the job names in its runs-on, empty when it names none,
 	// and Class the class its runs call for.
 	Asked store.SizeClass `json:"asked,omitempty"`
 	Class store.SizeClass `json:"class"`
+	// RecommendedClass is Class under the name the spec gives it, and Reason
+	// is the class rule's own sentence for it, so a row says what it would have
+	// a workflow write and why without a second request.
+	RecommendedClass store.SizeClass `json:"recommended_class"`
+	Reason           string          `json:"reason"`
 	// Runs is how many measured runs the class was worked out from.
 	Runs int `json:"runs"`
 	// Labels is the runs-on the job had on its latest measured run.
@@ -51,6 +71,18 @@ type Advice struct {
 	// Message says what is wrong, and Fix what to write instead.
 	Message string `json:"message"`
 	Fix     string `json:"fix"`
+	// Observed and Fits are filled by whoever has the runs and the hosts:
+	// the figures behind the row, and whether any host carries the class.
+	Observed *Observed `json:"observed,omitempty"`
+	Fits     *Fit      `json:"fits,omitempty"`
+}
+
+// Fit says whether the fleet has a host of the recommended class at all, and
+// names the class when none does. Whether such a host is free, cordoned or
+// quiet is the fleet's state of the moment, not the fit.
+type Fit struct {
+	OK      bool            `json:"ok"`
+	Missing store.SizeClass `json:"missing,omitempty"`
 }
 
 // LabelAdvice says what, if anything, a job's workflow should change in its
@@ -61,9 +93,10 @@ type Advice struct {
 // decision that takes the place of the measurements; about a job that asks for
 // something this fleet's automatic pools do not answer, because advice to add a
 // class label to it would send it away from the pool that carries its own; or
-// about a job with too few runs to be worked out from.
+// A job with too few runs to be worked out from is a row of its own that
+// says how many it has, so "no advice" is never mistaken for "nothing to say".
 func (c SizeConfig) LabelAdvice(k *store.JobClassAsked, pins []*store.SizePin) *Advice {
-	if k == nil || !k.Class.Valid() || k.Basis != store.SizeBasisHistory || k.Runs < AdviceMinRuns || len(k.Labels) == 0 {
+	if k == nil || !k.Class.Valid() || k.Basis != store.SizeBasisHistory || len(k.Labels) == 0 {
 		return nil
 	}
 	for _, p := range pins {
@@ -71,7 +104,13 @@ func (c SizeConfig) LabelAdvice(k *store.JobClassAsked, pins []*store.SizePin) *
 			return nil
 		}
 	}
-	out := &Advice{Repo: k.Repo, Workflow: k.Workflow, JobName: k.JobName, Class: k.Class, Runs: k.Runs, Labels: append([]string(nil), k.Labels...)}
+	out := &Advice{Repo: k.Repo, Workflow: k.Workflow, JobName: k.JobName, State: AdviceStateOK, MinRuns: AdviceMinRuns,
+		Class: k.Class, RecommendedClass: k.Class, Reason: k.Reason, Runs: k.Runs, Labels: append([]string(nil), k.Labels...)}
+	if k.Runs < AdviceMinRuns {
+		out.State = AdviceStateNotEnoughData
+		out.Message = fmt.Sprintf("%d of %d measured runs so far; advice needs %d.", k.Runs, AdviceMinRuns, AdviceMinRuns)
+		return out
+	}
 	asked, named := RequestedClass(k.Labels)
 	switch {
 	case named && k.Class.Rank() > asked.Rank():
@@ -121,10 +160,11 @@ func capitalise(s string) string {
 	return string(unicode.ToUpper(r)) + s[n:]
 }
 
-// SortAdvice puts the advice that costs most to leave first, then orders it by
-// repository, workflow and job, so a page of it is stable between reads.
+// SortAdvice puts the advice that costs most to leave first, the rows with too
+// few runs to say anything last, and orders each by repository, workflow and
+// job, so a page of it is stable between reads.
 func SortAdvice(in []*Advice) {
-	rank := map[string]int{AdviceTooSmall: 0, AdviceUnguaranteed: 1, AdviceTooLarge: 2}
+	rank := map[string]int{AdviceTooSmall: 0, AdviceUnguaranteed: 1, AdviceTooLarge: 2, "": 3}
 	sort.SliceStable(in, func(i, j int) bool {
 		a, b := in[i], in[j]
 		if rank[a.Kind] != rank[b.Kind] {

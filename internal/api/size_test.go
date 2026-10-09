@@ -239,10 +239,16 @@ func TestLabelAdviceIsPagedFilteredAndCounted(t *testing.T) {
 
 	type page struct {
 		Items  []scheduler.Advice `json:"items"`
+		Raw    []json.RawMessage  `json:"-"`
 		Total  int                `json:"total"`
 		Limit  int                `json:"limit"`
 		Offset int                `json:"offset"`
 		Counts map[string]int     `json:"counts"`
+		Window struct {
+			Asked   string `json:"asked"`
+			Applied string `json:"applied"`
+			Bound   string `json:"bound"`
+		} `json:"window"`
 	}
 	get := func(query string) page {
 		t.Helper()
@@ -250,6 +256,13 @@ func TestLabelAdviceIsPagedFilteredAndCounted(t *testing.T) {
 		resp.mustStatus(t, http.StatusOK, "label advice "+query)
 		var out page
 		resp.into(t, &out)
+		var raw struct {
+			Items []json.RawMessage `json:"items"`
+		}
+		if err := json.Unmarshal(resp.body, &raw); err != nil {
+			t.Fatal(err)
+		}
+		out.Raw = raw.Items
 		return out
 	}
 
@@ -261,13 +274,74 @@ func TestLabelAdviceIsPagedFilteredAndCounted(t *testing.T) {
 	if all.Counts[scheduler.AdviceTooSmall] != 1 || all.Counts[scheduler.AdviceUnguaranteed] != 1 || all.Counts[scheduler.AdviceTooLarge] != 1 {
 		t.Fatalf("the counts are %v", all.Counts)
 	}
+	// The page says which window the figures cover and what bounded it, and
+	// each row is the shape the document promises, figures and fit included.
+	if all.Window.Applied != "336h0m0s" || all.Window.Bound != "asked" {
+		t.Fatalf("window = %+v, want the fourteen-day class window, bound by what was asked", all.Window)
+	}
+	doc := loadSpec(t)
+	for _, raw := range all.Raw {
+		assertShape(t, doc, "LabelAdvice", raw)
+	}
+	if o := all.Items[0].Observed; o == nil || o.Runs != 1 || o.MemoryMB.P95 != 3000 || all.Items[0].Fits == nil || all.Items[0].State != scheduler.AdviceStateOK {
+		t.Fatalf("the first row's figures are %+v, fits %+v, state %q", o, all.Items[0].Fits, all.Items[0].State)
+	}
+
+	// A repository narrows the page; a window is read with a unit, days and
+	// weeks included, and is refused by name when it cannot be read or is no
+	// span at all. Retention is the ceiling, and the page says when it was.
+	if mine := get("?repo=Acme/Widgets"); mine.Total != 3 {
+		t.Fatalf("the repository that has the jobs: %d rows", mine.Total)
+	}
+	if other := get("?repo=acme/other"); other.Total != 0 {
+		t.Fatalf("a repository without jobs: %d rows", other.Total)
+	}
+	if week := get("?window=1w"); week.Window.Asked != "168h0m0s" || week.Window.Applied != "168h0m0s" {
+		t.Fatalf("a week asked for: %+v", week.Window)
+	}
+	for _, bad := range []string{"0", "-1d", "abc", "2x"} {
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/label-advice?window=" + bad, cookie: viewer})
+		resp.mustStatus(t, http.StatusBadRequest, "window "+bad)
+		var env struct {
+			Error struct {
+				Field string `json:"field"`
+			} `json:"error"`
+		}
+		resp.into(t, &env)
+		if env.Error.Field != "window" {
+			t.Fatalf("window %q: the error names %q", bad, env.Error.Field)
+		}
+	}
+	h.ctrl.UpdateConfig(func(cfg *config.Config) { cfg.Retention.Jobs = 30 * 24 * time.Hour })
+	if bounded := get("?window=400d"); bounded.Window.Applied != "720h0m0s" || bounded.Window.Bound != "retention" || bounded.Window.Asked != "9600h0m0s" {
+		t.Fatalf("a window past retention: %+v", bounded.Window)
+	}
+
+	// A job with too few runs is a row that says so, counted as such and
+	// never as a kind, so the kind filter never returns it.
+	h.keptClass("new", store.SizeLarge, "self-hosted", "zoomies-medium")
+	if _, err := h.st.PutJobClass(h.ctx, &store.JobClass{Repo: "acme/widgets", Workflow: "CI", JobName: "new", Class: store.SizeLarge,
+		Basis: store.SizeBasisHistory, Reason: "its memory needs about 6.2 GB", Runs: 2}); err != nil {
+		t.Fatal(err)
+	}
+	withSparse := get("")
+	if withSparse.Total != 4 || withSparse.Items[3].State != scheduler.AdviceStateNotEnoughData || withSparse.Items[3].MinRuns != scheduler.AdviceMinRuns {
+		t.Fatalf("with a sparse job: %+v", withSparse.Items)
+	}
+	if withSparse.Counts[scheduler.AdviceStateNotEnoughData] != 1 || withSparse.Counts[scheduler.AdviceTooSmall] != 1 {
+		t.Fatalf("the counts are %v", withSparse.Counts)
+	}
+	if small := get("?kind=too_small"); small.Total != 1 || small.Items[0].JobName != "e2e" {
+		t.Fatalf("the kind filter returned %+v", small.Items)
+	}
+	all = withSparse
 
 	second := get("?limit=1&offset=1")
-	if len(second.Items) != 1 || second.Items[0].Kind != scheduler.AdviceUnguaranteed || second.Total != 3 || second.Limit != 1 || second.Offset != 1 {
+	if len(second.Items) != 1 || second.Items[0].Kind != scheduler.AdviceUnguaranteed || second.Total != 4 || second.Limit != 1 || second.Offset != 1 {
 		t.Fatalf("the second page is %+v", second)
 	}
 	past := get("?limit=5&offset=10")
-	if len(past.Items) != 0 || past.Total != 3 {
+	if len(past.Items) != 0 || past.Total != 4 {
 		t.Fatalf("a page past the end is %+v", past)
 	}
 	small := get("?kind=too_small")

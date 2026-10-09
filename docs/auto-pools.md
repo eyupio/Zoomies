@@ -298,10 +298,58 @@ at most one entry in the problems drawer pointing at them (`jobs.label_advice`):
 | `too_large` | It names a class larger than it uses, so it occupies a host another job needs. | The smaller class, unless the job needs the host for something that is not measured, such as its disk or its network. |
 
 It is given only for a job with at least five measured runs, never for a job an
-operator has pinned, and never for a job that names a label of a pool of its own. The
+operator has pinned, and never for a job that names a label of a pool of its own. A
+job with fewer runs is listed all the same, as a row in the `not_enough_data` state
+with its count, so "no advice" is never mistaken for "not enough known yet". The
 list is always worked out when it is asked for; the count in the problems drawer is
 kept for a minute, because it is asked for after every scheduling pass, and is worked
 out again at once when a pin changes.
+
+Each row carries the figures it rests on: the p50, p95 and max of memory and CPU
+that the job's runs used, over a window (`--window`, `?window=`; fourteen days unless
+asked otherwise, and never longer than `retention.jobs` keeps, which the answer says
+when it applies), with how many runs they were taken from; the class it recommends
+with the rule's own reason; and whether any host in the fleet carries that class,
+naming it when none does.
+
+### How the figures are computed
+
+The constants are named here so a reader can find them in the code, and a test
+holds this section to their values.
+
+* **The class rule** takes the newest twenty measured runs of a job over the last
+  fourteen days and keeps the 90th percentile of their peaks (`ProfilePercentile`),
+  by the nearest-rank method: one run that pulled a cold cache should not size
+  every run after it, and one that did less than usual should not shrink them.
+* **Memory gets a margin**: a fifth added on top of that percentile
+  (`ProfileMemoryMargin`), because a job that used 5 GB on its heaviest ordinary
+  run is killed at exactly 5 GB the next time its test data grows. CPU gets none,
+  because a build uses every core it is given and a margin would ratchet it up to
+  the largest host.
+* **A run the kernel killed** for memory is taken to have needed
+  one and a half times the limit it hit (`ProfileOOMGrowth`): the peak it recorded
+  is by definition not enough, and half as much again moves the next run off a
+  host that has already failed it.
+* **Nothing is said before five measured runs** (`AdviceMinRuns`). A class worked out
+  from one run is a guess, and advice to rewrite a workflow is not something to put
+  on the strength of one.
+
+The `observed` figures beside each row are the measurements, not the rule: the p95
+and max are what the runs did, with a killed run at the peak it recorded, so a reader
+can put them beside the class's reason and see the margin and the growth applied.
+
+### What is deliberately not inferred
+
+* No class from a single run, and no advice before `AdviceMinRuns` runs: a sparse
+  job is a row that says how many runs it has, nothing more.
+* No class from a pinned job's history. The pin is an operator's decision and takes
+  the place of the measurements; the job is left out of the advice entirely.
+* No figure from runs that retention has pruned. A window longer than
+  `retention.jobs` is cut to it and the answer says so, rather than promising a
+  fortnight of figures over a week of history.
+* No "fits" from whether a host is free. The fit says whether the fleet has a host
+  of the class at all, cordoned and quiet hosts included; this minute's room is the
+  scheduler's question, not the advice's.
 
 ## Where to look
 

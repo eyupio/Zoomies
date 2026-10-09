@@ -288,11 +288,88 @@ func archWord(arch string) string {
 // What a workflow could say better
 // ---------------------------------------------------------------------------
 
+// AdviceOptions narrows a request for label advice: a window the figures
+// behind each row are read over (zero is scheduler.ClassWindow, the span the
+// class itself is decided over) and a repository, compared as GitHub does.
+type AdviceOptions struct {
+	Window time.Duration
+	Repo   string
+}
+
+// What bounded the window the figures were read over.
+const (
+	AdviceBoundAsked     = "asked"
+	AdviceBoundRetention = "retention"
+)
+
+// AdviceWindow is the span the figures behind a page of advice cover: what
+// was asked, what applied, and which of the two bounded it. A window longer
+// than the history the fleet keeps would promise figures over runs that were
+// pruned, so retention is the ceiling and the answer says when it was hit.
+type AdviceWindow struct {
+	Asked   store.Duration `json:"asked"`
+	Applied store.Duration `json:"applied"`
+	Bound   string         `json:"bound"`
+}
+
+// adviceWindow applies retention to the window asked for.
+func (c *Controller) adviceWindow(asked time.Duration) AdviceWindow {
+	if asked <= 0 {
+		asked = scheduler.ClassWindow
+	}
+	w := AdviceWindow{Asked: store.Duration(asked), Applied: store.Duration(asked), Bound: AdviceBoundAsked}
+	if keep := c.cfg().Retention.Jobs; keep > 0 && keep < asked {
+		w.Applied, w.Bound = store.Duration(keep), AdviceBoundRetention
+	}
+	return w
+}
+
 // LabelAdvice says what to change in the runs-on of the jobs whose measured
-// runs call for something other than what they ask for, the costliest first.
-// There is none while size routing is off, because nothing is classed to
-// compare with.
-func (c *Controller) LabelAdvice(ctx context.Context) ([]*scheduler.Advice, error) {
+// runs call for something other than what they ask for, the costliest first,
+// with the figures each row rests on and whether any host carries the class
+// it recommends. There is none while size routing is off, because nothing is
+// classed to compare with.
+func (c *Controller) LabelAdvice(ctx context.Context, opts AdviceOptions) ([]*scheduler.Advice, AdviceWindow, error) {
+	window := c.adviceWindow(opts.Window)
+	rows, err := c.adviceRows(ctx, opts.Repo)
+	if err != nil || len(rows) == 0 {
+		return rows, window, err
+	}
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		return nil, window, fmt.Errorf("listing hosts: %w", err)
+	}
+	// The fit is whether the fleet has such a host at all; a host that is
+	// cordoned or quiet still counts, because the question is about buying a
+	// machine, not about this minute's room.
+	carried := map[store.SizeClass]bool{}
+	for _, h := range hosts {
+		if class, _ := h.EffectiveSizeClass(); class.Valid() {
+			carried[class] = true
+		}
+	}
+	since := c.Now().Add(-window.Applied.Duration())
+	for _, a := range rows {
+		runs, err := c.st.JobClassHistory(ctx, a.Repo, a.Workflow, a.JobName, since, store.JobClassHistoryLimit)
+		if err != nil {
+			return nil, window, fmt.Errorf("reading the runs behind %s/%s/%s: %w", a.Repo, a.Workflow, a.JobName, err)
+		}
+		obs := scheduler.Observe(runs)
+		a.Observed = &obs
+		fit := &scheduler.Fit{OK: carried[a.RecommendedClass]}
+		if !fit.OK {
+			fit.Missing = a.RecommendedClass
+		}
+		a.Fits = fit
+	}
+	return rows, window, nil
+}
+
+// adviceRows is the advice without its figures: what the problems list
+// counts after every pass. It reads the kept classes and the pins and
+// nothing per job, so a count on a fleet with hundreds of advised jobs is
+// two queries and not hundreds of history scans for a number.
+func (c *Controller) adviceRows(ctx context.Context, repoFilter string) ([]*scheduler.Advice, error) {
 	if c.sizeMode() == scheduler.SizeOff {
 		return nil, nil
 	}
@@ -304,9 +381,13 @@ func (c *Controller) LabelAdvice(ctx context.Context) ([]*scheduler.Advice, erro
 	if err != nil {
 		return nil, fmt.Errorf("listing size pins: %w", err)
 	}
+	repo := strings.ToLower(strings.TrimSpace(repoFilter))
 	cfg := c.sizeConfig()
 	var out []*scheduler.Advice
 	for _, k := range kept {
+		if repo != "" && strings.ToLower(k.Repo) != repo {
+			continue
+		}
 		if a := cfg.LabelAdvice(k, pins); a != nil {
 			out = append(out, a)
 		}
@@ -343,16 +424,25 @@ func (c *Controller) labelAdviceCounts(ctx context.Context) (map[string]int, int
 	if age := now.Sub(m.at); m.counts != nil && age >= 0 && age < labelAdviceMemoFor {
 		return m.counts, m.total, nil
 	}
-	advice, err := c.LabelAdvice(ctx)
+	advice, err := c.adviceRows(ctx, "")
 	if err != nil {
 		return nil, 0, err
 	}
+	// A row with too few runs is counted under its state and not as advice:
+	// the problem entry is about workflows that could say something better,
+	// and a job the fleet has not seen enough of is not yet one of them.
 	counts := map[string]int{}
+	total := 0
 	for _, a := range advice {
+		if a.State != scheduler.AdviceStateOK {
+			counts[a.State]++
+			continue
+		}
 		counts[a.Kind]++
+		total++
 	}
-	m.at, m.counts, m.total = now, counts, len(advice)
-	return counts, len(advice), nil
+	m.at, m.counts, m.total = now, counts, total
+	return counts, total, nil
 }
 
 // forgetLabelAdvice drops the memo, for a change that alters what a job is

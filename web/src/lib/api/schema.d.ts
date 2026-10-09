@@ -1875,7 +1875,7 @@ export interface paths {
         };
         /**
          * Workflows whose runs-on could say something better
-         * @description What to change in a job's `runs-on`, worked out from the class its measured runs call for and what its latest measured run asked for. A job that asks for a class by name and needs a larger one (`too_small`) can only run on hosts too small for it; one that asks for the base label and needs more than the default class (`unguaranteed`) is routed there on a best-effort basis, which is not a promise; one that asks for more than it uses (`too_large`) occupies a larger host than it needs. Only jobs with at least five measured runs are advised on, and jobs an operator has pinned are left out. Empty while `scheduler.size_routing` is `off`.
+         * @description What to change in a job's `runs-on`, worked out from the class its measured runs call for and what its latest measured run asked for. A job that asks for a class by name and needs a larger one (`too_small`) can only run on hosts too small for it; one that asks for the base label and needs more than the default class (`unguaranteed`) is routed there on a best-effort basis, which is not a promise; one that asks for more than it uses (`too_large`) occupies a larger host than it needs. Each row carries the figures it rests on (`observed`), the class it recommends with the rule's reason, and whether any host carries that class (`fits`). A job with fewer than `min_runs` measured runs is a row in the `not_enough_data` state with its count, so "no advice" is never mistaken for "not enough known yet"; jobs an operator has pinned are left out. Empty while `scheduler.size_routing` is `off`.
          */
         get: operations["listLabelAdvice"];
         put?: never;
@@ -7359,20 +7359,66 @@ export interface components {
             repo: string;
             workflow: string;
             job_name: string;
-            /** @enum {string} */
-            kind: "too_small" | "unguaranteed" | "too_large";
+            /**
+             * @description What is wrong. Empty for a row in the `not_enough_data` state.
+             * @enum {string}
+             */
+            kind: "too_small" | "unguaranteed" | "too_large" | "";
+            /**
+             * @description `ok`, or `not_enough_data` for a job the fleet has measured fewer than `min_runs` runs of; such a row carries its count and figures and no advice.
+             * @enum {string}
+             */
+            state: "ok" | "not_enough_data";
+            /** @description How many measured runs a job needs before it is advised on, so a client can say "N of 5" from the payload. */
+            min_runs: number;
             /** @description The class the job names in its `runs-on`. Absent when it names none. */
             asked?: components["schemas"]["SizeClass"];
             /** @description The class its measured runs call for. */
             class: components["schemas"]["SizeClass"];
+            /** @description The same class under the name the advice gives it, the one `fix` would have the workflow write. */
+            recommended_class: components["schemas"]["SizeClass"];
+            /** @description The class rule's own sentence for the recommended class. */
+            reason: string;
             /** @description How many measured runs the class was worked out from. */
             runs: number;
             /** @description The `runs-on` of the job's latest measured run. */
             labels: string[];
-            /** @description What is wrong. */
+            /** @description What is wrong, or for a sparse row how far it is from being advised on. */
             message: string;
-            /** @description What to write instead. */
+            /** @description What to write instead. Empty for a sparse row. */
             fix: string;
+            observed?: components["schemas"]["AdviceObserved"];
+            fits?: components["schemas"]["AdviceFit"];
+        };
+        /** @description What the job's measured runs did over the page's `window`: the measurement, never the treated figure the class rule takes a killed run as having needed. `runs` is how many runs the figures were taken from, which the window and the history limit bound, so it can differ from the count the class was kept with. */
+        AdviceObserved: {
+            runs: number;
+            cpu: components["schemas"]["AdviceFigures"];
+            memory_mb: components["schemas"]["AdviceFigures"];
+        };
+        /** @description Three points of one dimension, by the nearest-rank method. Zero where no run measured it. */
+        AdviceFigures: {
+            /** @description The median. */
+            p50: number;
+            /** @description What all but the heaviest twentieth of runs stayed under. */
+            p95: number;
+            /** @description The most any run used. */
+            max: number;
+        };
+        /** @description Whether any host in the fleet carries the recommended class at all, cordoned and quiet hosts included: the question is whether such a machine exists, not whether it is free. */
+        AdviceFit: {
+            ok: boolean;
+            /** @description The recommended class, when no host carries it. */
+            missing?: components["schemas"]["SizeClass"];
+        };
+        /** @description The span the figures behind a page of advice were read over: what was asked (the fourteen-day class window when nothing was), what applied, and which of the two bounded it. `retention.jobs` is the ceiling, because a longer window would promise figures over runs that were pruned. */
+        AdviceWindow: {
+            /** @description A Go duration such as `336h0m0s`. */
+            asked: string;
+            /** @description A Go duration such as `336h0m0s`. */
+            applied: string;
+            /** @enum {string} */
+            bound: "asked" | "retention";
         };
         /** @description One workflow run as this fleet has seen it: the jobs GitHub reported under it, summed up over the latest attempt of each job. Derived from the jobs, never stored, so it cannot go stale on its own. */
         WorkflowRun: {
@@ -12223,8 +12269,12 @@ export interface operations {
     listLabelAdvice: {
         parameters: {
             query?: {
-                /** @description Only this kind of advice. */
+                /** @description Only this kind of advice. A `not_enough_data` row has no kind and is never returned by this filter. */
                 kind?: "too_small" | "unguaranteed" | "too_large";
+                /** @description Only jobs in this repository (`owner/name`, compared as GitHub does). */
+                repo?: string;
+                /** @description How far back the figures behind each row are read, as a span such as `14d`, `2w` or `36h`. Defaults to the fourteen days the class itself is decided over. Bounded by `retention.jobs`; the response's `window` says which bound applied. */
+                window?: string;
                 limit?: components["parameters"]["Limit"];
                 offset?: components["parameters"]["Offset"];
             };
@@ -12234,7 +12284,7 @@ export interface operations {
         };
         requestBody?: never;
         responses: {
-            /** @description OK, the most costly advice first. */
+            /** @description OK, the most costly advice first, the rows with too few runs last. */
             200: {
                 headers: {
                     [name: string]: unknown;
@@ -12242,11 +12292,21 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["Page"] & {
                         items: components["schemas"]["LabelAdvice"][];
-                        /** @description How many jobs there is each kind of advice for, whatever page or `kind` was asked for. */
+                        /** @description How many jobs there is each kind of advice for, whatever page or `kind` was asked for, and under `not_enough_data` how many have too few runs to be advised on. */
                         counts: {
                             [key: string]: number;
                         };
+                        window: components["schemas"]["AdviceWindow"];
                     };
+                };
+            };
+            /** @description The `window` could not be read as a span, or covers nothing. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
         };

@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // tagValue collects repeatable --tag flags: key=value, or a bare key, which is
@@ -315,17 +316,26 @@ func runAutoPools(ctx context.Context, e *env, args []string) error {
 // ---------------------------------------------------------------------------
 
 func jobsAdvice(ctx context.Context, e *env, args []string) error {
-	fs := newFlagSet(e, "zoomies jobs advice [--kind too_small|unguaranteed|too_large]",
-		"What to change in the runs-on of the jobs whose measured runs call for something other than what they ask for.")
+	fs := newFlagSet(e, "zoomies jobs advice [--kind too_small|unguaranteed|too_large] [--repo owner/name] [--window 14d]",
+		"What to change in the runs-on of the jobs whose measured runs call for something other than what they ask for, with the figures behind each.")
 	cf := registerClientFlags(fs, true)
 	page := registerPageFlags(fs, 20)
 	kind := fs.String("kind", "", "only this kind: too_small, unguaranteed or too_large")
-	fs.example("zoomies jobs advice", "zoomies jobs advice --kind too_small")
+	repo := fs.String("repo", "", "only jobs in this repository (owner/name)")
+	window := fs.String("window", "14d", "how far back the figures are read, as 14d, 2w or 36h; bounded by retention.jobs")
+	fs.example("zoomies jobs advice", "zoomies jobs advice --kind too_small", "zoomies jobs advice --repo acme/widgets --window 7d")
 	if err := fs.parse(args); err != nil {
 		return err
 	}
 	if err := fs.noMoreArgs(); err != nil {
 		return err
+	}
+	// Read here as well as on the server, so a span the server would refuse
+	// is a usage error rather than a round trip that ends in one. parseAgo
+	// forgives a leading minus, because "how long ago" has no direction; a
+	// window does, and the server refuses a negative one.
+	if d, ok := parseAgo(*window); !ok || d <= 0 || strings.HasPrefix(strings.TrimSpace(*window), "-") {
+		return usagef(fs.Name(), "--window must be a span such as 14d, 2w or 36h, not %q", *window)
 	}
 	client, err := cf.client()
 	if err != nil {
@@ -340,10 +350,15 @@ func jobsAdvice(ctx context.Context, e *env, args []string) error {
 	if *kind != "" {
 		q.Set("kind", *kind)
 	}
+	if *repo != "" {
+		q.Set("repo", *repo)
+	}
+	q.Set("window", *window)
 	var out struct {
 		Items  []labelAdviceItem `json:"items"`
 		Total  int               `json:"total"`
 		Offset int               `json:"offset"`
+		Window adviceWindow      `json:"window"`
 	}
 	raw, err := client.get(ctx, "/label-advice", q, &out)
 	if err != nil {
@@ -353,25 +368,83 @@ func jobsAdvice(ctx context.Context, e *env, args []string) error {
 		return p.emit(raw)
 	}
 	if len(out.Items) == 0 {
-		p.note("Nothing to change. Advice needs size routing on or watching, and at least five measured runs of a job.")
+		p.note("Nothing to change. Advice needs size routing on or watching, and a job's first measured runs.")
 		return nil
 	}
 	rows := make([][]string, 0, len(out.Items))
 	for i := range out.Items {
 		out.Items[i].sanitise()
 		a := out.Items[i]
-		asks := dash(a.Asked)
-		rows = append(rows, []string{adviceKind(a.Kind), a.Repo, truncate(a.Workflow+" / "+a.JobName, 40), asks, a.Class, strconv.Itoa(a.Runs)})
+		problem := adviceKind(a.Kind)
+		if a.State == "not_enough_data" {
+			problem = fmt.Sprintf("not enough data yet, %d of %d runs", a.Runs, a.MinRuns)
+		}
+		rows = append(rows, []string{problem, a.Repo, truncate(a.Workflow+" / "+a.JobName, 40), dash(a.Asked), a.Class,
+			a.figure(func(f adviceFigures) float64 { return f.P95 }, true), a.figure(func(f adviceFigures) float64 { return f.Max }, true),
+			a.figure(func(f adviceFigures) float64 { return f.P95 }, false), a.observedRuns()})
 	}
-	p.table([]string{"problem", "repository", "job", "asks for", "needs", "runs"}, rows)
+	p.table([]string{"problem", "repository", "job", "asks for", "needs", "p95 memory", "max memory", "p95 cpu", "runs"}, rows)
 	p.footer(len(out.Items), out.Total, out.Offset)
+	if applied, err := time.ParseDuration(out.Window.Applied); err == nil && applied > 0 {
+		bound := ""
+		if out.Window.Bound == "retention" {
+			bound = ", bounded by retention"
+		}
+		p.note("Figures are from runs over the last %s%s.", longDays(applied), bound)
+	}
 	for _, a := range out.Items {
 		fmt.Fprintln(p.out)
 		fmt.Fprintf(p.out, "%s / %s / %s\n", a.Repo, a.Workflow, a.JobName)
 		fmt.Fprintf(p.out, "  %s\n", plain(capitaliseFirst(a.Message)))
-		fmt.Fprintf(p.out, "  %s %s\n", p.paint(colourYellow, "Fix:"), plain(a.Fix))
+		if a.Fix != "" {
+			fmt.Fprintf(p.out, "  %s %s\n", p.paint(colourYellow, "Fix:"), plain(a.Fix))
+		}
+		if a.Fits != nil && !a.Fits.OK && a.Fits.Missing != "" {
+			fmt.Fprintf(p.out, "  %s\n", p.paint(colourYellow, "No host in this fleet is "+plain(a.Fits.Missing)+"; the class cannot be answered until one is added."))
+		}
 	}
 	return nil
+}
+
+// figure renders one observed point: memory as a size, CPU to a tenth, and a
+// dash where no run measured it, because 0.00 reads as a measurement of
+// nothing rather than as nothing measured.
+func (a labelAdviceItem) figure(pick func(adviceFigures) float64, memory bool) string {
+	if a.Observed == nil {
+		return "-"
+	}
+	v := pick(a.Observed.CPU)
+	if memory {
+		v = pick(a.Observed.MemoryMB)
+	}
+	if v <= 0 {
+		return "-"
+	}
+	if memory {
+		return formatMB(int64(v))
+	}
+	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+// observedRuns is how many runs the figures cover, which the window bounds.
+func (a labelAdviceItem) observedRuns() string {
+	if a.Observed == nil {
+		return "-"
+	}
+	return strconv.Itoa(a.Observed.Runs)
+}
+
+// longDays says a window as whole days where it is one, so "the last 14 days"
+// rather than "336h0m0s"; shorter spans are said as they are.
+func longDays(d time.Duration) string {
+	if d >= 24*time.Hour && d%(24*time.Hour) == 0 {
+		n := int(d / (24 * time.Hour))
+		if n == 1 {
+			return "day"
+		}
+		return fmt.Sprintf("%d days", n)
+	}
+	return d.String()
 }
 
 // adviceKind says a kind of advice in a word or two.

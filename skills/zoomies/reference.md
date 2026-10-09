@@ -823,10 +823,10 @@ Examples:
 What a workflow's runs-on could say better, from what its jobs used
 
 ```text
-What to change in the runs-on of the jobs whose measured runs call for something other than what they ask for.
+What to change in the runs-on of the jobs whose measured runs call for something other than what they ask for, with the figures behind each.
 
 Usage:
-  zoomies jobs advice [--kind too_small|unguaranteed|too_large]
+  zoomies jobs advice [--kind too_small|unguaranteed|too_large] [--repo owner/name] [--window 14d]
 
 Flags:
   --ca-file                  PEM file holding the controller's certificate
@@ -836,14 +836,17 @@ Flags:
   --offset=0                 rows to skip, for paging
   --order                    asc or desc
   --output=table             table, json or yaml
+  --repo                     only jobs in this repository (owner/name)
   --sort                     column to sort by; an unknown one falls back to the default
   --timeout=30s              how long to wait for one request
   --token                    an API token (or ZOOMIES_TOKEN)
   --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+  --window=14d               how far back the figures are read, as 14d, 2w or 36h; bounded by retention.jobs
 
 Examples:
   zoomies jobs advice
   zoomies jobs advice --kind too_small
+  zoomies jobs advice --repo acme/widgets --window 7d
 ```
 
 #### zoomies jobs rerun
