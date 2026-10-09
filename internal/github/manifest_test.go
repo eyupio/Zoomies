@@ -7,7 +7,6 @@ import (
 	"maps"
 	"net/http"
 	"net/http/httptest"
-	"slices"
 	"strings"
 	"testing"
 )
@@ -372,20 +371,74 @@ func TestManifestAsksForMigrationPermissionsOnlyWhenWanted(t *testing.T) {
 }
 
 func TestManifestPermissionsAreMinimal(t *testing.T) {
-	// Every permission in the manifest has to be one Zoomies actually uses.
-	allowed := []string{
-		"actions", "metadata", "administration", "organization_self_hosted_runners",
-		"contents", "pull_requests", "workflows",
-	}
+	// Every permission in the manifest has to be one Zoomies actually uses, and
+	// every one it uses for the options chosen has to be there: the exact set is
+	// derived from the options here, independently of the code that builds it, so
+	// a permission that creeps in under one combination is caught under that one.
 	for _, org := range []string{"", "acme"} {
-		m := decodeManifest(t, ManifestOptions{
-			Name: "zoomies", URL: "https://z.example", WebhookURL: "https://z.example/w",
-			Organization: org,
-		})
-		for name := range permissions(t, m) {
-			if !slices.Contains(allowed, name) {
-				t.Errorf("manifest for org=%q asks for unused permission %q", org, name)
+		for _, cancel := range []bool{false, true} {
+			for _, migration := range []bool{false, true} {
+				for _, kennel := range []bool{false, true} {
+					want := map[string]string{"actions": "read", "metadata": "read"}
+					if cancel {
+						want["actions"] = "write"
+					}
+					if migration {
+						want["contents"], want["pull_requests"], want["workflows"] = "write", "write", "write"
+					}
+					if org == "" {
+						// A repository App registers its own runners through repository
+						// administration, which includes read, so the Kennel Club option
+						// adds nothing and does not lower it.
+						want["administration"] = "write"
+					} else {
+						want["organization_self_hosted_runners"] = "write"
+						if kennel {
+							want["administration"] = "read"
+						}
+					}
+					got := permissions(t, decodeManifest(t, ManifestOptions{
+						Name: "zoomies", URL: "https://z.example", WebhookURL: "https://z.example/w",
+						Organization: org, AllowWorkflowCancellation: cancel, Migration: migration, KennelSettings: kennel,
+					}))
+					if !maps.Equal(got, want) {
+						t.Errorf("org=%q cancel=%v migration=%v kennel=%v: asks for %v, want %v", org, cancel, migration, kennel, got, want)
+					}
+				}
 			}
 		}
+	}
+}
+
+// Administration read lets an App read a repository's collaborators and
+// configuration, which nothing in Zoomies but Kennel Club's checks of a
+// repository's settings has any use for. An organisation App asks for it only
+// when the operator said they want those checks, and a repository App, which
+// holds Administration write to register its runners, is not lowered to read.
+func TestManifestAsksForAdministrationReadOnlyWhenKennelSettingsAreWanted(t *testing.T) {
+	base := ManifestOptions{Name: "zoomies", URL: "https://z.example", WebhookURL: "https://z.example/w", Organization: "acme"}
+
+	without := permissions(t, decodeManifest(t, base))
+	if level, ok := without["administration"]; ok {
+		t.Errorf("an organisation App asks for administration:%s by default", level)
+	}
+
+	base.KennelSettings = true
+	with := permissions(t, decodeManifest(t, base))
+	if with["administration"] != "read" {
+		t.Errorf("administration = %q, want read", with["administration"])
+	}
+	for name, level := range without {
+		if with[name] != level {
+			t.Errorf("opting in changed %s from %q to %q", name, level, with[name])
+		}
+	}
+	if len(with) != len(without)+1 {
+		t.Errorf("opting in added %d permissions, want one", len(with)-len(without))
+	}
+
+	base.Organization = ""
+	if got := permissions(t, decodeManifest(t, base))["administration"]; got != "write" {
+		t.Errorf("a repository App asks for administration:%q, want write", got)
 	}
 }

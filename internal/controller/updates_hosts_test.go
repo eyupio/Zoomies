@@ -448,7 +448,7 @@ func TestAFailedResultOnTheHeartbeatClosesTheAttempt(t *testing.T) {
 
 	// The agent cleans the helper's text, but the controller does not take its
 	// word for it.
-	said := "the checksum did not match\x1b[31m‮" + strings.Repeat("é", 3000) + "\xff"
+	said := "the checksum did not match\x1b[31m\u202e" + strings.Repeat("é", 3000) + "\xff"
 	h.agentBeat(host, "1.3.4", &agent.UpdateReport{ID: a.ID, OK: false, Tag: "v1.3.5", Error: said, FinishedAt: h.c.Now().UTC()})
 	got := h.attempt(a.ID)
 	if got.State != store.UpdateFailed || !strings.HasPrefix(got.Error, "the checksum did not match") {
