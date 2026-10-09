@@ -46,11 +46,11 @@ not verified it says so.
 
 ## Open work
 
-### 1. PR #795: Contents-read option for new Apps (draft, CI pending)
-Branch `claude/zf-contents-option`. Adds `ManifestOptions.KennelFiles` (`contents: read`, never lowering the migration
-wizard's write), the installer question, `kennel_files` on `POST /installations/manifest`, a Connect dialog switch, docs.
-Main was merged into it (the generated `internal/api/openapi_spec.go` conflicted; regenerate rather than hand-merge).
-Safety-net check-in is armed (`trig_01BYiWposNPjRgBL5imJZzwE`, 13:53 UTC). Unverified: its Playwright spec.
+### 1. PR #795: Contents-read option for new Apps (merged)
+Merged by the owner after main was merged into it. It adds `ManifestOptions.KennelFiles` (`contents: read`, never lowering
+the migration wizard's write), the installer question, `kennel_files` on `POST /installations/manifest`, a Connect dialog
+switch and docs, and it fixed main's lint (`providers.spec.ts`, `schema.d.ts`). Its Playwright spec was never run locally.
+Branch `claude/zf-235c-chat` should merge main to pick up the lint fix.
 
 ### 2. The assistant chat MVP (the owner asked for "an MVP as soon as we can, then build on top")
 Branch `claude/zf-235c-chat`, draft PR #799 (subscribed). Goal: set up a model on Settings, Assistant and talk to it.
