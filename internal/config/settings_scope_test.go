@@ -13,7 +13,10 @@ import (
 // wrong one, and the first person to find out is an operator who cannot
 // change something they could change yesterday.
 func TestEverySettingBelongsToTheAudienceItsSectionSays(t *testing.T) {
-	platformSections := []string{"server", "security", "log", "backup", "retention", "limits", "updates", "capacity_demand", "status"}
+	// assistant.* is two switches about where this process may dial a model
+	// from and whether a private address may be saved for one: the
+	// platform's by the rule above, like security.allow_private_egress.
+	platformSections := []string{"server", "security", "log", "backup", "retention", "limits", "updates", "capacity_demand", "status", "assistant"}
 	// The embedded agent is the controller's own half of agent.*: where this
 	// process puts its work and which daemon it dials. The rest of agent.*
 	// sizes and labels the fleet's runners.

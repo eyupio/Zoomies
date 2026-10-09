@@ -1445,6 +1445,11 @@ func (c *Controller) getLastPlan() (*scheduler.Plan, time.Time) {
 	return c.lastPlan, c.lastPlanAt
 }
 
+// DemoRequested reports whether the demo fixtures were asked for, for the
+// one API decision that follows from it: the fake assistant provider may be
+// edited where the demo seeded it and created nowhere else.
+func DemoRequested() bool { return seedRequested() }
+
 // seedRequested reports whether the demo fixtures were asked for.
 func seedRequested() bool {
 	v, ok := os.LookupEnv(SeedEnvVar)

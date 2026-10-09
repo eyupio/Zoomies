@@ -381,6 +381,19 @@ func (s *Server) apiRoutes() chi.Router {
 			r.With(s.require(auth.ActionProvidersPause)).Post("/{id}/pause", s.handlePauseProvider)
 			r.With(s.require(auth.ActionProvidersPause)).Post("/{id}/resume", s.handleResumeProvider)
 		})
+		// The assistant's providers: the administrator's, kinds included,
+		// because only the page that adds one asks for them.
+		r.Route("/assistant/providers", func(r chi.Router) {
+			r.With(s.require(auth.ActionAssistantRead)).Get("/", s.handleListAssistantProviders)
+			r.With(s.require(auth.ActionAssistantWrite)).Post("/", s.handleCreateAssistantProvider)
+			r.With(s.require(auth.ActionAssistantWrite)).Post("/check", s.handleCheckAssistantDraft)
+			r.With(s.require(auth.ActionAssistantRead)).Get("/kinds", s.handleAssistantProviderKinds)
+			r.With(s.require(auth.ActionAssistantRead)).Get("/{id}", s.handleGetAssistantProvider)
+			r.With(s.require(auth.ActionAssistantWrite)).Patch("/{id}", s.handleUpdateAssistantProvider)
+			r.With(s.require(auth.ActionAssistantWrite)).Delete("/{id}", s.handleDeleteAssistantProvider)
+			r.With(s.require(auth.ActionAssistantWrite)).Post("/{id}/check", s.handleCheckAssistantProvider)
+			r.With(s.require(auth.ActionAssistantWrite)).Post("/{id}/default", s.handleDefaultAssistantProvider)
+		})
 		// There is no POST /machines: a machine exists because demand asked
 		// for one, and handlers_machines.go says why that matters.
 		r.Route("/machines", func(r chi.Router) {

@@ -256,3 +256,13 @@ func TestTheDemoServesASeededFleetAndLeavesNothingBehind(t *testing.T) {
 		t.Errorf("the demo left %v behind in the temporary directory", names)
 	}
 }
+
+// The demo says what it talks to, and the assistant is the one part of it a
+// person might assume talks to a model somewhere else.
+func TestTheDemoAnnouncementSaysTheAssistantAnswersFromABuiltInModel(t *testing.T) {
+	var out bytes.Buffer
+	announceDemo(&out, "http://127.0.0.1:8080")
+	if s := out.String(); !strings.Contains(s, "assistant") || !strings.Contains(s, "built-in model") {
+		t.Errorf("the announcement does not say where the assistant's answers come from:\n%s", s)
+	}
+}

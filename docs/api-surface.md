@@ -330,6 +330,15 @@ running beside it, and the gateway's Tailcat address is handled the same way:
 | GET | `/api/v1/providers/{id}/discovery` | operator | The nodes, storages, bridges and templates this credential can see. 409 from a driver that cannot list them, and the form asks for identifiers instead. |
 | GET | `/api/v1/providers/{id}/orphans` | admin | The three sections of the review page: resources with no row, rows holding no resource, and machines nobody can vouch for. |
 | POST | `/api/v1/providers/{id}/pause` · `/resume` | operator | The kill switch. It blocks new machines only (drains, deletes, recovery and ownership checks carry on) and pressing either twice is not an error. Audited as `provider.pause` / `provider.resume`. |
+| GET | `/api/v1/assistant/providers` | admin | The models the in-UI assistant may talk to. The key is never in the response; `key_configured` says one is sealed on the row, and `local` says the address is this machine or a private network. |
+| POST | `/api/v1/assistant/providers` | admin | Adds one. The key is sealed with the instance key before the row is written; a private address is a 422 naming `assistant.allow_private_provider` until that switch is on. |
+| POST | `/api/v1/assistant/providers/check` | admin | Tests a provider as a form has it, with the key the form holds, writing nothing. A check that fails is a 200 whose body says why. |
+| GET | `/api/v1/assistant/providers/kinds` | admin | The kinds a person may add, each with the address a hosted one has. |
+| GET | `/api/v1/assistant/providers/{id}` | admin | One provider. |
+| PATCH | `/api/v1/assistant/providers/{id}` | admin | Changes one; every field optional. An empty `api_key` leaves the sealed key alone. |
+| DELETE | `/api/v1/assistant/providers/{id}` | admin | Removes one. The body carries its name, typed to confirm; a mismatch is a 409. |
+| POST | `/api/v1/assistant/providers/{id}/check` | admin | Runs the check and one token of completion, and records the result on the row. Audited, because it uses the key. |
+| POST | `/api/v1/assistant/providers/{id}/default` | admin | Makes this the provider that answers, and the previous default stops being it in the same write. |
 | GET | `/api/v1/machines` | viewer | Paged, filtered by `?provider=`, `?pool=`, `?host=`, `?state=`, `?q=` and `?include_deleted=`. |
 | GET | `/api/v1/machines/{id}` | viewer | Includes the phase timeline the detail page reads as a life rather than a row of timestamps. |
 | POST | `/api/v1/machines/{id}/drain` | operator | Cordons its host and lets its runners finish. Reversible until the delete starts: demand coming back takes a draining machine back to ready rather than paying for a new one. |

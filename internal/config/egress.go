@@ -11,6 +11,13 @@ import (
 // named once because every refusal has to quote it.
 const AllowPrivateEgressSetting = "security.allow_private_egress"
 
+// AllowPrivateProviderSetting and LocalOnlySetting are the assistant's two
+// switches, named once because the refusals and the settings page quote them.
+const (
+	AllowPrivateProviderSetting = "assistant.allow_private_provider"
+	LocalOnlySetting            = "assistant.local_only"
+)
+
 // The ranges an outbound URL may not name. Go's netip answers loopback,
 // link-local and RFC 1918 / ULA itself; these are the neighbours it has no
 // predicate for, and each is somewhere a request from this process lands on
@@ -87,6 +94,21 @@ func CheckOutboundURL(setting, raw string, allowPrivate bool) *Finding {
 		Fix: fmt.Sprintf("use the service's public address; or, if it really does live on a network you own (an identity "+
 			"provider or Enterprise Server on the LAN, a hypervisor beside this host), set %s to true.", AllowPrivateEgressSetting),
 	}
+}
+
+// CheckProviderURL is CheckOutboundURL for an assistant provider's address,
+// with the assistant's own switch as the fix: a model on this machine is the
+// ordinary case there, and the finding must not send an operator to the
+// blanket switch that would open every other URL with it.
+func CheckProviderURL(raw string, allowPrivate bool) *Finding {
+	f := CheckOutboundURL("base_url", raw, allowPrivate)
+	if f == nil {
+		return nil
+	}
+	f.Setting = AllowPrivateProviderSetting
+	f.Fix = fmt.Sprintf("use a hosted provider's public address; or, for a model that really does run on this machine or "+
+		"on a network you own, set %s to true.", AllowPrivateProviderSetting)
+	return f
 }
 
 // outboundHost pulls the host out of what an operator typed, normalised the

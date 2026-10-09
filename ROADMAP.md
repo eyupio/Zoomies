@@ -1539,7 +1539,7 @@ Depends on ZF-230 to ZF-233. Size S.
 
 ### ZF-235: an assistant in the UI, on the operator's own model
 
-**Classification: new; XL; proposed 8 October, not yet authorised to start.**
+**Classification: new; XL; proposed 8 October; started 9 October.**
 A chat panel backed by a model the operator configures, reading the same
 payloads the UI reads, confirming every mutation, with deterministic
 Kennel fixes before any model-drafted patch and autonomy over those first.
@@ -1549,6 +1549,15 @@ work every governed setting needs, and the subscription sign-in gate (9.10)
 stays closed until the owner's written confirmation exists.
 
 Depends on ZF-230 to ZF-233, ZF-229e. Size XL.
+
+**Started, 9 October.** Slices 7a and 7b are one pull request from branch
+`claude/brave-ride-o421h9`: the provider interface and its contract tests, the
+three adapters, the dialer with `assistant.local_only` and
+`assistant.allow_private_provider`, the `assistant_providers` table, the
+`/assistant/providers` routes and the Assistant settings page, with the demo
+seeding a built-in model. Gate row 17's acceptance for these two slices is
+the contract run every adapter passes, the API tests, and the Playwright spec
+on the page.
 
 ### ZF-236: the figures behind size advice
 

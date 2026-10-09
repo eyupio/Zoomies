@@ -821,6 +821,28 @@ somewhere with a metadata service worth protecting, a host firewall rule that
 drops its traffic to `169.254.169.254` is the complement that also covers
 names.
 
+### `assistant.allow_private_provider: true`
+
+The assistant's providers have a switch of their own, because a model on this
+machine (Ollama at `http://localhost:11434`) is the ordinary case there and
+the blanket `security.allow_private_egress` would open every other URL with
+it. Off, saving a provider whose address names this machine or a private
+network is refused with a 422 that names this switch in the `base_url` field
+error; the same address in a provider row an upgrade brought along is left
+alone until it is re-saved. On, that address is accepted, and the switch is named at startup and
+in the problems drawer as `egress.private_provider_allowed`, a warning, for
+the reason the blanket switch is: an administrator who can add a provider can
+aim the assistant's requests at the cloud metadata service or an admin port on
+loopback and read the answer out of a failed check. It is platform-scoped, as
+the blanket switch is. The check reads the address and resolves nothing; the
+limits above apply.
+
+`assistant.local_only` is the opposite kind of switch and is not listed here:
+on, the assistant's dialer refuses any connection that resolves to a public
+address, after resolving it, so nothing the assistant is told can leave this
+machine or the LAN whatever a provider row says. A hosted provider cannot be
+reached while it is on, and the Assistant settings page says so beside it.
+
 ### `provider.insecure_skip_verify: true`
 
 Zoomies talks to a hypervisor without verifying its certificate. The API token

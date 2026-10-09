@@ -82,3 +82,20 @@ func TestEverySubcommandIsDocumented(t *testing.T) {
 		t.Errorf("these subcommands exist and are not on docs/cli.md:\n  %s", strings.Join(missing, "\n  "))
 	}
 }
+
+// Review: three sentences promised a refusal code the API does not send.
+// The assistant's private-address refusal is a 422 whose base_url field
+// error names the switch; the code egress.private_target is what a value in
+// the file is warned about as. The pages say which is which.
+func TestTheAssistantSwitchDocsSayHowTheRefusalReads(t *testing.T) {
+	for _, page := range []string{"../../docs/security.md", "../../docs/configuration.md"} {
+		raw, err := os.ReadFile(page)
+		if err != nil {
+			t.Fatal(err)
+		}
+		text := strings.Join(strings.Fields(string(raw)), " ")
+		if !strings.Contains(text, "names this switch in the `base_url` field error") {
+			t.Errorf("%s does not say the 422 names the switch in the base_url field error", page)
+		}
+	}
+}

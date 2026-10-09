@@ -855,3 +855,27 @@ func TestEverySeededFailureExplainsItselfAtHighConfidence(t *testing.T) {
 		t.Fatal("the demo seeds no failure that is the workflow's own")
 	}
 }
+
+// The demo ships with a model that answers without a network, so the
+// Assistant page can be explored with no account and no key, and the
+// announcement can say the assistant talks to nothing outside this machine.
+func TestTheDemoSeedsABuiltInAssistantProvider(t *testing.T) {
+	h := newHarness(t)
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := h.c.st.ListAssistantProviders(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("%d assistant providers seeded, want 1", len(rows))
+	}
+	p := rows[0]
+	if p.Kind != "fake" || !p.IsDefault || !p.Enabled || p.Name != "Demo model (built in)" {
+		t.Errorf("row %+v", p)
+	}
+	if !strings.Contains(string(p.LastCheck), `"ok":true`) {
+		t.Errorf("the seeded check did not pass: %s", p.LastCheck)
+	}
+}

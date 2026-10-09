@@ -104,6 +104,14 @@ const (
 	ActionMachinesDelete  Action = "machines.delete"
 )
 
+// Assistant actions cover the providers the in-UI assistant talks to. Both
+// are admin: which model answers, and with what key, is the administrator's
+// until the step-up slice makes it cost more than an admin session.
+const (
+	ActionAssistantRead  Action = "assistant.read"
+	ActionAssistantWrite Action = "assistant.write"
+)
+
 // Webhook actions cover the delivery log and the reachability test.
 const (
 	ActionWebhooksRead Action = "webhooks.read"
@@ -289,6 +297,9 @@ var actionRoles = map[Action]store.Role{
 
 	ActionWebhooksRead: store.RoleViewer,
 	ActionWebhooksTest: store.RoleOperator,
+
+	ActionAssistantRead:  store.RoleAdmin,
+	ActionAssistantWrite: store.RoleAdmin,
 
 	ActionProvidersRead:   store.RoleViewer,
 	ActionProvidersWrite:  store.RoleAdmin,
