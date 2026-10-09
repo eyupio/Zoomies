@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
 )
@@ -133,7 +134,7 @@ func (s *Server) handleLabelAdvice(w http.ResponseWriter, r *http.Request) {
 		badRequestField(w, "kind", "kind is too_small, unguaranteed or too_large")
 		return
 	}
-	all, err := s.ctrl.LabelAdvice(r.Context())
+	all, _, err := s.ctrl.LabelAdvice(r.Context(), controller.AdviceOptions{})
 	if err != nil {
 		s.internal(w, r, "working out label advice", err)
 		return

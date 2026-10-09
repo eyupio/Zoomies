@@ -467,7 +467,7 @@ func TestLabelAdviceIsWorkedOutFromWhatRunsCallForAndWhatTheJobAsksAndRaisesOneE
 		// Finishing a job is what keeps the class its runs call for.
 		h.c.refreshJobClass(h.ctx, last)
 	}
-	got, err := h.c.LabelAdvice(h.ctx)
+	got, window, err := h.c.LabelAdvice(h.ctx, AdviceOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -483,6 +483,36 @@ func TestLabelAdviceIsWorkedOutFromWhatRunsCallForAndWhatTheJobAsksAndRaisesOneE
 	}
 	if got[0].JobName != "e2e" || got[2].JobName != "docs" {
 		t.Fatalf("advice is not in order of cost: %s, %s, %s", got[0].JobName, got[1].JobName, got[2].JobName)
+	}
+	// Every row carries the figures its runs showed, over the default window,
+	// and whether the fleet has a host of the class it recommends.
+	if window.Applied.Duration() != scheduler.ClassWindow || window.Bound != AdviceBoundAsked {
+		t.Fatalf("window = %+v, want the class window, bound by what was asked", window)
+	}
+	for _, a := range got {
+		if a.Observed == nil || a.Observed.Runs != 12 || a.Fits == nil || !a.Fits.OK || a.Fits.Missing != "" {
+			t.Fatalf("%s: observed %+v, fits %+v", a.JobName, a.Observed, a.Fits)
+		}
+	}
+	if o := byJob["e2e"].Observed; o.MemoryMB.P95 != 6000 || o.MemoryMB.Max != 6000 || o.CPU.P50 != 1 {
+		t.Fatalf("e2e observed %+v, want twelve runs of 6000 MB and 1 CPU", o)
+	}
+	// A window reaches back only as far as it says: an hour holds none of
+	// runs that finished eight hours ago and more, while the class's own count
+	// is what it was kept with.
+	short, window, err := h.c.LabelAdvice(h.ctx, AdviceOptions{Window: time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if window.Applied.Duration() != time.Hour || len(short) != 3 || short[0].Observed.Runs != 0 || short[0].Runs != 12 {
+		t.Fatalf("an hour's window: %+v, first row observed %+v runs %d", window, short[0].Observed, short[0].Runs)
+	}
+	// The repository filter is by the job's repository, as GitHub compares one.
+	if mine, _, _ := h.c.LabelAdvice(h.ctx, AdviceOptions{Repo: "Acme/Widgets"}); len(mine) != 3 {
+		t.Fatalf("%d rows for the repository that has them", len(mine))
+	}
+	if other, _, _ := h.c.LabelAdvice(h.ctx, AdviceOptions{Repo: "acme/docs"}); len(other) != 0 {
+		t.Fatalf("%d rows for a repository with no jobs", len(other))
 	}
 
 	probs, err := h.c.Problems(h.ctx)
@@ -507,19 +537,91 @@ func TestLabelAdviceIsWorkedOutFromWhatRunsCallForAndWhatTheJobAsksAndRaisesOneE
 	if err := h.st.SetSizePin(h.ctx, &store.SizePin{Repo: "acme/widgets", Workflow: "CI", JobName: "e2e", Class: store.SizeMedium}); err != nil {
 		t.Fatal(err)
 	}
-	if got, _ = h.c.LabelAdvice(h.ctx); len(got) != 2 {
+	if got, _, _ = h.c.LabelAdvice(h.ctx, AdviceOptions{}); len(got) != 2 {
 		t.Fatalf("a pinned job is still advised on: %d entries", len(got))
 	}
 
 	// With routing off nothing is compared, and the entry goes.
 	h.c.UpdateConfig(func(cfg *config.Config) { cfg.Scheduler.SizeRouting = scheduler.SizeOff })
-	if got, _ = h.c.LabelAdvice(h.ctx); len(got) != 0 {
+	if got, _, _ = h.c.LabelAdvice(h.ctx, AdviceOptions{}); len(got) != 0 {
 		t.Fatalf("%d entries of advice with size routing off", len(got))
 	}
 	probs, _ = h.c.Problems(h.ctx)
 	for _, p := range probs {
 		if p.Code == "jobs.label_advice" {
 			t.Fatalf("the problem outlived the switch: %+v", p)
+		}
+	}
+}
+
+// Advice that recommends a class no host carries is advice to buy a machine,
+// and the row says so by name rather than sending a reader to the Hosts page
+// to find out; a sparse job is a row with its count, not an absence, and it
+// is not counted as advice in the problems list.
+func TestAdviceSaysWhenNoHostCarriesTheClassAndWhenRunsAreTooFew(t *testing.T) {
+	h := newHarness(t)
+	h.classFleetOf(scheduler.SizeShadow, store.SizeSmall, store.SizeMedium)
+	var last *store.Job
+	for i := 1; i <= 12; i++ {
+		last = h.measuredRun(i, "e2e", []string{"self-hosted", "zoomies-medium"}, 6000)
+	}
+	h.c.refreshJobClass(h.ctx, last)
+	for i := 1; i <= scheduler.AdviceMinRuns-1; i++ {
+		last = h.measuredRun(i, "new", []string{"self-hosted", "zoomies-medium"}, 6000)
+	}
+	h.c.refreshJobClass(h.ctx, last)
+
+	got, _, err := h.c.LabelAdvice(h.ctx, AdviceOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].JobName != "e2e" || got[1].JobName != "new" {
+		t.Fatalf("advice = %+v, want the advised job then the sparse one", got)
+	}
+	if f := got[0].Fits; f == nil || f.OK || f.Missing != store.SizeLarge {
+		t.Fatalf("fits = %+v, want the missing large class named", f)
+	}
+	sparse := got[1]
+	if sparse.State != scheduler.AdviceStateNotEnoughData || sparse.Observed == nil || sparse.Observed.Runs != scheduler.AdviceMinRuns-1 || sparse.Observed.MemoryMB.P95 != 6000 {
+		t.Fatalf("the sparse row = %+v, observed %+v", sparse, sparse.Observed)
+	}
+	counts, total, err := h.c.labelAdviceCounts(h.ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 1 || counts[scheduler.AdviceStateNotEnoughData] != 1 || counts[scheduler.AdviceTooSmall] != 1 {
+		t.Fatalf("counts = %v, total %d: a sparse row is counted as such and is not advice", counts, total)
+	}
+}
+
+// A window longer than the history the fleet keeps would promise figures
+// over runs that have been pruned, so retention bounds it and the answer
+// says which bound applied.
+func TestTheAdviceWindowIsBoundedByRetention(t *testing.T) {
+	h := newHarness(t)
+	day := 24 * time.Hour
+	cases := []struct {
+		retention, asked, applied time.Duration
+		bound                     string
+	}{
+		{7 * day, 14 * day, 7 * day, AdviceBoundRetention},
+		{7 * day, 3 * day, 3 * day, AdviceBoundAsked},
+		{0, 400 * day, 400 * day, AdviceBoundAsked},
+		{7 * day, 0, 7 * day, AdviceBoundRetention},
+		{0, 0, scheduler.ClassWindow, AdviceBoundAsked},
+	}
+	for _, tc := range cases {
+		h.c.UpdateConfig(func(cfg *config.Config) { cfg.Retention.Jobs = tc.retention })
+		got := h.c.adviceWindow(tc.asked)
+		if got.Applied.Duration() != tc.applied || got.Bound != tc.bound {
+			t.Errorf("retention %s, asked %s: got %+v, want applied %s bound %s", tc.retention, tc.asked, got, tc.applied, tc.bound)
+		}
+		want := tc.asked
+		if want == 0 {
+			want = scheduler.ClassWindow
+		}
+		if got.Asked.Duration() != want {
+			t.Errorf("asked %s is reported as %s", tc.asked, got.Asked)
 		}
 	}
 }
