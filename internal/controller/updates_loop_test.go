@@ -1029,3 +1029,32 @@ func TestARolloutPressWhoseStatusCannotBeReadStillSaysWhichRolloutItMoved(t *tes
 		t.Errorf("cancel: err = %v, change = %+v; want the failure and rollout %s, changed", err, got, r.ID)
 	}
 }
+
+// A person's cancel can land after the planner has read the rollout as running
+// and before it asks the host. The host must not then be asked: the person said
+// stop, and a restart that starts after they did is the one they meant to stop.
+func TestACancelBetweenTheRereadAndTheRequestAsksNoHost(t *testing.T) {
+	h := newHarness(t)
+	h.autoFleet("auto")
+	host := h.updatableHost("vm-a")
+	h.pass(h.c)
+	r := h.openRollout()
+	if r == nil {
+		t.Fatal("no rollout started")
+	}
+	hook := beforeRolloutStep
+	t.Cleanup(func() { beforeRolloutStep = hook })
+	beforeRolloutStep = func(c *Controller) {
+		if _, _, err := c.CancelRollout(h.ctx, alice); err != nil {
+			t.Errorf("CancelRollout: %v", err)
+		}
+	}
+	h.pass(h.c)
+	h.noAttemptFor(host)
+	if tasks := h.tasksFor(host.ID); len(tasks) != 0 {
+		t.Errorf("vm-a was sent %+v after the rollout was cancelled", tasks)
+	}
+	if got := h.lastRollout(); got.ID != r.ID || got.State != store.RolloutCancelled {
+		t.Errorf("the rollout ended as %+v, want %s cancelled", got, r.ID)
+	}
+}

@@ -3,6 +3,7 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -66,9 +67,16 @@ func scanUpdateAttempt(sc interface{ Scan(...any) error }) (UpdateAttempt, error
 	return a, err
 }
 
+// ErrRolloutNotRunning refuses a rollout's step once the rollout has halted,
+// ended or never existed. It is checked in the insert's own transaction, so a
+// person's cancel that lands after the planner read the rollout still stops
+// the host being asked.
+var ErrRolloutNotRunning = errors.New("the rollout is no longer running")
+
 // CreateUpdateAttempt records a request and sets its ID, state and RequestedAt.
 // A target with an open attempt answers ErrConflict: the partial unique index
-// is the rule, so two callers racing cannot both succeed.
+// is the rule, so two callers racing cannot both succeed. An attempt that names
+// a rollout answers ErrRolloutNotRunning unless that rollout is running.
 func (s *Store) CreateUpdateAttempt(ctx context.Context, a *UpdateAttempt) error {
 	switch {
 	case a.Scope != UpdateScopeController && a.Scope != UpdateScopeHost:
@@ -88,6 +96,17 @@ func (s *Store) CreateUpdateAttempt(ctx context.Context, a *UpdateAttempt) error
 	a.State, a.Error, a.FinishedAt = UpdateRequested, "", nil
 	a.RequestedAt = s.Now()
 	return s.tx(ctx, func(tx *sql.Tx) error {
+		if a.RolloutID != "" {
+			var running int
+			err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM update_rollouts WHERE id = ? AND state = ?`,
+				a.RolloutID, RolloutRunning).Scan(&running)
+			if err != nil {
+				return err
+			}
+			if running == 0 {
+				return fmt.Errorf("%w: %s", ErrRolloutNotRunning, a.RolloutID)
+			}
+		}
 		_, err := tx.ExecContext(ctx, `INSERT INTO update_attempts (`+updateAttemptCols+`)
 			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
 			a.ID, a.Scope, a.HostID, a.FromVersion, a.ToVersion, a.Trigger, a.RequestedBy,

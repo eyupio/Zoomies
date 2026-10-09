@@ -255,6 +255,11 @@ func (c *Controller) autoRequestController(ctx context.Context, step updates.Act
 	return true
 }
 
+// beforeRolloutStep runs between autoUpdateHost's second reading of the
+// rollout and the host's attempt being written. It does nothing; it is a
+// variable so that a test can land a cancel in that gap.
+var beforeRolloutStep = func(*Controller) {}
+
 func (c *Controller) autoUpdateHost(ctx context.Context, pic *updatesPicture, step updates.Action) bool {
 	if pic.rollout == nil {
 		return false
@@ -271,8 +276,17 @@ func (c *Controller) autoUpdateHost(ctx context.Context, pic *updatesPicture, st
 		}
 		return false
 	}
+	beforeRolloutStep(c)
+	// A cancel or halt can still land here, after the read above. The store
+	// writes the step only while the rollout runs, in the insert's own
+	// transaction, so a host is never asked for a rollout a person stopped.
 	_, attempt, err := c.requestHostUpdate(ctx, autoUpdateActor(), step.HostID,
 		updateAsk{trigger: store.UpdateTriggerAuto, rolloutID: pic.rollout.ID})
+	if errors.Is(err, store.ErrRolloutNotRunning) {
+		c.log.Info("the rollout stopped before its next host was asked, so that host was not asked",
+			"host", step.HostID, "rollout", pic.rollout.ID)
+		return false
+	}
 	if err != nil {
 		c.log.Warn("automatic updating could not ask a host to update; the next pass will decide again",
 			"host", step.HostID, "rollout", pic.rollout.ID, "error", err)

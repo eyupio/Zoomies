@@ -384,3 +384,48 @@ func TestACancelByAPersonIsRecordedAndTheLastEndedRolloutIsFound(t *testing.T) {
 		t.Errorf("LastEndedUpdateRollout with one open = %+v (%v), want the second still", got, err)
 	}
 }
+
+// A rollout's step is written only while the rollout runs. The planner reads
+// the rollout and then asks the host, and a person's cancel can land between
+// the two; checking in the insert's own transaction means a host is never
+// asked to restart for a rollout somebody has just stopped.
+func TestARolloutsStepIsRecordedOnlyWhileTheRolloutRuns(t *testing.T) {
+	s, _ := rolloutStore(t)
+	ctx := context.Background()
+	r := mustCreateRollout(t, s, newRollout())
+
+	step := hostAttempt("hst_a")
+	step.RolloutID = r.ID
+	mustCreateAttempt(t, s, step)
+	if _, err := s.FinishUpdateAttempt(ctx, step.ID, UpdateSucceeded, ""); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name string
+		move func() (bool, error)
+	}{
+		{"halted", func() (bool, error) { return s.HaltUpdateRollout(ctx, r.ID, "vm-a did not come back") }},
+		{"cancelled", func() (bool, error) { return s.CancelUpdateRollout(ctx, r.ID, "alice") }},
+	} {
+		if moved, err := tc.move(); err != nil || !moved {
+			t.Fatalf("moving the rollout to %s: %v, %v", tc.name, moved, err)
+		}
+		late := hostAttempt("hst_b")
+		late.RolloutID = r.ID
+		if err := s.CreateUpdateAttempt(ctx, late); !errors.Is(err, ErrRolloutNotRunning) {
+			t.Errorf("a step of a %s rollout: err = %v, want ErrRolloutNotRunning", tc.name, err)
+		}
+		if open, err := s.OpenUpdateAttempts(ctx); err != nil || len(open) != 0 {
+			t.Errorf("a step of a %s rollout left %d open attempt(s) (%v)", tc.name, len(open), err)
+		}
+	}
+
+	unknown := hostAttempt("hst_c")
+	unknown.RolloutID = "rol_nothere"
+	if err := s.CreateUpdateAttempt(ctx, unknown); !errors.Is(err, ErrRolloutNotRunning) {
+		t.Errorf("a step of a rollout that does not exist: err = %v, want ErrRolloutNotRunning", err)
+	}
+	// A person's press belongs to no rollout and is not held to one.
+	mustCreateAttempt(t, s, hostAttempt("hst_d"))
+}
