@@ -63,8 +63,14 @@ controller asks github.com which release of Zoomies is current. The request
 carries the version you run in its `User-Agent` (`zoomies/<version>`, which on a
 development build includes its `main-sha-*` identity), and GitHub sees your
 address as it would for any request. Nothing else about your installation is
-sent, and nothing is downloaded. Every other call to GitHub's API carries the
-same `User-Agent`. Set the interval to `0` and the update check never asks. See
+sent. With `updates.mode` at `off`, the default, that is the only request and
+nothing is downloaded. With `manual` or `auto` the controller reads GitHub's
+list of recent releases instead of the latest one alone, in a request that
+carries the same `User-Agent`; and when an update is requested, the update
+helper on the controller's host, if you installed it, downloads that release and
+its checksums from GitHub. Nothing else is downloaded. Every other call to
+GitHub's API carries the same `User-Agent`. Set the interval to `0` and the update
+check never asks. See
 [`updates.check_interval`](configuration.md#updatescheck_interval-knowing-the-controller-is-behind).
 
 ### What your controller keeps

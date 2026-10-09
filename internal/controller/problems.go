@@ -17,6 +17,7 @@ import (
 	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/scheduler"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/updates"
 	"github.com/eyupio/zoomies/internal/version"
 )
 
@@ -147,7 +148,12 @@ var problemAudience = map[string]Audience{
 	"oidc.unavailable":            AudiencePlatform,
 	"controller.loop_panicked":    AudiencePlatform,
 	"controller.update_available": AudiencePlatform,
-	"crypto.key_mismatch":         AudiencePlatform,
+	// Updating the controller is the process replacing its own binary, through a
+	// helper that root installed on its host. A fleet can neither install the
+	// helper nor read the helper's journal.
+	"controller.update_failed":         AudiencePlatform,
+	"controller.update_helper_missing": AudiencePlatform,
+	"crypto.key_mismatch":              AudiencePlatform,
 	// The private-connection listener is the process's: it is one per
 	// instance, it dials out from the controller's network, and the fix is that
 	// network's egress, which a fleet cannot change.
@@ -2553,7 +2559,23 @@ func stuckBefore(a, b *store.Runner) bool {
 	return a.ID < b.ID
 }
 
-// updateProblems reports that a newer release of Zoomies exists.
+// updateProblems is everything the update feature has to say: that a newer
+// release exists, that the helper that would install it is missing, and that the
+// last attempt to update this controller did not succeed.
+//
+// It takes no context and reads nothing from the database or the disk. The
+// helper and the last attempt are what the update loop saw on its last look, and
+// this runs after every scheduling pass.
+//
+// None of these carries a Remedy. The autopilot applies every remedy it finds,
+// and replacing the binary the controller is running is not something to do
+// because a list was read.
+func (c *Controller) updateProblems() []Problem {
+	out := c.newerReleaseProblems()
+	return append(out, c.controllerUpdateProblems()...)
+}
+
+// newerReleaseProblems reports that a newer release of Zoomies exists.
 //
 // It says nothing at all in the two cases where it would otherwise mislead: a
 // controller built from main, which is ahead of the newest release rather than
@@ -2564,7 +2586,7 @@ func stuckBefore(a, b *store.Runner) bool {
 // "0.2-beta" with "0.10-beta" properly means a version parser this does not
 // have. Naming both and letting the operator read them is honest; guessing
 // which is newer is not.
-func (c *Controller) updateProblems() []Problem {
+func (c *Controller) newerReleaseProblems() []Problem {
 	if c.cfg().Updates.CheckInterval <= 0 {
 		return nil
 	}
@@ -2614,6 +2636,15 @@ func (c *Controller) updateProblems() []Problem {
 	if latest.URL == "" {
 		fix = "upgrade with the same method you installed by."
 	}
+	// Only when the button would work: the mode allows it and the helper has been
+	// seen. A page that says to press something that refuses is worse than the
+	// general advice.
+	if sight := c.updateSightNow(); c.updateMode() != updates.ModeOff && sight.looked && !sight.helperMissing {
+		fix = "update from Settings → Updates; the release notes are at " + latest.URL
+		if latest.URL == "" {
+			fix = "update from Settings → Updates."
+		}
+	}
 	at := latest.At
 	return []Problem{{
 		Code:     "controller.update_available",
@@ -2624,4 +2655,94 @@ func (c *Controller) updateProblems() []Problem {
 		Fix:   fix,
 		Since: &at,
 	}}
+}
+
+// maxProblemSentence bounds how much of an attempt's reason a problem repeats.
+// The attempt keeps up to two kilobytes for the page that shows it whole; a
+// problem is a line in a drawer, and an operator needs the opening of the
+// sentence to know whether to read on.
+const maxProblemSentence = 300
+
+// controllerUpdateProblems reports what the update loop last saw go wrong with
+// updating this controller.
+func (c *Controller) controllerUpdateProblems() []Problem {
+	sight := c.updateSightNow()
+	var out []Problem
+	if mode := c.updateMode(); mode != updates.ModeOff && sight.helperMissing {
+		out = append(out, Problem{
+			Code:     "controller.update_helper_missing",
+			Severity: config.SeverityWarning,
+			Title:    "this controller has no update helper, so it cannot update itself",
+			Detail: fmt.Sprintf("updates.mode is %s, so this controller may be asked to update itself, but the update helper that would replace its binary "+
+				"is not installed on its host. Nothing else is affected: runners, pools and jobs carry on.", mode),
+			Fix: "have somebody with root on the controller's host run `" + helperInstallCommand + "`, " +
+				"or set updates.mode to off if this controller is to be upgraded by hand with `zoomies upgrade`.",
+		})
+	}
+	if p, ok := failedUpdateProblem(sight.last); ok {
+		out = append(out, p)
+	}
+	return out
+}
+
+// failedUpdateProblem is the problem for the controller's latest attempt, when
+// that attempt ended without the update happening.
+//
+// Only the latest counts, so a later success clears it and so does a new attempt
+// opening. One that failed but whose release this build has since reached, by
+// an upgrade done by hand, is history and not a problem.
+func failedUpdateProblem(a *store.UpdateAttempt) (Problem, bool) {
+	if a == nil || (a.State != store.UpdateFailed && a.State != store.UpdateTimedOut) {
+		return Problem{}, false
+	}
+	if runsAtLeast(version.Version, a.ToVersion) {
+		return Problem{}, false
+	}
+	how := "failed"
+	if a.State == store.UpdateTimedOut {
+		how = "timed out"
+	}
+	reason := problemSentence(a.Error)
+	if reason == "" {
+		reason = "no reason was recorded"
+	}
+	p := Problem{
+		Code:     "controller.update_failed",
+		Severity: config.SeverityError,
+		Title:    fmt.Sprintf("the update of this controller to %s %s", naming.ForSentence(a.ToVersion), how),
+		Detail:   "The reason recorded for it: " + reason,
+		Fix: "look at `journalctl -u zoomies-update` on the controller's host, where `zoomies updates helper status` says what the helper did last. " +
+			"Once the cause is dealt with, update again from Settings → Updates (updates.mode must be manual or auto), or run `zoomies upgrade` on the host.",
+	}
+	if a.FinishedAt != nil {
+		since := *a.FinishedAt
+		p.Since = &since
+	}
+	return p, true
+}
+
+// problemSentence is the opening of an attempt's reason, made safe to sit in a
+// problem. The sentence can be the update helper's own, read from a file the
+// service can write, so it is treated as text from outside: only its first line
+// is kept, a backtick becomes an apostrophe (the UI draws what sits between two
+// as a command with a copy button), control and direction-changing characters
+// become spaces, and it is cut at a length and a character boundary.
+func problemSentence(s string) string {
+	line := ""
+	for _, l := range strings.FieldsFunc(s, func(r rune) bool { return r == '\n' || r == '\r' }) {
+		if l = strings.TrimSpace(l); l != "" {
+			line = l
+			break
+		}
+	}
+	line = strings.Map(func(r rune) rune {
+		if isBidiControl(r) {
+			return ' '
+		}
+		return r
+	}, naming.ForSentence(line))
+	if len(line) <= maxProblemSentence {
+		return line
+	}
+	return strings.TrimSpace(cutAt(line, maxProblemSentence)) + "..."
 }

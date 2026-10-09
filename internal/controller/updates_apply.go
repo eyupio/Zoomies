@@ -148,6 +148,9 @@ func (c *Controller) RequestControllerUpdate(ctx context.Context, by UpdateActor
 		}
 		return nil, fmt.Errorf("recording the update attempt: %w", err)
 	}
+	// A new attempt supersedes the last one's failure in the problems list now,
+	// not at the next pass.
+	c.lookAtUpdates(context.WithoutCancel(ctx))
 	// The time as the row keeps it, to the millisecond, so that the request and
 	// the attempt it belongs to say the same thing when they are read side by side.
 	err = channel.WriteRequest(helper.dir, updates.Request{

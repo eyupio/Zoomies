@@ -63,7 +63,12 @@ curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade
 
 The first controller start applies schema migrations. Upgrade does not run
 setup again or require a new join token. Each remote host is upgraded locally;
-a controller upgrade does not remotely replace binaries across the fleet.
+without the update helper, a controller upgrade does not remotely replace
+binaries across the fleet. With the helper installed on the controller's host and
+`updates.mode` set to `manual` or `auto`, the controller can hand the helper a
+request to replace its own binary through the API (the web UI cannot yet, as
+[below](#updating-from-the-web-ui) says), and nothing else: it never replaces the
+binary of another host.
 
 For a **remote agent**, copy the upgrade command from its card on **Hosts**.
 That command targets the controller's published version instead of blindly

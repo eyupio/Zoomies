@@ -34,6 +34,30 @@ type updatesState struct {
 	// a day away, and until the list is read the status can only say that it has
 	// not been, so the next pass reads it.
 	checkReleases atomic.Bool
+
+	// lookMu keeps two lookers (a pass and a press of the button) from reading the
+	// database in one order and storing in the other, which would leave the older
+	// answer as the one the problems list sees.
+	lookMu sync.Mutex
+	// sightMu guards sight, which the problems pass reads after every scheduling
+	// pass and so must never wait on a read of the database or the folder.
+	sightMu sync.Mutex
+	sight   updateSight
+}
+
+// updateSight is what the update loop last saw of the things the problems list
+// reports on. The list is worked out after every scheduling pass, and a probe of
+// the update folder and a query for the last attempt do not belong in that path;
+// the loop looks every ten seconds and whenever an attempt opens, so this is at
+// most that stale.
+type updateSight struct {
+	// looked says the loop has looked at all. Before it has, nothing is known and
+	// nothing is raised: a controller that has only just started has not seen a
+	// helper missing.
+	looked        bool
+	helperMissing bool
+	// last is the controller's latest update attempt, open or ended, or nil.
+	last *store.UpdateAttempt
 }
 
 func newUpdatesState() updatesState {
@@ -88,6 +112,9 @@ func (c *Controller) runUpdates(ctx context.Context) {
 func (c *Controller) ReconcileUpdates(ctx context.Context) error {
 	c.updates.passMu.Lock()
 	defer c.updates.passMu.Unlock()
+	// Last, so that the problems list sees the attempts this pass closed. A
+	// controller that may not act still looks: what it reports is what is there.
+	defer c.lookAtUpdates(ctx)
 
 	// Reading the list changes nothing in the fleet, so a controller that may not
 	// act still does it: the status it shows should not be a day stale.
@@ -136,6 +163,42 @@ func (c *Controller) ReconcileUpdates(ctx context.Context) error {
 		}
 	}
 	return nil
+}
+
+// lookAtUpdates refreshes what the problems list reports on: whether the helper
+// is installed, and how the controller's latest attempt stands.
+//
+// A failed read of the attempts keeps the last one seen. Clearing it would drop
+// an error the operator has not yet read because the database was busy.
+func (c *Controller) lookAtUpdates(ctx context.Context) {
+	c.updates.lookMu.Lock()
+	defer c.updates.lookMu.Unlock()
+
+	missing := c.probeUpdateHelper().view.State == HelperMissing
+	attempts, err := c.st.ListUpdateAttempts(ctx, store.UpdateScopeController, "", 1)
+	if err != nil && ctx.Err() == nil {
+		c.log.Warn("could not read the controller's latest update attempt for the problems list; the next pass will try again", "error", err)
+	}
+
+	c.updates.sightMu.Lock()
+	defer c.updates.sightMu.Unlock()
+	c.updates.sight.looked = true
+	c.updates.sight.helperMissing = missing
+	if err != nil {
+		return
+	}
+	c.updates.sight.last = nil
+	if len(attempts) > 0 {
+		last := attempts[0]
+		c.updates.sight.last = &last
+	}
+}
+
+// updateSightNow is a copy of what the loop last saw.
+func (c *Controller) updateSightNow() updateSight {
+	c.updates.sightMu.Lock()
+	defer c.updates.sightMu.Unlock()
+	return c.updates.sight
 }
 
 // updateOutcome says whether an open attempt has ended, and how.
