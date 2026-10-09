@@ -4092,11 +4092,51 @@ export interface paths {
         };
         /**
          * What an update would take
-         * @description The update mode and soak, the build that is running, the newest release that can be installed on this system, whether that is newer than the build, and when the mode would take it, with the sentence that says why. It answers 200 whatever the mode: with `mode: off` it names no release and says how to turn updating on, and until the list of releases has been read it says that, because a list nobody has read and a list with nothing in it that can be installed are different things to be told. A build that is not from a release is left alone, and the sentence says so. It changes nothing. The same document is the payload of the `updates.updated` event.
+         * @description The update mode and soak, the build that is running, the newest release that can be installed on this system, whether that is newer than the build, and when the mode would take it, with the sentence that says why. It answers 200 whatever the mode: with `mode: off` it names no release and says how to turn updating on, and until the list of releases has been read it says that, because a list nobody has read and a list with nothing in it that can be installed are different things to be told. A build that is not from a release is left alone, and the sentence says so. It changes nothing. The same document is the payload of the `updates.updated` event. Below the `platform` role the text of the controller's last attempt is a fixed sentence for its state, in the response and in the event alike, because the real text can name a path on the controller's host.
          */
         get: operations["getUpdates"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/updates/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask GitHub for the release list now
+         * @description Reads the list of releases from GitHub instead of waiting for the scheduled check, and answers with the status it leaves. At most one request goes to GitHub a minute: a press inside the minute is not an error, and answers the status as it stands. Refused with `update.check_disabled` while `updates.check_interval` is `0`, which is the setting that keeps this controller from ever asking. Takes no body.
+         */
+        post: operations["checkForUpdates"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/updates/controller": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update the controller
+         * @description Asks the update helper installed on the controller's host to replace the controller's binary with the newest release that can be installed on this system, or with `tag`. It answers 202 with the status, which holds the attempt it opened: the helper answers on its own time, and the page follows the attempt in `updates.updated`. Everything that can refuse does so before anything is written, so a refusal leaves nothing in flight. The release has to be one in the list the controller last read, complete for this system and newer than the running build; `check` reads the list again. Audited as `update.controller_requested` once it is accepted, and not before.
+         */
+        post: operations["updateController"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4498,7 +4538,7 @@ export interface components {
         ErrorEnvelope: {
             error: {
                 /** @enum {string} */
-                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "too_large" | "rate_limited" | "limit_reached" | "internal";
+                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "too_large" | "rate_limited" | "limit_reached" | "update.mode_off" | "update.check_disabled" | "update.helper_missing" | "update.in_progress" | "update.not_a_release" | "update.nothing_newer" | "update.host_cannot_update" | "update.rollout_halted" | "internal";
                 /** @description Written for a person to read */
                 message: string;
                 /** @description The form field at fault, or on a `limit_reached` refusal the `limits.*` setting that refused. */
@@ -8983,8 +9023,15 @@ export interface components {
              * @description When it ended. Null while it is `requested`.
              */
             finished_at: string | null;
-            /** @description Why it did not succeed, often the helper's own sentence. Empty when it succeeded or is still in flight. */
+            /** @description Why it did not succeed, often the helper's own sentence. Empty when it succeeded or is still in flight. Only the `platform` role is given the text, which can name a folder on the controller's host; every other role is given a fixed sentence for the state in its place, and an empty string where there was nothing to say. */
             error: string;
+        };
+        UpdateControllerRequest: {
+            /**
+             * @description The release to take, such as `v1.3.5`. Left out, it is the newest release that can be installed on this system. A tag that is not of that form, is not in the list the controller last read, or is not newer than the running build is refused with `update.nothing_newer`.
+             * @example v1.3.5
+             */
+            tag?: string;
         };
         UpdatesStatus: {
             /**
@@ -9384,6 +9431,15 @@ export interface components {
         };
         /** @description The request conflicts with the current state. */
         Conflict: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description The update was refused, and the code says why: `update.mode_off` while `updates.mode` is off, `update.check_disabled` while `updates.check_interval` is 0, `update.helper_missing` when no update helper can carry it out, `update.in_progress` while an update is already open for the same target, `update.not_a_release` for a build that did not come from a release, `update.nothing_newer` when there is no newer release to take or the tag asked for is not one, `update.host_cannot_update` for a host whose agent cannot update itself, and `update.rollout_halted` while a halted rollout waits for a person. A controller that may not act (it is fenced for recovery, or another holds the lease) is the plain `conflict`. The message says what stopped it and what to change. */
+        UpdateRefused: {
             headers: {
                 [name: string]: unknown;
             };
@@ -15702,6 +15758,57 @@ export interface operations {
                     "application/json": components["schemas"]["UpdatesStatus"];
                 };
             };
+        };
+    };
+    checkForUpdates: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description The status once the list has been read. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdatesStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["UpdateRefused"];
+        };
+    };
+    updateController: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["UpdateControllerRequest"];
+            };
+        };
+        responses: {
+            /** @description Asked for. The `controller` attempt is `requested`. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdatesStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["UpdateRefused"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     agentJoin: {
