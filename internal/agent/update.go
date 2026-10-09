@@ -4,12 +4,16 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"runtime"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/eyupio/zoomies/internal/backend"
+	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/updates"
 	"github.com/eyupio/zoomies/internal/updates/channel"
 	"github.com/eyupio/zoomies/internal/version"
@@ -60,6 +64,56 @@ func (a *Agent) selfUpdateReady() bool {
 	}
 	_, found, err := channel.Ready(dir)
 	return err == nil && found
+}
+
+// LocalHelperHost is this machine as updates.HelperSupport reads it, looked at
+// the way the installer looks before it refuses: the operating system, and
+// whether systemd runs here, which only a service outside a container can see.
+// Whether the service runs runners, and under what runtime, is the caller's to
+// add.
+func LocalHelperHost() updates.HelperHost {
+	in := backend.InContainer()
+	return updates.HelperHost{GOOS: runtime.GOOS, InContainer: in, Systemd: !in && backend.HasSystemd()}
+}
+
+// updateUnsupported is why the helper cannot be installed on this host, for the
+// heartbeat to carry, and nothing once it is installed: a marker in a folder a
+// request can be written to is a better witness than anything worked out here.
+func (a *Agent) updateUnsupported(features []string, infos []backend.Info) updates.HelperUnsupported {
+	if a.opts.HelperHost == nil || slices.Contains(features, FeatureSelfUpdate) {
+		return ""
+	}
+	host := a.opts.HelperHost()
+	host.RunsRunners = true
+	host.RootlessRuntime = rootlessRuntime(infos)
+	return updates.HelperSupport(host)
+}
+
+// RootlessRuntime is whether the container runtimes this agent last found all
+// run without root, for the controller that runs it inside itself and is in the
+// same container.
+func (a *Agent) RootlessRuntime() bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return rootlessRuntime(a.backendInfo)
+}
+
+// rootlessRuntime says every container runtime that answered runs without root.
+// A container deployment runs under one of them, and which is not known here, so
+// a root runtime beside a rootless one says nothing; the process backend is not
+// a runtime at all, and in a container it is never root whatever runs it.
+func rootlessRuntime(infos []backend.Info) bool {
+	found := false
+	for _, info := range infos {
+		if !info.Available || info.Kind == store.BackendProcess {
+			continue
+		}
+		if !info.Rootless {
+			return false
+		}
+		found = true
+	}
+	return found
 }
 
 // handleUpdate hands the helper on this host a request to take it to the

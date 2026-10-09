@@ -155,6 +155,7 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 		DockerBuildCacheMB: cfg.Agent.DockerBuildCacheMB,
 		Logger:             log,
 		UpdateDir:          agentUpdateDir(cfg.Path()),
+		HelperHost:         agent.LocalHelperHost,
 	})
 	if err != nil {
 		return err

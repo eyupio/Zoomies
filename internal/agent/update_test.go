@@ -15,6 +15,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/eyupio/zoomies/internal/backend"
+	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/updates"
 	"github.com/eyupio/zoomies/internal/updates/channel"
 	"github.com/eyupio/zoomies/internal/version"
@@ -146,6 +148,99 @@ func TestAnAgentAdvertisesSelfUpdateOnlyWhileItsHelperIsReady(t *testing.T) {
 		t.Fatal(err)
 	} else if slices.Contains(req.Features, FeatureSelfUpdate) {
 		t.Fatalf("an agent whose update folder is a link advertised self-update: %v", req.Features)
+	}
+}
+
+// onHelperHost stands the agent on a machine described by facts, so that what
+// it says about the helper never depends on the machine the suite runs on.
+func onHelperHost(facts updates.HelperHost) func(*Options) {
+	return func(o *Options) { o.HelperHost = func() updates.HelperHost { return facts } }
+}
+
+// A host the helper can never be installed on would otherwise be offered the
+// command that installs it, which then refuses. The agent says why instead, as
+// a word the controller keys its sentence on, and says nothing once the helper
+// is there, where it does not know, and where it is the controller's own.
+func TestAnAgentSaysWhyItsHostCannotHaveTheHelper(t *testing.T) {
+	said := func(t *testing.T, a *Agent, tr *fakeTransport) string {
+		t.Helper()
+		req, err := beatOnce(t, a, tr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return req.UpdateUnsupported
+	}
+	native := updates.HelperHost{GOOS: "linux", Systemd: true}
+	container := updates.HelperHost{GOOS: "linux", InContainer: true}
+
+	t.Run("a host systemd does not run", func(t *testing.T) {
+		dir := t.TempDir()
+		a, tr, _ := joined(t, withUpdateFolder(dir), onHelperHost(updates.HelperHost{GOOS: "linux"}))
+		if got := said(t, a, tr); got != string(updates.HelperUnsupportedNoSystemd) {
+			t.Fatalf("the beat says %q, want %q", got, updates.HelperUnsupportedNoSystemd)
+		}
+		// A helper installed all the same is the better witness: it is there.
+		writeMarker(t, dir)
+		if got := said(t, a, tr); got != "" {
+			t.Fatalf("with the helper's marker in place the beat still says %q", got)
+		}
+	})
+	t.Run("a systemd host", func(t *testing.T) {
+		a, tr, _ := joined(t, onHelperHost(native))
+		if got := said(t, a, tr); got != "" {
+			t.Fatalf("a host the helper can be installed on says %q", got)
+		}
+	})
+	t.Run("a container under a rootless runtime", func(t *testing.T) {
+		a, tr, be, _ := newAgent(t, 1, onHelperHost(container))
+		be.rootless = true
+		if err := a.Join(context.Background(), "join-token"); err != nil {
+			t.Fatal(err)
+		}
+		if got := said(t, a, tr); got != string(updates.HelperUnsupportedRootless) {
+			t.Fatalf("the beat says %q, want %q", got, updates.HelperUnsupportedRootless)
+		}
+	})
+	t.Run("a container under a runtime that runs as root", func(t *testing.T) {
+		// An agent always runs runners, so its container has the shared folder.
+		a, tr, _ := joined(t, onHelperHost(container))
+		if got := said(t, a, tr); got != "" {
+			t.Fatalf("a container the helper can serve says %q", got)
+		}
+	})
+	t.Run("an agent told nothing about its machine", func(t *testing.T) {
+		a, tr, _ := joined(t)
+		if got := said(t, a, tr); got != "" {
+			t.Fatalf("an agent with no facts about its machine says %q", got)
+		}
+	})
+}
+
+// Only a container runtime's rootlessness moves what a container writes to
+// another uid. A process backend in a container runs as the image's account,
+// which is never root, and that is not a rootless runtime; a host with a root
+// runtime beside a rootless one may run its deployment under either, and is
+// left to the installer.
+func TestARootlessRuntimeIsOnlyOneWhereEveryRuntimeIsRootless(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		infos []backend.Info
+		want  bool
+	}{
+		{"none", nil, false},
+		{"one rootless daemon", []backend.Info{{Kind: store.BackendPodman, Available: true, Rootless: true}}, true},
+		{"one root daemon", []backend.Info{{Kind: store.BackendDocker, Available: true}}, false},
+		{"a root daemon beside a rootless one", []backend.Info{
+			{Kind: store.BackendDocker, Available: true}, {Kind: store.BackendPodman, Available: true, Rootless: true}}, false},
+		{"a rootless daemon beside one that did not answer", []backend.Info{
+			{Kind: store.BackendDocker}, {Kind: store.BackendPodman, Available: true, Rootless: true}}, true},
+		{"the process backend", []backend.Info{{Kind: store.BackendProcess, Available: true, Rootless: true}}, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := rootlessRuntime(tc.infos); got != tc.want {
+				t.Errorf("rootlessRuntime = %v, want %v", got, tc.want)
+			}
+		})
 	}
 }
 

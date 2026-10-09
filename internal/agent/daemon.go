@@ -184,6 +184,12 @@ type Options struct {
 	// installed while the agent runs is noticed without a restart. Nil for the
 	// embedded agent, which is updated with its controller and never as a host.
 	UpdateDir func() (string, bool)
+	// HelperHost says what this machine is, as far as whether the update helper
+	// could be installed on it, so that a host where it never can be is shown so
+	// rather than offered a command that would refuse. Nil says nothing, which
+	// the controller shows as a helper not yet installed: the embedded agent,
+	// which is updated with its controller, and a test that is not about it.
+	HelperHost func() updates.HelperHost
 }
 
 // Agent is the half of Zoomies that runs on a host with a container runtime. It
@@ -858,21 +864,23 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	cpus, memoryMB := hostSize(infos, m)
 	total, free := a.workDirSpace()
 	update, delivery := a.updateReport()
+	features := a.features()
 	resp, err := a.tr.Heartbeat(hctx, HeartbeatRequest{
-		Doctor:          a.latestDoctor(ctx),
-		Usage:           a.hostUsage(infos, cpus, memoryMB),
-		ProtocolVersion: ProtocolVersion,
-		Features:        a.features(),
-		Capacity:        a.opts.Capacity,
-		Version:         version.Version,
-		CPUs:            cpus,
-		MemoryMB:        memoryMB,
-		DiskTotalMB:     total,
-		DiskFreeMB:      free,
-		Backends:        infos,
-		Runners:         runners,
-		Runtime:         a.runtimeReport(),
-		Update:          update,
+		Doctor:            a.latestDoctor(ctx),
+		Usage:             a.hostUsage(infos, cpus, memoryMB),
+		ProtocolVersion:   ProtocolVersion,
+		Features:          features,
+		Capacity:          a.opts.Capacity,
+		Version:           version.Version,
+		CPUs:              cpus,
+		MemoryMB:          memoryMB,
+		DiskTotalMB:       total,
+		DiskFreeMB:        free,
+		Backends:          infos,
+		Runners:           runners,
+		Runtime:           a.runtimeReport(),
+		Update:            update,
+		UpdateUnsupported: string(a.updateUnsupported(features, infos)),
 	})
 	if err != nil {
 		a.expireBoosts(ctx)

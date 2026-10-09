@@ -176,6 +176,13 @@ type HeartbeatRequest struct {
 	// it; the new process reports the outcome here instead. Absent when there is
 	// nothing to report, and from an agent too old to update at all.
 	Update *UpdateReport `json:"update,omitempty"`
+	// UpdateUnsupported is why the update helper cannot be installed on this
+	// host, as one of updates.HelperUnsupported's words, so that its card says so
+	// instead of offering a command that would refuse. Absent where it could be,
+	// where it is installed, where the agent cannot tell, and from an agent too
+	// old to say, all of which the controller reads alike: as a helper not yet
+	// installed. A word, never a sentence, because every role reads the card.
+	UpdateUnsupported string `json:"update_unsupported,omitempty"`
 }
 
 // UpdateReport is what an agent says about an update it attempted. It is
