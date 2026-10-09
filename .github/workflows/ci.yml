@@ -835,6 +835,16 @@ jobs:
         with:
           name: webdist
           path: internal/api/webdist
+      # The Go shards' reason, above: on the Zoomies pool /tmp is a 1 GB
+      # in-memory folder, and the linker writes its output into Go's work
+      # directory, which defaults to /tmp, before it moves it. The darwin/amd64
+      # link has outgrown that and died twice running with "link: mapping output
+      # file failed: no space left on device", while the other four targets still
+      # fit. Every pull request that changes Go would have hit it.
+      - name: Keep Go's work directory on disk
+        run: |
+          mkdir -p "$HOME/.cache/go-tmp"
+          echo "GOTMPDIR=$HOME/.cache/go-tmp" >> "$GITHUB_ENV"
       - env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
