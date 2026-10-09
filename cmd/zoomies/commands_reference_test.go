@@ -112,6 +112,11 @@ func firstDifference(a, b string) string {
 // brief does not match the line the generator reads, and drops out of the
 // reference with everything under it and no error. Every line a group lists is
 // therefore one the generator reads.
+//
+// Only the subcommands of the top-level groups are checked. A group nested
+// inside one ("updates helper") prints its own list through the same
+// printGroupUsage, so the padding rule holds for it, but the lines it lists are
+// not compared with the reference here.
 func TestEverySubcommandAGroupListsIsInTheReference(t *testing.T) {
 	docs := collectCommandDocs(context.Background())
 	byName := map[string]commandDoc{}

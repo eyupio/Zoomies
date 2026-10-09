@@ -361,6 +361,10 @@ func runGroup(ctx context.Context, e *env, parent, summary string, subs []*subco
 		args[0], parent, strings.Join(names, ", "))
 }
 
+// groupBriefColumn is the width of the name column in a group's usage, which
+// the padding and the check for a line that fills it must agree on.
+const groupBriefColumn = 34
+
 func printGroupUsage(w io.Writer, parent, summary string, subs []*subcommand) {
 	fmt.Fprintf(w, "%s\n\nUsage:\n  zoomies %s <subcommand> [flags]\n\nSubcommands:\n", summary, parent)
 	for _, s := range subs {
@@ -371,10 +375,10 @@ func printGroupUsage(w io.Writer, parent, summary string, subs []*subcommand) {
 		// Two spaces at least before the brief, however long the line: the
 		// reference generator tells the brief from the arguments by them, and a
 		// line with one is left out of it, with everything under it.
-		if len(line) >= 34 {
+		if len(line) >= groupBriefColumn {
 			line += " "
 		}
-		fmt.Fprintf(w, "  %-34s %s\n", line, s.brief)
+		fmt.Fprintf(w, "  %-*s %s\n", groupBriefColumn, line, s.brief)
 	}
 	fmt.Fprintf(w, "\nRun \"zoomies %s <subcommand> --help\" for the flags each one takes.\n", parent)
 }

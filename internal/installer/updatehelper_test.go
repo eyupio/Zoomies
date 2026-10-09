@@ -106,13 +106,13 @@ const fakeVersion = `if [ -f "$here/upgraded" ]; then echo "1.3.5 (abc1234)"; el
 
 // fakeZoomiesScript is fakeZoomies with the shell each command runs, for an
 // engine that has to behave in a particular way.
-func fakeZoomiesScript(t *testing.T, path, version, upgrade string) {
+func fakeZoomiesScript(t *testing.T, path, versionCmd, upgrade string) {
 	t.Helper()
 	script := `#!/bin/sh
 here=$(dirname "$0")
 case "$1" in
 version)
-	` + version + ` ;;
+	` + versionCmd + ` ;;
 upgrade)
 	printf '%s\n' "$@" > "$here/argv"
 	touch "$here/upgraded"

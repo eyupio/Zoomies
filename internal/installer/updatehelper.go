@@ -46,8 +46,9 @@ const (
 	// helperLogLineBytes bounds one line of the helper's log, so one line of the
 	// engine's output with no end cannot be a log of its own.
 	helperLogLineBytes = 4096
-	// maxPointerBytes bounds the pointer, which holds a few paths and a name.
-	maxPointerBytes = 4096
+	// maxPointerBytes bounds the pointer. It is the service's own limit, so that
+	// root never accepts a pointer the service would refuse to read.
+	maxPointerBytes = channel.MaxDocumentBytes
 	// maxVersionBytes bounds the version the installed binary reports, which is a
 	// few characters for any real build.
 	maxVersionBytes = 128

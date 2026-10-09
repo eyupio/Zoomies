@@ -392,6 +392,33 @@ func TestTheHelperIsRefusedAPathThatALinkPutsInAHomeDirectory(t *testing.T) {
 	}
 }
 
+// A link whose target does not exist yet still leads into the home directory it
+// names: the install would create the folder there.
+func TestTheHelperIsRefusedAPathThatADanglingLinkPutsInAHomeDirectory(t *testing.T) {
+	dir := t.TempDir()
+	absolute, relative := filepath.Join(dir, "absolute"), filepath.Join(dir, "relative")
+	mustDo(t, os.Symlink("/home/zoomies-nobody/update", absolute))
+	mustDo(t, os.Symlink("../../../../../../../../../../../../home/zoomies-nobody/update", relative))
+	for name, path := range map[string]string{"absolute": absolute, "relative": relative} {
+		err := checkUnitPath(path)
+		if err == nil || !strings.Contains(err.Error(), "which the helper's unit keeps read-only") {
+			t.Errorf("%s: want a refusal of a path that is really in /home, got: %v", name, err)
+		}
+	}
+}
+
+// A loop of links with nothing at the end of it must end, not be followed for
+// ever.
+func TestResolvingALoopOfDanglingLinksEnds(t *testing.T) {
+	dir := t.TempDir()
+	a, b := filepath.Join(dir, "a"), filepath.Join(dir, "b")
+	mustDo(t, os.Symlink(b, a))
+	mustDo(t, os.Symlink(a, b))
+	if got := resolvedPath(a); got == "" {
+		t.Error("resolvedPath of a loop returned nothing")
+	}
+}
+
 // Root's own folder for the helper is checked with everything else, so one the
 // helper would refuse stops the install before the update folder is made.
 func TestInstallRefusesRootsFolderForTheHelperBeforeWritingAnything(t *testing.T) {
@@ -582,6 +609,9 @@ func TestRemovingTheHelperWaitsForAnUpdateItIsRunning(t *testing.T) {
 	err := RemoveUpdateHelper(context.Background(), h.opts)
 	if err == nil || !strings.Contains(err.Error(), "running an update now") || !strings.Contains(err.Error(), "trigger is off") {
 		t.Fatalf("want a refusal while an update runs, saying the trigger is off, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "sudo zoomies updates helper install") {
+		t.Errorf("the refusal leaves the trigger off and should say how to turn it back on, got: %v", err)
 	}
 	lines := h.runner.lines()
 	disable, look := slices.Index(lines, "systemctl disable --now "+UpdatePathUnit), slices.Index(lines, "systemctl is-active "+UpdateServiceUnit)

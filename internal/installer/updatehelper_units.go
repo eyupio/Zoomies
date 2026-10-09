@@ -523,12 +523,25 @@ func checkUnitPath(path string) error {
 
 // resolvedPath is path with every link in it resolved: a link out of a home
 // directory leads into one all the same. Where the end of the path does not
-// exist yet, the part that does is resolved and the rest kept.
-func resolvedPath(path string) string {
+// exist yet, the part that does is resolved and the rest kept. A link whose
+// target is missing is followed to where it points, because the install would
+// create the folder there.
+func resolvedPath(path string) string { return resolvePath(path, 0) }
+
+// maxLinkHops stops a loop of dangling links from being followed for ever.
+const maxLinkHops = 40
+
+func resolvePath(path string, hops int) string {
 	rest := ""
 	for dir := path; ; dir = filepath.Dir(dir) {
 		if resolved, err := filepath.EvalSymlinks(dir); err == nil {
 			return filepath.Join(resolved, rest)
+		}
+		if target, err := os.Readlink(dir); err == nil && hops < maxLinkHops {
+			if !filepath.IsAbs(target) {
+				target = filepath.Join(filepath.Dir(dir), target)
+			}
+			return filepath.Join(resolvePath(target, hops+1), rest)
 		}
 		if dir == filepath.Dir(dir) {
 			return path
@@ -580,7 +593,7 @@ func stopUpdateTrigger(ctx context.Context, opts InstallHelperOptions) error {
 	}
 	state, _ := o.run(ctx, "systemctl", "is-active", UpdateServiceUnit)
 	if state = strings.TrimSpace(state); slices.Contains([]string{"active", "activating", "deactivating", "reloading"}, state) {
-		return fmt.Errorf("the update helper is running an update now (%s is %s); its trigger is off, so no other will start, and removing it now would stop this one midway: wait for it to finish (journalctl -u zoomies-update -f) and run this again", UpdateServiceUnit, state)
+		return fmt.Errorf("the update helper is running an update now (%s is %s); its trigger is off, so no other will start, and removing it now would stop this one midway: wait for it to finish (journalctl -u zoomies-update -f) and run this again; if you meant to keep the helper, turn its trigger back on with \"sudo zoomies updates helper install\"", UpdateServiceUnit, state)
 	}
 	return nil
 }
