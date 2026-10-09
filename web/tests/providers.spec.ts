@@ -702,7 +702,8 @@ test('Proxmox onboarding waits for one command and fills the connection without 
         expires_at: new Date(Date.now() + 3600000).toISOString(),
         ready: false,
         command: 'sudo zoomies providers connect-proxmox --token test-capability',
-        short_command: 'curl -fsSL https://zoomies.sh/connect-proxmox.sh | sudo sh -s -- --token test-capability',
+        short_command:
+          'curl -fsSL https://zoomies.sh/connect-proxmox.sh | sudo sh -s -- --token test-capability',
       },
     }),
   );
@@ -751,9 +752,13 @@ test('Proxmox onboarding waits for one command and fills the connection without 
   await expect(page.getByText(/Waiting for your Proxmox host/)).toBeVisible();
   // The short command leads; the whole script is one disclosure away.
   await expect(page.getByText('connect-proxmox.sh | sudo sh', { exact: false })).toBeVisible();
-  await expect(page.getByText('sudo zoomies providers connect-proxmox --token test-capability')).toBeHidden();
+  await expect(
+    page.getByText('sudo zoomies providers connect-proxmox --token test-capability'),
+  ).toBeHidden();
   await page.getByText('Show the full command').click();
-  await expect(page.getByText('sudo zoomies providers connect-proxmox --token test-capability')).toBeVisible();
+  await expect(
+    page.getByText('sudo zoomies providers connect-proxmox --token test-capability'),
+  ).toBeVisible();
   hostConnected = true;
   await expect(page.getByText(/Connected to proxmox-pve-1/)).toBeVisible();
   await next(page).click();
