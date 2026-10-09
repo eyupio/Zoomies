@@ -3,3 +3,9 @@
 # CRLF line endings: systemd would read a unit with a stray carriage return on
 # every line, and the tests that render them check exact lines.
 internal/installer/templates/* text eol=lf
+
+# The offline Kennel Club fixtures are hashed: the report names each workflow by
+# its Git blob SHA, and the golden files hold that SHA. A Windows checkout that
+# turned the fixtures' line endings into CRLF would hash different bytes and fail
+# the golden test on every fixture.
+internal/kennel/offline/testdata/** text eol=lf
