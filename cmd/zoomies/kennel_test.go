@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -21,14 +22,18 @@ const fixtures = "../../internal/kennel/offline/testdata"
 func TestKennelCheckPrintsTheGoldenReportForEachFixtureTree(t *testing.T) {
 	for _, name := range []string{"clean", "findings", "hostile"} {
 		t.Run(name, func(t *testing.T) {
-			out, errOut, _ := runCLIFailing(t, "kennel", "check", "--output", "json", "--prompts", filepath.Join(fixtures, name))
+			// The root is passed with forward slashes on every platform, so the
+			// report, which echoes it, reads the same on Windows and the golden
+			// file is one file.
+			root := path.Join(fixtures, name)
+			out, errOut, _ := runCLIFailing(t, "kennel", "check", "--output", "json", "--prompts", root)
 			if errOut != "" && !strings.Contains(errOut, "finding") {
 				t.Errorf("stderr: %s", errOut)
 			}
 			// The root is where the command was pointed, which is a path on this
 			// machine; the golden file holds the fixture's name instead, and
 			// every other byte is the command's own, in its own order.
-			rootLine := `  "root": "` + filepath.Join(fixtures, name) + `",`
+			rootLine := `  "root": "` + root + `",`
 			if !strings.Contains(out, rootLine+"\n") {
 				t.Fatalf("the output does not carry the root as printed:\n%s", out)
 			}
