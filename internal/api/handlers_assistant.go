@@ -26,6 +26,9 @@ type assistantProviderInput struct {
 	Model   *string `json:"model"`
 	Enabled *bool   `json:"enabled"`
 	APIKey  *string `json:"api_key"`
+	// FleetAccess lets the assistant read this fleet through the provider. It
+	// is the administrator's decision per provider, and absent leaves it as it was.
+	FleetAccess *bool `json:"fleet_access"`
 }
 
 func (in assistantProviderInput) apply(p *store.AssistantProvider) {
@@ -44,6 +47,9 @@ func (in assistantProviderInput) apply(p *store.AssistantProvider) {
 	if in.Enabled != nil {
 		p.Enabled = *in.Enabled
 	}
+	if in.FleetAccess != nil {
+		p.FleetAccess = *in.FleetAccess
+	}
 }
 
 // validateAssistantProvider says what is wrong with a row as it would be
@@ -55,7 +61,7 @@ func (in assistantProviderInput) apply(p *store.AssistantProvider) {
 // a row that holds a private address with the switch since turned off can
 // still be disabled, renamed or re-keyed, and only re-saving the address is
 // refused, which is what the switch's own text says.
-func (s *Server) validateAssistantProvider(p *store.AssistantProvider, checkAddress bool) []fieldError {
+func (s *Server) validateAssistantProvider(p *store.AssistantProvider, checkAddress bool, apiKey *string) []fieldError {
 	var errs []fieldError
 	if p.Name == "" || len(p.Name) > 80 {
 		errs = append(errs, fieldError{"name", "give the provider a name of 1 to 80 characters; it is how the cards tell two apart"})
@@ -84,7 +90,50 @@ func (s *Server) validateAssistantProvider(p *store.AssistantProvider, checkAddr
 			errs = append(errs, fieldError{"base_url", f.Title + ". " + f.Fix})
 		}
 	}
+	if assistant.Subscription(kind) {
+		errs = append(errs, subscriptionErrors(p, apiKey)...)
+	}
 	return errs
+}
+
+// subscriptionErrors are what is wrong with a provider that is somebody's own
+// subscription, used through the vendor's own tool: it has no address, since the
+// tool knows where it goes; no key, since Zoomies holds none of a subscription's
+// credentials and the sign-in is made in the vendor's own tool; and no fleet
+// access, since the tool is run with its own tools off and cannot be given Eli's.
+func subscriptionErrors(p *store.AssistantProvider, apiKey *string) []fieldError {
+	var errs []fieldError
+	if p.BaseURL != "" {
+		errs = append(errs, fieldError{"base_url", "this provider has no address: the tool it runs knows where it goes"})
+	}
+	if apiKey != nil && strings.TrimSpace(*apiKey) != "" {
+		errs = append(errs, fieldError{"api_key", "Zoomies never holds a subscription's credentials: sign in with the vendor's own tool on the machine the controller runs on instead"})
+	}
+	if p.FleetAccess {
+		errs = append(errs, fieldError{"fleet_access", "this provider cannot be given Eli's tools yet, so it cannot read the fleet"})
+	}
+	return errs
+}
+
+// ownerOnly refuses a person who is not the owner of a provider that is somebody's
+// own subscription, and says so. Everyone else's use of one would be routing their
+// requests through another person's plan, which its terms do not permit.
+func (s *Server) ownerOnly(w http.ResponseWriter, r *http.Request, row *store.AssistantProvider) bool {
+	if id := Identity(r.Context()); id != nil && controller.UsableBy(row, id.UserID) {
+		return true
+	}
+	writeError(w, http.StatusForbidden, errorEnvelope{Error: errorBody{Code: codeAssistantNotYours, Message: controller.ErrAssistantNotYours.Error()}})
+	return false
+}
+
+// assistantView renders a provider for the person asking: whose it is, and
+// whether it is theirs to use.
+func (s *Server) assistantView(r *http.Request, row *store.AssistantProvider) controller.AssistantProviderView {
+	uid := ""
+	if id := Identity(r.Context()); id != nil {
+		uid = id.UserID
+	}
+	return s.ctrl.AssistantProviderViewFor(r.Context(), row, uid)
 }
 
 func (s *Server) handleListAssistantProviders(w http.ResponseWriter, r *http.Request) {
@@ -95,7 +144,7 @@ func (s *Server) handleListAssistantProviders(w http.ResponseWriter, r *http.Req
 	}
 	items := make([]controller.AssistantProviderView, 0, len(rows))
 	for _, row := range rows {
-		items = append(items, s.ctrl.AssistantProviderView(row))
+		items = append(items, s.assistantView(r, row))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
 }
@@ -114,7 +163,7 @@ func (s *Server) handleGetAssistantProvider(w http.ResponseWriter, r *http.Reque
 		s.fail(w, r, "reading the assistant provider", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.ctrl.AssistantProviderView(row))
+	writeJSON(w, http.StatusOK, s.assistantView(r, row))
 }
 
 func (s *Server) handleCreateAssistantProvider(w http.ResponseWriter, r *http.Request) {
@@ -124,9 +173,19 @@ func (s *Server) handleCreateAssistantProvider(w http.ResponseWriter, r *http.Re
 	}
 	p := &store.AssistantProvider{Enabled: true}
 	in.apply(p)
-	if errs := s.validateAssistantProvider(p, true); len(errs) > 0 {
+	if errs := s.validateAssistantProvider(p, true, in.APIKey); len(errs) > 0 {
 		unprocessable(w, "this provider cannot be created as described", errs)
 		return
+	}
+	if assistant.Subscription(assistant.Kind(p.Kind)) {
+		// It belongs to the person who adds it. A caller that is not a person, or a
+		// token that has no owner, has nobody for it to belong to.
+		id := Identity(r.Context())
+		if id == nil || id.UserID == "" {
+			forbidden(w, "a subscription belongs to a person: add it signed in as yourself, and not with a token that has no owner")
+			return
+		}
+		p.OwnerID = id.UserID
 	}
 	if err := s.ctrl.Store().CreateAssistantProvider(r.Context(), p); err != nil {
 		s.fail(w, r, "creating the assistant provider", err)
@@ -144,7 +203,7 @@ func (s *Server) handleCreateAssistantProvider(w http.ResponseWriter, r *http.Re
 	}
 	view := s.ctrl.AssistantProviderView(fresh)
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "assistant.provider.create", "assistant_provider", p.ID, view)
-	writeJSON(w, http.StatusCreated, view)
+	writeJSON(w, http.StatusCreated, s.assistantView(r, fresh))
 }
 
 func (s *Server) handleUpdateAssistantProvider(w http.ResponseWriter, r *http.Request) {
@@ -153,13 +212,16 @@ func (s *Server) handleUpdateAssistantProvider(w http.ResponseWriter, r *http.Re
 		s.fail(w, r, "reading the assistant provider", err)
 		return
 	}
+	if !s.ownerOnly(w, r, row) {
+		return
+	}
 	var in assistantProviderInput
 	if !decode(w, r, &in) {
 		return
 	}
 	before := s.ctrl.AssistantProviderView(row)
 	in.apply(row)
-	if errs := s.validateAssistantProvider(row, in.BaseURL != nil); len(errs) > 0 {
+	if errs := s.validateAssistantProvider(row, in.BaseURL != nil, in.APIKey); len(errs) > 0 {
 		unprocessable(w, "this provider cannot be changed as described", errs)
 		return
 	}
@@ -179,7 +241,13 @@ func (s *Server) handleUpdateAssistantProvider(w http.ResponseWriter, r *http.Re
 	}
 	view := s.ctrl.AssistantProviderView(fresh)
 	s.auth.Auditor().Updated(r.Context(), Identity(r.Context()), "assistant_provider", row.ID, before, view)
-	writeJSON(w, http.StatusOK, view)
+	if before.FleetAccess != view.FleetAccess {
+		// Its own row, because it is the one setting that decides whether a
+		// stranger's model is shown this fleet, and it should be findable as that.
+		s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "assistant.provider.fleet_access", "assistant_provider", row.ID,
+			map[string]any{"name": view.Name, "fleet_access": view.FleetAccess, "local": view.Local})
+	}
+	writeJSON(w, http.StatusOK, s.assistantView(r, fresh))
 }
 
 // sealAssistantKey seals a key with the instance key and writes it through
@@ -232,6 +300,9 @@ func (s *Server) handleCheckAssistantProvider(w http.ResponseWriter, r *http.Req
 		s.fail(w, r, "reading the assistant provider", err)
 		return
 	}
+	if !s.ownerOnly(w, r, row) {
+		return
+	}
 	check := s.ctrl.CheckAssistantProvider(r.Context(), row)
 	if err := s.ctrl.RecordAssistantProviderCheck(r.Context(), row.ID, check); err != nil {
 		s.internal(w, r, "recording the check", err)
@@ -260,13 +331,16 @@ func (s *Server) handleCheckAssistantDraft(w http.ResponseWriter, r *http.Reques
 			s.fail(w, r, "reading the assistant provider", err)
 			return
 		}
+		if !s.ownerOnly(w, r, row) {
+			return
+		}
 		draft = row
 	}
 	in.apply(draft)
 	if draft.Name == "" {
 		draft.Name = "draft"
 	}
-	if errs := s.validateAssistantProvider(draft, in.BaseURL != nil); len(errs) > 0 {
+	if errs := s.validateAssistantProvider(draft, in.BaseURL != nil, in.APIKey); len(errs) > 0 {
 		unprocessable(w, "this provider cannot be checked as described", errs)
 		return
 	}
@@ -296,6 +370,9 @@ func (s *Server) handleAssistantModels(w http.ResponseWriter, r *http.Request) {
 			s.fail(w, r, "reading the assistant provider", err)
 			return
 		}
+		if !s.ownerOnly(w, r, row) {
+			return
+		}
 		draft = row
 	}
 	in.apply(draft)
@@ -307,7 +384,7 @@ func (s *Server) handleAssistantModels(w http.ResponseWriter, r *http.Request) {
 		// chosen must not be refused for want of one.
 		draft.Model = "unset"
 	}
-	if errs := s.validateAssistantProvider(draft, in.BaseURL != nil); len(errs) > 0 {
+	if errs := s.validateAssistantProvider(draft, in.BaseURL != nil, in.APIKey); len(errs) > 0 {
 		unprocessable(w, "the models of this provider cannot be listed as described", errs)
 		return
 	}
@@ -336,12 +413,14 @@ func (s *Server) handleDefaultAssistantProvider(w http.ResponseWriter, r *http.R
 		s.fail(w, r, "reading the assistant provider", err)
 		return
 	}
+	if !s.ownerOnly(w, r, row) {
+		return
+	}
 	if err := s.ctrl.Store().SetDefaultAssistantProvider(r.Context(), row.ID); err != nil {
 		s.fail(w, r, "choosing the default provider", err)
 		return
 	}
 	fresh, _ := s.ctrl.Store().GetAssistantProvider(r.Context(), row.ID)
-	view := s.ctrl.AssistantProviderView(fresh)
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "assistant.provider.default", "assistant_provider", row.ID, map[string]any{"name": row.Name})
-	writeJSON(w, http.StatusOK, view)
+	writeJSON(w, http.StatusOK, s.assistantView(r, fresh))
 }

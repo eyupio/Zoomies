@@ -38,8 +38,14 @@
 
   const failed = $derived(provider.last_check != null && !provider.last_check.ok);
   const needsKey = $derived(
-    provider.kind !== 'fake' && provider.kind !== 'openai_compatible' && !provider.key_configured,
+    provider.kind !== 'fake' &&
+      provider.kind !== 'openai_compatible' &&
+      !provider.subscription &&
+      !provider.key_configured,
   );
+  // Somebody else's own subscription is not for this person to use, change or test,
+  // only to remove: it holds no credential, and a person who has gone leaves it behind.
+  const notYours = $derived(!provider.usable);
 </script>
 
 <article class="card" aria-labelledby="assistant-{provider.id}-name">
@@ -72,6 +78,26 @@
           title="Its address is this machine or a private network."
         />
       {/if}
+      {#if provider.subscription}
+        <Badge
+          tone="accent"
+          label={provider.owned_by_you
+            ? 'Your subscription'
+            : `${provider.owner || 'Someone'}’s subscription`}
+          size="sm"
+          dot={false}
+          title="Used through Claude Code on the controller’s machine. Only its owner may use it."
+        />
+      {/if}
+      {#if provider.fleet_access}
+        <Badge
+          tone="accent"
+          label="Eli can read the fleet"
+          size="sm"
+          dot={false}
+          title="Runner, job, repository and branch names, and log excerpts when Eli asks for them, are sent to this provider."
+        />
+      {/if}
       {#if !provider.enabled}
         <Badge tone="draining" label="Disabled" size="sm" dot={false} />
       {/if}
@@ -93,6 +119,13 @@
     {#if provider.key_configured}<span>Key set, never shown</span>{/if}
   </p>
 
+  {#if notYours}
+    <p class="meta">
+      Only {provider.owner || 'its owner'} can use, test or change this, because it is their own subscription.
+      You can remove it.
+    </p>
+  {/if}
+
   <p class="check" class:failed>
     {checkSummary(provider.last_check)}
     {#if provider.last_check?.checked_at}
@@ -104,7 +137,7 @@
     <Button
       size="sm"
       icon={Stethoscope}
-      disabled={checking || busy}
+      disabled={checking || busy || notYours}
       onclick={() => oncheck(provider)}
     >
       {checking ? 'Testing…' : 'Test'}
@@ -113,7 +146,7 @@
       size="sm"
       icon={Star}
       variant="secondary"
-      disabled={provider.is_default || busy}
+      disabled={provider.is_default || busy || notYours}
       onclick={() => ondefault(provider)}
     >
       {provider.is_default ? 'Is the default' : 'Set as default'}
@@ -121,13 +154,17 @@
     <Button
       size="sm"
       variant="secondary"
-      disabled={busy}
+      disabled={busy || notYours}
       onclick={() => ontoggle(provider, !provider.enabled)}
     >
       {provider.enabled ? 'Disable' : 'Enable'}
     </Button>
-    <Button size="sm" icon={Pencil} variant="ghost" disabled={busy} onclick={() => onedit(provider)}
-      >Edit</Button
+    <Button
+      size="sm"
+      icon={Pencil}
+      variant="ghost"
+      disabled={busy || notYours}
+      onclick={() => onedit(provider)}>Edit</Button
     >
     <Button
       size="sm"

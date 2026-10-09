@@ -17,6 +17,7 @@
     LayoutDashboard,
     ListChecks,
     Moon,
+    PawPrint,
     Plug,
     Plus,
     RotateCw,
@@ -30,6 +31,7 @@
   } from '@lucide/svelte';
   import type { LucideIcon } from '@lucide/svelte';
   import { cordonHost, drainRunner } from '../api/client';
+  import { eli } from '../assistant/eli.svelte';
   import { layers, trapFocus } from '../keys';
   import { router } from '../router';
   import { fleet } from '../state/fleet.svelte';
@@ -200,6 +202,18 @@
         run: () => theme.cycle(),
       },
     ];
+
+    // Only where there is an Eli to ask.
+    if (eli.available) {
+      out.push({
+        id: 'ask-eli',
+        group: 'Action',
+        label: 'Ask Eli',
+        detail: 'E',
+        icon: PawPrint,
+        run: () => eli.show(),
+      });
+    }
 
     // Offered only where it does something. A palette entry that quietly
     // succeeds at nothing is how an operator stops trusting the palette.

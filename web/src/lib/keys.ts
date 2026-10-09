@@ -204,6 +204,7 @@ export const SHORTCUTS: readonly ShortcutGroup[] = [
       { keys: [modKey, 'K'], description: 'Open the command palette' },
       { keys: ['/'], description: 'Focus the search on this page' },
       { keys: ['R'], description: 'Refresh this page' },
+      { keys: ['E'], description: 'Ask Eli' },
       { keys: ['?'], description: 'Open this list' },
       { keys: ['Esc'], description: 'Close the topmost dialog, drawer or menu' },
     ],
@@ -233,6 +234,8 @@ export interface ShortcutActions {
   search: () => void;
   /** Fetch the current page again. A no-op on a page with nothing to fetch. */
   refresh: () => void;
+  /** Open, or put away, Eli. A no-op where there is no Eli to ask. */
+  eli: () => void;
   go: (path: string) => void;
 }
 
@@ -306,6 +309,11 @@ export function installShortcuts(actions: ShortcutActions): () => void {
     if (e.key === 'r' || e.key === 'R') {
       e.preventDefault();
       actions.refresh();
+      return;
+    }
+    if (e.key === 'e' || e.key === 'E') {
+      e.preventDefault();
+      actions.eli();
       return;
     }
     if (e.key === '?') {

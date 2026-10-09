@@ -690,25 +690,22 @@ everybody, marked rather than hidden.
 ### Assistant
 
 Where an administrator connects the model the assistant talks to. A new provider
-starts as **Ollama Cloud** with its address already filled in; **OpenCode Go**,
+starts as **Ollama Cloud** with its address already filled in; **OpenCode Zen**, **OpenCode Go**,
 a local or other OpenAI-compatible server, Anthropic and OpenAI are one choice
-away, and an address or name you have already typed is never overwritten by
+away, and so is **Claude, my own subscription**, which has no address or key to
+type and is usable only by the person who added it ([how that works](eli.md)), and an address or name you have already typed is never overwritten by
 changing the choice. Once the key is entered the **model** is chosen from the
 list the provider itself offers (**Load the list of models** fetches it, and it
 loads by itself when you leave the key field), so a model the provider has
 retired cannot be picked by mistake. A provider that will not list its models
 leaves the field as a box to type the name into.
 
-Under the provider cards sits **Ask Eli**, a conversation with the default
-provider. Eli is the assistant's name: Extremely Lively Intelligence. A first
-visit offers four things to ask that need no knowledge of your fleet; after that
-your questions sit on the right and Eli's answers on the left, drawn from the
-Markdown a model writes (lists, tables, code with a copy button, links that open
-in a new tab) and never as markup the page runs. The view follows an answer as it
-arrives and stops following when you scroll up to read, with a **Latest** button
-to return. **Stop** ends an answer, **Try again** asks a failed one a second time,
-and **New conversation** clears the page. Eli cannot see the fleet yet and says
-so; the conversation lives in the page and is gone when you leave it.
+Under the provider cards, a card says where Eli is: in the corner of every page,
+for administrators, once there is an enabled default provider. **Open Eli** opens
+it from here, and <kbd>E</kbd> opens it from anywhere. Each provider has a switch,
+**Let Eli read this fleet through this provider**, off until you turn it on, and a
+card says when it is on. The conversation itself, what Eli can see and what is sent
+to the provider are on [their own page](eli.md).
 
 ### Backups
 

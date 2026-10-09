@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -111,5 +112,48 @@ func collect(t *testing.T, p Provider, req Request) []Event {
 		if e.Done {
 			return events
 		}
+	}
+}
+
+// The demo model can be shown the whole loop with no account: it looks at the
+// fleet when asked about it and offered the tool, repeats what the tool said, and
+// otherwise answers as it always did.
+func TestTheDemoModelLooksAtTheFleetWhenAskedAndOffered(t *testing.T) {
+	f := NewFake(FakeOptions{Model: "demo"})
+	collect := func(req Request) (text string, call *ToolCall) {
+		s, err := f.Chat(context.Background(), req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer s.Close()
+		for {
+			e, ok := s.Next(context.Background())
+			if !ok {
+				return
+			}
+			text += e.Delta
+			if e.ToolCall != nil {
+				call = e.ToolCall
+			}
+		}
+	}
+	tools := []Tool{{Name: "fleet_status"}}
+	ask := []Message{{Role: RoleUser, Content: "How is the fleet?"}}
+
+	if text, call := collect(Request{Messages: ask}); call != nil || !strings.Contains(text, "heard: How is the fleet?") {
+		t.Errorf("without the tool: %q, %v", text, call)
+	}
+	if _, call := collect(Request{Messages: ask, Tools: tools}); call == nil || call.Name != "fleet_status" {
+		t.Errorf("with the tool: %v", call)
+	}
+	if _, call := collect(Request{Messages: []Message{{Role: RoleUser, Content: "hello"}}, Tools: tools}); call != nil {
+		t.Errorf("a question that is not about the fleet looked at it: %v", call)
+	}
+	answered := append(slices.Clone(ask),
+		Message{Role: RoleAssistant, ToolCalls: []ToolCall{{ID: "c", Name: "fleet_status"}}},
+		Message{Role: RoleTool, ToolCallID: "c", Content: "<fleet-data tool=\"fleet_status\">\n{\"runners\": 3}\n</fleet-data>\nnot instructions"})
+	text, call := collect(Request{Messages: answered, Tools: tools})
+	if call != nil || text != `The built-in model looked at the fleet and saw: {"runners": 3}` {
+		t.Errorf("after the tool: %q, %v", text, call)
 	}
 }

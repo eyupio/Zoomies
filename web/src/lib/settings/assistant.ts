@@ -2,7 +2,11 @@
  * The Assistant settings page's words and shapes. The API calls live in the
  * client; this is what the page says about what they return.
  */
-import type { AssistantProviderCheck, AssistantProviderKind } from '$lib/api/types';
+import type {
+  AssistantProvider,
+  AssistantProviderCheck,
+  AssistantProviderKind,
+} from '$lib/api/types';
 
 /** One line for a card: what the last Test learned, or that none was run. */
 export function checkSummary(check: AssistantProviderCheck | null | undefined): string {
@@ -18,6 +22,7 @@ export const KIND_LABELS: Record<AssistantProviderKind, string> = {
   openai_compatible: 'OpenAI-compatible server (Ollama, LM Studio, vLLM, OpenRouter)',
   anthropic: 'Anthropic API',
   openai: 'OpenAI API',
+  claude_code: 'Claude, your own subscription (through Claude Code)',
 };
 
 /** The hint under the address field, which changes with the kind. */
@@ -33,8 +38,8 @@ export function baseURLHint(kind: AssistantProviderKind, defaultBaseURL: string)
 /**
  * A provider a person can pick by name. A preset is a kind, an address and the
  * words that help with them: which key to paste, and what to know before they
- * do. Several presets can share one kind; Ollama Cloud and OpenCode Go both
- * speak the OpenAI chat protocol, so they are an address and a hint on top of
+ * do. Several presets can share one kind; Ollama Cloud, OpenCode Zen and OpenCode Go
+ * all speak the OpenAI chat protocol, so they are an address and a hint on top of
  * the OpenAI-compatible adapter and not adapters of their own.
  */
 export interface ProviderPreset {
@@ -47,6 +52,12 @@ export interface ProviderPreset {
   name: string;
   /** Where the key comes from, and anything the person should know first. */
   help: string;
+  /**
+   * Somebody's own subscription, used through the vendor's own tool on the
+   * controller's machine: no address and no key, and the person who adds it is the
+   * only one who may use it.
+   */
+  subscription?: boolean;
 }
 
 export const PRESETS: readonly ProviderPreset[] = [
@@ -59,12 +70,29 @@ export const PRESETS: readonly ProviderPreset[] = [
     help: 'Create a key at ollama.com/settings/keys and name a cloud model from Ollama’s catalogue. The traffic leaves this machine, so it cannot be used while Local models only is on.',
   },
   {
+    id: 'opencode-zen',
+    label: 'OpenCode Zen',
+    kind: 'openai_compatible',
+    baseURL: 'https://opencode.ai/zen/v1',
+    name: 'OpenCode Zen',
+    help: 'Pay as you go; use the key from opencode.ai/auth. Zen serves each model over one of three protocols, and only the models it serves over the OpenAI chat protocol work here (DeepSeek, GLM, Kimi, Mistral and its free models). Claude, GPT, Grok and Gemini models are served over other protocols and are not supported yet. The traffic leaves this machine, so it cannot be used while Local models only is on.',
+  },
+  {
     id: 'opencode-go',
     label: 'OpenCode Go',
     kind: 'openai_compatible',
     baseURL: 'https://opencode.ai/zen/go/v1',
     name: 'OpenCode Go',
-    help: 'Use the key from opencode.ai/auth. The models OpenCode Go serves over the Anthropic Messages format (MiniMax and Qwen, as far as we know) are not supported here yet; the others speak the OpenAI protocol. The traffic leaves this machine, so it cannot be used while Local models only is on.',
+    help: 'The subscription plan; use the key from opencode.ai/auth. Only the models OpenCode Go serves over the OpenAI chat protocol work here (GLM, Kimi, DeepSeek and MiMo, as its documentation lists them). Those it serves over the Anthropic Messages or the OpenAI Responses protocol (Claude, MiniMax, Qwen, GPT and Grok) are not supported yet. The traffic leaves this machine, so it cannot be used while Local models only is on.',
+  },
+  {
+    id: 'claude-code',
+    label: 'Claude, my own subscription (through Claude Code)',
+    kind: 'claude_code',
+    baseURL: '',
+    name: 'Claude (my subscription)',
+    help: 'Uses your own Claude plan through Claude Code, installed on the machine the controller runs on. Sign in there, as the user the controller runs as, with claude auth login: Zoomies never sees the sign-in. It is yours alone, because Anthropic’s terms are that each person uses their own plan, and what you ask goes to Anthropic, so it cannot be used while Local models only is on.',
+    subscription: true,
   },
   {
     id: 'openai-compatible',
@@ -95,4 +123,17 @@ export function presetFor(
     (p) => p.kind === kind && p.baseURL !== '' && trim(p.baseURL) === trim(baseURL),
   );
   return named ?? PRESETS.find((p) => p.kind === kind && p.baseURL === '');
+}
+
+/**
+ * The provider that answers a person: the default, if they may use it, and
+ * otherwise the first they may. It is the rule the controller applies when it is
+ * not told which, written again here so that the page says who will answer before
+ * anything is asked.
+ */
+export function answeringProvider(
+  providers: readonly AssistantProvider[],
+): AssistantProvider | undefined {
+  const usable = providers.filter((p) => p.enabled && p.usable);
+  return usable.find((p) => p.is_default) ?? usable[0];
 }

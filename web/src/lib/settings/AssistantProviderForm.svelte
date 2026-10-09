@@ -7,6 +7,7 @@
   exactly the draft in the form, so a key is proved when it is typed.
 -->
 <script lang="ts">
+  import { untrack } from 'svelte';
   import { supportHint } from '$lib/errors';
   import {
     ApiError,
@@ -50,6 +51,7 @@
   let model = $state('');
   let apiKey = $state('');
   let enabled = $state(true);
+  let fleetAccess = $state(false);
 
   let kinds = $state<readonly { kind: AssistantProviderKind; default_base_url: string }[]>([]);
   // The provider's own list of models, once it has been asked. Empty means not
@@ -63,27 +65,37 @@
   let refusal = $state('');
   let tested = $state('');
 
+  // The form starts from the provider being edited when it opens, and from nothing
+  // it later reads. The reset is untracked on purpose: loading the models reads the
+  // form's own fields, so tracking them made every keystroke, and every change of
+  // a switch, run the reset again, which put the saved values back and asked the
+  // provider for its models once more, without end.
   $effect(() => {
     if (!open) return;
     const r = editing;
-    const start = r ? presetFor(r.kind, r.base_url) : PRESETS.find((p) => p.id === DEFAULT_PRESET);
-    presetId = start?.id ?? DEFAULT_PRESET;
-    name = r?.name ?? start?.name ?? '';
-    kind = r?.kind ?? start?.kind ?? 'openai_compatible';
-    baseURL = r?.base_url ?? start?.baseURL ?? '';
-    model = r?.model ?? '';
-    apiKey = '';
-    enabled = r ? r.enabled : true;
-    errors = {};
-    refusal = '';
-    tested = '';
-    models = [];
-    modelsNote = '';
-    // Editing a provider that already has what it needs: its list is one look away.
-    if (r) void loadModels();
-    void listAssistantProviderKinds()
-      .then((result) => (kinds = result.items ?? []))
-      .catch(() => (kinds = []));
+    untrack(() => {
+      const start = r
+        ? presetFor(r.kind, r.base_url)
+        : PRESETS.find((p) => p.id === DEFAULT_PRESET);
+      presetId = start?.id ?? DEFAULT_PRESET;
+      name = r?.name ?? start?.name ?? '';
+      kind = r?.kind ?? start?.kind ?? 'openai_compatible';
+      baseURL = r?.base_url ?? start?.baseURL ?? '';
+      model = r?.model ?? '';
+      apiKey = '';
+      enabled = r ? r.enabled : true;
+      fleetAccess = r ? r.fleet_access : false;
+      errors = {};
+      refusal = '';
+      tested = '';
+      models = [];
+      modelsNote = '';
+      // Editing a provider that already has what it needs: its list is one look away.
+      if (r) void loadModels();
+      void listAssistantProviderKinds()
+        .then((result) => (kinds = result.items ?? []))
+        .catch(() => (kinds = []));
+    });
   });
 
   // Until the controller has said which kinds it offers, every preset is; after,
@@ -98,6 +110,9 @@
     return choices;
   });
   const preset = $derived(PRESETS.find((p) => p.id === presetId));
+  // Somebody's own subscription has no address to type and no key to hold: it is
+  // used through the vendor's own tool, signed in on the controller's machine.
+  const subscription = $derived(kind === 'claude_code');
   const defaultBaseURL = $derived(kinds.find((k) => k.kind === kind)?.default_base_url ?? '');
   // The hosted kinds have an address of their own when the box is empty.
   const presetBaseURL = $derived(preset?.baseURL || defaultBaseURL);
@@ -123,9 +138,18 @@
     modelsNote = '';
     if (!after) return;
     kind = after.kind;
+    if (name.trim() === '' || name.trim() === (before?.name ?? '')) name = after.name;
+    if (after.subscription) {
+      // Nothing of an address or a key carries over to something that has neither.
+      baseURL = '';
+      apiKey = '';
+      fleetAccess = false;
+      if (model.trim() === '') model = 'sonnet';
+      void loadModels();
+      return;
+    }
     if (baseURL.trim() === '' || baseURL.trim() === (before?.baseURL ?? ''))
       baseURL = after.baseURL;
-    if (name.trim() === '' || name.trim() === (before?.name ?? '')) name = after.name;
   }
 
   function draft(): Record<string, unknown> {
@@ -135,6 +159,7 @@
       base_url: baseURL.trim(),
       model: model.trim(),
       enabled,
+      fleet_access: fleetAccess,
     };
     // Absent leaves the sealed key alone; a new provider sends what it has.
     if (apiKey !== '' || !editing) body.api_key = apiKey;
@@ -158,7 +183,7 @@
    * beside it.
    */
   async function loadModels(): Promise<void> {
-    if (loadingModels || (!baseURL.trim() && !presetBaseURL)) return;
+    if (loadingModels || (!subscription && !baseURL.trim() && !presetBaseURL)) return;
     loadingModels = true;
     modelsNote = '';
     try {
@@ -243,27 +268,31 @@
       />
     </Field>
 
-    <Field
-      id="assistant-base-url"
-      label="Base URL"
-      hint={baseURLHint(kind, defaultBaseURL)}
-      error={errors.base_url}
-    >
-      <Input
+    {#if !subscription}
+      <Field
         id="assistant-base-url"
-        bind:value={baseURL}
-        placeholder={defaultBaseURL || 'http://localhost:11434/v1'}
-        autocomplete="off"
-      />
-    </Field>
+        label="Base URL"
+        hint={baseURLHint(kind, defaultBaseURL)}
+        error={errors.base_url}
+      >
+        <Input
+          id="assistant-base-url"
+          bind:value={baseURL}
+          placeholder={defaultBaseURL || 'http://localhost:11434/v1'}
+          autocomplete="off"
+        />
+      </Field>
+    {/if}
 
     <Field
       id="assistant-model"
       label="Model"
       hint={modelsNote ||
-        (models.length > 0
-          ? 'From the provider’s own list.'
-          : 'As the provider names it. Load the list once the address and key are in.')}
+        (subscription
+          ? 'Claude Code’s own names for its models, which follow its updates.'
+          : models.length > 0
+            ? 'From the provider’s own list.'
+            : 'As the provider names it. Load the list once the address and key are in.')}
       error={errors.model}
     >
       {#if models.length > 0}
@@ -278,27 +307,37 @@
       >
     </div>
 
-    <Field
-      id="assistant-api-key"
-      label="API key"
-      hint={editing?.key_configured
-        ? 'One is set. Type a new one to replace it, or leave this empty to keep it.'
-        : 'Sealed with this fleet’s encryption key and never shown again. A local server usually needs none.'}
-      error={errors.api_key}
-    >
-      <Input
+    {#if !subscription}
+      <Field
         id="assistant-api-key"
-        type="password"
-        bind:value={apiKey}
-        autocomplete="new-password"
-        onblur={() => {
-          // The key is the last thing the list needs; ask when it has been typed.
-          if (apiKey !== '' && models.length === 0) void loadModels();
-        }}
-      />
-    </Field>
+        label="API key"
+        hint={editing?.key_configured
+          ? 'One is set. Type a new one to replace it, or leave this empty to keep it.'
+          : 'Sealed with this fleet’s encryption key and never shown again. A local server usually needs none.'}
+        error={errors.api_key}
+      >
+        <Input
+          id="assistant-api-key"
+          type="password"
+          bind:value={apiKey}
+          autocomplete="new-password"
+          onblur={() => {
+            // The key is the last thing the list needs; ask when it has been typed.
+            if (apiKey !== '' && models.length === 0) void loadModels();
+          }}
+        />
+      </Field>
+    {/if}
 
     <Switch bind:checked={enabled} label="The assistant may use this provider" />
+
+    {#if !subscription}
+      <Switch
+        bind:checked={fleetAccess}
+        label="Let Eli read this fleet through this provider"
+        description="Eli can look at runners, jobs, pools and hosts to answer, and it only reads. What it reads is sent to this provider: runner, job, repository and branch names, and log excerpts when it asks for them. That stays on this network for a provider on this machine or a private one, and leaves it for a hosted one, so leave this off if you do not want that."
+      />
+    {/if}
 
     {#if tested}
       <p class="tested">{tested}</p>

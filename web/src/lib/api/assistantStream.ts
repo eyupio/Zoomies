@@ -11,7 +11,8 @@
 export type ChatFrame =
   | { kind: 'delta'; text: string }
   | { kind: 'usage'; inputTokens: number; outputTokens: number }
-  | { kind: 'done'; provider: string; model: string }
+  | { kind: 'tool'; name: string; status: 'running' | 'done' | 'failed' }
+  | { kind: 'done'; provider: string; model: string; fleetAccess: boolean; tools: string[] }
   | { kind: 'error'; message: string };
 
 export class FrameParser {
@@ -55,8 +56,24 @@ function parseBlock(block: string): ChatFrame | undefined {
       return { kind, text: text('text') };
     case 'usage':
       return { kind, inputTokens: count('input_tokens'), outputTokens: count('output_tokens') };
-    case 'done':
-      return { kind, provider: text('provider'), model: text('model') };
+    case 'tool': {
+      const status = text('status');
+      // A status this page does not know is not a look it can show.
+      if (status !== 'running' && status !== 'done' && status !== 'failed') return undefined;
+      return { kind, name: text('name'), status };
+    }
+    case 'done': {
+      const tools = Array.isArray(payload['tools'])
+        ? payload['tools'].filter((t): t is string => typeof t === 'string')
+        : [];
+      return {
+        kind,
+        provider: text('provider'),
+        model: text('model'),
+        fleetAccess: payload['fleet_access'] === true,
+        tools,
+      };
+    }
     case 'error':
       return { kind, message: text('message') };
     default:
