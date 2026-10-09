@@ -33,8 +33,8 @@ export function baseURLHint(kind: AssistantProviderKind, defaultBaseURL: string)
 /**
  * A provider a person can pick by name. A preset is a kind, an address and the
  * words that help with them: which key to paste, and what to know before they
- * do. Several presets can share one kind; Ollama Cloud and OpenCode Go both
- * speak the OpenAI chat protocol, so they are an address and a hint on top of
+ * do. Several presets can share one kind; Ollama Cloud, OpenCode Zen and OpenCode Go
+ * all speak the OpenAI chat protocol, so they are an address and a hint on top of
  * the OpenAI-compatible adapter and not adapters of their own.
  */
 export interface ProviderPreset {
@@ -59,12 +59,20 @@ export const PRESETS: readonly ProviderPreset[] = [
     help: 'Create a key at ollama.com/settings/keys and name a cloud model from Ollama’s catalogue. The traffic leaves this machine, so it cannot be used while Local models only is on.',
   },
   {
+    id: 'opencode-zen',
+    label: 'OpenCode Zen',
+    kind: 'openai_compatible',
+    baseURL: 'https://opencode.ai/zen/v1',
+    name: 'OpenCode Zen',
+    help: 'Pay as you go; use the key from opencode.ai/auth. Zen serves each model over one of three protocols, and only the models it serves over the OpenAI chat protocol work here (DeepSeek, GLM, Kimi, Mistral and its free models). Claude, GPT, Grok and Gemini models are served over other protocols and are not supported yet. The traffic leaves this machine, so it cannot be used while Local models only is on.',
+  },
+  {
     id: 'opencode-go',
     label: 'OpenCode Go',
     kind: 'openai_compatible',
     baseURL: 'https://opencode.ai/zen/go/v1',
     name: 'OpenCode Go',
-    help: 'Use the key from opencode.ai/auth. The models OpenCode Go serves over the Anthropic Messages format (MiniMax and Qwen, as far as we know) are not supported here yet; the others speak the OpenAI protocol. The traffic leaves this machine, so it cannot be used while Local models only is on.',
+    help: 'The subscription plan; use the key from opencode.ai/auth. Only the models OpenCode Go serves over the OpenAI chat protocol work here (GLM, Kimi, DeepSeek and MiMo, as its documentation lists them). Those it serves over the Anthropic Messages or the OpenAI Responses protocol (Claude, MiniMax, Qwen, GPT and Grok) are not supported yet. The traffic leaves this machine, so it cannot be used while Local models only is on.',
   },
   {
     id: 'openai-compatible',

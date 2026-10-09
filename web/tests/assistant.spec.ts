@@ -256,7 +256,7 @@ test('a refused question says why where the answer would have been', async ({ pa
   await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();
 });
 
-test('Ollama Cloud and OpenCode Go are in the provider list and fill in their addresses', async ({
+test('Ollama Cloud, OpenCode Zen and OpenCode Go are in the provider list and fill in their addresses', async ({
   page,
 }) => {
   await goto(page, '/settings/assistant', 'Assistant');
@@ -270,6 +270,11 @@ test('Ollama Cloud and OpenCode Go are in the provider list and fill in their ad
   await expect(provider).toHaveValue('ollama-cloud');
   await expect(address).toHaveValue('https://ollama.com/v1');
   await expect(name).toHaveValue('Ollama Cloud');
+
+  await provider.selectOption('opencode-zen');
+  await expect(address).toHaveValue('https://opencode.ai/zen/v1');
+  await expect(name).toHaveValue('OpenCode Zen');
+  await expect(form.getByText(/opencode\.ai\/auth/)).toBeVisible();
 
   await provider.selectOption('opencode-go');
   await expect(address).toHaveValue('https://opencode.ai/zen/go/v1');
