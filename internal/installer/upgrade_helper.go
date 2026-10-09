@@ -68,6 +68,13 @@ type helperOffer struct {
 	Requested bool
 	host      upgradeHelperHost
 	run       commandRunner
+	// noSharedFolder, when set, says whether this is a container that runs no
+	// runners. Such a container does not mount the shared folder, so the helper
+	// could only refuse it: asked for by name it gets that refusal in the
+	// helper's words, and offered unasked it would be a question with no answer.
+	// It is a function because the upgrade reads the deployment's settings to
+	// know, and only a container has anything to read.
+	noSharedFolder func(context.Context) bool
 	// hold, when set, is asked once the helper could be installed here, and a
 	// true stops the offer there. It has said why itself.
 	hold func() bool
@@ -91,6 +98,9 @@ func (o helperOffer) offer(ctx context.Context) {
 		return
 	}
 	if helperPresent(host.unitDir, host.stateDir) {
+		return
+	}
+	if !o.Requested && o.noSharedFolder != nil && o.noSharedFolder(ctx) {
 		return
 	}
 	helper, err := host.resolve(o.ConfigDir)
@@ -143,6 +153,9 @@ func (p *upgradePlan) offerUpdateHelper(ctx context.Context) {
 		Out: p.opts.Out, In: p.opts.In, ConfigDir: p.opts.ConfigDir,
 		Interactive: p.opts.Interactive, Requested: p.opts.UpdateHelper,
 		host: helperHostOr(p.opts.helperHost), run: p.opts.run, hold: p.holdForSharedMount,
+		noSharedFolder: func(ctx context.Context) bool {
+			return p.record.Deployment.Containerised() && !p.settings(ctx).runsRunners(p.record.Mode)
+		},
 	}.offer(ctx)
 }
 
@@ -168,17 +181,11 @@ func (p *upgradePlan) holdForSharedMount() bool {
 // account it runs as can be read back from what was installed, and before the
 // summary, which stays the last thing the operator reads.
 func (i *Installer) stepUpdateHelper(ctx context.Context, p Plan) {
-	requested := i.updateHelperRequested()
-	// A container that runs no runners does not mount the shared folder, so the
-	// helper could only refuse it. Asked for by name it gets that refusal in the
-	// helper's words; offered unasked it would be a question with no answer.
-	if p.Deployment.Containerised() && !p.runsRunners() && !requested {
-		return
-	}
 	helperOffer{
 		Out: i.out, In: i.in, ConfigDir: p.ConfigDir,
-		Interactive: i.interactive, Requested: requested,
+		Interactive: i.interactive, Requested: i.updateHelperRequested(),
 		host: helperHostOr(i.opts.helperHost), run: i.opts.run,
+		noSharedFolder: func(context.Context) bool { return p.Deployment.Containerised() && !p.runsRunners() },
 	}.offer(ctx)
 }
 

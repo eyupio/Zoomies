@@ -233,10 +233,7 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 	if err != nil {
 		return err
 	}
-	interactive := false
-	if f, ok := e.in.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
-		interactive = !*nonInteractive && isTerminal(e.out)
-	}
+	interactive := canAsk(e, *nonInteractive)
 	opts := installer.UpgradeOptions{
 		Doctor:    func(ctx context.Context, cfg *config.Config) { upgradeDoctor(ctx, e, cfg) },
 		ConfigDir: *configDir, BinaryPath: *binary, DockerHost: *dockerHost, Runtime: *runtime, Image: *image,

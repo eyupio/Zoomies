@@ -85,7 +85,8 @@ with no backtick or control character; it is refused before the token is spent
 otherwise, see [Naming](naming.md)), `--capacity`,
 `--labels`, `--backend`, `--docker-host`, plus the TLS trio (`--ca-file`,
 `--client-cert`, `--client-key`), `--no-service` to skip installing one, and
-`--non-interactive` with `--yes` for automation.
+`--non-interactive` with `--yes` for automation, and `--update-helper` to add the
+[update helper](security.md#what-the-agent-owns-on-a-host) without being asked.
 
 ## Your fleet
 

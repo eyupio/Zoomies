@@ -13,7 +13,6 @@ import (
 	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/installer"
 	"github.com/eyupio/zoomies/internal/store"
-	"golang.org/x/term"
 )
 
 // runAgent is `zoomies agent`: either the daemon, or its `join` subcommand.
@@ -217,10 +216,7 @@ func runAgentJoin(ctx context.Context, e *env, args []string) error {
 
 	// Asked at a terminal only: a join run from a script has nobody to answer, and
 	// must not take an answer off whatever its input happens to be.
-	interactive := false
-	if f, ok := e.in.(*os.File); ok && term.IsTerminal(int(f.Fd())) {
-		interactive = !*nonInteractive && isTerminal(e.out)
-	}
+	interactive := canAsk(e, *nonInteractive)
 
 	return installer.Join(ctx, installer.JoinOptions{
 		ControllerURL:      strings.TrimRight(url, "/"),

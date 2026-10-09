@@ -418,6 +418,76 @@ func TestAContainerDeploymentIsOfferedTheHelperToo(t *testing.T) {
 	}
 }
 
+// A controller container with no embedded agent mounts no shared folder, so the
+// helper could only refuse it. Init has never asked it; the upgrade used to ask
+// and then print the refusal, which left an operator answering yes to nothing.
+// Asked for by name it still goes ahead, and gets the refusal in the helper's words.
+func TestAControllerContainerThatRunsNoRunnersIsNotOfferedTheHelper(t *testing.T) {
+	for _, tc := range []struct {
+		name          string
+		requested     bool
+		wantQuestion  bool
+		wantInstalled bool
+	}{
+		{name: "unasked", wantQuestion: false, wantInstalled: false},
+		{name: "asked for by name", requested: true, wantInstalled: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			opts, rec := upgradeFixture(t, DeploymentCompose)
+			rec.Mode = ModeController
+			if _, err := WriteDeploymentRecord(rec.Directory, rec); err != nil {
+				t.Fatal(err)
+			}
+			env, err := os.OpenFile(rec.EnvFile, os.O_APPEND|os.O_WRONLY, 0o600)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := env.WriteString("ZOOMIES_AGENT_EMBEDDED=false\n"); err != nil {
+				t.Fatal(err)
+			}
+			_ = env.Close()
+			opts.Mode = ModeController
+
+			host := newInstallHost(t, DeploymentCompose)
+			host.opts.ConfigDir = rec.Directory
+			var out bytes.Buffer
+			host.runner.answer = func(args []string) (string, error) {
+				line := strings.Join(args, " ")
+				switch {
+				case strings.Contains(line, "config --images"):
+					return opts.Image, nil
+				case len(args) > 1 && args[0] == "inspect" && args[1] == "--type":
+					return host.stateDir, nil
+				case len(args) > 0 && args[0] == "inspect":
+					return "true", nil
+				}
+				return "", nil
+			}
+			in := strings.NewReader("y\n")
+			opts.Out, opts.Interactive, opts.In, opts.run = &out, true, in, host.runner.run
+			// --yes answers the deployment's own questions, so that the only
+			// thing left to read the input is the helper's.
+			opts.AssumeYes, opts.UpdateHelper = true, tc.requested
+			opts.helperHost = &upgradeHelperHost{
+				systemdDir: t.TempDir(), unitDir: host.opts.unitDir, stateDir: host.opts.helperStateDir,
+				resolve: func(string) (InstallHelperOptions, error) { return host.opts, nil },
+			}
+			if err := Upgrade(context.Background(), opts); err != nil {
+				t.Fatalf("%v\n%s", err, &out)
+			}
+			if asked := strings.Contains(out.String(), "[y/N]") || in.Len() != len("y\n"); asked != tc.wantQuestion {
+				t.Errorf("asked = %v, want %v:\n%s", asked, tc.wantQuestion, &out)
+			}
+			if got := exists(filepath.Join(host.opts.unitDir, UpdatePathUnit)); got != tc.wantInstalled {
+				t.Errorf("helper installed = %v, want %v:\n%s", got, tc.wantInstalled, &out)
+			}
+			if !tc.requested && strings.Contains(out.String(), "update helper") {
+				t.Errorf("an unasked upgrade of a controller with no runners spoke of the helper:\n%s", &out)
+			}
+		})
+	}
+}
+
 // A host the helper has nothing to serve (a service that runs as root, no
 // zoomies unit) is not asked and not told; one where something is wrong that the
 // operator can put right is told, at a terminal, in the helper's own sentence.

@@ -286,6 +286,16 @@ func TestAgentJoinSaysNothingWhereTheHelperHasNothingToOfferAndReportsARefusal(t
 			t.Errorf("said something on a host without systemd:\n%s", out)
 		}
 	})
+	t.Run("no systemd, asked for by name", func(t *testing.T) {
+		h := newOfferHost(t)
+		h.opts.helperHost.systemdDir = filepath.Join(h.base, "no-systemd")
+		opts := JoinOptions{ConfigDir: h.configDir, Out: h.out, UpdateHelper: true, helperHost: h.opts.helperHost, run: h.runner.run}
+		opts.offerUpdateHelper(context.Background())
+		if out := h.out.String(); !strings.Contains(out, "does not run systemd") || !strings.Contains(out, "The update helper was not added") {
+			t.Errorf("--update-helper was ignored without a word on a host without systemd:\n%s", out)
+		}
+		h.installedNothing(t)
+	})
 	t.Run("already installed", func(t *testing.T) {
 		h := newOfferHost(t)
 		h.install(t)
