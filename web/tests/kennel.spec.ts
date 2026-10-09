@@ -2946,6 +2946,63 @@ test.describe('the cards on the Overview', () => {
     }
   });
 
+  // A summary on the stream replaces the document the page holds. A read the page
+  // asked for earlier can still be on its way when it lands, and its answer is older:
+  // if it is allowed to replace the summary, the cards show the fleet as it was and
+  // nothing says otherwise. Here the read is held on purpose.
+  test('a late answer to an older read does not put back what a newer summary changed', async ({
+    page,
+  }) => {
+    const sandbox = await quietRepository(page);
+    let hold = false;
+    let answered: () => void = () => {};
+    const controllerAnswered = new Promise<void>((resolve) => (answered = resolve));
+    let release: () => void = () => {};
+    const released = new Promise<void>((resolve) => (release = resolve));
+    await page.route('**/api/v1/kennel', async (route) => {
+      if (!hold || route.request().method() !== 'GET') return route.continue();
+      hold = false;
+      const answer = await route.fetch();
+      answered();
+      await released;
+      return route.fulfill({ response: answer });
+    });
+    try {
+      await goto(page, '/kennel', 'Kennel Club');
+      // A change made before the stream is open sends no frame to anybody.
+      await expect(page.locator('p.connection[data-state="live"]')).toBeAttached();
+      const notTracked = page.getByRole('link', { name: /^Not tracked: / });
+      await expect(notTracked).toHaveCount(0);
+
+      hold = true;
+      await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+      // The controller answers while nothing is stopped, and the answer is kept
+      // back. Then a repository is stopped, and the summary that says so arrives.
+      await controllerAnswered;
+      const res = await page.request.put(`/api/v1/kennel/repositories/${sandbox.id}/tracking`, {
+        data: { tracked: false, reason: 'Held back on purpose.' },
+      });
+      expect(res.ok()).toBeTruthy();
+      await expect(notTracked).toHaveCount(1);
+
+      const arrived = page.waitForResponse(
+        (response) =>
+          response.url().endsWith('/api/v1/kennel') && response.request().method() === 'GET',
+      );
+      release();
+      await arrived;
+      // Two frames of the page's own drawing, so the answer has been acted on.
+      await page.evaluate(
+        () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+      );
+      await expect(notTracked).toHaveCount(1);
+    } finally {
+      await page.request.put(`/api/v1/kennel/repositories/${sandbox.id}/tracking`, {
+        data: { tracked: true },
+      });
+    }
+  });
+
   // The whole card is the target, not the small label in it, and it is tall enough
   // for a finger: a phone is where the cards are tapped.
   test('the whole card is the link, and it is a size a finger can use', async ({ page }) => {
