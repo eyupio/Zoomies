@@ -197,8 +197,8 @@ func (a *Agent) features() []string {
 	}
 	// An older agent answers an update task with a failure, so the controller
 	// sends one only where this is offered, and it is offered only while the
-	// helper's marker is there: a request nobody reads would sit until the
-	// attempt timed out.
+	// helper's marker is in a folder a request can be written to: a request
+	// nobody reads would sit until the attempt timed out.
 	if a.selfUpdateReady() {
 		out = append(out, FeatureSelfUpdate)
 	}

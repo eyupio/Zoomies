@@ -347,6 +347,41 @@ func TestReadMarkerSaysWhetherTheHelperIsInstalled(t *testing.T) {
 	}
 }
 
+// A helper is ready only in a folder WriteRequest would write into. A folder
+// that is a link reads its target's marker, and an agent that offered to update
+// itself from one would answer every update with a refusal.
+func TestReadyReadsTheMarkerOnlyFromAFolderARequestCanBeWrittenTo(t *testing.T) {
+	marker := `{"v":1,"version":"1.3.4","binary":"/usr/local/bin/zoomies","installed_at":"2026-10-01T08:00:00Z"}`
+
+	_, dir := updateFolder(t)
+	if _, ok, err := Ready(dir); ok || err != nil {
+		t.Errorf("Ready without a marker = ok %v, err %v, want absent", ok, err)
+	}
+	write(t, filepath.Join(dir, MarkerFile), marker)
+	if got, ok, err := Ready(dir); !ok || err != nil || got.Version != "1.3.4" {
+		t.Errorf("Ready with a marker = %+v, ok %v, err %v, want the marker", got, ok, err)
+	}
+
+	parent := t.TempDir()
+	if _, ok, err := Ready(filepath.Join(parent, "update")); ok || err != nil {
+		t.Errorf("Ready without a folder = ok %v, err %v, want absent", ok, err)
+	}
+
+	file := filepath.Join(parent, "file")
+	write(t, file, marker)
+	if _, ok, err := Ready(file); ok || err == nil {
+		t.Errorf("Ready on a file = ok %v, err %v, want an error", ok, err)
+	}
+
+	link := filepath.Join(parent, "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Skipf("cannot make a symbolic link here: %v", err)
+	}
+	if _, ok, err := Ready(link); ok || err == nil || !strings.Contains(err.Error(), "link") {
+		t.Errorf("Ready on a link to a ready folder = ok %v, err %v, want an error that says it is a link", ok, err)
+	}
+}
+
 func TestReadMarkerRefusesWhatItCannotTrust(t *testing.T) {
 	for name, body := range map[string]string{
 		"invalid json":      "{",

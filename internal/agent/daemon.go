@@ -295,11 +295,16 @@ type Agent struct {
 	// leased.
 	memory            memoryRules
 	memoryUnsupported map[store.BackendKind]string
-	// updateDelivered holds the ids of helper results a heartbeat has carried
-	// to the controller. It lives only as long as the process, on purpose: the
-	// process after an update cannot know what the one before it delivered, so
-	// it sends what it finds once more and the controller ignores a repeat.
+	// updateDelivered holds the helper results a heartbeat has carried to the
+	// controller, each by the id the helper wrote and when it finished (see
+	// updateKey). It lives only as long as the process, on purpose: the process
+	// after an update cannot know what the one before it delivered, so it sends
+	// what it finds once more and the controller ignores a repeat.
 	updateDelivered map[string]bool
+	// updateWritten holds the attempt ids this process has written a request
+	// for, so that a redelivered task is answered as written and not refused by
+	// its own request. Guarded by update, not mu.
+	updateWritten map[string]bool
 
 	// polled records that at least one task poll has completed since start.
 	// The reconciler will not delete anything until it has, so a controller
@@ -852,7 +857,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	m := a.machine()
 	cpus, memoryMB := hostSize(infos, m)
 	total, free := a.workDirSpace()
-	update := a.updateReport()
+	update, delivery := a.updateReport()
 	resp, err := a.tr.Heartbeat(hctx, HeartbeatRequest{
 		Doctor:          a.latestDoctor(ctx),
 		Usage:           a.hostUsage(infos, cpus, memoryMB),
@@ -874,7 +879,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		return err
 	}
 	if update != nil {
-		a.markUpdateDelivered(update.ID)
+		a.markUpdateDelivered(delivery)
 	}
 	a.mu.Lock()
 	a.missedBeats = 0

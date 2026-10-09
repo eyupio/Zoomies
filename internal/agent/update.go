@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"strconv"
 	"strings"
 	"time"
 	"unicode"
@@ -15,11 +16,15 @@ import (
 )
 
 const (
-	// updateReportWindow is how long after the helper finished its result is
-	// still news. A new process cannot know whether the one before it delivered
-	// the result, so it sends what it finds once; a result older than this
-	// belongs to an attempt the controller has closed by its own timeout.
-	updateReportWindow = time.Hour
+	// updateReportWindow is how far from now, either way, a result's finish may
+	// be and still be news. The controller closes an attempt that has had no
+	// answer for 90 minutes, so a result older than that answers an attempt that
+	// is already closed; the ten minutes over are for a helper that finished just
+	// before the timeout, on a beat that came just after it. A finish as far in
+	// the future is a clock or a file that cannot be trusted. A new process cannot
+	// know whether the one before it delivered a result, so it sends what it finds
+	// within the window once.
+	updateReportWindow = 100 * time.Minute
 	// maxUpdateErrorRunes bounds the helper's sentence on the wire. The result
 	// file can carry far more, and the rest is in the helper's log tail on the
 	// host, which is where somebody reading a long failure goes anyway.
@@ -53,7 +58,7 @@ func (a *Agent) selfUpdateReady() bool {
 	if !ok {
 		return false
 	}
-	_, found, err := channel.ReadMarker(dir)
+	_, found, err := channel.Ready(dir)
 	return err == nil && found
 }
 
@@ -76,6 +81,16 @@ func (a *Agent) handleUpdate(ctx context.Context, task Task) {
 	}
 	if ctx.Err() != nil {
 		a.reportNotStarted(ctx, task)
+		return
+	}
+	// A task the controller redelivers because it did not see the answer finds
+	// its own request still waiting, which is what it asked for and not a
+	// reason to fail. Only this process's writes are remembered: a request
+	// written by the process before an update is that update's, and is answered
+	// by the version check below once the new binary is running.
+	if a.updateWritten[task.UpdateID] {
+		a.log.Info("asked again for an update this agent has already handed to the helper", "attempt", task.UpdateID)
+		a.answerUpdate(ctx, task, "")
 		return
 	}
 
@@ -101,10 +116,10 @@ func (a *Agent) handleUpdate(ctx context.Context, task Task) {
 			helperInstallCommand+" on the host")
 		return
 	}
-	switch _, found, err := channel.ReadMarker(dir); {
+	switch _, found, err := channel.Ready(dir); {
 	case err != nil:
-		a.log.Warn("could not read the update helper's marker", "attempt", task.UpdateID, "error", err)
-		a.answerUpdate(ctx, task, "the update helper's marker on this host cannot be read, so the helper is treated as missing; run "+
+		a.log.Warn("the update folder is not as the installer leaves it", "attempt", task.UpdateID, "error", err)
+		a.answerUpdate(ctx, task, "this host's update folder, or the helper's marker in it, is not as the installer leaves it, so the helper is treated as missing; run "+
 			helperInstallCommand+" on the host to install it again")
 		return
 	case !found:
@@ -139,6 +154,10 @@ func (a *Agent) handleUpdate(ctx context.Context, task Task) {
 			helperInstallCommand+" on the host, which creates the folder with the right owner, and see the agent's log there for the reason")
 		return
 	}
+	if a.updateWritten == nil {
+		a.updateWritten = make(map[string]bool)
+	}
+	a.updateWritten[task.UpdateID] = true
 	a.log.Info("asked the update helper to update this host", "attempt", task.UpdateID, "from", running, "to", tag)
 	a.answerUpdate(ctx, task, "")
 }
@@ -160,54 +179,67 @@ func (a *Agent) updateRequestedBy() string {
 	return cutBytes(printableText("the controller, through the agent on "+a.opts.Name), maxRequestedBy)
 }
 
-// updateReport is the helper's last result, for the next heartbeat to carry, or
-// nil when there is nothing new to say. A result is carried until a beat that
-// carried it has been answered, then not again by this process.
+// updateReport is the helper's last result, for the next heartbeat to carry,
+// and the key to mark it delivered by; nil when there is nothing new to say. A
+// result is carried until a beat that carried it has been answered, then not
+// again by this process.
 //
 // result.json is written by root, but the folder belongs to the service account,
 // so anything in it may have been put there by something else. It is read with
-// the channel's limits and every field is cut to size and stripped of what a page
-// must not show; whether it answers an attempt is the controller's to decide.
-func (a *Agent) updateReport() *UpdateReport {
+// the channel's limits; whether it answers an attempt is the controller's to
+// decide.
+func (a *Agent) updateReport() (*UpdateReport, string) {
 	dir, ok := a.updateDir()
 	if !ok {
-		return nil
+		return nil, ""
 	}
 	res, found, err := channel.ReadResult(dir)
 	if err != nil {
 		a.log.Debug("ignoring a result in the update folder that cannot be read", "error", err)
-		return nil
+		return nil, ""
 	}
 	if !found || res.FinishedAt.IsZero() {
-		return nil
+		return nil, ""
 	}
 	if age := a.now().Sub(res.FinishedAt); age > updateReportWindow || age < -updateReportWindow {
-		return nil
+		return nil, ""
 	}
-	id := fieldText(res.ID)
+	key := updateKey(res)
 	a.mu.Lock()
-	delivered := a.updateDelivered[id]
+	delivered := a.updateDelivered[key]
 	a.mu.Unlock()
 	if delivered {
-		return nil
+		return nil, ""
 	}
+	// The helper's sentence is relayed, not trusted: it is stripped of what a
+	// terminal or a browser would act on and cut to a sentence's length here,
+	// and the controller shows it to the platform role only.
 	return &UpdateReport{
-		ID: id, OK: res.OK, Tag: fieldText(res.Tag), From: fieldText(res.From), To: fieldText(res.To),
+		ID: fieldText(res.ID), OK: res.OK, Tag: fieldText(res.Tag), From: fieldText(res.From), To: fieldText(res.To),
 		Error:      truncateRunes(printableText(res.Error), maxUpdateErrorRunes),
 		FinishedAt: res.FinishedAt.UTC(),
-	}
+	}, key
 }
 
-// markUpdateDelivered records that a heartbeat carrying the result with this id
-// was answered, so later beats leave it out. It is called only after the beat
-// succeeded: a beat that failed may never have reached the controller.
-func (a *Agent) markUpdateDelivered(id string) {
+// updateKey names one result by what the helper wrote, not by what is sent.
+// The id alone is not enough: a refusal of a request the helper cannot trust
+// carries none, and each such refusal answers a different attempt. And the id
+// as sent is cleaned and cut, so two ids that differ only where the cleaning
+// reaches would otherwise be taken for one.
+func updateKey(res updates.Result) string {
+	return res.ID + "\x00" + strconv.FormatInt(res.FinishedAt.UnixNano(), 10)
+}
+
+// markUpdateDelivered records that a heartbeat carrying the result with this
+// key was answered, so later beats leave it out. It is called only after the
+// beat succeeded: a beat that failed may never have reached the controller.
+func (a *Agent) markUpdateDelivered(key string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	if a.updateDelivered == nil {
 		a.updateDelivered = make(map[string]bool)
 	}
-	a.updateDelivered[id] = true
+	a.updateDelivered[key] = true
 }
 
 // printableText is s with what a terminal or a page would act on taken out: a

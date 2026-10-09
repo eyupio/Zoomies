@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/eyupio/zoomies/internal/updates"
 	"github.com/eyupio/zoomies/internal/updates/channel"
@@ -129,12 +130,34 @@ func TestAnAgentAdvertisesSelfUpdateOnlyWhileItsHelperIsReady(t *testing.T) {
 	if slices.Contains(req.Features, FeatureSelfUpdate) {
 		t.Fatalf("an agent with no update folder advertised self-update: %v", req.Features)
 	}
+
+	// A folder that is a link reads its target's marker, but a request is never
+	// written through one, so offering the flag there promises what every update
+	// task would then refuse.
+	if runtime.GOOS == "windows" {
+		return
+	}
+	link := filepath.Join(t.TempDir(), "update")
+	if err := os.Symlink(readyUpdateFolder(t), link); err != nil {
+		t.Fatal(err)
+	}
+	linked, ltr, _ := joined(t, withUpdateFolder(link))
+	if req, err := beatOnce(t, linked, ltr); err != nil {
+		t.Fatal(err)
+	} else if slices.Contains(req.Features, FeatureSelfUpdate) {
+		t.Fatalf("an agent whose update folder is a link advertised self-update: %v", req.Features)
+	}
 }
 
 func TestAnUpdateTaskWritesTheRequestAndReportsItWritten(t *testing.T) {
 	runningBuild(t, "1.3.0")
 	dir := readyUpdateFolder(t)
-	h := newHarness(t, 1, withUpdateFolder(dir))
+	// The host's clock need not be in UTC, and the request must be all the same.
+	localTime := func(o *Options) {
+		utc := o.Clock
+		o.Clock = func() time.Time { return utc().In(time.FixedZone("CEST", 2*60*60)) }
+	}
+	h := newHarness(t, 1, withUpdateFolder(dir), localTime)
 
 	h.tr.tasks <- []Task{updateTask("task-1", "upd_abc123", "v1.3.5")}
 	res := h.nextResult()
@@ -351,22 +374,36 @@ func TestTheHeartbeatCarriesTheHelpersResultUntilOneSucceeds(t *testing.T) {
 	}
 }
 
-// A result from long ago belongs to an attempt the controller closed long ago,
-// most likely by its timeout, and a new process has no way to know it was sent.
-func TestAResultFromMoreThanAnHourAgoIsNotReported(t *testing.T) {
-	dir := readyUpdateFolder(t)
-	a, tr, clock := joined(t, withUpdateFolder(dir))
-	finished := clock.Now().Add(-61 * time.Minute)
-	writeJSON(t, filepath.Join(dir, channel.ResultFile), updates.Result{
-		V: updates.WireVersion, ID: "upd_abc123", OK: true, Tag: "v1.3.5", From: "1.3.0", To: "1.3.5",
-		StartedAt: finished.Add(-time.Minute), FinishedAt: finished,
-	})
-	req, err := beatOnce(t, a, tr)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if req.Update != nil {
-		t.Fatalf("the beat carried %+v, a result finished more than an hour ago", req.Update)
+// A result outside the attempt's lifetime belongs to an attempt the controller
+// has already closed by its timeout, and a new process has no way to know it was
+// sent. A finish far in the future is a clock or a file that cannot be trusted.
+func TestAResultOutsideTheAttemptWindowIsNotReported(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		offset time.Duration
+		want   bool
+	}{
+		{"finished 99 minutes ago", -99 * time.Minute, true},
+		{"finished 101 minutes ago", -101 * time.Minute, false},
+		{"dated 99 minutes ahead", 99 * time.Minute, true},
+		{"dated 101 minutes ahead", 101 * time.Minute, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := readyUpdateFolder(t)
+			a, tr, clock := joined(t, withUpdateFolder(dir))
+			finished := clock.Now().Add(tc.offset)
+			writeJSON(t, filepath.Join(dir, channel.ResultFile), updates.Result{
+				V: updates.WireVersion, ID: "upd_abc123", OK: true, Tag: "v1.3.5", From: "1.3.0", To: "1.3.5",
+				StartedAt: finished.Add(-time.Minute), FinishedAt: finished,
+			})
+			req, err := beatOnce(t, a, tr)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := req.Update != nil; got != tc.want {
+				t.Fatalf("the beat carried %+v, want a report %v", req.Update, tc.want)
+			}
+		})
 	}
 }
 
@@ -423,5 +460,196 @@ func TestAnUpdateTaskNeverReportsRunnerFailure(t *testing.T) {
 				t.Fatalf("the update task reported %+v, which names a runner's failure", res)
 			}
 		})
+	}
+}
+
+// deliveredOnce writes a result, and checks that the next beat carries it and
+// the one after does not.
+func deliveredOnce(t *testing.T, a *Agent, tr *fakeTransport, dir string, res updates.Result) *UpdateReport {
+	t.Helper()
+	writeJSON(t, filepath.Join(dir, channel.ResultFile), res)
+	first, err := beatOnce(t, a, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if first.Update == nil {
+		t.Fatalf("the result %q finished at %v was not carried", res.ID, res.FinishedAt)
+	}
+	second, err := beatOnce(t, a, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Update != nil {
+		t.Fatalf("the result %q was carried again after a beat that carried it was answered", res.ID)
+	}
+	return first.Update
+}
+
+// The helper refuses a request it cannot trust without echoing an id, and the
+// controller closes the open attempt with that refusal. A second refusal is a
+// second answer, and swallowing it would leave its attempt to time out with no
+// reason given.
+func TestEveryRefusalWithoutAnIDIsDelivered(t *testing.T) {
+	dir := readyUpdateFolder(t)
+	a, tr, clock := joined(t, withUpdateFolder(dir))
+	for _, ago := range []time.Duration{20 * time.Minute, 5 * time.Minute} {
+		got := deliveredOnce(t, a, tr, dir, updates.Result{
+			V: updates.WireVersion, OK: false, Error: "the request is not the document the helper reads",
+			StartedAt: clock.Now().Add(-ago), FinishedAt: clock.Now().Add(-ago),
+		})
+		if got.ID != "" || got.OK {
+			t.Fatalf("the refusal was carried as %+v", got)
+		}
+	}
+}
+
+// What is sent is cleaned and cut, but what was delivered is remembered by what
+// the helper wrote, so two results that look alike once cleaned are two results.
+func TestResultsWhoseIDsLookAlikeAreEachDelivered(t *testing.T) {
+	long := "upd_" + strings.Repeat("a", 80)
+	for name, ids := range map[string][2]string{
+		"differing in an unprintable character": {"upd_abc\x01", "upd_abc\x02"},
+		"differing past the cut":                {long + "1", long + "2"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			dir := readyUpdateFolder(t)
+			a, tr, clock := joined(t, withUpdateFolder(dir))
+			finished := clock.Now().Add(-5 * time.Minute)
+			for _, id := range ids {
+				deliveredOnce(t, a, tr, dir, updates.Result{
+					V: updates.WireVersion, ID: id, OK: true, Tag: "v1.3.5",
+					StartedAt: finished.Add(-time.Minute), FinishedAt: finished,
+				})
+			}
+		})
+	}
+}
+
+// result.json is in a folder the service account can write, so what it says is
+// untrusted text on its way to a page. Every field is cut to the length it has
+// when the helper wrote it, and nothing a terminal or a browser would act on
+// survives.
+func TestTheHelpersResultIsCleanedAndBoundedBeforeItIsSent(t *testing.T) {
+	dir := readyUpdateFolder(t)
+	a, tr, clock := joined(t, withUpdateFolder(dir))
+	long := strings.Repeat("x", 300)
+	hostile := "1.3.0\x1b[2J\nroot:\u202eevil\x07"
+	finished := clock.Now().Add(-5 * time.Minute)
+	writeJSON(t, filepath.Join(dir, channel.ResultFile), updates.Result{
+		V: updates.WireVersion, ID: long, OK: false, Tag: long, From: hostile, To: long + hostile,
+		Error: strings.Repeat("é", 5000), StartedAt: finished, FinishedAt: finished,
+	})
+	req, err := beatOnce(t, a, tr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := req.Update
+	if got == nil {
+		t.Fatal("the result was not carried")
+	}
+	if n := utf8.RuneCountInString(got.Error); n > maxUpdateErrorRunes+3 || n < maxUpdateErrorRunes {
+		t.Errorf("the error is %d characters, want it cut to %d", n, maxUpdateErrorRunes)
+	}
+	for field, v := range map[string]string{"id": got.ID, "tag": got.Tag, "from": got.From, "to": got.To} {
+		if n := utf8.RuneCountInString(v); n > maxUpdateFieldRunes+3 {
+			t.Errorf("%s is %d characters, want at most %d", field, n, maxUpdateFieldRunes)
+		}
+		if strings.ContainsFunc(v, func(r rune) bool { return !unicode.IsGraphic(r) }) {
+			t.Errorf("%s carries characters a page must not show: %q", field, v)
+		}
+	}
+	if !strings.HasPrefix(got.From, "1.3.0") {
+		t.Errorf("from lost the version in front of the noise: %q", got.From)
+	}
+}
+
+// A build from main is stamped main-sha-..., which nothing can order against a
+// release, and it is usually ahead of the newest one. Asking for the release
+// could be a downgrade, so the agent says why it will not.
+func TestADevelopmentBuildDoesNotAskForAnUpdate(t *testing.T) {
+	runningBuild(t, "dev")
+	dir := readyUpdateFolder(t)
+	h := newHarness(t, 1, withUpdateFolder(dir))
+
+	h.tr.tasks <- []Task{updateTask("task-1", "upd_abc123", "v1.3.5")}
+	res := h.nextResult()
+	if res.OK || !strings.Contains(res.Error, "not a release") || !strings.Contains(res.Error, "zoomies upgrade") {
+		t.Fatalf("the update task reported %+v, want a refusal that says the build is not a release", res)
+	}
+	noRequestIn(t, dir)
+}
+
+// The id is the one field of the request the task supplies unchecked by
+// validateTask. A request the helper would refuse is the controller's mistake,
+// and saying so beats a sentence about the folder that sends somebody to
+// reinstall a helper that is fine.
+func TestAnUpdateTaskWithAnIDTheHelperWouldRefuseWritesNothing(t *testing.T) {
+	runningBuild(t, "1.3.0")
+	dir := readyUpdateFolder(t)
+	h := newHarness(t, 1, withUpdateFolder(dir))
+
+	h.tr.tasks <- []Task{updateTask("task-1", "x", "v1.3.5")}
+	res := h.nextResult()
+	if res.OK || !strings.Contains(res.Error, "would refuse") {
+		t.Fatalf("the update task reported %+v, want a refusal that blames the request", res)
+	}
+	noRequestIn(t, dir)
+}
+
+// requested_by goes into a log root owns, so the helper refuses one that is long
+// or carries anything unprintable. The host's name is the operator's to choose
+// and may be either, and that must not cost the host its update.
+func TestTheRequestSaysWhoAskedInWhatTheHelperAccepts(t *testing.T) {
+	runningBuild(t, "1.3.0")
+	dir := readyUpdateFolder(t)
+	name := "build\x1b[31m\u202e01\n" + strings.Repeat("é", 100)
+	h := newHarness(t, 1, withUpdateFolder(dir), func(o *Options) { o.Name = name })
+
+	h.tr.tasks <- []Task{updateTask("task-1", "upd_abc123", "v1.3.5")}
+	if res := h.nextResult(); !res.OK {
+		t.Fatalf("the update task reported %+v, want the request written", res)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, channel.RequestFile))
+	if err != nil {
+		t.Fatalf("no request was written: %v", err)
+	}
+	req, err := updates.ParseRequest(body)
+	if err != nil {
+		t.Fatalf("the request is one the helper would refuse: %v", err)
+	}
+	by := req.RequestedBy
+	if len(by) > maxRequestedBy || !utf8.ValidString(by) || strings.ContainsRune(by, utf8.RuneError) {
+		t.Errorf("requested_by = %q (%d bytes), want at most %d bytes cut at a character", by, len(by), maxRequestedBy)
+	}
+	if !strings.Contains(by, "build") || !strings.Contains(by, "é") {
+		t.Errorf("requested_by = %q lost the host's name", by)
+	}
+}
+
+// The controller redelivers a task whose result it did not see. The request
+// from the first delivery is still waiting for the helper, which is the answer
+// the controller asked for, not a reason to fail the attempt.
+func TestARedeliveredUpdateTaskIsAnsweredAgainWithoutASecondRequest(t *testing.T) {
+	runningBuild(t, "1.3.0")
+	dir := readyUpdateFolder(t)
+	h := newHarness(t, 1, withUpdateFolder(dir))
+
+	h.tr.tasks <- []Task{updateTask("task-1", "upd_abc123", "v1.3.5")}
+	if res := h.nextResult(); !res.OK {
+		t.Fatalf("the first delivery reported %+v", res)
+	}
+	first, err := os.ReadFile(filepath.Join(dir, channel.RequestFile))
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.clock.advance(time.Minute)
+
+	h.tr.tasks <- []Task{updateTask("task-1", "upd_abc123", "v1.3.5")}
+	if res := h.nextResult(); !res.OK || res.Error != "" {
+		t.Fatalf("the redelivery reported %+v, want OK again", res)
+	}
+	again, err := os.ReadFile(filepath.Join(dir, channel.RequestFile))
+	if err != nil || string(again) != string(first) {
+		t.Fatalf("the request is now %q (err %v), want the first one untouched", again, err)
 	}
 }

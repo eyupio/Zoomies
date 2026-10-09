@@ -178,6 +178,27 @@ func ReadMarker(dir string) (Marker, bool, error) {
 	return m, true, nil
 }
 
+// Ready says whether the helper is installed in a folder a request can be
+// written to. It is ReadMarker behind the look WriteRequest takes at the folder
+// itself: a folder that is a link reads its target's marker, and WriteRequest
+// refuses to write through one, so a caller that offered updates on the marker
+// alone would offer what every request then refuses.
+//
+// An absent folder is an answer, like an absent marker; a name that is there and
+// is not a folder is an error that says what it is.
+func Ready(dir string) (Marker, bool, error) {
+	info, err := os.Lstat(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return Marker{}, false, nil
+	case err != nil:
+		return Marker{}, false, fmt.Errorf("cannot look at the update folder %s: %w", dir, err)
+	case !info.IsDir():
+		return Marker{}, false, fmt.Errorf("the update folder %s is not a folder (it is a %s)", dir, kind(info.Mode()))
+	}
+	return ReadMarker(dir)
+}
+
 // syncRequest flushes the temporary file before it is renamed into place. It is
 // a variable so that a test can make the flush fail, which is how a full disk
 // shows itself when the write was only buffered.
