@@ -48,6 +48,11 @@ const (
 	CodeTargetEventRan           Code = "exposure.target_event_ran"
 	CodeUnservedLabel            Code = "capacity.unserved_label"
 	CodeJobHitDefaultLimit       Code = "capacity.job_hit_default_limit"
+	CodeTargetCheckoutPRHead     Code = "exposure.target_checkout_pr_head"
+	CodeWorkflowUnreadable       Code = "ci.workflow_unreadable"
+	CodePinsWithoutUpdater       Code = "ci.pins_without_updater"
+	CodeLabelUnserved            Code = "ci.label_unserved"
+	CodeSecretOnCommandLine      Code = "ci.secret_on_command_line"
 )
 
 // Area groups codes for the operator, who can turn a whole area off.
@@ -191,6 +196,15 @@ var checks = []Check{
 		eval:   evalTargetEventRan,
 	},
 	{
+		Code: CodeTargetCheckoutPRHead, Area: AreaExposure, Severity: SeverityError,
+		Detects: "A workflow that strangers can trigger (pull_request_target) checks out the pull request's own code, which then runs with the repository's token and secrets.",
+		Needs:   []Source{SourceMetadata, SourceWorkflows},
+		Fix:     "Do not check out the pull request's head under pull_request_target; read what the event carries, or run the code under pull_request, where it gets the fork's lesser token and no secrets.",
+		Verify:  "Press Recheck after the change reaches the default branch; the finding closes when no pull_request_target workflow checks out the pull request's head.",
+		Docs:    docsAnchor(CodeTargetCheckoutPRHead),
+		eval:    evalTargetCheckoutPRHead,
+	},
+	{
 		Code: CodeUnservedLabel, Area: AreaCapacity, Severity: SeverityWarning,
 		Detects: "Jobs waited more than ten minutes for a label no pool serves.",
 		Needs:   []Source{SourceFleet},
@@ -230,6 +244,24 @@ var checks = []Check{
 	workflowCheck(CodePermissionsUnset, AreaToken, SeverityWarning, "Jobs inherit token permissions without a declaration at workflow or job level.",
 		"Declare the least permissions each workflow or job needs, after reading what its actions and publishing steps use.",
 		"Press Recheck after the change reaches the default branch; the finding closes when every job has a permissions block of its own or its workflow's.", evalPermissionsUnset),
+	workflowCheck(CodeWorkflowUnreadable, AreaCI, SeverityWarning, "A workflow file could not be read within Kennel Club's limits, so nothing in it was judged.",
+		"Bring the file within the limits: under 256 KiB, no YAML anchors, aliases or merge keys, no duplicate keys, one document, valid UTF-8 and a jobs mapping; or split it into smaller workflows.",
+		"Press Recheck after the change reaches the default branch; the finding closes when the file is read and judged.", evalWorkflowUnreadable),
+	{
+		Code: CodePinsWithoutUpdater, Area: AreaCI, Severity: SeverityInfo,
+		Detects: "Actions are pinned to commits but no updater configuration moves the pins, so they age until somebody remembers.",
+		Needs:   []Source{SourceMetadata, SourceWorkflows}, Conditional: []Source{SourceSetup},
+		Fix:    "Configure Dependabot or Renovate for GitHub Actions so the pinned commits are moved by pull request, or confirm that an external service moves them.",
+		Verify: "Press Recheck once the configuration is on the default branch; the finding closes when the next tree read finds it.",
+		Docs:   docsAnchor(CodePinsWithoutUpdater),
+		eval:   evalPinsWithoutUpdater,
+	},
+	workflowCheck(CodeLabelUnserved, AreaCI, SeverityInfo, "A job's runs-on names labels no pool here serves, so the job will wait until a pool matches it.",
+		"Change the job's runs-on to labels a pool serves, or add the label to a pool that can run the job.",
+		"Press Recheck after the pool or the workflow changes; the finding closes when every job's runs-on is served.", evalLabelUnserved),
+	workflowCheck(CodeSecretOnCommandLine, AreaCI, SeverityWarning, "A secret is interpolated into a run line or a command-line argument, where it reaches the process list and the log.",
+		"Pass the secret through the step's env block and read it from the environment in the command; never interpolate it into run or args.",
+		"Press Recheck after the change reaches the default branch; the finding closes when no run line or args interpolates a secret.", evalSecretOnCommandLine),
 }
 
 // Checks returns the registry. The caller may keep and change the slice.

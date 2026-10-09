@@ -30,6 +30,115 @@ func init() {
 	positives[CodePermissionsUnset] = func() Snapshot {
 		return withWorkflowFile(publicRepo(), WorkflowFile{SHA: shaA, PermissionsUnset: []Location{{0, 4}}})
 	}
+	positives[CodeTargetCheckoutPRHead] = func() Snapshot {
+		return withWorkflowFile(publicRepo(), WorkflowFile{SHA: shaA, TargetCheckoutPRHead: []Location{{0, 8}}})
+	}
+	positives[CodePinsWithoutUpdater] = func() Snapshot {
+		s := withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA, Pinned: 3})
+		s.Setup.Present[CodeSetupDependencyUpdates] = false
+		return s
+	}
+	positives[CodeWorkflowUnreadable] = func() Snapshot {
+		s := privateRepo()
+		s.Workflows = &WorkflowFacts{Unreadable: []string{shaA}}
+		return s
+	}
+	positives[CodeLabelUnserved] = func() Snapshot {
+		return withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA, LabelUnserved: []Location{{1, 9}}})
+	}
+	positives[CodeSecretOnCommandLine] = func() Snapshot {
+		return withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA, SecretOnCommandLine: []Location{{0, 8}}})
+	}
+}
+
+// Each owed check fires on its positive and not on the same repository with
+// the fact removed, at the severity its registry row promises.
+func TestTheOwedChecksFireOnTheirPositivesAndNotOnTheirNegatives(t *testing.T) {
+	for _, tc := range []struct {
+		code     Code
+		severity Severity
+		negative func() Snapshot
+	}{
+		{CodeTargetCheckoutPRHead, SeverityError, func() Snapshot { return withWorkflowFile(publicRepo(), WorkflowFile{SHA: shaA}) }},
+		{CodePinsWithoutUpdater, SeverityInfo, func() Snapshot {
+			s := withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA, Pinned: 3})
+			s.Setup.Present[CodeSetupDependencyUpdates] = true
+			return s
+		}},
+		{CodeWorkflowUnreadable, SeverityWarning, func() Snapshot { return withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA}) }},
+		{CodeLabelUnserved, SeverityInfo, func() Snapshot { return withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA}) }},
+		{CodeSecretOnCommandLine, SeverityWarning, func() Snapshot { return withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA}) }},
+	} {
+		f, ok := finding(Evaluate(positives[tc.code](), Policy{}), tc.code)
+		if !ok || f.Severity != tc.severity {
+			t.Errorf("%s on its positive: found %v, severity %s, want %s", tc.code, ok, f.Severity, tc.severity)
+		}
+		// The updater finding is about the repository, whose configuration is
+		// one thing; every other is about one file.
+		if want := shaA[:12]; tc.code == CodePinsWithoutUpdater {
+			want = ""
+		} else if f.Subject != want {
+			t.Errorf("%s: subject = %q, want the file", tc.code, f.Subject)
+		}
+		if _, ok := finding(Evaluate(tc.negative(), Policy{}), tc.code); ok {
+			t.Errorf("%s fired on its negative", tc.code)
+		}
+	}
+	// A repository with nothing pinned has no pins for an updater to move.
+	s := withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA})
+	s.Setup.Present[CodeSetupDependencyUpdates] = false
+	if _, ok := finding(Evaluate(s, Policy{}), CodePinsWithoutUpdater); ok {
+		t.Error("pins_without_updater fired with nothing pinned")
+	}
+}
+
+// Checking out the pull request's head under pull_request_target hands the
+// repository's token and secrets to a stranger's code, on a public repository.
+// On a private one only members open pull requests, so it is a warning.
+func TestTargetCheckoutIsAnErrorOnlyOnAPublicRepository(t *testing.T) {
+	private := withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA, TargetCheckoutPRHead: []Location{{0, 8}}})
+	f, ok := finding(Evaluate(private, Policy{}), CodeTargetCheckoutPRHead)
+	if !ok || f.Severity != SeverityWarning {
+		t.Fatalf("private: found %v, severity %s", ok, f.Severity)
+	}
+}
+
+// The updater check needs the setup source, which is read only when
+// kennel.repository_setup is on: without it the check is skipped and says
+// which source it wanted, as the setup checks are.
+func TestPinsWithoutUpdaterIsSkippedWhenSetupWasNotRead(t *testing.T) {
+	s := withWorkflowFile(privateRepo(), WorkflowFile{SHA: shaA, Pinned: 3})
+	s.Setup = nil
+	s.Coverage[SourceSetup] = SourceState{State: CoverageNotRead}
+	ev := Evaluate(s, Policy{})
+	if _, ok := finding(ev, CodePinsWithoutUpdater); ok {
+		t.Fatal("fired without the setup source")
+	}
+	skipped := false
+	for _, sk := range ev.Skipped {
+		if sk.Code == CodePinsWithoutUpdater && sk.Source == SourceSetup {
+			skipped = true
+		}
+	}
+	if !skipped {
+		t.Fatalf("not skipped for want of the setup source: %+v", ev.Skipped)
+	}
+}
+
+// An unreadable file is a finding about that file, with the file as its
+// only evidence, and the source it came from is still partial: nothing in
+// the file was judged, so finding nothing elsewhere is no all-clear.
+func TestAnUnreadableFileIsAFindingAndKeepsTheSourcePartial(t *testing.T) {
+	s := positives[CodeWorkflowUnreadable]()
+	s.Coverage[SourceWorkflows] = SourceState{State: CoveragePartial}
+	ev := Evaluate(s, Policy{})
+	f, ok := finding(ev, CodeWorkflowUnreadable)
+	if !ok || len(f.Evidence) != 1 || f.Evidence[0].Ref != shaA || f.Evidence[0].JobIndex == nil || *f.Evidence[0].JobIndex != -1 {
+		t.Fatalf("finding = %+v (found %v)", f, ok)
+	}
+	if ev.Complete || ev.State() == StateBestInShow {
+		t.Fatalf("an unreadable file earned an all-clear: complete %v, state %s", ev.Complete, ev.State())
+	}
 }
 
 // A finding is about one file: its subject is the file's identity, so a
