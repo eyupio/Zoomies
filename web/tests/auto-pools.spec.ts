@@ -891,8 +891,11 @@ test.describe('job size', () => {
     await goto(page, '/jobs', 'Jobs');
     const panel = page.getByTestId('size-advice');
     await expect(panel).toContainText('Size labels and pins');
-    // The count is on the closed summary, so the report is not found by chance.
-    await expect(panel.locator('summary')).toContainText('3');
+    // The count is on the closed summary, so the report is not found by chance,
+    // and it is the count of advice, as the problems drawer counts it: a job
+    // with too few runs is listed but is not yet advice.
+    await expect(panel.locator('summary')).toContainText('2');
+    await expect(panel.locator('summary')).not.toContainText('3');
     await panel.locator('summary').click();
 
     // The lead takes the minimum from the rows, never from a number of its own.

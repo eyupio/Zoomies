@@ -568,12 +568,17 @@ func TestJobsAdvicePrintsASparseRowAsNotEnoughData(t *testing.T) {
 	}
 }
 
+// The local check exists so a span the server would refuse never makes the
+// round trip, so it has to refuse everything the server does: a word, zero
+// and a negative span alike.
 func TestJobsAdviceRefusesAWindowItCannotRead(t *testing.T) {
-	e, _, errOut := newTestEnv(t)
-	if code := dispatch(context.Background(), e, []string{"jobs", "advice", "--window", "soon", "--url", "http://127.0.0.1:1"}); code != exitUsage {
-		t.Fatalf("exit code = %d, want %d\n%s", code, exitUsage, errOut)
-	}
-	if !strings.Contains(errOut.String(), "window") {
-		t.Fatalf("the error does not name the flag: %s", errOut)
+	for _, bad := range []string{"soon", "0", "-1d", "-24h"} {
+		e, _, errOut := newTestEnv(t)
+		if code := dispatch(context.Background(), e, []string{"jobs", "advice", "--window", bad, "--url", "http://127.0.0.1:1"}); code != exitUsage {
+			t.Fatalf("--window %s: exit code = %d, want %d\n%s", bad, code, exitUsage, errOut)
+		}
+		if !strings.Contains(errOut.String(), "window") {
+			t.Fatalf("--window %s: the error does not name the flag: %s", bad, errOut)
+		}
 	}
 }

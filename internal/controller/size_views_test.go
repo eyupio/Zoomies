@@ -594,6 +594,29 @@ func TestAdviceSaysWhenNoHostCarriesTheClassAndWhenRunsAreTooFew(t *testing.T) {
 	}
 }
 
+// The problems list counts the advice after every pass, and a count needs the
+// rows and not the figures: reading every advised job's history once a minute
+// for a number would cost a large fleet hundreds of scans for nothing.
+func TestTheAdviceCountIsTakenWithoutReadingAnyJobsHistory(t *testing.T) {
+	h := newHarness(t)
+	h.classFleet(scheduler.SizeShadow)
+	var last *store.Job
+	for i := 1; i <= 12; i++ {
+		last = h.measuredRun(i, "e2e", []string{"self-hosted", "zoomies-medium"}, 6000)
+	}
+	h.c.refreshJobClass(h.ctx, last)
+	rows, err := h.c.adviceRows(h.ctx, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 1 || rows[0].Observed != nil || rows[0].Fits != nil {
+		t.Fatalf("the rows alone carry no figures: %+v", rows)
+	}
+	if _, total, err := h.c.labelAdviceCounts(h.ctx); err != nil || total != 1 {
+		t.Fatalf("total = %d, err %v; the count is the rows' count", total, err)
+	}
+}
+
 // A window longer than the history the fleet keeps would promise figures
 // over runs that have been pruned, so retention bounds it and the answer
 // says which bound applied.

@@ -331,16 +331,9 @@ func (c *Controller) adviceWindow(asked time.Duration) AdviceWindow {
 // classed to compare with.
 func (c *Controller) LabelAdvice(ctx context.Context, opts AdviceOptions) ([]*scheduler.Advice, AdviceWindow, error) {
 	window := c.adviceWindow(opts.Window)
-	if c.sizeMode() == scheduler.SizeOff {
-		return nil, window, nil
-	}
-	kept, err := c.st.ListJobClassesAsked(ctx)
-	if err != nil {
-		return nil, window, fmt.Errorf("listing the classes kept for jobs: %w", err)
-	}
-	pins, err := c.st.ListSizePins(ctx)
-	if err != nil {
-		return nil, window, fmt.Errorf("listing size pins: %w", err)
+	rows, err := c.adviceRows(ctx, opts.Repo)
+	if err != nil || len(rows) == 0 {
+		return rows, window, err
 	}
 	hosts, err := c.st.ListHosts(ctx)
 	if err != nil {
@@ -355,34 +348,52 @@ func (c *Controller) LabelAdvice(ctx context.Context, opts AdviceOptions) ([]*sc
 			carried[class] = true
 		}
 	}
-	repo := strings.ToLower(strings.TrimSpace(opts.Repo))
 	since := c.Now().Add(-window.Applied.Duration())
-	cfg := c.sizeConfig()
-	var out []*scheduler.Advice
-	for _, k := range kept {
-		if repo != "" && strings.ToLower(k.Repo) != repo {
-			continue
-		}
-		a := cfg.LabelAdvice(k, pins)
-		if a == nil {
-			continue
-		}
-		runs, err := c.st.JobClassHistory(ctx, k.Repo, k.Workflow, k.JobName, since, store.JobClassHistoryLimit)
+	for _, a := range rows {
+		runs, err := c.st.JobClassHistory(ctx, a.Repo, a.Workflow, a.JobName, since, store.JobClassHistoryLimit)
 		if err != nil {
-			return nil, window, fmt.Errorf("reading the runs behind %s/%s/%s: %w", k.Repo, k.Workflow, k.JobName, err)
+			return nil, window, fmt.Errorf("reading the runs behind %s/%s/%s: %w", a.Repo, a.Workflow, a.JobName, err)
 		}
 		obs := scheduler.Observe(runs)
-		obs.Window = window.Applied.Duration()
 		a.Observed = &obs
 		fit := &scheduler.Fit{OK: carried[a.RecommendedClass]}
 		if !fit.OK {
 			fit.Missing = a.RecommendedClass
 		}
 		a.Fits = fit
-		out = append(out, a)
+	}
+	return rows, window, nil
+}
+
+// adviceRows is the advice without its figures: what the problems list
+// counts after every pass. It reads the kept classes and the pins and
+// nothing per job, so a count on a fleet with hundreds of advised jobs is
+// two queries and not hundreds of history scans for a number.
+func (c *Controller) adviceRows(ctx context.Context, repoFilter string) ([]*scheduler.Advice, error) {
+	if c.sizeMode() == scheduler.SizeOff {
+		return nil, nil
+	}
+	kept, err := c.st.ListJobClassesAsked(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing the classes kept for jobs: %w", err)
+	}
+	pins, err := c.st.ListSizePins(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("listing size pins: %w", err)
+	}
+	repo := strings.ToLower(strings.TrimSpace(repoFilter))
+	cfg := c.sizeConfig()
+	var out []*scheduler.Advice
+	for _, k := range kept {
+		if repo != "" && strings.ToLower(k.Repo) != repo {
+			continue
+		}
+		if a := cfg.LabelAdvice(k, pins); a != nil {
+			out = append(out, a)
+		}
 	}
 	scheduler.SortAdvice(out)
-	return out, window, nil
+	return out, nil
 }
 
 // labelAdviceMemoFor is how long the problems list reuses the count of label
@@ -413,7 +424,7 @@ func (c *Controller) labelAdviceCounts(ctx context.Context) (map[string]int, int
 	if age := now.Sub(m.at); m.counts != nil && age >= 0 && age < labelAdviceMemoFor {
 		return m.counts, m.total, nil
 	}
-	advice, _, err := c.LabelAdvice(ctx, AdviceOptions{})
+	advice, err := c.adviceRows(ctx, "")
 	if err != nil {
 		return nil, 0, err
 	}

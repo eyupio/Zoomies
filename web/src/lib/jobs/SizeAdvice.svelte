@@ -91,6 +91,9 @@
   // How many runs a job needs before it is advised on, from the rows
   // themselves: the rule lives in the controller and the page repeats it.
   const minRuns = $derived(advice.find((item) => item.min_runs > 0)?.min_runs ?? 0);
+  // The badge counts advice, as the problems drawer does: a job with too few
+  // runs is listed under the rows but is not yet something to change.
+  const advised = $derived(Math.max(0, total - (counts['not_enough_data'] ?? 0)));
   const pinned = $derived(new Set(pins.map(pinKey)));
 
   /* -- pinning ------------------------------------------------------------------ */
@@ -178,8 +181,8 @@
   <details class="advice" data-testid="size-advice">
     <summary>
       Size labels and pins
-      {#if total > 0}<span class="count tabular" aria-label="{total} jobs with advice"
-          >{formatNumber(total)}</span
+      {#if advised > 0}<span class="count tabular" aria-label="{advised} jobs with advice"
+          >{formatNumber(advised)}</span
         >{/if}
     </summary>
 
