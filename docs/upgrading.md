@@ -65,8 +65,9 @@ The first controller start applies schema migrations. Upgrade does not run
 setup again or require a new join token. A remote host is upgraded locally, with
 the command on its card, unless its agent offers to update itself: that is so only
 once the update helper is installed on the host (`sudo zoomies updates helper
-install`), and then an administrator can ask for the update with
-`POST /api/v1/hosts/{id}/update` when `updates.mode` is `manual` or `auto`. The
+install`), and then an administrator can update it with the **Update** button on
+its card on **Hosts** (or `POST /api/v1/hosts/{id}/update`) when `updates.mode`
+is `manual` or `auto`. The
 controller only asks: the helper on that host does the work, and the controller does
 not replace the binary of any host itself. Without the helper, a controller upgrade does
 not remotely replace binaries across the fleet. On the controller's own host the

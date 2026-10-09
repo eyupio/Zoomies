@@ -2248,7 +2248,7 @@ Flags:
   --print-answers            write an annotated example answer file to stdout and exit
   --state-dir                where the database and runner scratch space go (default: /var/lib/zoomies)
   --tune                     explicitly approve recommended safe tuning after a fresh install
-  --update-helper            add the update helper without asking, so this host is ready for web UI updates, which a later release adds; --yes never does
+  --update-helper            add the update helper without asking, so that the web UI can update this host; --yes never does
   --yes                      accept the confirmations that are not destructive; never the update helper
 
 Examples:
@@ -2280,7 +2280,7 @@ Flags:
   --no-download              apply the binary that is already installed; do not look for a newer one
   --non-interactive          never prompt; optional deployment changes require --yes
   --runtime                  docker or podman; empty uses the saved deployment
-  --update-helper            add the update helper without asking, so this host is ready for web UI updates, which a later release adds; --yes never does
+  --update-helper            add the update helper without asking, so that the web UI can update this host; --yes never does
   --version                  target a published tag such as v1.4.0, or dev
   --yes                      approve deployment additions and settings migration; never OS tuning
 
@@ -2312,7 +2312,7 @@ Flags:
   --no-download              apply the binary that is already installed; do not look for a newer one
   --non-interactive          never prompt; optional deployment changes require --yes
   --runtime                  docker or podman; empty uses the saved deployment
-  --update-helper            add the update helper without asking, so this host is ready for web UI updates, which a later release adds; --yes never does
+  --update-helper            add the update helper without asking, so that the web UI can update this host; --yes never does
   --version                  target a published tag such as v1.4.0, or dev
   --yes                      approve deployment additions and settings migration; never OS tuning
 
@@ -2474,7 +2474,7 @@ Flags:
   --no-download              apply the binary that is already installed; do not look for a newer one
   --non-interactive          never prompt; optional deployment changes require --yes
   --runtime                  docker or podman; empty uses the saved deployment
-  --update-helper            add the update helper without asking, so this host is ready for web UI updates, which a later release adds; --yes never does
+  --update-helper            add the update helper without asking, so that the web UI can update this host; --yes never does
   --version                  target a published tag such as v1.4.0, or dev
   --yes                      approve deployment additions and settings migration; never OS tuning
 

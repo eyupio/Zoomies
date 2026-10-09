@@ -85,9 +85,8 @@ ASSUME_YES=0
 # nothing new to the host -- a folder, a mount -- unless somebody said so.
 YES_GIVEN=0
 # UPDATE_HELPER is --update-helper: approval, in advance, to add the update helper
-# that will let the web UI update the host (a later release adds that). --yes
-# never stands for it, because it is a grant of root and not one of the
-# deployment's additions.
+# that lets the web UI update the host. --yes never stands for it, because it is
+# a grant of root and not one of the deployment's additions.
 UPDATE_HELPER=0
 ALLOW_UNVERIFIED=0
 DO_DEMO=0
@@ -369,8 +368,8 @@ Options:
                         --non-interactive leaves it and says how to add it.
                         On a systemd host without the update helper it also asks,
                         as a question of its own that defaults to no, whether to
-                        add it so the host is ready to be updated from the web UI,
-                        which a later release adds; --yes does not answer it, --update-helper does, and --non-interactive
+                        add it so that the web UI can update the host; --yes does
+                        not answer it, --update-helper does, and --non-interactive
                         skips it and says how to add it.
   --update-helper       With --upgrade: add the update helper without asking.
   --config-dir <dir>    Existing configuration directory (for a custom install).

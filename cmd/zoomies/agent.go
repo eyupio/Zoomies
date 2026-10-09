@@ -214,7 +214,7 @@ func runAgentJoin(ctx context.Context, e *env, args []string) error {
 	stateDir := fs.String("state-dir", "", "where the agent keeps its credentials and scratch space (default: "+config.StateDir()+")")
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; a missing answer is an error naming it")
 	assumeYes := fs.Bool("yes", false, "answer yes to the one question a re-join asks; it does not answer the update helper's")
-	updateHelper := fs.Bool("update-helper", false, "add the update helper without asking, so this host is ready for web UI updates, which a later release adds")
+	updateHelper := fs.Bool("update-helper", false, "add the update helper without asking, so that the web UI can update this host")
 	fs.example(
 		"zoomies agent join https://zoomies.example.com --token zoojoin_...",
 		"zoomies agent join https://zoomies.example.com --token zoojoin_... --capacity 8 --labels arch=arm64",

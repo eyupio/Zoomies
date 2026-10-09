@@ -196,6 +196,10 @@ role reads a fixed sentence), and can be tried again; it raises
 
 When the button is not offered, the card says why in a sentence: the agent does
 not offer to update itself, or the build cannot be ordered against a release.
+Where the update helper can never be installed on the host (it is not Linux,
+systemd does not run it, or its agent runs in a container under a rootless
+runtime), the card says **Update by command** and which of those it is, draws no
+button and suggests no install: the command beneath it is the way.
 A host that matches the controller has no row at all. The agent inside the controller is updated with the
 controller, from **Settings → Updates**. The copyable command stays beneath the
 button on every card, for an operator to run on the host, whatever the button

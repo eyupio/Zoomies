@@ -110,9 +110,7 @@ test('the page says what the seeded release list would take, for a build on 1.3.
 
   await expect(controller(page).getByText('1.3.0', { exact: true })).toBeVisible();
   await expect(take(page)).toContainText('Available');
-  await expect(take(page)).toContainText(
-    'Manual would offer v1.3.2 and wait for a person to take it.',
-  );
+  await expect(take(page)).toContainText('Manual offers v1.3.2 and waits for a person to take it.');
   // The controller's sentence is shown as it was given, not as this page would
   // have put it.
   await expect(take(page).getByText(SEEDED_REASON)).toBeVisible();
@@ -127,7 +125,7 @@ test('the mode is read as text, with what it would do beside it, and is not a co
 
   await expect(mode(page)).toContainText('Manual');
   await expect(mode(page)).toContainText(
-    'Zoomies would offer the newest release that can be installed on this system and wait for a person to take it.',
+    'Zoomies offers the newest release that can be installed on this system, with an Update button for this controller and for each host whose update helper is installed.',
   );
   await expect(mode(page)).toContainText('24 hours');
   // Where the controls are is a link, for the roles that can open that page.
@@ -326,7 +324,7 @@ test('a status that cannot be read says so, and asking again shows the page', as
   await expect(page.locator('.connection')).toHaveAttribute('data-state', 'live');
   failing = false;
   await alert.getByRole('button', { name: 'Try again' }).click();
-  await expect(take(page)).toContainText('Manual would offer v1.3.2');
+  await expect(take(page)).toContainText('Manual offers v1.3.2');
 });
 
 test('a refresh that does not get through keeps what the page had and says so', async ({
@@ -346,7 +344,7 @@ test('a refresh that does not get through keeps what the page had and says so', 
     .getByRole('status')
     .filter({ hasText: 'The last refresh did not get through' });
   await expect(notice).toBeVisible();
-  await expect(take(page)).toContainText('Manual would offer v1.3.2');
+  await expect(take(page)).toContainText('Manual offers v1.3.2');
 
   await page.unroute('**/api/v1/updates');
   await notice.getByRole('button', { name: 'Try again' }).click();

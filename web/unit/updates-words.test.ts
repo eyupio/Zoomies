@@ -68,20 +68,23 @@ test('each mode says what it would do, and auto says what its wait costs', () =>
   );
   assert.equal(
     describeMode('manual'),
-    'Zoomies would offer the newest release that can be installed on this system and wait for a person to take it. Nothing would move until someone asks.',
+    'Zoomies offers the newest release that can be installed on this system, with an Update button for this controller and for each host whose update helper is installed. Nothing moves until someone presses one.',
   );
   assert.equal(
     describeMode('auto'),
-    'Zoomies would take the newest release that can be installed on this system once it has been public for the soak. A newer release restarts the wait, so if releases are published faster than the soak, auto never takes one.',
+    'Zoomies would take the newest release that can be installed on this system once it has been public for the soak. A newer release restarts the wait, so if releases are published faster than the soak, auto never takes one. In this release auto takes no release by itself yet, and the Update buttons work as they do in manual.',
   );
 });
 
-// This part of the product installs nothing, so a sentence in the future tense
-// would promise what nothing keeps. A mode that acts is described in the
-// conditional until the part that acts has landed.
-test('the modes that would act are described in the conditional and never promise', () => {
+// Auto takes nothing by itself yet, so a sentence in the future tense would
+// promise what nothing keeps: it is described in the conditional, and says it
+// does not act yet, until the part that acts has landed. Manual does act, on a
+// press, and says so as it is; neither promises.
+test('auto is described in the conditional and says it does not act yet, and neither mode promises', () => {
+  assert.match(describeMode('auto'), /\bwould\b/);
+  assert.match(describeMode('auto'), /takes no release by itself yet/);
+  assert.doesNotMatch(describeMode('manual'), /\bwould\b/);
   for (const mode of ['manual', 'auto'] as const) {
-    assert.match(describeMode(mode), /\bwould\b/, mode);
     assert.doesNotMatch(describeMode(mode), /\bwill\b|\binstalling\b/, mode);
   }
 });
@@ -127,7 +130,7 @@ test('auto says now once the soak is over, and the instant it ends is already ov
 test('manual has no due time and says who it waits for', () => {
   assert.equal(
     targetLine(status(), NOW),
-    'Manual would offer v1.3.2 and wait for a person to take it.',
+    'Manual offers v1.3.2 and waits for a person to take it.',
   );
 });
 

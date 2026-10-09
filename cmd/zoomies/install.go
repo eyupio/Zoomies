@@ -41,7 +41,7 @@ func runInit(ctx context.Context, e *env, args []string) error {
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; a missing answer is an error naming the key")
 	noAnimation := fs.Bool("no-animation", false, "skip the short branded terminal splash")
 	assumeYes := fs.Bool("yes", false, "accept the confirmations that are not destructive; never the update helper")
-	updateHelper := fs.Bool("update-helper", false, "add the update helper without asking, so this host is ready for web UI updates, which a later release adds; --yes never does")
+	updateHelper := fs.Bool("update-helper", false, "add the update helper without asking, so that the web UI can update this host; --yes never does")
 	printAnswers := fs.Bool("print-answers", false, "write an annotated example answer file to stdout and exit")
 
 	configDir := fs.String("config-dir", "", "where zoomies.yaml and the encryption key go (default: "+config.ConfigDir()+")")
@@ -216,7 +216,7 @@ func runUpgradeNamed(ctx context.Context, e *env, args []string, name string) er
 	wantVersion := fs.String("version", "", "target a published tag such as v1.4.0, or dev")
 	noDownload := fs.Bool("no-download", false, "apply the binary that is already installed; do not look for a newer one")
 	yes := fs.Bool("yes", false, "approve deployment additions and settings migration; never OS tuning")
-	updateHelper := fs.Bool("update-helper", false, "add the update helper without asking, so this host is ready for web UI updates, which a later release adds; --yes never does")
+	updateHelper := fs.Bool("update-helper", false, "add the update helper without asking, so that the web UI can update this host; --yes never does")
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; optional deployment changes require --yes")
 	noAnimation := fs.Bool("no-animation", false, "skip the short branded terminal splash")
 	fs.example("sudo zoomies upgrade", "zoomies upgrade --check", "sudo zoomies upgrade --yes", "sudo zoomies upgrade --mode agent --version v1.4.0")
