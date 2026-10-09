@@ -260,6 +260,7 @@ func announceDemo(w io.Writer, url string) {
 	fmt.Fprintln(w, "  It is a controller on this machine only, with a fleet already in it: pools,")
 	fmt.Fprintln(w, "  hosts, runners and a morning's worth of jobs. Nobody has to sign in, GitHub")
 	fmt.Fprintln(w, "  is not involved, and everything is deleted when you stop it with Ctrl-C.")
+	fmt.Fprintln(w, "  The assistant answers from a built-in model that talks to nothing.")
 	fmt.Fprintln(w)
 }
 

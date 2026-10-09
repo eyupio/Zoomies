@@ -256,3 +256,25 @@ func TestTheAssistantSwitchesArePlatformSettingsWithEnvironmentOverrides(t *test
 		t.Errorf("environment overrides did not set the fields: %+v", c.Assistant)
 	}
 }
+
+// The assistant's switch is the narrower cousin of the blanket one, and gets
+// the same treatment: on, it is named by a warning at startup and in the
+// problems drawer, and never stops the controller starting.
+func TestAllowingAPrivateProviderIsNamedByAWarningAndNeverStopsStartup(t *testing.T) {
+	c := Default()
+	if f := findingFor(c.Validate(), "egress.private_provider_allowed"); f != nil {
+		t.Fatalf("the default configuration raised %s", f.Code)
+	}
+	c.Assistant.AllowPrivateProvider = true
+	fs := c.Validate()
+	if errs := fs.Errors(); len(errs) != 0 {
+		t.Fatalf("the switch stopped startup: %v", errs)
+	}
+	f := findingFor(fs, "egress.private_provider_allowed")
+	if f == nil {
+		t.Fatal("turning the switch on raised no finding")
+	}
+	if f.Severity != SeverityWarning || f.Setting != AllowPrivateProviderSetting || f.Fix == "" {
+		t.Errorf("the finding is not a warning on %s with a fix: %+v", AllowPrivateProviderSetting, *f)
+	}
+}
