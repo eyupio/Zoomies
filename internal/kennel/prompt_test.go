@@ -40,7 +40,14 @@ func TestEveryCheckHasAPromptThatNamesItsCodeFixAndDocs(t *testing.T) {
 			seen = true
 			p := Prompt(f, nil)
 			ck, _ := Lookup(code)
-			for _, want := range []string{"`" + string(code) + "`", f.Title, f.Fix, "https://zoomies.sh/" + strings.Replace(ck.Docs, "kennel-club.md#", "kennel-club/#", 1), "smallest change"} {
+			wants := []string{"`" + string(code) + "`", f.Title, f.Fix, "https://zoomies.sh/" + strings.Replace(ck.Docs, "kennel-club.md#", "kennel-club/#", 1)}
+			// A finding about a setting has no change to make in a file, and its
+			// prompt says so in place of the file instructions; see
+			// TestAPromptForASettingTellsAnAgentNotToEditFiles.
+			if !aSetting(code) {
+				wants = append(wants, "smallest change")
+			}
+			for _, want := range wants {
 				if !strings.Contains(p, want) {
 					t.Errorf("%s: the prompt lacks %q:\n%s", code, want, p)
 				}

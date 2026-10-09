@@ -151,3 +151,38 @@ func TestGuidanceChecksAreReportedAsOutsideTheOfflineWorkflowCheck(t *testing.T)
 		t.Fatalf("unchecked guidance=%+v", n)
 	}
 }
+
+// A laptop cannot read a repository's settings or its required checks, and the
+// report says so in words an operator can act on. A source the table of words
+// does not know falls through to its raw name, which reads as a bug.
+func TestEverySourceACheckNeedsHasWordsForWhyALaptopCannotReadIt(t *testing.T) {
+	for _, c := range kennel.Checks() {
+		for _, src := range append(append([]kennel.Source(nil), c.Needs...), c.Conditional...) {
+			// Guidance checks are reported before this table is asked, with a
+			// sentence of their own: the files are outside a workflow-only check.
+			if src == kennel.SourceGuidance {
+				continue
+			}
+			if sourceWords(src) == string(src) {
+				t.Errorf("%s needs %q, which the offline report can only name by its raw word", c.Code, src)
+			}
+		}
+	}
+}
+
+func TestTheSettingsChecksAreReportedAsNeedingWhatOnlyAControllerKnows(t *testing.T) {
+	r, err := Check("testdata/findings", Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for code, want := range map[kennel.Code]string{
+		kennel.CodeDefaultTokenWrite:         "the repository's Actions settings",
+		kennel.CodePrivateForkSecrets:        "the repository's Actions settings",
+		kennel.CodeRequiredCheckNeverReports: "what the fleet observed",
+	} {
+		n, ok := notChecked(r, code)
+		if !ok || !strings.Contains(n.Reason, want) {
+			t.Errorf("%s: not checked = %+v, %v; want a reason naming %q", code, n, ok, want)
+		}
+	}
+}

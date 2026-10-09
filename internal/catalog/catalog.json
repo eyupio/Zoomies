@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "dc583e88",
+  "generated_from": "f2cea17e",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -3942,6 +3942,20 @@
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#ci-workflow_unreadable"
     },
     {
+      "id": "exposure.fork_approval_weak",
+      "kind": "check",
+      "title": "A public repository this fleet serves asks for approval of fork pull requests only from contributors new to GitHub, so most outside contributors can start a job here.",
+      "category": "security",
+      "severity": "warning",
+      "detection": "static",
+      "detects": "A public repository this fleet serves asks for approval of fork pull requests only from contributors new to GitHub, so most outside contributors can start a job here.",
+      "fix": "Require approval for workflows from all outside contributors in the repository's Actions settings, so a maintainer reads a fork's pull request before it runs here.",
+      "verify": "Press Recheck after the setting changes; the finding closes when the approval policy covers every outside contributor.",
+      "area": "exposure",
+      "docs_html": "https://zoomies.sh/kennel-club/#exposure-fork_approval_weak",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#exposure-fork_approval_weak"
+    },
+    {
       "id": "exposure.fork_code_ran",
       "kind": "check",
       "title": "A run from a fork's pull request executed on this fleet.",
@@ -3954,6 +3968,20 @@
       "area": "exposure",
       "docs_html": "https://zoomies.sh/kennel-club/#exposure-fork_code_ran",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#exposure-fork_code_ran"
+    },
+    {
+      "id": "exposure.private_fork_secrets",
+      "kind": "check",
+      "title": "A private repository lets fork pull requests run workflows and sends them secrets or a token that can write.",
+      "category": "security",
+      "severity": "warning",
+      "detection": "static",
+      "detects": "A private repository lets fork pull requests run workflows and sends them secrets or a token that can write.",
+      "fix": "In the repository's Actions settings, stop sending secrets and write tokens to fork pull request workflows, or stop fork pull requests running workflows.",
+      "verify": "Press Recheck after the setting changes; the finding closes when fork pull requests are sent neither secrets nor a token that can write.",
+      "area": "exposure",
+      "docs_html": "https://zoomies.sh/kennel-club/#exposure-private_fork_secrets",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#exposure-private_fork_secrets"
     },
     {
       "id": "exposure.public_repo_on_fleet",
@@ -4066,6 +4094,20 @@
       "area": "guidance",
       "docs_html": "https://zoomies.sh/kennel-club/#guidance-unreadable",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#guidance-unreadable"
+    },
+    {
+      "id": "protection.required_check_never_reports",
+      "kind": "check",
+      "title": "A status check that GitHub Actions should post is required to merge, but no job this fleet saw in the window produced it.",
+      "category": "configuration",
+      "severity": "warning",
+      "detection": "runtime",
+      "detects": "A status check that GitHub Actions should post is required to merge, but no job this fleet saw in the window produced it.",
+      "fix": "Rename the required check to the name of the job that posts it, or remove it from the branch protection or ruleset if no job posts it any more.",
+      "verify": "Press Recheck after the required checks change; the finding closes when every required check pinned to GitHub Actions has a job of that name in the window.",
+      "area": "protection",
+      "docs_html": "https://zoomies.sh/kennel-club/#protection-required_check_never_reports",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#protection-required_check_never_reports"
     },
     {
       "id": "setup.code_of_conduct",
@@ -4206,6 +4248,20 @@
       "area": "setup",
       "docs_html": "https://zoomies.sh/kennel-club/#setup-workflows",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#setup-workflows"
+    },
+    {
+      "id": "token.default_write",
+      "kind": "check",
+      "title": "The repository's default workflow token can write, so every workflow that sets no permissions runs with write access.",
+      "category": "security",
+      "severity": "warning",
+      "detection": "static",
+      "detects": "The repository's default workflow token can write, so every workflow that sets no permissions runs with write access.",
+      "fix": "Set the default workflow permissions to read-only in the repository's Actions settings, then declare write permissions only on the workflows or jobs that need them.",
+      "verify": "Press Recheck after the setting changes; the finding closes when the default workflow token is read-only.",
+      "area": "token",
+      "docs_html": "https://zoomies.sh/kennel-club/#token-default_write",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#token-default_write"
     },
     {
       "id": "token.permissions_unset",

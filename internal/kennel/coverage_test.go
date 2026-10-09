@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-var allSources = []Source{SourceFleet, SourceMetadata, SourceRuns, SourceSetup, SourceWorkflows, SourceGuidance}
+var allSources = []Source{SourceFleet, SourceMetadata, SourceRuns, SourceSetup, SourceWorkflows, SourceGuidance, SourceSettings, SourceProtection}
 
 var allStates = []CoverageState{
 	CoverageOK, CoveragePartial, CoverageDenied, CoverageUnavailable,

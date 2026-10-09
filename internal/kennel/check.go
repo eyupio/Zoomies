@@ -21,43 +21,47 @@ import (
 
 // Version is the evaluator's version. A stored evaluation made by an older one
 // is re-run, so bump it whenever a check's meaning or wording changes.
-const Version = 6
+const Version = 7
 
 // Code names one check. Codes are stable across releases and form a closed
 // set: Evaluate returns no code that is not in the registry below.
 type Code string
 
 const (
-	CodeGuidanceMissing          Code = "guidance.missing"
-	CodeGuidanceBroken           Code = "guidance.broken_reference"
-	CodeGuidanceDuplicated       Code = "guidance.duplicated"
-	CodeGuidanceUnreadable       Code = "guidance.unreadable"
-	CodeNoTimeout                Code = "ci.no_timeout"
-	CodeNoConcurrency            Code = "ci.no_concurrency"
-	CodeActionNotPinned          Code = "ci.action_not_pinned"
-	CodePermissionsUnset         Code = "token.permissions_unset"
-	CodeSetupReadme              Code = "setup.readme"
-	CodeSetupLicence             Code = "setup.licence"
-	CodeSetupSecurity            Code = "setup.security"
-	CodeSetupContributing        Code = "setup.contributing"
-	CodeSetupCodeOfConduct       Code = "setup.code_of_conduct"
-	CodeSetupIssueTemplate       Code = "setup.issue_template"
-	CodeSetupPullRequestTemplate Code = "setup.pull_request_template"
-	CodeSetupCodeowners          Code = "setup.codeowners"
-	CodeSetupDependencyUpdates   Code = "setup.dependency_updates"
-	CodeSetupWorkflows           Code = "setup.workflows"
-	CodePublicRepoOnFleet        Code = "exposure.public_repo_on_fleet"
-	CodePublicRepoWeakPool       Code = "exposure.public_repo_weak_pool"
-	CodeForkCodeRan              Code = "exposure.fork_code_ran"
-	CodeTargetEventRan           Code = "exposure.target_event_ran"
-	CodeUnservedLabel            Code = "capacity.unserved_label"
-	CodeJobHitDefaultLimit       Code = "capacity.job_hit_default_limit"
-	CodeMatrixExceedsPool        Code = "capacity.matrix_exceeds_pool"
-	CodeTargetCheckoutPRHead     Code = "exposure.target_checkout_pr_head"
-	CodeWorkflowUnreadable       Code = "ci.workflow_unreadable"
-	CodePinsWithoutUpdater       Code = "ci.pins_without_updater"
-	CodeLabelUnserved            Code = "ci.label_unserved"
-	CodeSecretOnCommandLine      Code = "ci.secret_on_command_line"
+	CodeGuidanceMissing           Code = "guidance.missing"
+	CodeGuidanceBroken            Code = "guidance.broken_reference"
+	CodeGuidanceDuplicated        Code = "guidance.duplicated"
+	CodeGuidanceUnreadable        Code = "guidance.unreadable"
+	CodeNoTimeout                 Code = "ci.no_timeout"
+	CodeNoConcurrency             Code = "ci.no_concurrency"
+	CodeActionNotPinned           Code = "ci.action_not_pinned"
+	CodePermissionsUnset          Code = "token.permissions_unset"
+	CodeSetupReadme               Code = "setup.readme"
+	CodeSetupLicence              Code = "setup.licence"
+	CodeSetupSecurity             Code = "setup.security"
+	CodeSetupContributing         Code = "setup.contributing"
+	CodeSetupCodeOfConduct        Code = "setup.code_of_conduct"
+	CodeSetupIssueTemplate        Code = "setup.issue_template"
+	CodeSetupPullRequestTemplate  Code = "setup.pull_request_template"
+	CodeSetupCodeowners           Code = "setup.codeowners"
+	CodeSetupDependencyUpdates    Code = "setup.dependency_updates"
+	CodeSetupWorkflows            Code = "setup.workflows"
+	CodePublicRepoOnFleet         Code = "exposure.public_repo_on_fleet"
+	CodePublicRepoWeakPool        Code = "exposure.public_repo_weak_pool"
+	CodeForkCodeRan               Code = "exposure.fork_code_ran"
+	CodeTargetEventRan            Code = "exposure.target_event_ran"
+	CodeUnservedLabel             Code = "capacity.unserved_label"
+	CodeJobHitDefaultLimit        Code = "capacity.job_hit_default_limit"
+	CodeMatrixExceedsPool         Code = "capacity.matrix_exceeds_pool"
+	CodeTargetCheckoutPRHead      Code = "exposure.target_checkout_pr_head"
+	CodeWorkflowUnreadable        Code = "ci.workflow_unreadable"
+	CodePinsWithoutUpdater        Code = "ci.pins_without_updater"
+	CodeLabelUnserved             Code = "ci.label_unserved"
+	CodeSecretOnCommandLine       Code = "ci.secret_on_command_line"
+	CodeDefaultTokenWrite         Code = "token.default_write"
+	CodeForkApprovalWeak          Code = "exposure.fork_approval_weak"
+	CodePrivateForkSecrets        Code = "exposure.private_fork_secrets"
+	CodeRequiredCheckNeverReports Code = "protection.required_check_never_reports"
 )
 
 // Area groups codes for the operator, who can turn a whole area off.
@@ -70,6 +74,8 @@ const (
 	AreaSetup    Area = "setup"
 	AreaCI       Area = "ci"
 	AreaToken    Area = "token"
+	// AreaProtection is what the default branch requires before a merge.
+	AreaProtection Area = "protection"
 )
 
 // Area is the part of a code before its dot.
@@ -215,6 +221,24 @@ var checks = []Check{
 		eval:    evalTargetCheckoutPRHead,
 	},
 	{
+		Code: CodeForkApprovalWeak, Area: AreaExposure, Severity: SeverityWarning,
+		Detects: "A public repository this fleet serves asks for approval of fork pull requests only from contributors new to GitHub, so most outside contributors can start a job here.",
+		Needs:   []Source{SourceFleet, SourceMetadata}, Conditional: []Source{SourceSettings},
+		Fix:    "Require approval for workflows from all outside contributors in the repository's Actions settings, so a maintainer reads a fork's pull request before it runs here.",
+		Verify: "Press Recheck after the setting changes; the finding closes when the approval policy covers every outside contributor.",
+		Docs:   docsAnchor(CodeForkApprovalWeak),
+		eval:   evalForkApprovalWeak,
+	},
+	{
+		Code: CodePrivateForkSecrets, Area: AreaExposure, Severity: SeverityWarning,
+		Detects: "A private repository lets fork pull requests run workflows and sends them secrets or a token that can write.",
+		Needs:   []Source{SourceMetadata}, Conditional: []Source{SourceSettings},
+		Fix:    "In the repository's Actions settings, stop sending secrets and write tokens to fork pull request workflows, or stop fork pull requests running workflows.",
+		Verify: "Press Recheck after the setting changes; the finding closes when fork pull requests are sent neither secrets nor a token that can write.",
+		Docs:   docsAnchor(CodePrivateForkSecrets),
+		eval:   evalPrivateForkSecrets,
+	},
+	{
 		Code: CodeUnservedLabel, Area: AreaCapacity, Severity: SeverityWarning,
 		Detects: "Jobs waited more than ten minutes for a label no pool serves.",
 		Needs:   []Source{SourceFleet},
@@ -263,6 +287,15 @@ var checks = []Check{
 	workflowCheck(CodePermissionsUnset, AreaToken, SeverityWarning, "Jobs inherit token permissions without a declaration at workflow or job level.",
 		"Declare the least permissions each workflow or job needs, after reading what its actions and publishing steps use.",
 		"Press Recheck after the change reaches the default branch; the finding closes when every job has a permissions block of its own or its workflow's.", evalPermissionsUnset),
+	{
+		Code: CodeDefaultTokenWrite, Area: AreaToken, Severity: SeverityWarning,
+		Detects: "The repository's default workflow token can write, so every workflow that sets no permissions runs with write access.",
+		Needs:   []Source{SourceSettings},
+		Fix:     "Set the default workflow permissions to read-only in the repository's Actions settings, then declare write permissions only on the workflows or jobs that need them.",
+		Verify:  "Press Recheck after the setting changes; the finding closes when the default workflow token is read-only.",
+		Docs:    docsAnchor(CodeDefaultTokenWrite),
+		eval:    evalDefaultTokenWrite,
+	},
 	workflowCheck(CodeWorkflowUnreadable, AreaCI, SeverityWarning, "A workflow file could not be read within Kennel Club's limits, so nothing in it was judged.",
 		"Bring the file within the limits: under 256 KiB, no YAML anchors, aliases or merge keys, no duplicate keys, one document, valid UTF-8 and a jobs mapping; or split it into smaller workflows.",
 		"Press Recheck after the change reaches the default branch; the finding closes when the file is read and judged.", evalWorkflowUnreadable),
@@ -281,6 +314,15 @@ var checks = []Check{
 	workflowCheck(CodeSecretOnCommandLine, AreaCI, SeverityWarning, "A secret is interpolated into a run line or a command-line argument, where it reaches the process list and the log.",
 		"Pass the secret through the step's env block and read it from the environment in the command; never interpolate it into run or args.",
 		"Press Recheck after the change reaches the default branch; the finding closes when no run line or args interpolates a secret.", evalSecretOnCommandLine),
+	{
+		Code: CodeRequiredCheckNeverReports, Area: AreaProtection, Severity: SeverityWarning,
+		Detects: "A status check that GitHub Actions should post is required to merge, but no job this fleet saw in the window produced it.",
+		Needs:   []Source{SourceFleet, SourceProtection},
+		Fix:     "Rename the required check to the name of the job that posts it, or remove it from the branch protection or ruleset if no job posts it any more.",
+		Verify:  "Press Recheck after the required checks change; the finding closes when every required check pinned to GitHub Actions has a job of that name in the window.",
+		Docs:    docsAnchor(CodeRequiredCheckNeverReports),
+		eval:    evalRequiredCheckNeverReports,
+	},
 }
 
 // Checks returns the registry. The caller may keep and change the slice.

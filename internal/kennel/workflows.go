@@ -116,6 +116,16 @@ func evalActionNotPinned(s *Snapshot) result {
 }
 
 func evalPermissionsUnset(s *Snapshot) result {
+	// A workflow that sets no permissions is only as strong as the repository's
+	// default token. With that read from GitHub the check can say so: silent when
+	// the default is read-only, and naming it when it can write. The settings are
+	// looked at here and are not declared as a source this check needs, because a
+	// declared source that is off, denied or unread would skip the check, and
+	// what that case needs is the old answer, not silence.
+	known := s.Settings != nil && s.Coverage.state(SourceSettings).readable()
+	if known && !s.Settings.DefaultTokenWrite {
+		return result{applies: true}
+	}
 	return perFile(s, CodePermissionsUnset,
 		func(s *Snapshot, _ *WorkflowFile) Severity {
 			if s.Repo.Visibility == VisibilityPublic {
@@ -126,6 +136,9 @@ func evalPermissionsUnset(s *Snapshot) result {
 		func(f *WorkflowFile) []Location { return f.PermissionsUnset },
 		"Jobs inherit undeclared token permissions",
 		func(n int) string {
+			if known {
+				return count(n, "job", "jobs") + " in this workflow " + has(n) + " no permissions block at job or workflow level and " + inherits(n) + " the repository's default token, which can write."
+			}
 			return count(n, "job", "jobs") + " in this workflow " + has(n) + " no permissions block at job or workflow level and " + inherits(n) + " the repository or organisation default; that default has not been checked."
 		},
 		"Declare the least token permissions each workflow or job needs, reviewing its actions and publishing steps before reducing access.")
