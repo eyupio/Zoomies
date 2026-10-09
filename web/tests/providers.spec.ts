@@ -783,3 +783,44 @@ test('Proxmox offers an existing Tailcat gateway without hiding it behind manual
   await expect(page.getByLabel('Credential', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Generate setup command' })).toBeVisible();
 });
+
+/*
+ * A provider is not attached to a pool, so a new provider's owner has to be told
+ * what it takes for one to be used. The card says whether any pool can use it,
+ * and the provider's Pools tab says which, and whose setting says no for the
+ * rest.
+ */
+test('a provider says which pools it would rent for, and the card says whether any can use it', async ({
+  page,
+}) => {
+  await goto(page, '/providers', 'Providers');
+  const card = providerCard(page);
+  await expect(card).toContainText(/Rents for \d+ pools? of \d+|No pool can use this yet/);
+
+  await card.getByRole('link', { name: /Which|See why/ }).click();
+  await expect(page.getByTestId('provider-serves')).toBeVisible();
+  await expect(page.getByText(/A pool does not pick a provider/)).toBeVisible();
+  // Every pool is listed with an answer, rented for or not.
+  await expect(page.getByText(/Would (not )?rent/).first()).toBeVisible();
+});
+
+test("a provider's own pool selector is edited beside its ceiling, and says which pools it lets through", async ({
+  page,
+}) => {
+  await goto(page, '/providers', 'Providers');
+  await providerCard(page).getByRole('link', { name: FIXTURE.provider }).click();
+  await page.getByRole('tab', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Edit these settings' }).click();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Limits' })).toBeVisible();
+  await expect(page.getByLabel('Pool selector')).toBeVisible();
+  await expect(page.getByTestId('provider-served-pools')).toContainText(/Every pool is allowed/);
+
+  await page.getByRole('button', { name: 'Add a rule' }).click();
+  await page.getByLabel('Rule 1 key').fill('no-such-label');
+  await expect(page.getByTestId('provider-served-pools')).toContainText(
+    'No pool matches this selector',
+  );
+});

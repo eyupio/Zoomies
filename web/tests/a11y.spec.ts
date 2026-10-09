@@ -554,7 +554,7 @@ test('the pool editor, with every section open, names every control', async ({ p
   await goto(page, '/pools/new', 'Create a pool');
   await page.getByRole('button', { name: 'Expand all' }).click();
 
-  const ids = ['basics', 'hosts', 'runner', 'size', 'scaling', 'speed'] as const;
+  const ids = ['basics', 'hosts', 'providers', 'runner', 'size', 'scaling', 'speed'] as const;
   for (const id of ids) {
     const row = page.locator(`#pool-${id}`).getByRole('heading', { level: 2 }).getByRole('button');
     await expect(row, `${id}: the row says it is open`).toHaveAttribute('aria-expanded', 'true');

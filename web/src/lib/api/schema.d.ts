@@ -2924,6 +2924,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/providers/pairings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which providers would rent machines for which pools
+         * @description Every provider against every pool, and whether the provider would rent a machine for it. A rental needs three things: the provider's `pool_selector` allows the pool, the pool's `provider_selector` allows the provider, and the machine the provider builds is one the pool's runners could be placed on. `by` says which selector refused, and `why` and `fix` say what did not match and what to change, so an operator looking at a pool nobody rents for can see whose setting says so.
+         */
+        get: operations["listProviderPairings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/providers/{id}": {
         parameters: {
             query?: never;
@@ -6135,6 +6155,10 @@ export interface components {
             host_selector?: {
                 [key: string]: string;
             };
+            /** @description Which providers may rent machines for this pool, matched against each provider's `name`, `kind` and machine labels, the way `host_selector` is matched against a host. Empty means any provider. A provider rents only where this and its own `pool_selector` both agree. */
+            provider_selector?: {
+                [key: string]: string;
+            };
             /** @description The environment injected into every runner this pool creates. Readable in full by operators and administrators; a viewer is sent the keys with empty values, because this is where a registry or proxy credential ends up and setting one is an operator action. The same applies to the pool.created and pool.updated events. */
             env?: {
                 [key: string]: string;
@@ -6258,6 +6282,10 @@ export interface components {
             host_selector: {
                 [key: string]: string;
             };
+            /** @description Which providers may rent machines for this pool, matched against each provider's `name`, `kind` and machine labels, the way `host_selector` is matched against a host. Empty means any provider. A provider rents only where this and its own `pool_selector` both agree. */
+            provider_selector?: {
+                [key: string]: string;
+            };
             /** @description The environment variables the pool injects. Their values are never exported. */
             env_keys: string[];
             run_as_root: boolean;
@@ -6357,6 +6385,10 @@ export interface components {
             host_selector?: {
                 [key: string]: string;
             };
+            /** @description Which providers may rent machines for this pool, matched against each provider's `name`, `kind` and machine labels, the way `host_selector` is matched against a host. Empty means any provider. A provider rents only where this and its own `pool_selector` both agree. */
+            provider_selector?: {
+                [key: string]: string;
+            };
             env?: {
                 [key: string]: string;
             };
@@ -6404,6 +6436,10 @@ export interface components {
             cache?: components["schemas"]["CacheConfig"];
             tmpfs?: components["schemas"]["TmpfsConfig"];
             host_selector?: {
+                [key: string]: string;
+            };
+            /** @description Which providers may rent machines for this pool, matched against each provider's `name`, `kind` and machine labels, the way `host_selector` is matched against a host. Empty means any provider. A provider rents only where this and its own `pool_selector` both agree. */
+            provider_selector?: {
                 [key: string]: string;
             };
             env?: {
@@ -8349,7 +8385,7 @@ export interface components {
             machine_memory_mb?: number;
             /** Format: int64 */
             machine_disk_mb?: number;
-            /** @description Which pools this provider may buy for. Empty means every pool. */
+            /** @description Which pools this provider will rent machines for. Each entry must be satisfied by the pool: a key with no value asks for a pool carrying that label, `key: value` asks for the label `key=value`, and `name` and `backend` match the pool's own. Empty means every pool. A provider rents only where this and the pool's own `provider_selector` both agree. It decides what is bought, not where a runner is placed once a machine is a host: use the pool's `host_selector` for that. */
             pool_selector?: {
                 [key: string]: string;
             };
@@ -8540,6 +8576,29 @@ export interface components {
             findings: components["schemas"]["Problem"][];
             /** Format: date-time */
             checked_at: string;
+        };
+        ProviderPairing: {
+            provider_id: string;
+            provider_name: string;
+            pool_id: string;
+            pool_name: string;
+            /** @description This provider would rent a machine for this pool. */
+            serves: boolean;
+            /** @description Both selectors allow it. */
+            agrees: boolean;
+            /**
+             * @description Which side's selector refused, when `agrees` is false.
+             * @enum {string}
+             */
+            by?: "provider" | "pool";
+            /** @description The machine this provider builds is one the pool's runners could be placed on. */
+            fits: boolean;
+            /** @description What about the machine does not suit the pool */
+            fit_why?: string;
+            /** @description The first thing standing in the way */
+            why?: string;
+            /** @description What to change */
+            fix?: string;
         };
         ProviderChoice: {
             value: string;
@@ -14178,6 +14237,28 @@ export interface operations {
                 content: {
                     "application/json": {
                         items?: components["schemas"]["ProviderKind"][];
+                    };
+                };
+            };
+        };
+    };
+    listProviderPairings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["ProviderPairing"][];
                     };
                 };
             };

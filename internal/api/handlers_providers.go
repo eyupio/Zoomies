@@ -83,6 +83,18 @@ func (s *Server) handleListProviders(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, newList(out))
 }
 
+// handleProviderPairings answers GET /api/v1/providers/pairings: for every
+// provider and pool, whether the provider would rent a machine for the pool and,
+// if not, whose setting says so.
+func (s *Server) handleProviderPairings(w http.ResponseWriter, r *http.Request) {
+	items, err := s.ctrl.ProviderPairings(r.Context())
+	if err != nil {
+		s.internal(w, r, "working out which providers serve which pools", err)
+		return
+	}
+	writeJSON(w, http.StatusOK, newList(items))
+}
+
 // handleGetProvider answers GET /api/v1/providers/{id}.
 func (s *Server) handleGetProvider(w http.ResponseWriter, r *http.Request) {
 	row, machines, ok := s.providerWithMachines(w, r)

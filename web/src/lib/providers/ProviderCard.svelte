@@ -10,7 +10,7 @@
 -->
 <script lang="ts">
   import { Pause, Play, Stethoscope } from '@lucide/svelte';
-  import type { Provider } from '$lib/api/types';
+  import type { Provider, ProviderPairing } from '$lib/api/types';
   import { formatNumber, pluralise } from '$lib/format';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -21,6 +21,8 @@
 
   interface Props {
     provider: Provider;
+    /** Every pool against this provider; empty until they have been asked for. */
+    pairings?: readonly ProviderPairing[];
     canOperate?: boolean;
     /** Busy while its own preflight is in flight, so the button cannot be double-pressed. */
     checking?: boolean;
@@ -33,6 +35,7 @@
 
   let {
     provider,
+    pairings = [],
     canOperate = false,
     checking = false,
     pausing = false,
@@ -45,6 +48,7 @@
   const restricted = 'Needs the operator role. An administrator can grant it under Settings.';
   const owned = $derived(provider.owned ?? 0);
   const ceiling = $derived(provider.max_machines ?? 0);
+  const serving = $derived(pairings.filter((entry) => entry.serves).length);
   const counts = $derived(Object.entries(provider.machines ?? {}).filter(([, n]) => n > 0));
   const shape = $derived.by(() => {
     const parts: string[] = [];
@@ -140,6 +144,21 @@
       <span class="muted">· a ceiling of zero rents nothing</span>
     {/if}
   </p>
+
+  {#if pairings.length > 0}
+    <!-- A provider is used by a pool only when both agree, so a provider that
+         no pool can use is worth saying on the card: nothing will ever be
+         rented from it, and its ceiling is beside the point. -->
+    <p class="pools" class:none={serving === 0}>
+      {#if serving === 0}
+        No pool can use this yet.
+        <a href="/providers/{provider.id}?tab=pools">See why</a>
+      {:else}
+        Rents for {pluralise(serving, 'pool')} of {pairings.length}.
+        <a href="/providers/{provider.id}?tab=pools">Which</a>
+      {/if}
+    </p>
+  {/if}
 
   {#if counts.length > 0}
     <ul class="counts">
@@ -282,6 +301,14 @@
   }
   .muted {
     color: var(--z-text-subtle);
+  }
+  .pools {
+    margin: 0;
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+  .pools.none {
+    color: var(--z-text);
   }
   .counts {
     display: flex;

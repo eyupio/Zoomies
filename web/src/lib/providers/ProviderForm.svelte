@@ -64,6 +64,8 @@
   import Textarea from '$lib/components/Textarea.svelte';
   import Wizard from '$lib/components/Wizard.svelte';
   import LabelMapEditor from '$lib/hosts/LabelMapEditor.svelte';
+  import { fleet } from '$lib/state/fleet.svelte';
+  import { poolMatchesSelector } from './pairing';
   import {
     applyDiscovery,
     applySettingDefaults,
@@ -625,6 +627,23 @@
     }
     draft.machine_labels = map;
   });
+
+  // The pools this provider rents for, edited the same way and for the same
+  // reason: a half-typed row is not yet an entry in the map.
+  let poolRows = $state(
+    untrack(() => Object.entries(draft.pool_selector).map(([key, value]) => ({ key, value }))),
+  );
+  $effect(() => {
+    const map: Record<string, string> = {};
+    for (const row of poolRows) {
+      if (row.key.trim() === '') continue;
+      map[row.key.trim()] = row.value;
+    }
+    draft.pool_selector = map;
+  });
+  const servedPools = $derived(
+    fleet.pools.filter((pool) => poolMatchesSelector(pool, draft.pool_selector)),
+  );
 </script>
 
 {#snippet setting(spec: ProviderSetting)}
@@ -1223,6 +1242,34 @@
           label="Enabled"
           description="A disabled provider builds nothing. What it already owns is still drained and deleted."
         />
+
+        <Field
+          label="Pools it rents for"
+          hint="Leave empty to rent for any pool that suits the machine. A row asks for a pool label (a value left empty asks only that the label exists, or name and backend). A pool can narrow this from its own side too, and a machine is rented only where both agree."
+        >
+          {#snippet children({ describedBy })}
+            <LabelMapEditor
+              bind:rows={poolRows}
+              {describedBy}
+              label="Pool selector"
+              noun="rule"
+              empty="Every pool. Nothing here narrows which pools this provider rents machines for."
+            />
+          {/snippet}
+        </Field>
+        {#if fleet.loaded && fleet.pools.length > 0}
+          <p class="note" data-testid="provider-served-pools">
+            {#if Object.keys(draft.pool_selector).length === 0}
+              Every pool is allowed: {pluralise(fleet.pools.length, 'pool')}.
+            {:else if servedPools.length === 0}
+              No pool matches this selector, so this provider would rent for none.
+            {:else}
+              Allowed for {pluralise(servedPools.length, 'pool')} of {fleet.pools.length}: {servedPools
+                .map((pool) => pool.name)
+                .join(', ')}.
+            {/if}
+          </p>
+        {/if}
 
         {#if nothingRented}
           <p class="note">{nothingRented}</p>

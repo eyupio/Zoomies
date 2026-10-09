@@ -4567,6 +4567,31 @@ paths:
                     type: array
                     items: { $ref: "#/components/schemas/ProviderKind" }
 
+  /providers/pairings:
+    get:
+      operationId: listProviderPairings
+      tags: [providers]
+      summary: Which providers would rent machines for which pools
+      description: >-
+        Every provider against every pool, and whether the provider would rent a machine for
+        it. A rental needs three things: the provider's `pool_selector` allows the pool, the
+        pool's `provider_selector` allows the provider, and the machine the provider builds
+        is one the pool's runners could be placed on. `by` says which selector refused, and
+        `why` and `fix` say what did not match and what to change, so an operator looking at
+        a pool nobody rents for can see whose setting says so.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/ProviderPairing" }
+
   /providers/{id}:
     parameters: [{ $ref: "#/components/parameters/PathID" }]
     get:
@@ -8494,6 +8519,14 @@ components:
         cache: { $ref: "#/components/schemas/CacheConfig" }
         tmpfs: { $ref: "#/components/schemas/TmpfsConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
+        provider_selector:
+          type: object
+          additionalProperties: { type: string }
+          description: >-
+            Which providers may rent machines for this pool, matched against each
+            provider's `name`, `kind` and machine labels, the way `host_selector` is matched
+            against a host. Empty means any provider. A provider rents only where this and
+            its own `pool_selector` both agree.
         env:
           type: object
           additionalProperties: { type: string }
@@ -8668,6 +8701,14 @@ components:
         cache: { $ref: "#/components/schemas/CacheConfig" }
         tmpfs: { $ref: "#/components/schemas/TmpfsConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
+        provider_selector:
+          type: object
+          additionalProperties: { type: string }
+          description: >-
+            Which providers may rent machines for this pool, matched against each
+            provider's `name`, `kind` and machine labels, the way `host_selector` is matched
+            against a host. Empty means any provider. A provider rents only where this and
+            its own `pool_selector` both agree.
         env_keys:
           type: array
           items: { type: string }
@@ -8765,6 +8806,14 @@ components:
         cache: { $ref: "#/components/schemas/CacheConfig" }
         tmpfs: { $ref: "#/components/schemas/TmpfsConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
+        provider_selector:
+          type: object
+          additionalProperties: { type: string }
+          description: >-
+            Which providers may rent machines for this pool, matched against each
+            provider's `name`, `kind` and machine labels, the way `host_selector` is matched
+            against a host. Empty means any provider. A provider rents only where this and
+            its own `pool_selector` both agree.
         env: { type: object, additionalProperties: { type: string } }
         run_as_root: { type: boolean, default: false }
         no_default_labels: { type: boolean, default: false, description: "Register runners with only the pool's own labels, without self-hosted, the operating system and the architecture (config.sh --no-default-labels). Only a non-ephemeral pool may set it: GitHub adds those labels to every just-in-time runner itself. A job asking for self-hosted no longer matches the pool unless the pool lists it." }
@@ -8810,6 +8859,14 @@ components:
         cache: { $ref: "#/components/schemas/CacheConfig" }
         tmpfs: { $ref: "#/components/schemas/TmpfsConfig" }
         host_selector: { type: object, additionalProperties: { type: string } }
+        provider_selector:
+          type: object
+          additionalProperties: { type: string }
+          description: >-
+            Which providers may rent machines for this pool, matched against each
+            provider's `name`, `kind` and machine labels, the way `host_selector` is matched
+            against a host. Empty means any provider. A provider rents only where this and
+            its own `pool_selector` both agree.
         env: { type: object, additionalProperties: { type: string } }
         run_as_root: { type: boolean }
         no_default_labels: { type: boolean, description: "Register runners with only the pool's own labels, without self-hosted, the operating system and the architecture (config.sh --no-default-labels). Only a non-ephemeral pool may set it: GitHub adds those labels to every just-in-time runner itself. A job asking for self-hosted no longer matches the pool unless the pool lists it." }
@@ -10904,7 +10961,13 @@ components:
         pool_selector:
           type: object
           additionalProperties: { type: string }
-          description: Which pools this provider may buy for. Empty means every pool.
+          description: >-
+            Which pools this provider will rent machines for. Each entry must be satisfied
+            by the pool: a key with no value asks for a pool carrying that label, `key: value`
+            asks for the label `key=value`, and `name` and `backend` match the pool's own.
+            Empty means every pool. A provider rents only where this and the pool's own
+            `provider_selector` both agree. It decides what is bought, not where a runner is
+            placed once a machine is a host: use the pool's `host_selector` for that.
         max_machines:
           type: integer
           description: >-
@@ -11106,6 +11169,25 @@ components:
           type: array
           items: { $ref: "#/components/schemas/Problem" }
         checked_at: { type: string, format: date-time }
+
+    ProviderPairing:
+      type: object
+      required: [provider_id, provider_name, pool_id, pool_name, serves, agrees, fits]
+      properties:
+        provider_id: { type: string }
+        provider_name: { type: string }
+        pool_id: { type: string }
+        pool_name: { type: string }
+        serves: { type: boolean, description: This provider would rent a machine for this pool. }
+        agrees: { type: boolean, description: Both selectors allow it. }
+        by:
+          type: string
+          enum: [provider, pool]
+          description: Which side's selector refused, when `agrees` is false.
+        fits: { type: boolean, description: The machine this provider builds is one the pool's runners could be placed on. }
+        fit_why: { type: string, description: What about the machine does not suit the pool, when `fits` is false. }
+        why: { type: string, description: The first thing standing in the way, in the setting's own terms. Absent when `serves`. }
+        fix: { type: string, description: What to change, for a selector's refusal. }
 
     ProviderChoice:
       type: object

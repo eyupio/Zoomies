@@ -709,6 +709,14 @@ export const listProviders = (signal?: AbortSignal) =>
 export const listProviderKinds = (signal?: AbortSignal) =>
   api.get<Result<'listProviderKinds'>>('/providers/kinds', { signal });
 
+/**
+ * Every provider against every pool: would it rent a machine for it, and if not,
+ * whose setting says so. The same rules the machine decision acts on, so what
+ * the page explains and what the controller does cannot drift apart.
+ */
+export const listProviderPairings = (signal?: AbortSignal) =>
+  api.get<Result<'listProviderPairings'>>('/providers/pairings', { signal });
+
 export const getProvider = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getProvider'>>(`/providers/${enc(id)}`, { signal });
 

@@ -1098,8 +1098,12 @@ type PoolView struct {
 	Cache          store.CacheConfig    `json:"cache"`
 	Tmpfs          store.TmpfsConfig    `json:"tmpfs"`
 	HostSelector   map[string]string    `json:"host_selector"`
-	Env            map[string]string    `json:"env"`
-	RunAsRoot      bool                 `json:"run_as_root"`
+	// ProviderSelector is which providers may rent machines for this pool,
+	// matched against each provider's name, kind and machine labels. Empty
+	// means any provider.
+	ProviderSelector map[string]string `json:"provider_selector"`
+	Env              map[string]string `json:"env"`
+	RunAsRoot        bool              `json:"run_as_root"`
 	// NoDefaultLabels says the pool's runners advertise only Labels, without
 	// self-hosted and the operating-system and architecture labels.
 	NoDefaultLabels bool           `json:"no_default_labels"`
@@ -1270,6 +1274,7 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		Cache:                  p.Cache,
 		Tmpfs:                  p.Tmpfs,
 		HostSelector:           emptyMap(p.HostSelector),
+		ProviderSelector:       emptyMap(p.ProviderSelector),
 		Env:                    emptyMap(p.Env),
 		RunAsRoot:              p.RunAsRoot,
 		NoDefaultLabels:        p.NoDefaultLabels,

@@ -216,6 +216,7 @@ Flags:
   --output=table             table, json or yaml
   --pids-limit=0             the container's pids cgroup limit (0 is no limit)
   --priority=0               scheduling priority; higher-priority pools receive create slots first
+  --provider-selector        only let providers that match rent machines for this pool, e.g. site=garage or kind=proxmox; name and kind need no label; empty means any provider
   --provision-timeout        override scheduler.provision_timeout for this pool, e.g. 30m (empty follows the fleet; 0 never gives up)
   --pull-policy=if-not-present if-not-present, always, or pinned-only
   --run-as-root              run job steps as root inside the runner
@@ -297,6 +298,7 @@ Flags:
   --output=table             table, json or yaml
   --pids-limit=0             the container's pids cgroup limit (0 is no limit)
   --priority=0               scheduling priority; higher-priority pools receive create slots first
+  --provider-selector        only let providers that match rent machines for this pool, e.g. site=garage or kind=proxmox; name and kind need no label; empty means any provider
   --provision-timeout        override scheduler.provision_timeout for this pool, e.g. 30m (empty follows the fleet; 0 never gives up)
   --pull-policy=if-not-present if-not-present, always, or pinned-only
   --run-as-root              run job steps as root inside the runner
