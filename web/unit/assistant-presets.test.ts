@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import {
   answeringProvider,
   DEFAULT_PRESET,
+  isSubscriptionKind,
   KIND_LABELS,
   PRESETS,
   presetFor,
@@ -55,7 +56,7 @@ test('a Claude subscription is a preset of its own kind, with no address and the
   // Every other preset is shared, and a saved Claude subscription opens on its own preset.
   assert.deepEqual(
     PRESETS.filter((p) => p.subscription).map((p) => p.id),
-    ['claude-code'],
+    ['claude-code', 'codex', 'copilot'],
   );
   assert.equal(presetFor('claude_code', '')?.id, 'claude-code');
   assert.ok(KIND_LABELS.claude_code);
@@ -74,4 +75,38 @@ test('the provider that answers is the default when it may be used, and otherwis
   assert.equal(answeringProvider([alices])?.id, undefined);
   assert.equal(answeringProvider([off, other])?.id, 'b');
   assert.equal(answeringProvider([])?.id, undefined);
+});
+
+test('Codex and Copilot are subscriptions of their own kinds, with no address and no list of models', () => {
+  for (const [id, kind, tool, caveat] of [
+    ['codex', 'codex', /OpenAI/, /read-only/],
+    ['copilot', 'copilot', /GitHub/, /argument/],
+  ] as const) {
+    const p = PRESETS.find((x) => x.id === id);
+    assert.equal(p?.kind, kind);
+    assert.equal(p?.baseURL, '');
+    assert.equal(p?.subscription, true);
+    // They cannot list their models, and start from the tool's own choice.
+    assert.ok(!p?.listsModels);
+    assert.ok(!p?.defaultModel);
+    assert.match(p?.help ?? '', /yours alone/);
+    assert.match(p?.help ?? '', /Local models only/);
+    assert.match(p?.help ?? '', tool);
+    // What each cannot promise is said where it is chosen.
+    assert.match(p?.help ?? '', caveat);
+    assert.equal(presetFor(kind, '')?.id, id);
+    assert.ok(KIND_LABELS[kind]);
+  }
+  // Only Claude Code can say which models it has.
+  assert.deepEqual(
+    PRESETS.filter((p) => p.listsModels).map((p) => p.id),
+    ['claude-code'],
+  );
+});
+
+test('exactly the subscription kinds are the ones the page asks nothing of but a name and a model', () => {
+  for (const kind of ['claude_code', 'codex', 'copilot'] as const)
+    assert.ok(isSubscriptionKind(kind));
+  for (const kind of ['fake', 'openai_compatible', 'anthropic', 'openai'] as const)
+    assert.ok(!isSubscriptionKind(kind));
 });

@@ -210,8 +210,13 @@ func (c *Controller) StartAssistantChat(ctx context.Context, in AssistantChatReq
 		}
 	}
 	ctx, cancel := context.WithTimeout(ctx, assistantChatTimeout)
+	// A subscription's tool may be left to choose its own model, and the answer says so.
+	shown := row.Model
+	if shown == "" {
+		shown = "its default model"
+	}
 	chat := &AssistantChat{
-		Provider: row.Name, ProviderID: row.ID, Model: row.Model,
+		Provider: row.Name, ProviderID: row.ID, Model: shown,
 		FleetAccess: len(req.Tools) > 0,
 		provider:    p, req: req, box: in.Tools, allowed: allowed, cancel: cancel,
 	}

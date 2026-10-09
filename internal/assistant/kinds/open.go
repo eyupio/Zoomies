@@ -54,12 +54,25 @@ func Open(kind assistant.Kind, cfg Config) (assistant.Provider, error) {
 		// Claude Code dials Anthropic itself, outside the dialer this package
 		// applies, so the one promise local-only makes cannot be kept for it.
 		if cfg.LocalOnly {
-			return nil, errors.New("Claude Code sends what is asked to Anthropic, which is not on this machine or its network, and Local models only is on")
+			return nil, errors.New("with Local models only on, Claude Code cannot be used: it sends what is asked to Anthropic, which is not on this machine or its network")
 		}
 		return provider.NewClaudeCode(pc), nil
+	case assistant.KindCodex:
+		if cfg.LocalOnly {
+			return nil, errors.New("with Local models only on, Codex cannot be used: it sends what is asked to OpenAI, which is not on this machine or its network")
+		}
+		return provider.NewCodex(pc), nil
+	case assistant.KindCopilot:
+		if cfg.LocalOnly {
+			return nil, errors.New("with Local models only on, GitHub Copilot cannot be used: it sends what is asked to GitHub, which is not on this machine or its network")
+		}
+		return provider.NewCopilot(pc), nil
 	}
-	return nil, fmt.Errorf("unknown provider kind %q; the kinds are %s, %s, %s and %s", kind,
-		assistant.KindOpenAICompatible, assistant.KindAnthropic, assistant.KindOpenAI, assistant.KindClaudeCode)
+	names := make([]string, len(assistant.Kinds))
+	for i, k := range assistant.Kinds {
+		names[i] = string(k)
+	}
+	return nil, fmt.Errorf("unknown provider kind %q; the kinds are %s", kind, strings.Join(names, ", "))
 }
 
 // newTransport is an http.Transport with the assistant's dialer. In

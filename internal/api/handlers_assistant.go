@@ -74,9 +74,14 @@ func (s *Server) validateAssistantProvider(p *store.AssistantProvider, checkAddr
 		}
 	}
 	if !known {
-		errs = append(errs, fieldError{"kind", fmt.Sprintf("choose one of %s, %s or %s", assistant.KindOpenAICompatible, assistant.KindAnthropic, assistant.KindOpenAI)})
+		names := make([]string, len(assistant.Kinds))
+		for i, k := range assistant.Kinds {
+			names[i] = string(k)
+		}
+		errs = append(errs, fieldError{"kind", "choose one of " + strings.Join(names, ", ")})
 	}
-	if p.Model == "" {
+	// A subscription's tool has a model of its own when none is named.
+	if p.Model == "" && !assistant.Subscription(kind) {
 		errs = append(errs, fieldError{"model", "name the model, as the provider calls it (llama3.1, claude-sonnet-4-5, gpt-4o)"})
 	}
 	switch {

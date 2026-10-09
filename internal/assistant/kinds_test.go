@@ -7,7 +7,7 @@ import "testing"
 // on these two answers, so they are held here.
 func TestSubscriptionKindsAreOwnedAndHaveNoTools(t *testing.T) {
 	for _, k := range Kinds {
-		sub := k == KindClaudeCode
+		sub := k == KindClaudeCode || k == KindCodex || k == KindCopilot
 		if Subscription(k) != sub || SupportsTools(k) == sub {
 			t.Errorf("%s: subscription = %v, tools = %v", k, Subscription(k), SupportsTools(k))
 		}
@@ -15,7 +15,9 @@ func TestSubscriptionKindsAreOwnedAndHaveNoTools(t *testing.T) {
 	if Subscription(KindFake) || !SupportsTools(KindFake) {
 		t.Error("the fake model is not somebody's subscription")
 	}
-	if DefaultBaseURL(KindClaudeCode) != "" {
-		t.Error("a subscription has an address")
+	for _, k := range []Kind{KindClaudeCode, KindCodex, KindCopilot} {
+		if !Subscription(k) || DefaultBaseURL(k) != "" {
+			t.Errorf("%s: a subscription has no address", k)
+		}
 	}
 }
