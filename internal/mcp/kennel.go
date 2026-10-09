@@ -209,7 +209,7 @@ type kennelEvidence struct {
 	// Files is the repository's workflow inventory, by blob SHA with the path
 	// somebody chose, carried as one entry of the block because a path is a
 	// stranger's text as a pool's name is. Code and Subject are empty on it.
-	Files json.RawMessage `json:"files,omitempty"`
+	Files    json.RawMessage `json:"files,omitempty"`
 	Code     string          `json:"code"`
 	Subject  string          `json:"subject,omitempty"`
 	Evidence json.RawMessage `json:"evidence"`

@@ -1416,16 +1416,19 @@ and the UI (#661, #669, #670); per-repository tracking (#699, #701); the
 first of Stage 3 (ZF-229c) in #714, `ci.no_timeout`, `ci.no_concurrency`,
 `ci.action_not_pinned` and `token.permissions_unset` behind
 `kennel.workflow_checks`, as per-repository counts, and ten `setup.*`
-presence checks behind `kennel.repository_setup`.
+presence checks behind `kennel.repository_setup`; part one of the rest of
+ZF-229c as [agent-readiness.md](roadmap/agent-readiness.md) section 6
+re-cuts it: the parser moved to `internal/kennel/workflow` with a fuzz
+target and a dogfooding test over this repository's own workflows, location
+evidence on every workflow finding (a blob SHA, a job index and a line, with
+the path shown only where it passes a grammar), waivers that lapse when the
+file changes, and the owed checks `exposure.target_checkout_pr_head`,
+`ci.workflow_unreadable`, `ci.pins_without_updater`, `ci.label_unserved` and
+`ci.secret_on_command_line`.
 
-**Open:** the rest of ZF-229c as
-[agent-readiness.md](roadmap/agent-readiness.md) section 6 re-cuts it,
-location evidence for a finding (a blob SHA, a job index and a line, never a
-path), the checks the record still owes (`ci.target_checkout_pr_head`,
-`ci.pins_without_updater`, `ci.workflow_unreadable`, `ci.label_unserved`,
-`ci.secret_on_command_line`, `capacity.matrix_exceeds_pool`), the parser's
-move to `internal/kennel/workflow`, and `zoomies kennel`, including
-`zoomies kennel check [path]` offline; Stage 4 (ZF-229d, repository
+**Open:** part two of ZF-229c, `capacity.matrix_exceeds_pool`, `zoomies
+kennel`, including `zoomies kennel check [path]` offline, and the prompt a
+finding offers an agent with its button; Stage 4 (ZF-229d, repository
 settings); Stage 5 (ZF-229e, fix by pull request); the documentation page.
 
 Depends on ZF-227. Size L.

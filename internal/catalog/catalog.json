@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "0824af6",
+  "generated_from": "db2ee66",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -3804,6 +3804,20 @@
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#ci-action_not_pinned"
     },
     {
+      "id": "ci.label_unserved",
+      "kind": "check",
+      "title": "A job's runs-on names labels no pool here serves, so the job will wait until a pool matches it.",
+      "category": "cost",
+      "severity": "info",
+      "detection": "static",
+      "detects": "A job's runs-on names labels no pool here serves, so the job will wait until a pool matches it.",
+      "fix": "Change the job's runs-on to labels a pool serves, or add the label to a pool that can run the job.",
+      "verify": "Press Recheck after the pool or the workflow changes; the finding closes when every job's runs-on is served.",
+      "area": "ci",
+      "docs_html": "https://zoomies.sh/kennel-club/#ci-label_unserved",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#ci-label_unserved"
+    },
+    {
       "id": "ci.no_concurrency",
       "kind": "check",
       "title": "Pull-request-only workflows do not cancel superseded runs at workflow or job level.",
@@ -3830,6 +3844,48 @@
       "area": "ci",
       "docs_html": "https://zoomies.sh/kennel-club/#ci-no_timeout",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#ci-no_timeout"
+    },
+    {
+      "id": "ci.pins_without_updater",
+      "kind": "check",
+      "title": "Actions are pinned to commits but no updater configuration moves the pins, so they age until somebody remembers.",
+      "category": "cost",
+      "severity": "info",
+      "detection": "static",
+      "detects": "Actions are pinned to commits but no updater configuration moves the pins, so they age until somebody remembers.",
+      "fix": "Configure Dependabot or Renovate for GitHub Actions so the pinned commits are moved by pull request, or confirm that an external service moves them.",
+      "verify": "Press Recheck once the configuration is on the default branch; the finding closes when the next tree read finds it.",
+      "area": "ci",
+      "docs_html": "https://zoomies.sh/kennel-club/#ci-pins_without_updater",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#ci-pins_without_updater"
+    },
+    {
+      "id": "ci.secret_on_command_line",
+      "kind": "check",
+      "title": "A secret is interpolated into a run line or a command-line argument, where it reaches the process list and the log.",
+      "category": "cost",
+      "severity": "warning",
+      "detection": "static",
+      "detects": "A secret is interpolated into a run line or a command-line argument, where it reaches the process list and the log.",
+      "fix": "Pass the secret through the step's env block and read it from the environment in the command; never interpolate it into run or args.",
+      "verify": "Press Recheck after the change reaches the default branch; the finding closes when no run line or args interpolates a secret.",
+      "area": "ci",
+      "docs_html": "https://zoomies.sh/kennel-club/#ci-secret_on_command_line",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#ci-secret_on_command_line"
+    },
+    {
+      "id": "ci.workflow_unreadable",
+      "kind": "check",
+      "title": "A workflow file could not be read within Kennel Club's limits, so nothing in it was judged.",
+      "category": "cost",
+      "severity": "warning",
+      "detection": "static",
+      "detects": "A workflow file could not be read within Kennel Club's limits, so nothing in it was judged.",
+      "fix": "Bring the file within the limits: under 256 KiB, no YAML anchors, aliases or merge keys, no duplicate keys, one document, valid UTF-8 and a jobs mapping; or split it into smaller workflows.",
+      "verify": "Press Recheck after the change reaches the default branch; the finding closes when the file is read and judged.",
+      "area": "ci",
+      "docs_html": "https://zoomies.sh/kennel-club/#ci-workflow_unreadable",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#ci-workflow_unreadable"
     },
     {
       "id": "exposure.fork_code_ran",
@@ -3872,6 +3928,20 @@
       "area": "exposure",
       "docs_html": "https://zoomies.sh/kennel-club/#exposure-public_repo_weak_pool",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#exposure-public_repo_weak_pool"
+    },
+    {
+      "id": "exposure.target_checkout_pr_head",
+      "kind": "check",
+      "title": "A workflow that strangers can trigger (pull_request_target) checks out the pull request's own code, which then runs with the repository's token and secrets.",
+      "category": "security",
+      "severity": "error",
+      "detection": "runtime",
+      "detects": "A workflow that strangers can trigger (pull_request_target) checks out the pull request's own code, which then runs with the repository's token and secrets.",
+      "fix": "Do not check out the pull request's head under pull_request_target; read what the event carries, or run the code under pull_request, where it gets the fork's lesser token and no secrets.",
+      "verify": "Press Recheck after the change reaches the default branch; the finding closes when no pull_request_target workflow checks out the pull request's head.",
+      "area": "exposure",
+      "docs_html": "https://zoomies.sh/kennel-club/#exposure-target_checkout_pr_head",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#exposure-target_checkout_pr_head"
     },
     {
       "id": "exposure.target_event_ran",
