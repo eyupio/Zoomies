@@ -502,6 +502,12 @@ export const cordonHost = (id: string, body: Body<'cordonHost'>) =>
 /** Ask the host's agent to run its read-only OS checks once. Answers 202 with the host, not the report. */
 export const checkHostHealth = (id: string) =>
   api.post<Result<'checkHostHealth'>>(`/hosts/${enc(id)}/health-check`);
+/**
+ * Ask the host's agent to have its update helper take it to the controller's release (admin).
+ * Takes no body. Answers 202 with the host, whose `update` holds the attempt just opened.
+ */
+export const requestHostUpdate = (hostId: string) =>
+  api.post<Result<'requestHostUpdate'>>(`/hosts/${enc(hostId)}/update`);
 export const acceptHostCheck = (id: string, body: Body<'acceptHostCheck'>) =>
   api.put<Result<'acceptHostCheck'>>(`/hosts/${enc(id)}/check-acceptances`, { body });
 export const revokeHostCheck = (id: string, checkId: string) =>

@@ -408,6 +408,41 @@ func (s *Server) handleCheckHost(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusAccepted, s.ctrl.HostView(&h).For(isPlatform(r)))
 }
 
+// handleRequestHostUpdate answers POST /api/v1/hosts/{id}/update: ask the host's
+// agent to have its update helper take it to this controller's release.
+//
+// It answers 202 with the host, whose update block holds the attempt, because the
+// request is made and nothing is done: the task goes out on the agent's own poll
+// and the page learns how it went from the host's frames. The audit row is written
+// once the controller has said yes, so a refused press, which changed nothing,
+// leaves none. The row names the host and the two releases and nothing the helper
+// wrote, which can be a path on the host, because an administrator reads the audit
+// log and only the platform reads that.
+func (s *Server) handleRequestHostUpdate(w http.ResponseWriter, r *http.Request) {
+	if !decodeNoUpdateBody(w, r) {
+		return
+	}
+	id := chiURLParam(r, "id")
+	ident := Identity(r.Context())
+	view, err := s.ctrl.RequestHostUpdate(r.Context(), controller.UpdateActor{ID: ident.ID, Name: ident.Name}, id)
+	if err != nil {
+		s.failUpdate(w, r, err)
+		return
+	}
+	// Detached from the request: the task may already be queued, and a browser that
+	// gave up waiting must not leave it with no record of who asked.
+	ctx := context.WithoutCancel(r.Context())
+	attemptID, detail := "", map[string]any{"host_id": id}
+	if view.Update != nil && view.Update.AttemptID != "" {
+		attemptID = view.Update.AttemptID
+		if latest, err := s.ctrl.Store().ListUpdateAttempts(ctx, store.UpdateScopeHost, id, 1); err == nil && len(latest) == 1 && latest[0].ID == attemptID {
+			detail["from"], detail["to"] = latest[0].FromVersion, latest[0].ToVersion
+		}
+	}
+	s.auth.Auditor().Act(ctx, ident, "update.host_requested", "update", attemptID, detail)
+	writeJSON(w, http.StatusAccepted, view.For(isPlatform(r)))
+}
+
 // handleDeleteHost removes a host.
 //
 // It refuses while the host still has live runners unless forced, because

@@ -70,6 +70,13 @@ const (
 	// a few dozen processes there, so a viewer never can, and it has a scope of
 	// its own so a token can be given this and nothing else about hosts.
 	ActionHostsCheck Action = "hosts.check"
+	// ActionHostsUpdate is asking a host's agent to have its update helper replace the
+	// agent's binary with this controller's release. It replaces software that runs
+	// as root on a machine the controller does not own, and a failed one leaves the
+	// host without an agent until somebody reaches it, so it is an administrator's
+	// and not an operator's, and has a scope of its own so a token can be given
+	// cordoning without it.
+	ActionHostsUpdate Action = "hosts.update"
 )
 
 // Installation actions. Verifying credentials is an operator action because it
@@ -276,6 +283,7 @@ var actionRoles = map[Action]store.Role{
 	ActionHostsDelete: store.RoleAdmin,
 	ActionHostsAccept: store.RoleOperator,
 	ActionHostsCheck:  store.RoleOperator,
+	ActionHostsUpdate: store.RoleAdmin,
 
 	ActionInstallationsRead:   store.RoleViewer,
 	ActionInstallationsWrite:  store.RoleAdmin,

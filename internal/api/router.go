@@ -320,6 +320,8 @@ func (s *Server) apiRoutes() chi.Router {
 			// Named for the decision and not for the report, so a route that serves
 			// the report itself has the name /doctor to itself.
 			r.With(s.require(auth.ActionHostsCheck)).Post("/{id}/health-check", s.handleCheckHost)
+			// Admin and not operator: it replaces the binary of an agent that runs as root.
+			r.With(s.require(auth.ActionHostsUpdate)).Post("/{id}/update", s.handleRequestHostUpdate)
 			r.With(s.require(auth.ActionHostsAccept)).Put("/{id}/check-acceptances", s.handleAcceptHostCheck)
 			r.With(s.require(auth.ActionHostsAccept)).Delete("/{id}/check-acceptances/{check_id}", s.handleRevokeHostCheck)
 			r.With(s.require(auth.ActionHostsDelete)).Delete("/{id}", s.handleDeleteHost)
