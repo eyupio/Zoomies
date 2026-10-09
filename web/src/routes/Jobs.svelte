@@ -213,6 +213,7 @@
         since: startOfMoment(filters.since),
         until: endOfMoment(filters.until),
         unmatched: filters.unmatched ? true : undefined,
+        hosted: filters.hosted === 'false' ? false : undefined,
         failed: filters.failed ? true : undefined,
         faulted: filters.faulted ? true : undefined,
         managed: filters.all ? undefined : true,
