@@ -75,13 +75,15 @@ func TestMalformedWorkflowDoesNotHideFindingsInOtherFilesOrEarnAnAllClear(t *tes
 	}
 }
 
-func TestDisablingBothWorkflowAreasStopsContentReads(t *testing.T) {
+// With every check that reads a workflow turned off by name, the switch
+// being on is not a reason to read: nothing would judge what was read.
+func TestDisablingEveryCheckThatReadsWorkflowsStopsContentReads(t *testing.T) {
 	f := newKennelFixture(t)
 	f.repo("acme/api", "private")
 	f.ran("acme/api", 1, f.pool)
 	f.c.UpdateConfig(func(c *config.Config) {
 		c.Kennel.WorkflowChecks = true
-		c.Kennel.DisabledChecks = []string{"ci", "token"}
+		c.Kennel.DisabledChecks = []string{"ci", "token", string(kennel.CodeTargetCheckoutPRHead)}
 	})
 	f.pass()
 	if f.requestsTo("/git/trees/") != 0 || f.requestsTo("/git/blobs/") != 0 {
@@ -293,5 +295,45 @@ func TestASwitchTurnsOffEveryCheckThatReadsItsSource(t *testing.T) {
 	setupOff := kennelDisabled(config.Kennel{WorkflowChecks: true})
 	if !setupOff[string(kennel.CodePinsWithoutUpdater)] || setupOff[string(kennel.CodeTargetCheckoutPRHead)] {
 		t.Errorf("setup off: %v", setupOff)
+	}
+}
+
+const targetCheckout = "on: pull_request_target\njobs:\n  build:\n    runs-on: self-hosted\n    timeout-minutes: 5\n    permissions: {}\n    steps:\n      - uses: actions/checkout@" + "0123456789012345678901234567890123456789" + "\n        with:\n          ref: ${{ github.event.pull_request.head.sha }}\n"
+
+// Whether the workflow files are read follows the checks that need them, not
+// an area: with ci and token turned off by name, the exposure check that
+// reads a workflow is still on, and it can only fire if the files are read.
+func TestTurningOffTheCIAndTokenAreasByNameStillReadsWorkflowsForTheExposureCheck(t *testing.T) {
+	f := newKennelFixture(t)
+	f.repo("acme/api", "public")
+	f.ran("acme/api", 1, f.pool)
+	f.gh.AddWorkflow("acme/api", ".github/workflows/ci.yml", targetCheckout)
+	f.c.UpdateConfig(func(c *config.Config) {
+		c.Kennel.WorkflowChecks = true
+		c.Kennel.DisabledChecks = []string{"ci", "token"}
+	})
+	f.pass()
+	if f.requestsTo("/git/blobs/") == 0 {
+		t.Fatal("no workflow was read, so the exposure check could never fire")
+	}
+	v := f.view("acme/api")
+	if findingOf(v, kennel.CodeTargetCheckoutPRHead) == nil {
+		t.Fatalf("findings = %v, want the checkout of the pull request's head", findingCodes(v))
+	}
+}
+
+// A repository whose every workflow is over the limit has nothing read and
+// one thing to say: the files could not be read. Dropping the facts because
+// nothing was read would drop the one finding there is.
+func TestARepositoryWhoseOnlyWorkflowIsOversizedIsToldItIsUnreadable(t *testing.T) {
+	f := newKennelFixture(t)
+	f.repo("acme/api", "private")
+	f.ran("acme/api", 1, f.pool)
+	f.gh.AddWorkflow("acme/api", ".github/workflows/large.yml", "on: push\njobs:\n  a:\n    runs-on: x\n    steps: []\n# "+strings.Repeat("x", workflow.MaxBytes))
+	f.c.UpdateConfig(func(c *config.Config) { c.Kennel.WorkflowChecks = true })
+	f.pass()
+	v := f.view("acme/api")
+	if findingOf(v, kennel.CodeWorkflowUnreadable) == nil || v.State == kennel.StateBestInShow {
+		t.Fatalf("findings = %v, state %s; want the unreadable file named", findingCodes(v), v.State)
 	}
 }

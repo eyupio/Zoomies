@@ -70,10 +70,5 @@ func kennelSetupDue(row *store.KennelRepository, in kennelPassInput) bool {
 }
 
 func kennelSetupEnabled(p kennel.Policy) bool {
-	for _, ck := range kennel.Checks() {
-		if ck.Area == kennel.AreaSetup && !p.Disabled[string(ck.Area)] && !p.Disabled[string(ck.Code)] {
-			return true
-		}
-	}
-	return false
+	return kennelSourceWanted(p, kennel.SourceSetup)
 }

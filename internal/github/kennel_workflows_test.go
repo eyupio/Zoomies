@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/eyupio/zoomies/internal/kennel/workflow"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -39,5 +40,14 @@ func TestWorkflowInventoryMakesOmittedAndOversizedFilesIncomplete(t *testing.T) 
 	got, err := f.Client("acme", store.TargetOrg).(KennelWorkflowReader).KennelWorkflowInventory(context.Background(), "acme/api", "main")
 	if err != nil || !got.Partial || len(got.Files) != KennelWorkflowFiles {
 		t.Fatalf("inventory=%+v, %v", got, err)
+	}
+}
+
+// A file the reader fetches and the parser then refuses is a request spent on
+// nothing, and a file the reader skips that the parser would take is a check
+// that quietly sees less than it could. One number, held in one place.
+func TestTheReaderAndTheParserAgreeOnHowBigAWorkflowMayBe(t *testing.T) {
+	if KennelWorkflowBytes != workflow.MaxBytes {
+		t.Errorf("the reader stops at %d bytes and the parser at %d", KennelWorkflowBytes, workflow.MaxBytes)
 	}
 }

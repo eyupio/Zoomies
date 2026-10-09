@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/github"
@@ -17,9 +18,18 @@ import (
 // plain name under .github/workflows is kept as "" and shown as unusual.
 var workflowPathGrammar = regexp.MustCompile(`^\.github/workflows/[A-Za-z0-9][A-Za-z0-9._-]{0,99}\.ya?ml$`)
 
+// kennelWorkflowsEnabled is whether any check still on reads the workflow
+// files. It follows the checks, not an area: a check outside ci and token
+// reads them too, and with those two areas off by name it would otherwise be
+// skipped on every pass for a source nobody read.
 func kennelWorkflowsEnabled(p kennel.Policy) bool {
+	return kennelSourceWanted(p, kennel.SourceWorkflows)
+}
+
+func kennelSourceWanted(p kennel.Policy, src kennel.Source) bool {
 	for _, ck := range kennel.Checks() {
-		if (ck.Area == kennel.AreaCI || ck.Area == kennel.AreaToken) && !p.Disabled[string(ck.Area)] && !p.Disabled[string(ck.Code)] {
+		reads := slices.Contains(ck.Needs, src) || slices.Contains(ck.Conditional, src)
+		if reads && !p.Disabled[string(ck.Area)] && !p.Disabled[string(ck.Code)] {
 			return true
 		}
 	}
@@ -192,9 +202,11 @@ func (c *Controller) kennelReadWorkflows(ctx context.Context, inst *store.Instal
 		}
 		facts.Files = append(facts.Files, kennelWorkflowFile(ref.SHA, parsed, served))
 	}
-	// Positive evidence from successfully read files remains useful. Missing
-	// evidence is incomplete, so it can never earn an all-clear.
-	if read > 0 || state == kennel.CoverageOK {
+	// Positive evidence from successfully read files remains useful, and so
+	// is the name of a file that could not be read, which may be the only
+	// thing there is to say. Missing evidence is incomplete, so it can never
+	// earn an all-clear.
+	if read > 0 || len(facts.Unreadable) > 0 || state == kennel.CoverageOK {
 		wm.Workflows = facts
 		wm.WorkflowFiles = files
 	}
