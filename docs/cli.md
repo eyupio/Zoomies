@@ -140,7 +140,9 @@ What runners to make, and how many.
 `create` and `edit` share one set of flags. The ones worth knowing:
 `--name`, `--installation`, `--labels`, `--backend` (`docker`), `--image`,
 `--min` (`0`), `--max` (`4`), `--idle-timeout` (`5m`), `--ephemeral` (`true`),
-`--docker-mode` (`none`), `--run-as-root` (`false`), `--host-selector`, the
+`--docker-mode` (`none`), `--run-as-root` (`false`), `--host-selector`,
+`--provider-selector` (which providers may rent machines for the pool; see
+[which pools use a provider](proxmox.md#which-pools-use-a-provider)), the
 resource limits `--cpus`, `--memory-mb`, `--disk-gb`, `--size-from-host` to take
 each runner's size from the host it lands on instead (a pool does that or states
 a size, so it cannot be combined with `--cpus` or `--memory-mb`; moving an

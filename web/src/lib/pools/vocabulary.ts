@@ -218,6 +218,7 @@ export const FIELD_LABELS: Readonly<Record<string, string>> = {
   'tmpfs.daemon.enabled': 'Docker image store in memory',
   'tmpfs.daemon.size_mb': 'Docker image store size',
   host_selector: 'Hosts',
+  provider_selector: 'Providers',
   env: 'Environment',
   'runner_settings.provision_timeout': 'Provision timeout',
   'runner_settings.drain_timeout': 'Drain timeout',

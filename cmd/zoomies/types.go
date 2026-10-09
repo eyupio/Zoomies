@@ -53,6 +53,7 @@ type poolItem struct {
 	Ephemeral          bool              `json:"ephemeral"`
 	DockerMode         string            `json:"docker_mode"`
 	HostSelector       map[string]string `json:"host_selector"`
+	ProviderSelector   map[string]string `json:"provider_selector"`
 	Env                map[string]string `json:"env"`
 	RunAsRoot          bool              `json:"run_as_root"`
 	NoDefaultLabels    bool              `json:"no_default_labels"`

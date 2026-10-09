@@ -182,6 +182,7 @@ func poolsGet(ctx context.Context, e *env, args []string) error {
 		{"run as root", p.yesNo(pool.RunAsRoot, true)},
 		{"default labels", p.yesNo(!pool.NoDefaultLabels, false)},
 		{"host selector", dash(kvValue(pool.HostSelector).String())},
+		{"provider selector", dash(kvValue(pool.ProviderSelector).String())},
 		{"sizing", poolSizing(pool)},
 		{"elastic CPU", poolCPUBurstLabel(pool)},
 		{"elastic memory", poolMemoryBurstLabel(pool)},
@@ -377,30 +378,31 @@ func poolImage(pool poolItem) string {
 // poolSpec holds the flags shared by create and edit. Keeping them in one place
 // is what makes `edit` accept exactly the settings `create` does.
 type poolSpec struct {
-	name         *string
-	installation *string
-	backend      *string
-	image        *string
-	pullPolicy   *string
-	version      *string
-	group        *string
-	idleTimeout  *string
-	dockerMode   *string
-	labels       *listValue
-	hostSelector kvValue
-	envVars      kvValue
-	minRunners   *int
-	maxRunners   *int
-	priority     *int
-	ephemeral    *bool
-	runAsRoot    *bool
-	noDefault    *bool
-	enabled      *bool
-	cpus         *float64
-	memoryMB     *int64
-	diskGB       *int64
-	pidsLimit    *int64
-	sizeFromHost *bool
+	name             *string
+	installation     *string
+	backend          *string
+	image            *string
+	pullPolicy       *string
+	version          *string
+	group            *string
+	idleTimeout      *string
+	dockerMode       *string
+	labels           *listValue
+	hostSelector     kvValue
+	providerSelector kvValue
+	envVars          kvValue
+	minRunners       *int
+	maxRunners       *int
+	priority         *int
+	ephemeral        *bool
+	runAsRoot        *bool
+	noDefault        *bool
+	enabled          *bool
+	cpus             *float64
+	memoryMB         *int64
+	diskGB           *int64
+	pidsLimit        *int64
+	sizeFromHost     *bool
 	// current is the size the pool has now, so that an edit touching one part
 	// of it carries the rest forward rather than clearing it. Zero on a
 	// create, where there is nothing to carry.
@@ -456,9 +458,10 @@ type poolSpec struct {
 // created pool is the same whether it came from here or from the wizard.
 func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec := &poolSpec{
-		labels:       &listValue{},
-		hostSelector: kvValue{},
-		envVars:      kvValue{},
+		labels:           &listValue{},
+		hostSelector:     kvValue{},
+		providerSelector: kvValue{},
+		envVars:          kvValue{},
 	}
 	spec.name = fs.String("name", "", "the pool's name; it is stored with the zoomies- prefix, e.g. zoomies-4vcpu-ubuntu-2404")
 	spec.installation = fs.String("installation", "", "the GitHub App installation this pool registers runners with")
@@ -477,6 +480,7 @@ func registerPoolFlags(fs *flagSet) *poolSpec {
 	spec.runAsRoot = fs.Bool("run-as-root", false, "run job steps as root inside the runner")
 	spec.noDefault = fs.Bool("no-default-labels", false, "register runners without self-hosted, os and arch labels; needs --ephemeral=false")
 	spec.enabled = fs.Bool("enabled", true, "whether the pool may create runners")
+	fs.Var(spec.providerSelector, "provider-selector", "only let providers that match rent machines for this pool, e.g. site=garage or kind=proxmox; name and kind need no label; empty means any provider")
 	fs.Var(spec.hostSelector, "host-selector", "only use hosts that match, e.g. arch=arm64 or os=windows; os and arch need no label")
 	fs.Var(spec.envVars, "env", "environment variables for every job in this pool, e.g. HTTP_PROXY=...")
 	spec.cpus = fs.Float64("cpus", 0, "CPU limit per runner; 0 leaves the size to the host, which gives each runner one slot's share of its machine")
@@ -564,6 +568,9 @@ func (spec *poolSpec) body(fs *flagSet, onlyChanged bool) map[string]any {
 	}
 	if fs.changed("host-selector") {
 		body["host_selector"] = map[string]string(spec.hostSelector)
+	}
+	if fs.changed("provider-selector") {
+		body["provider_selector"] = map[string]string(spec.providerSelector)
 	}
 	if fs.changed("env") {
 		body["env"] = map[string]string(spec.envVars)

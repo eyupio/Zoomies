@@ -133,16 +133,17 @@ type poolInput struct {
 	// MemoryBurst is the memory valve's policy. Absent leaves it as it is on an
 	// edit, and off on a pool made before the valve existed; a new pool made
 	// without it observes (defaultNewPoolBurst).
-	MemoryBurst     *store.MemoryBurstPolicy `json:"memory_burst"`
-	RunnerSettings  *runnerSettingsIn        `json:"runner_settings"`
-	Cache           *store.CacheConfig       `json:"cache"`
-	Tmpfs           *store.TmpfsConfig       `json:"tmpfs"`
-	HostSelector    *map[string]string       `json:"host_selector"`
-	Env             *map[string]string       `json:"env"`
-	RunAsRoot       *bool                    `json:"run_as_root"`
-	NoDefaultLabels *bool                    `json:"no_default_labels"`
-	SizeFromProfile *bool                    `json:"size_from_profile"`
-	Enabled         *bool                    `json:"enabled"`
+	MemoryBurst      *store.MemoryBurstPolicy `json:"memory_burst"`
+	RunnerSettings   *runnerSettingsIn        `json:"runner_settings"`
+	Cache            *store.CacheConfig       `json:"cache"`
+	Tmpfs            *store.TmpfsConfig       `json:"tmpfs"`
+	HostSelector     *map[string]string       `json:"host_selector"`
+	ProviderSelector *map[string]string       `json:"provider_selector"`
+	Env              *map[string]string       `json:"env"`
+	RunAsRoot        *bool                    `json:"run_as_root"`
+	NoDefaultLabels  *bool                    `json:"no_default_labels"`
+	SizeFromProfile  *bool                    `json:"size_from_profile"`
+	Enabled          *bool                    `json:"enabled"`
 	// Auto is what an operator asks of a pool the controller keeps, and is
 	// refused on any other.
 	Auto *autoPoolInput `json:"auto"`
@@ -437,6 +438,9 @@ func (in *poolInput) apply(p *store.Pool) []fieldError {
 	}
 	if in.HostSelector != nil {
 		p.HostSelector = store.StringMap(*in.HostSelector)
+	}
+	if in.ProviderSelector != nil {
+		p.ProviderSelector = store.StringMap(*in.ProviderSelector)
 	}
 	if in.Env != nil {
 		p.Env = store.StringMap(*in.Env)
@@ -888,6 +892,12 @@ func (s *Server) validatePool(ctx context.Context, p *store.Pool, existingID str
 	for k := range p.HostSelector {
 		if strings.TrimSpace(k) == "" {
 			add("host_selector", "a host selector key cannot be empty")
+			break
+		}
+	}
+	for k := range p.ProviderSelector {
+		if strings.TrimSpace(k) == "" {
+			add("provider_selector", "a provider selector key cannot be empty")
 			break
 		}
 	}

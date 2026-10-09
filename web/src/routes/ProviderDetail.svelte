@@ -16,12 +16,19 @@
     getProvider,
     getProviderOrphans,
     listMachines,
+    listProviderPairings,
     pauseProvider,
     releaseMachine,
     resumeProvider,
   } from '$lib/api/client';
   import { events } from '$lib/api/sse';
-  import type { Machine, Provider, ProviderCheck, ProviderOrphans } from '$lib/api/types';
+  import type {
+    Machine,
+    Provider,
+    ProviderCheck,
+    ProviderOrphans,
+    ProviderPairing,
+  } from '$lib/api/types';
   import { pluralise } from '$lib/format';
   import { router } from '$lib/router';
   import { machineStatus } from '$lib/status';
@@ -40,6 +47,7 @@
   import Tabs from '$lib/components/Tabs.svelte';
   import MachineBand from '$lib/providers/MachineBand.svelte';
   import OrphanReview from '$lib/providers/OrphanReview.svelte';
+  import PoolsTab from '$lib/providers/PoolsTab.svelte';
   import CheckFindings from '$lib/providers/CheckFindings.svelte';
   import ProviderForm from '$lib/providers/ProviderForm.svelte';
 
@@ -76,6 +84,7 @@
 
   const TABS = [
     { id: 'machines', label: 'Machines' },
+    { id: 'pools', label: 'Pools' },
     { id: 'settings', label: 'Settings' },
     { id: 'orphans', label: 'Orphan review' },
   ];
@@ -106,6 +115,25 @@
         error = cause;
       })
       .finally(() => (loading = false));
+    return () => controller.abort();
+  });
+
+  // Every pool against this provider: which it would rent for, and whose
+  // setting says no for the rest. Cheap, so fetched with the page.
+  let pairings = $state<ProviderPairing[] | null>(null);
+  $effect(() => {
+    const providerId = id;
+    if (providerId === '') return;
+    void reload;
+    const controller = new AbortController();
+    void listProviderPairings(controller.signal)
+      .then((page) => {
+        pairings = (page.items ?? []).filter((entry) => entry.provider_id === providerId);
+      })
+      .catch((cause: unknown) => {
+        if (cause instanceof DOMException && cause.name === 'AbortError') return;
+        pairings = [];
+      });
     return () => controller.abort();
   });
 
@@ -343,6 +371,8 @@
               </ul>
             {/if}
           </div>
+        {:else if active === 'pools'}
+          <PoolsTab provider={p} {pairings} />
         {:else if active === 'settings'}
           <div class="tab">
             {#if editing && canAdmin}
@@ -395,6 +425,21 @@
                   <dd>
                     {pluralise(p.machine_capacity ?? 0, 'runner slot')} ·
                     {p.machine_backend}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Pools</dt>
+                  <dd>
+                    {#if Object.keys(p.pool_selector ?? {}).length === 0}
+                      Any pool it suits.
+                    {:else}
+                      Only pools matching
+                      <span class="mono"
+                        >{Object.entries(p.pool_selector ?? {})
+                          .map(([k, v]) => (v === '' ? k : `${k}=${v}`))
+                          .join(', ')}</span
+                      >.
+                    {/if}
                   </dd>
                 </div>
                 <div>

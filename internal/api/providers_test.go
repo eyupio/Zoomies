@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/controller"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/tailscale/tailcat"
 )
@@ -325,6 +326,90 @@ func TestAProviderKeepsTheWholeOfItsLastCheck(t *testing.T) {
 	if got.LastCheck.ProviderID != prov.ID || !got.LastCheck.Reachable || got.LastCheck.CheckedAt.IsZero() {
 		t.Errorf("the kept check is not the one that ran: %+v", got.LastCheck)
 	}
+}
+
+// A pool nobody rents for looks the same whichever selector said no: an empty
+// Machines list and a queue. The pairings are where an operator finds out whose
+// setting it was, in the words of the setting.
+func TestPairingsSayWhichSideRefusedAndWhy(t *testing.T) {
+	h := newHarness(t)
+	viewer, _ := h.user("viewer", store.RoleViewer)
+	cookie := h.session(viewer)
+	inst := h.installation()
+
+	open := h.provider("open-lab")
+	picky := h.provider("picky-lab")
+	picky.PoolSelector = store.StringMap{"gpu": ""}
+	if err := h.st.UpdateProvider(h.ctx, picky); err != nil {
+		t.Fatalf("UpdateProvider: %v", err)
+	}
+	pool := h.pool(inst, "linux-x64")
+	guarded := h.pool(inst, "linux-guarded")
+	guarded.ProviderSelector = store.StringMap{"name": "somewhere-else"}
+	if err := h.st.UpdatePool(h.ctx, guarded); err != nil {
+		t.Fatalf("UpdatePool: %v", err)
+	}
+
+	resp := h.do(request{method: http.MethodGet, path: "/api/v1/providers/pairings", cookie: cookie})
+	resp.mustStatus(t, http.StatusOK, "read the pairings")
+	var list struct {
+		Items []controller.PairingView `json:"items"`
+	}
+	resp.into(t, &list)
+	if len(list.Items) != 4 {
+		t.Fatalf("%d pairings for two providers and two pools, want 4: %s", len(list.Items), truncate(resp.body))
+	}
+	find := func(provider, pool string) controller.PairingView {
+		for _, it := range list.Items {
+			if it.ProviderName == provider && it.PoolName == pool {
+				return it
+			}
+		}
+		t.Fatalf("no pairing of %s and %s", provider, pool)
+		return controller.PairingView{}
+	}
+
+	if got := find(open.Name, pool.Name); !got.Serves || got.Why != "" {
+		t.Errorf("two unrestricted sides do not serve each other: %+v", got)
+	}
+	got := find(picky.Name, pool.Name)
+	if got.Serves || got.By != "provider" || !strings.Contains(got.Why, "gpu") || got.Fix == "" {
+		t.Errorf("the provider's refusal is not reported as the provider's: %+v", got)
+	}
+	got = find(open.Name, guarded.Name)
+	if got.Serves || got.By != "pool" || !strings.Contains(got.Why, "somewhere-else") {
+		t.Errorf("the pool's refusal is not reported as the pool's: %+v", got)
+	}
+}
+
+// The pool's half of the agreement has to survive being written and read: a
+// selector that silently came back empty would leave every provider free to rent
+// for a pool somebody had restricted.
+func TestAPoolKeepsItsProviderSelector(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	cookie := h.session(admin)
+	pool := h.pool(h.installation(), "linux-x64")
+
+	res := h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"provider_selector": map[string]string{"site": "garage"}}})
+	res.mustStatus(t, http.StatusOK, "set a pool's provider selector")
+	var saved poolResponse
+	res.into(t, &saved)
+	if saved.ProviderSelector["site"] != "garage" {
+		t.Fatalf("the selector did not come back: %+v", saved.ProviderSelector)
+	}
+	row, err := h.st.GetPool(h.ctx, pool.ID)
+	if err != nil {
+		t.Fatalf("GetPool: %v", err)
+	}
+	if row.ProviderSelector["site"] != "garage" {
+		t.Errorf("the selector was not stored: %+v", row.ProviderSelector)
+	}
+
+	res = h.do(request{method: http.MethodPatch, path: "/api/v1/pools/" + pool.ID, cookie: cookie,
+		body: map[string]any{"provider_selector": map[string]string{" ": "x"}}})
+	res.mustStatus(t, http.StatusUnprocessableEntity, "an empty selector key")
 }
 
 // A build with no driver for a stored provider's kind must say so rather than
