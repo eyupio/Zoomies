@@ -28,25 +28,25 @@ func TestAssistantInstructionsDescribeTheSelectedDestinationAndConnection(t *tes
 	}
 }
 
-func TestRepositoryInstructionsPreferPreparedContextWithoutRequiringMCP(t *testing.T) {
+func TestRepositoryInstructionsChooseAvailableSourcesAndRemainPortable(t *testing.T) {
 	key, config := setupInputs()
 	for _, destination := range []Destination{Repository, Both} {
 		config.Destination = destination
 		body := AssistantInstructions(key, "owner/repo", config)
 		for _, required := range []string{
-			"Use repository context first: no MCP required",
-			"first source reference before browsing individual source files",
+			"Read repository-hosted context: no MCP required",
+			"Use the local checkout first", "uncommitted edits",
 			"https://github.com/owner/repo/blob/zoomies-ai-context/.zoomies/ai-context/manifest.json",
 			"https://github.com/owner/repo/blob/zoomies-ai-context/.zoomies/ai-context/snapshot.json",
 			"source_commit", "same generated-branch commit", "too large for your tools",
-			"say why before falling back", "JSON source pack", "not automatic without MCP",
+			"explain why", "JSON source pack", "not automatic without MCP",
 		} {
 			if !strings.Contains(body, required) {
 				t.Fatalf("%s instructions missing %q", destination, required)
 			}
 		}
-		if destination == Both && strings.Index(body, "Use repository context first") > strings.Index(body, "Read through Zoomies MCP") {
-			t.Fatal("repository guidance must come before the optional MCP route")
+		if destination == Both && strings.Index(body, "Read through Zoomies MCP") > strings.Index(body, "Read repository-hosted context") {
+			t.Fatal("bounded MCP reads must come before repository pack retrieval")
 		}
 	}
 	config.Destination = Zoomies
@@ -86,7 +86,7 @@ func TestPreviousAssistantGuidanceUpgradesWithoutOverwritingCustomEdits(t *testi
 				saved = append(saved, SetupFile{Path: change.Path, SHA: strings.Repeat("b", 40), Content: change.Content})
 				if change.Path == "AGENTS.md" || change.Path == "CLAUDE.md" {
 					upgraded++
-					want := prefix + managedBlock(AssistantInstructions(key, "owner/repo", config), newline) + suffix
+					want := prefix + managedBlock(assistantEntryPoint(change.Path), newline) + suffix
 					if change.Content != want || change.PreviousSHA != files[0].SHA {
 						t.Fatal("upgrade lost user text, line endings or original blob identity")
 					}
@@ -140,7 +140,7 @@ func TestSetupPreservesUserTextAndRetriesWithoutChanges(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(changes) != 4 {
+	if len(changes) != 5 {
 		t.Fatalf("got %d changes", len(changes))
 	}
 	saved := make([]SetupFile, 0, len(changes))
@@ -210,14 +210,14 @@ func TestSetupUsesEnterpriseBadgeAndDoesNotCreateAMissingReadme(t *testing.T) {
 	key, config := setupInputs()
 	key.GitHubHost = "github.example.org"
 	changes, err := PlanSetupFiles(key, "owner/repo", config, nil)
-	if err != nil || len(changes) != 3 {
+	if err != nil || len(changes) != 4 {
 		t.Fatalf("%v: %d changes", err, len(changes))
 	}
 	changes, err = PlanSetupFiles(key, "owner/repo", config, []SetupFile{{Path: "README.md"}})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(changes[3].Content, "https://github.example.org/owner/repo/") {
+	if !strings.Contains(changes[4].Content, "https://github.example.org/owner/repo/") {
 		t.Fatal("wrong badge host")
 	}
 	config.Destination = Zoomies
@@ -281,15 +281,95 @@ func TestBadgeSectionIsFormatterCleanAfterATitle(t *testing.T) {
 
 func TestEarlierTightMarkersUpgradeToFormatterCleanOnes(t *testing.T) {
 	key, config := setupInputs()
-	body := AssistantInstructions(key, "owner/repo", config)
+	body := assistantEntryPoint("CLAUDE.md")
 	files := []SetupFile{{Path: "CLAUDE.md", SHA: strings.Repeat("a", 40), Content: "# X\n\n" + tightManagedBlock(body, "\n") + "\n"}}
 	changes, err := PlanSetupFiles(key, "owner/repo", config, files)
 	if err != nil {
 		t.Fatal(err)
 	}
 	for _, change := range changes {
-		if change.Path == "CLAUDE.md" && change.Content != "# X\n\n"+managedBlock(body, "\n")+"\n" {
+		if change.Path == "CLAUDE.md" && change.Content != "# X\n\n"+managedBlock(assistantEntryPoint("CLAUDE.md"), "\n")+"\n" {
 			t.Fatal("tight markers were not upgraded")
+		}
+	}
+}
+
+func TestSetupSharesTheGuideWithoutChangingClaudeImportWrappers(t *testing.T) {
+	key, config := setupInputs()
+	for _, path := range []string{"CLAUDE.md", ".claude/CLAUDE.md"} {
+		t.Run(path, func(t *testing.T) {
+			wrapper := "@AGENTS.md\r\n"
+			if path == ".claude/CLAUDE.md" {
+				wrapper = "@../AGENTS.md\r\n"
+			}
+			installed := []SetupFile{{Path: path, SHA: strings.Repeat("a", 40), Content: wrapper}}
+			changes, err := PlanSetupFiles(key, "owner/repo", config, installed)
+			if err != nil {
+				t.Fatal(err)
+			}
+			guide, agents := false, false
+			for _, change := range changes {
+				if change.Path == path || path == ".claude/CLAUDE.md" && change.Path == "CLAUDE.md" {
+					t.Fatal("setup changed an import wrapper or created a duplicate Claude entry point")
+				}
+				if change.Path == ContextGuidePath {
+					guide = strings.Contains(change.Content, "manifest.json") && strings.Contains(change.Content, "context_read")
+				}
+				if change.Path == "AGENTS.md" {
+					agents = strings.Contains(change.Content, ContextGuidePath) && !strings.Contains(change.Content, "snapshot.json")
+				}
+				installed = append(installed, SetupFile{Path: change.Path, SHA: strings.Repeat("b", 40), Content: change.Content})
+			}
+			if !guide || !agents {
+				t.Fatal("shared guide or short agent entry point missing")
+			}
+			if retry, err := PlanSetupFiles(key, "owner/repo", config, installed); err != nil || len(retry) != 0 {
+				t.Fatalf("setup was not idempotent: %v, %+v", err, retry)
+			}
+		})
+	}
+}
+
+func TestSetupUsesRelativeImportsInAnExistingNestedClaudeFile(t *testing.T) {
+	key, config := setupInputs()
+	original := "# Custom Claude guidance\r\nKeep this.\r\n"
+	changes, err := PlanSetupFiles(key, "owner/repo", config, []SetupFile{{Path: ".claude/CLAUDE.md", SHA: strings.Repeat("a", 40), Content: original}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, change := range changes {
+		if change.Path == "CLAUDE.md" {
+			t.Fatal("created an unnecessary root Claude file")
+		}
+		if change.Path == ".claude/CLAUDE.md" {
+			found = strings.HasPrefix(change.Content, original) && strings.Contains(change.Content, "@../.zoomies/AI_CONTEXT.md")
+		}
+	}
+	if !found {
+		t.Fatal("nested guidance or relative import missing")
+	}
+}
+
+func TestSetupMigratesTheRepositoryFirstInstructionsAndRefusesEditedGuides(t *testing.T) {
+	key, config := setupInputs()
+	old := managedBlock(repositoryFirstAssistantInstructions(key, "owner/repo", config), "\n")
+	changes, err := PlanSetupFiles(key, "owner/repo", config, []SetupFile{{Path: "AGENTS.md", SHA: strings.Repeat("a", 40), Content: "Keep this.\n\n" + old + "\n"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	migrated := false
+	for _, change := range changes {
+		if change.Path == "AGENTS.md" {
+			migrated = strings.HasPrefix(change.Content, "Keep this.\n\n") && strings.Contains(change.Content, ContextGuidePath) && !strings.Contains(change.Content, "snapshot.json")
+		}
+	}
+	if !migrated {
+		t.Fatal("old managed instructions were not migrated")
+	}
+	for _, content := range []string{"My own guide\n", managedBlock("Custom instructions", "\n")} {
+		if _, err := PlanSetupFiles(key, "owner/repo", config, []SetupFile{{Path: ContextGuidePath, SHA: strings.Repeat("a", 40), Content: content}}); err == nil {
+			t.Fatal("setup overwrote a custom guide")
 		}
 	}
 }

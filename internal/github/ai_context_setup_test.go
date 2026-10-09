@@ -22,7 +22,7 @@ func TestContextSetupReadsPinnedRegularFilesAndPublishesOneCompleteProposal(t *t
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(files) != 7 {
+	if len(files) != 8 {
 		t.Fatalf("%d files", len(files))
 	}
 	req := ContextSetupRequest{Repo: "acme/widgets", Base: "main", BaseCommit: source.Commit, Head: "zoomies-ai-context-setup-test", PlanHash: strings.Repeat("a", 64), Files: files}
@@ -109,5 +109,26 @@ func TestContextSetupRecoversAPRAfterItsSuccessfulResponseWasLost(t *testing.T) 
 	fake.mu.Unlock()
 	if _, err := setup.OpenContextSetup(t.Context(), req); !errors.Is(err, ErrSetupConflict) {
 		t.Fatalf("edited branch overwritten: %v", err)
+	}
+}
+
+func TestContextSetupDiscoversTheSharedGuideAndNestedClaudeInstructions(t *testing.T) {
+	fake, client := migrationFake(t)
+	fake.AddFile("acme/widgets", ".claude/CLAUDE.md", "@../AGENTS.md\n")
+	fake.AddFile("acme/widgets", aicontext.ContextGuidePath, "owned guide\n")
+	source, err := client.(ContextSetupClient).ReadContextSetup(t.Context(), "acme/widgets", "main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := map[string]string{}
+	for _, file := range source.Files {
+		found[file.Path] = file.Content
+	}
+	if found[".claude/CLAUDE.md"] != "@../AGENTS.md\n" || found[aicontext.ContextGuidePath] != "owned guide\n" {
+		t.Fatal("pinned setup did not read the shared guide and nested entry point")
+	}
+	fake.SetFileMode("acme/widgets", aicontext.ContextGuidePath, "120000")
+	if _, err := client.(ContextSetupClient).ReadContextSetup(t.Context(), "acme/widgets", "main"); !errors.Is(err, ErrSetupConflict) {
+		t.Fatalf("guide symlink accepted: %v", err)
 	}
 }
