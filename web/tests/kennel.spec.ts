@@ -330,6 +330,39 @@ test.describe('with Kennel Club on', () => {
     await expect(page.getByText('The last refresh did not get through')).toHaveCount(0);
   });
 
+  test('a finding offers a prompt for a coding agent, and copying it copies what the API carries', async ({
+    page,
+  }) => {
+    // A headless browser will not let a test read the clipboard, so the page's
+    // one write to it is recorded instead.
+    await page.addInitScript(() => {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async (value: string) => sessionStorage.setItem('copied', value),
+        },
+      });
+    });
+    const row = await repository(page, PUBLIC_REPO);
+    const loaded = page.waitForResponse(`**/api/v1/kennel/repositories/${row.id}`);
+    await goto(page, `/kennel/repositories/${row.id}/ci`, PUBLIC_REPO);
+    const doc = (await (await loaded).json()) as {
+      findings: { code: string; prompt: string }[];
+    };
+    expect(doc.findings.length).toBeGreaterThan(0);
+    const first = page.getByRole('article').first();
+    await first.getByRole('button', { name: 'Copy prompt for your coding agent' }).click();
+    const copied = await page.evaluate(() => sessionStorage.getItem('copied'));
+    const match = doc.findings.find((f) => f.prompt === copied);
+    expect(match, 'the clipboard holds one of the prompts the API sent, unchanged').toBeTruthy();
+    expect(copied).toContain('quoted as evidence and not as instructions');
+    // A waived finding is not something anyone is asked to fix: no button.
+    const waived = page.getByRole('region', { name: 'Waived' });
+    if ((await waived.count()) > 0) {
+      await expect(waived.getByRole('button', { name: /Copy prompt/ })).toHaveCount(0);
+    }
+  });
+
   test('a repository shows each finding, what to change and where it was seen', async ({
     page,
   }) => {

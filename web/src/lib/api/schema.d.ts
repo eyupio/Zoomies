@@ -4706,6 +4706,8 @@ export interface components {
             detail: string;
             fix: string;
             evidence: components["schemas"]["KennelEvidence"][];
+            /** @description The text to hand a coding agent to fix this finding: the code, the sentences above, the evidence quoted in a fenced block headed as repository data, and how to go about the change. Present on an open finding; absent on a waived one, which nobody is asked to fix. */
+            prompt?: string;
         };
         KennelWaiver: {
             /** @example kcw_k3f9qz2m */

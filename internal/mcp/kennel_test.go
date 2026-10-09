@@ -41,7 +41,7 @@ func repoDoc() string {
 	  "id": "kcr_1", "name": "acme/exposed", "state": "attention",
 	  "findings": [
 	    {"code": "exposure.public_repo_weak_pool", "severity": "error", "subject": "", "title": "A pool that keeps state ran a public repository",
-	     "detail": "d", "fix": "f", "evidence": [{"kind": "pool", "ref": "pool_1", "label": "` + hostile + `"}]},
+	     "detail": "d", "fix": "f", "prompt": "Fix ` + hostile + `", "evidence": [{"kind": "pool", "ref": "pool_1", "label": "` + hostile + `"}]},
 	    {"code": "exposure.public_repo_on_fleet", "severity": "warning", "subject": "", "title": "t", "detail": "d", "fix": "f", "evidence": []}
 	  ],
 	  "waived": [
@@ -401,5 +401,23 @@ func TestTheWorkflowInventoryTravelsInTheUntrustedBlock(t *testing.T) {
 	}
 	if strings.Contains(out[0].Text, hostile) {
 		t.Errorf("the list carries a path somebody chose: %s", out[0].Text)
+	}
+}
+
+// The prompt quotes the evidence, so it leaves the repository document with
+// the evidence; an assistant over MCP has the fix sentence and the evidence
+// block already, and the notice says where a prompt is had.
+func TestAFindingsPromptLeavesWithTheEvidence(t *testing.T) {
+	api := &kennelAPI{body: repoDoc()}
+	out, err := kennelCall(t, kennelRepository, api, `{"id":"kcr_1"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repo, notice := out[0].Text, out[1].Text
+	if strings.Contains(repo, `"prompt"`) || strings.Contains(repo, hostile) {
+		t.Errorf("the prompt is in the repository block: %s", repo)
+	}
+	if !strings.Contains(notice, "zoomies kennel check --prompts") {
+		t.Errorf("the notice does not say where a prompt is had: %q", notice)
 	}
 }

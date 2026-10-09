@@ -42,6 +42,15 @@ type KennelSkippedView struct {
 // KennelRepositoryView is one repository and what Kennel Club last concluded
 // about it. It is what GET /kennel/repositories/{id} returns, an item in the
 // list, and the payload of kennel.updated.
+// KennelFindingView is an open finding with the prompt a coding agent is
+// handed for it, rendered here and nowhere else so the page's button, the API
+// and the CLI copy one text. A waived finding is the bare finding: nobody is
+// asked to fix it.
+type KennelFindingView struct {
+	kennel.Finding
+	Prompt string `json:"prompt"`
+}
+
 type KennelRepositoryView struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`
@@ -59,7 +68,7 @@ type KennelRepositoryView struct {
 	// Complete is whether every enabled check ran against everything it needs.
 	Complete bool                   `json:"complete"`
 	Coverage []KennelCoverageView   `json:"coverage"`
-	Findings []kennel.Finding       `json:"findings"`
+	Findings []KennelFindingView    `json:"findings"`
 	Waived   []kennel.WaivedFinding `json:"waived"`
 	// Lapsed are waivers that match an open finding and no longer cover it,
 	// because they ended or the finding got worse.
@@ -123,7 +132,6 @@ func newKennelRepositoryView(r *store.KennelRepository) KennelRepositoryView {
 
 	v.Counts = kennel.Counts{Error: r.OpenErrors, Warning: r.OpenWarnings, Info: r.OpenInfos, Waived: r.Waived}
 	v.Complete = ev.Complete
-	v.Findings = nonNilSlice(ev.Findings)
 	v.Waived = nonNilSlice(ev.Waived)
 	v.Lapsed = nonNilSlice(ev.Lapsed)
 	v.Disabled = nonNilSlice(ev.Disabled)
@@ -136,8 +144,14 @@ func newKennelRepositoryView(r *store.KennelRepository) KennelRepositoryView {
 	// of what it names.
 	wm := parseKennelWatermark(r.Watermark)
 	v.Files = make([]KennelFileView, 0, len(wm.WorkflowFiles))
+	paths := make(map[string]string, len(wm.WorkflowFiles))
 	for _, f := range wm.WorkflowFiles {
 		v.Files = append(v.Files, KennelFileView{SHA: f.SHA, Path: gatedPath(f.Path)})
+		paths[f.SHA] = gatedPath(f.Path)
+	}
+	v.Findings = make([]KennelFindingView, 0, len(ev.Findings))
+	for _, f := range ev.Findings {
+		v.Findings = append(v.Findings, KennelFindingView{Finding: f, Prompt: kennel.Prompt(f, paths)})
 	}
 	v.Coverage = make([]KennelCoverageView, 0, len(cov))
 	for _, src := range KennelSources {

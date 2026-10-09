@@ -396,11 +396,14 @@ func TestTheFindingCountersMoveWhenAnEvaluationIsKeptAndNotOtherwise(t *testing.
 }
 
 func TestOnlyAnErrorInTheExposureAreaRaisesAProblem(t *testing.T) {
-	findings := []kennel.Finding{
+	var findings []KennelFindingView
+	for _, f := range []kennel.Finding{
 		{Code: kennel.CodeForkCodeRan, Severity: kennel.SeverityError},
 		{Code: kennel.CodeTargetEventRan, Severity: kennel.SeverityWarning},
 		{Code: kennel.CodeUnservedLabel, Severity: kennel.SeverityError}, // an error in another area
 		{Code: kennel.CodePublicRepoWeakPool, Severity: kennel.SeverityError},
+	} {
+		findings = append(findings, KennelFindingView{Finding: f})
 	}
 	got := exposureErrors(findings)
 	if len(got) != 2 || got[0].Code != kennel.CodeForkCodeRan || got[1].Code != kennel.CodePublicRepoWeakPool {
