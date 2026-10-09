@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -433,6 +434,27 @@ func TestARequestThatCannotBeWrittenClosesTheAttemptItOpened(t *testing.T) {
 	}
 	if got, ok := gatherValue(t, h.c, "zoomies_update_attempts_total", map[string]string{"kind": "controller", "result": "failed"}); !ok || got != 1 {
 		t.Errorf("failed controller attempts counted = %v (%v), want 1", got, ok)
+	}
+}
+
+// Finding an earlier request still waiting is the ordinary reason a write is
+// refused, and the earlier request is not this attempt's to take back. The
+// refusal already says so to the person; a warning to the log as well, about a
+// request that is not ours, would read as something gone wrong with the folder.
+func TestARefusalBecauseARequestIsPendingIsNotLoggedAsAFolderProblem(t *testing.T) {
+	h := newHarness(t)
+	h.readyToUpdate()
+	if err := os.WriteFile(filepath.Join(h.updateDir, channel.RequestFile), []byte(`{"left":"by somebody"}`), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	var logged bytes.Buffer
+	h.c.log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	if _, err := h.c.RequestControllerUpdate(h.ctx, alice, ""); !errors.Is(err, ErrUpdateHelperMissing) {
+		t.Fatalf("err = %v, want ErrUpdateHelperMissing", err)
+	}
+	if strings.Contains(logged.String(), "request.json that is not this attempt's") {
+		t.Errorf("an ordinary pending request was logged as a problem:\n%s", logged.String())
 	}
 }
 

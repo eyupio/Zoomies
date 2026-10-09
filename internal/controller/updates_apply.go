@@ -174,8 +174,12 @@ func (c *Controller) RequestControllerUpdateAttempt(ctx context.Context, by Upda
 			"The request could not be handed to the update helper, so nothing ran: "+err.Error())
 		// WriteRequest leaves nothing of its own behind when it fails, so this
 		// only ever finds another request, which it leaves; it is here so that no
-		// path that closes an attempt can strand that attempt's request.
-		c.withdrawRequest(*attempt)
+		// path that closes an attempt can strand that attempt's request. An earlier
+		// request still waiting is the ordinary refusal and has already been said to
+		// the person, so it is not also a warning about a request that is not ours.
+		if !errors.Is(err, channel.ErrRequestPending) {
+			c.withdrawRequest(*attempt)
+		}
 		c.lookAtUpdates(context.WithoutCancel(ctx))
 		_, _ = c.publishUpdates(context.WithoutCancel(ctx))
 		return nil, "", fmt.Errorf("%w: %w", ErrUpdateHelperMissing, err)

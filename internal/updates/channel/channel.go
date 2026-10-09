@@ -309,7 +309,9 @@ const (
 // The name is looked at without following a link, through a handle on the
 // folder, and the file read is checked to be the one looked at. Between that
 // check and the removal the helper may take the request, which is an answer and
-// not an error.
+// not an error. The check and the Remove are two steps, as WriteRequest's look
+// and rename are: a request put there in between would be removed unseen, which
+// the one-open-attempt rule is what prevents.
 func WithdrawRequest(dir, id string) (Withdrawal, error) {
 	info, err := os.Lstat(dir)
 	switch {
