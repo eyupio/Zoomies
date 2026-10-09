@@ -1,8 +1,10 @@
 package controller
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -662,6 +664,29 @@ func TestAnUpdateTaskGivenBackUnstartedLeavesTheAttemptOpen(t *testing.T) {
 	h.pass(h.c)
 	if got := updateTasks(h.poll(host)); len(got) != 1 {
 		t.Errorf("the pass sent %d update tasks after the agent gave the last one back, want 1", len(got))
+	}
+}
+
+// An agent told to pause while the controller recovers gives each update task
+// back, and that is not an agent shutting down: a log that said so on every
+// pass would send whoever reads it looking for a restart that never happened.
+func TestAnUpdateTaskGivenBackByAPausedAgentIsNotLoggedAsAShutdown(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	h.requestHost(host)
+	var logged bytes.Buffer
+	h.c.log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	const said = "the controller has paused every change on this host while it recovers, so the update was not asked for; it is safe to send again"
+	task := updateTasks(h.poll(host))[0]
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: task.ID, Kind: agent.TaskUpdateAgent, NotStarted: true, Error: said, CompletedAt: h.c.Now(),
+	}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+	if out := logged.String(); strings.Contains(out, "shutting down") || !strings.Contains(out, "paused every change") {
+		t.Errorf("the task given back was logged as:\n%s\nwant the agent's own reason and no shutdown", out)
 	}
 }
 
