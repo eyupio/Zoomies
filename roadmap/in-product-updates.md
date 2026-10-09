@@ -538,6 +538,10 @@ and its progress-row update. The last adds the drills and the narrative page.
 | 5 | `auto`: the planner, the rollout, the loop, halt and resume | The planner's tables hold; a halted rollout starts nothing; the soak holds a release back |
 | 6 | Drills, `docs/upgrading.md` and the screenshots | The drills run in CI; the page says what each mode does |
 
+What no drill does is a real update through the helper's systemd units on a real
+host. [The manual check](in-product-updates-manual-check.md) is that list, to be
+run on spare hosts before `auto` is set anywhere that matters.
+
 ## 9. Not in this package
 
 | Left out | Why | Revisit when |
