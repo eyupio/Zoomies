@@ -276,6 +276,7 @@ var problemAudience = map[string]Audience{
 	"proxmox.storage_no_images":                     AudienceFleet,
 	"proxmox.template_missing":                      AudienceFleet,
 	"proxmox.template_no_agent":                     AudienceFleet,
+	"proxmox.template_no_disk":                      AudienceFleet,
 	"proxmox.template_not_a_template":               AudienceFleet,
 	"proxmox.unreachable":                           AudienceFleet,
 	"proxmox.version_unqualified":                   AudienceFleet,

@@ -350,6 +350,7 @@ var publicSentences = map[string]string{
 	"proxmox.storage_no_images":                     "Storage at a machine provider cannot hold machine images.",
 	"proxmox.template_missing":                      "A machine provider is missing the template new machines are made from.",
 	"proxmox.template_no_agent":                     "The template new machines are made from cannot report their address.",
+	"proxmox.template_no_disk":                      "The template new machines are made from has no disk to start from.",
 	"proxmox.template_not_a_template":               "The template new machines are made from is set up the wrong way.",
 	"proxmox.unreachable":                           "A machine provider cannot be reached, so no new machines can be added from it.",
 	"proxmox.version_unqualified":                   "A machine provider runs a version this fleet has not been tested with.",

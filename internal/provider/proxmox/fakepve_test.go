@@ -42,7 +42,9 @@ type fakeVM struct {
 	template    bool
 	lock        string
 	agent       string
-	files       map[string]string
+	// disk is the guest's scsi0 line, empty for one with no disk attached.
+	disk  string
+	files map[string]string
 }
 
 type fakeTask struct {
@@ -127,7 +129,7 @@ func newFakePVE(t *testing.T, routes map[string]http.HandlerFunc) *fakePVE {
 		},
 		stop: make(chan struct{}),
 	}
-	f.vms[9000] = &fakeVM{vmid: 9000, node: "pve-1", name: "ubuntu-24.04-template", status: "stopped", template: true, agent: "enabled=1"}
+	f.vms[9000] = &fakeVM{vmid: 9000, node: "pve-1", name: "ubuntu-24.04-template", status: "stopped", template: true, agent: "enabled=1", disk: "local-lvm:base-9000-disk-0,size=32G"}
 	f.vms[100] = &fakeVM{vmid: 100, node: "pve-1", name: "someone-elses-vm", status: "running", description: "the finance database"}
 
 	mux := http.NewServeMux()
@@ -501,6 +503,9 @@ func (f *fakePVE) routes() map[string]http.HandlerFunc {
 				"agent": vm.agent,
 				// cores is a number, memory a string: both happen.
 				"cores": 2, "memory": "4096",
+			}
+			if vm.disk != "" {
+				out["scsi0"] = vm.disk
 			}
 			if vm.template {
 				out["template"] = 1
