@@ -23,6 +23,8 @@
   import CommandPalette from '$lib/shell/CommandPalette.svelte';
   import Nav from '$lib/shell/Nav.svelte';
   import NavMenu from '$lib/shell/NavMenu.svelte';
+  import { eli } from '$lib/assistant/eli.svelte';
+  import EliWidget from '$lib/assistant/EliWidget.svelte';
   import ProblemsDrawer from '$lib/problems/ProblemsDrawer.svelte';
   import ShortcutSheet from '$lib/shell/ShortcutSheet.svelte';
   import TopBar from '$lib/shell/TopBar.svelte';
@@ -63,6 +65,7 @@
         if (!focusSearch()) paletteOpen = true;
       },
       refresh: () => void refresh.run(),
+      eli: () => eli.toggle(),
       go: (path) => router.navigate(path),
     });
     return () => {
@@ -86,6 +89,14 @@
     if (!authenticated) return;
     fleet.start();
     feed.start();
+  });
+
+  // Whether there is an Eli to ask is the controller's to say, and only to an
+  // administrator. Signing out forgets the conversation, so the next person on
+  // this tab does not start in the last one's.
+  $effect(() => {
+    if (authenticated) void eli.refresh();
+    else eli.reset();
   });
 
   // An administrator has reset this password; say so once rather than letting
@@ -213,6 +224,7 @@
   <NavMenu bind:open={navMenuOpen} />
   <CommandPalette bind:open={paletteOpen} />
   <ProblemsDrawer />
+  {#if eli.available}<EliWidget />{/if}
   <ShortcutSheet bind:open={shortcutsOpen} />
 {/if}
 

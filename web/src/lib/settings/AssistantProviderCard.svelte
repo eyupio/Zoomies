@@ -72,6 +72,15 @@
           title="Its address is this machine or a private network."
         />
       {/if}
+      {#if provider.fleet_access}
+        <Badge
+          tone="accent"
+          label="Eli can read the fleet"
+          size="sm"
+          dot={false}
+          title="Runner, job, repository and branch names, and log excerpts when Eli asks for them, are sent to this provider."
+        />
+      {/if}
       {#if !provider.enabled}
         <Badge tone="draining" label="Disabled" size="sm" dot={false} />
       {/if}

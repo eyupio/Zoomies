@@ -674,9 +674,12 @@ loads by itself when you leave the key field), so a model the provider has
 retired cannot be picked by mistake. A provider that will not list its models
 leaves the field as a box to type the name into.
 
-Under the provider cards sits **Ask the assistant**, a plain chat with the
-default provider. It cannot see the fleet yet and says so; the conversation
-lives in the page and is gone when you leave it.
+Under the provider cards, a card says where Eli is: in the corner of every page,
+for administrators, once there is an enabled default provider. **Open Eli** opens
+it from here, and <kbd>E</kbd> opens it from anywhere. Each provider has a switch,
+**Let Eli read this fleet through this provider**, off until you turn it on, and a
+card says when it is on. The conversation itself, what Eli can see and what is sent
+to the provider are on [their own page](eli.md).
 
 ### Backups
 
