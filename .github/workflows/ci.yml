@@ -246,21 +246,23 @@ jobs:
           echo "GOTMPDIR=$HOME/.cache/go-tmp" >> "$GITHUB_ENV"
 
       # go:embed needs the directory to exist even when the UI is not built.
-      # The docs shard tests two packages that import nothing of ours, so it
-      # has no embedded UI to stub. Writing the stub compiles nothing: this
-      # step used to build the whole binary, which on a cold fleet runner was
-      # minutes of compiling and, when the module proxy stalled, a step that
-      # never finished.
+      # Every shard needs the stub, the docs shard too: its tests ask the binary
+      # for its own command list with `go run ../../cmd/zoomies commands`, which
+      # builds the embedding package, and without the directory that fails with
+      # "pattern all:webdist: no matching files found". Writing the stub
+      # compiles nothing: this step used to build the whole binary, which on a
+      # cold fleet runner was minutes of compiling and, when the module proxy
+      # stalled, a step that never finished.
       - name: Stub the embedded UI
-        if: matrix.shard != 'docs'
         timeout-minutes: 1
         run: make ui-stub
 
       # Fetching modules is the one step here that waits on the network, so it
       # is on its own with a bound: a stalled proxy fails in minutes and says
-      # so, rather than eating the job's two hours inside go vet or go test.
+      # so, rather than eating the job's two hours inside go vet or go test. The
+      # docs shard fetches too, for the same `go run`: left to the test it took
+      # four minutes of downloads inside a test with no bound of its own.
       - name: Download modules
-        if: matrix.shard != 'docs'
         timeout-minutes: 10
         run: go mod download
 
