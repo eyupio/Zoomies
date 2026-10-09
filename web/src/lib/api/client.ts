@@ -11,6 +11,7 @@
  *   422  `errors` names the offending fields so a form can attach them.
  */
 import { supportHint } from '$lib/errors';
+import { FrameParser, type ChatFrame } from './assistantStream';
 import type {
   Body,
   ErrorCode,
@@ -1151,6 +1152,54 @@ export const getProviderSetup = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getProviderSetup'>>(`/provider-setups/${enc(id)}`, { signal });
 
 /* -- the assistant's providers -------------------------------------------- */
+
+/**
+ * Ask the assistant a question and hand each frame of the answer to `onFrame` as
+ * it arrives. A fetch and not an EventSource, because the question is a POST.
+ *
+ * Whatever can be refused is refused before the stream opens, with a status, and
+ * is thrown as any other API error is. Once it has opened, a failure is a frame
+ * and the promise still resolves: the answer so far is what the person has.
+ * Aborting rejects with the AbortError, which the caller means.
+ */
+export async function streamAssistantChat(
+  body: Body<'assistantChat'>,
+  onFrame: (frame: ChatFrame) => void,
+  signal?: AbortSignal,
+): Promise<void> {
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}/assistant/chat`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify(body),
+      signal,
+    });
+  } catch (cause) {
+    if (cause instanceof DOMException && cause.name === 'AbortError') throw cause;
+    throw new ApiError({
+      status: 0,
+      code: 'internal',
+      message: 'Could not reach the Zoomies API. Check that the controller is still running.',
+      detail: cause instanceof Error ? cause.message : undefined,
+    });
+  }
+  if (!response.ok) {
+    if (response.status === 401) unauthorized?.();
+    const payload: unknown = await response.json().catch(() => undefined);
+    throw new ApiError(errorFrom(response.status, payload));
+  }
+  if (!response.body) return;
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  const parser = new FrameParser();
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    for (const frame of parser.push(decoder.decode(value, { stream: true }))) onFrame(frame);
+  }
+}
 
 export const listAssistantProviders = (signal?: AbortSignal) =>
   api.get<Result<'listAssistantProviders'>>('/assistant/providers', { signal });

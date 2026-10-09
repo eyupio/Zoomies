@@ -1,0 +1,64 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { FrameParser } from '../src/lib/api/assistantStream.ts';
+
+const frame = (kind: string, data: unknown) => `event: ${kind}\ndata: ${JSON.stringify(data)}\n\n`;
+
+test('the frames of an answer are read in order', () => {
+  const p = new FrameParser();
+  const got = p.push(
+    frame('delta', { text: 'Hello' }) +
+      frame('delta', { text: ' there' }) +
+      frame('usage', { input_tokens: 7, output_tokens: 4 }) +
+      frame('done', { provider: 'Ollama', model: 'llama3' }),
+  );
+  assert.deepEqual(got, [
+    { kind: 'delta', text: 'Hello' },
+    { kind: 'delta', text: ' there' },
+    { kind: 'usage', inputTokens: 7, outputTokens: 4 },
+    { kind: 'done', provider: 'Ollama', model: 'llama3' },
+  ]);
+});
+
+test('a frame cut anywhere by the network is read once it is whole', () => {
+  const whole = frame('delta', { text: 'split' }) + frame('done', { provider: 'p', model: 'm' });
+  for (let cut = 1; cut < whole.length; cut++) {
+    const p = new FrameParser();
+    const got = [...p.push(whole.slice(0, cut)), ...p.push(whole.slice(cut))];
+    assert.deepEqual(
+      got,
+      [
+        { kind: 'delta', text: 'split' },
+        { kind: 'done', provider: 'p', model: 'm' },
+      ],
+      `cut at ${cut}`,
+    );
+  }
+});
+
+test('carriage returns, heartbeats and frames from a newer controller are ignored', () => {
+  const p = new FrameParser();
+  const got = p.push(
+    ': keep-alive\n\n' +
+      'event: delta\r\ndata: {"text":"a"}\r\n\r\n' +
+      frame('something_new', { x: 1 }) +
+      'event: delta\ndata: not json\n\n' +
+      'data: {"text":"no kind"}\n\n' +
+      frame('error', { message: 'it failed' }),
+  );
+  assert.deepEqual(got, [
+    { kind: 'delta', text: 'a' },
+    { kind: 'error', message: 'it failed' },
+  ]);
+});
+
+test('text with newlines and characters beyond one byte survives', () => {
+  const p = new FrameParser();
+  const text = 'line one\nline two é 日本';
+  assert.deepEqual(p.push(frame('delta', { text })), [{ kind: 'delta', text }]);
+});
+
+test('a frame that never ends is held and not guessed at', () => {
+  const p = new FrameParser();
+  assert.deepEqual(p.push('event: delta\ndata: {"text":"a"}\n'), []);
+});

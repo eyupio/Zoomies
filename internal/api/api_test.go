@@ -247,6 +247,9 @@ type request struct {
 	// zero value uses the test server's own origin, which is what a browser on
 	// this page would send.
 	origin string
+	// readStream reads the body of an event stream to its end. Only a stream that
+	// ends of its own accord, such as an assistant's answer, can be read so.
+	readStream bool
 	// noOrigin suppresses that header entirely, for the CSRF tests.
 	noOrigin bool
 	// rawBody sends a body that is not JSON, which is what the agent's log
@@ -319,7 +322,7 @@ func (h *harness) do(req request) *response {
 	// body to EOF would block until the client's own timeout. The SSE tests
 	// read those bodies deliberately, with their own reader.
 	var raw []byte
-	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+	if req.readStream || !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
 		raw, _ = io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	}
 
@@ -928,6 +931,9 @@ func routeTable(ids fixtureIDs) []route {
 		// The assistant's providers. A loopback address with the private
 		// switch off is a 422, which is an answer and not a refusal of the
 		// caller, and it dials nothing.
+		// A chat with nothing to say is a 422 before any model is asked.
+		{method: "POST", path: "/api/v1/assistant/chat", role: store.RoleAdmin, action: auth.ActionAssistantChat,
+			body: map[string]any{"messages": []any{}}},
 		{method: "GET", path: "/api/v1/assistant/providers", role: store.RoleAdmin, action: auth.ActionAssistantRead},
 		{method: "POST", path: "/api/v1/assistant/providers", role: store.RoleAdmin, action: auth.ActionAssistantWrite,
 			body: map[string]any{"kind": "openai_compatible", "name": "made-by-the-route-walk", "base_url": "http://127.0.0.1:11434/v1", "model": "m"}},
