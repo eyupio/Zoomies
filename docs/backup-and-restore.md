@@ -648,10 +648,11 @@ zoomies transfer import instance.zbk --source-stopped --passphrase-file ./move.p
 ```
 
 For a new destination without operator access, add `--operator-name` and
-`--operator-password-file` to import. Use a distinct operator name, a private
-password file and at least twelve password characters. Existing operator IDs
-and names must not collide with incoming identities; a collision is refused
-before replacing the database. `zoomies transfer cancel` resumes saved pools
+`--operator-password-file` to import. Use a private
+password file and at least twelve password characters. An active team identity must not collide with the destination operator; a
+collision is refused before replacing the database. A disabled historical
+operator with the same username receives an archival name, keeping its ID and
+audit attribution. `zoomies transfer cancel` resumes saved pools
 while preparation is still draining. Once fenced, use the explicit recovery
 fence action after checking that no destination is running.
 

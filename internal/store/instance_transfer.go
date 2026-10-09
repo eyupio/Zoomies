@@ -308,6 +308,19 @@ func (s *Store) AdaptTransferredInstance(ctx context.Context, access []ArchiveTa
 				for i, v := range row {
 					vals[i] = v.V
 				}
+				if at.Table == "users" {
+					for i, col := range at.Columns {
+						if col != "username" {
+							continue
+						}
+						// A former operator may already be a disabled historical
+						// identity after an earlier move. Keep its ID and attribution
+						// while freeing a common operator name for this destination.
+						if _, err := tx.ExecContext(ctx, `UPDATE users SET display_name=CASE WHEN display_name='' THEN username ELSE display_name END, username='transferred-'||id WHERE username=? AND disabled=1 AND password_hash='' AND oidc_subject=''`, vals[i]); err != nil {
+							return err
+						}
+					}
+				}
 				query := "INSERT INTO " + quoteTransferIdentifier(at.Table) + " (" + strings.Join(cols, ",") + ") VALUES (" + strings.TrimSuffix(strings.Repeat("?,", len(cols)), ",") + ")"
 				if _, err := tx.ExecContext(ctx, query, vals...); err != nil {
 					return fmt.Errorf("destination operator conflicts with an incoming identity; choose a distinct operator identity: %w", err)

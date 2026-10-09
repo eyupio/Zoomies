@@ -66,6 +66,13 @@ func TestACompleteInstanceMovesAcrossKeysAndKeepsItsDestinationInCharge(t *testi
 	if err = st.BeginTwoStep(ctx, oldOperator.ID, sealed); err != nil {
 		t.Fatal(err)
 	}
+	model := &store.AssistantProvider{Name: "source model", Kind: "openai", Model: "model", Enabled: true}
+	if err = st.CreateAssistantProvider(ctx, model); err != nil {
+		t.Fatal(err)
+	}
+	if err = st.SetAssistantProviderKey(ctx, model.ID, sealed); err != nil {
+		t.Fatal(err)
+	}
 	for _, tok := range []*store.APIToken{
 		{Name: "team", Role: store.RoleAdmin, OwnerRole: store.RoleAdmin, UserID: team.ID, TokenHash: "team-token"},
 		{Name: "old operator", Role: oldOperator.Role, OwnerRole: oldOperator.Role, UserID: oldOperator.ID, TokenHash: "old-operator-token"},
@@ -112,7 +119,7 @@ func TestACompleteInstanceMovesAcrossKeysAndKeepsItsDestinationInCharge(t *testi
 	}
 	archive := portableSnapshot(t, src, st)
 	dest, dst, destKey := transferDestination(t)
-	newOperator := &store.User{Username: "new-operator", Role: oldOperator.Role, PasswordHash: "new password hash"}
+	newOperator := &store.User{Username: "old-operator", Role: oldOperator.Role, PasswordHash: "new password hash"}
 	if err = dst.CreateUser(ctx, newOperator); err != nil {
 		t.Fatal(err)
 	}
@@ -121,6 +128,17 @@ func TestACompleteInstanceMovesAcrossKeysAndKeepsItsDestinationInCharge(t *testi
 		t.Fatal(err)
 	}
 	dest.Server.ExternalURL = "https://destination.example.test"
+	destinationModel := &store.AssistantProvider{Name: "destination model", Kind: "openai", Model: "model", Enabled: true}
+	if err = dst.CreateAssistantProvider(ctx, destinationModel); err != nil {
+		t.Fatal(err)
+	}
+	destinationModelKey, err := destKey.Seal([]byte("destination model credential"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err = dst.SetAssistantProviderKey(ctx, destinationModel.ID, destinationModelKey); err != nil {
+		t.Fatal(err)
+	}
 	entry, err := ReadTransfer(ctx, dest, t.TempDir(), bytes.NewReader(archive), transferPassphrase)
 	if err != nil {
 		t.Fatal(err)
@@ -134,6 +152,10 @@ func TestACompleteInstanceMovesAcrossKeysAndKeepsItsDestinationInCharge(t *testi
 	exportedCopy, err := store.Open(ctx, store.Options{Path: filepath.Join(entry.Dir, DBName)})
 	if err != nil {
 		t.Fatal(err)
+	}
+	models, err := exportedCopy.ListAssistantProviders(ctx)
+	if err != nil || len(models) != 0 {
+		t.Fatal("source model operator credential travelled", err)
 	}
 	operatorCopy, err := exportedCopy.GetUser(ctx, oldOperator.ID)
 	if err != nil || operatorCopy.PasswordHash != "" || !operatorCopy.Disabled {
@@ -185,6 +207,14 @@ func TestACompleteInstanceMovesAcrossKeysAndKeepsItsDestinationInCharge(t *testi
 		t.Fatal(err)
 	}
 	defer live.Close()
+	retainedModel, err := live.GetAssistantProvider(ctx, destinationModel.ID)
+	if err != nil {
+		t.Fatal("destination model configuration lost", err)
+	}
+	modelPlain, err := destKey.Open(retainedModel.KeyEnc)
+	if err != nil || string(modelPlain) != "destination model credential" {
+		t.Fatal("destination model credential lost", err)
+	}
 	installs, err := live.ListInstallations(ctx)
 	if err != nil || len(installs) != 1 {
 		t.Fatalf("installations lost: %v", err)
