@@ -39,12 +39,14 @@ migration. Only a signed-in owner can choose repositories for their connection.
 
 See root `handoff.md` for the implementation checkpoint and remaining work.
 
-`PlanSetupFiles` previews owned configuration, assistant instructions and the
-optional GitHub-rendered Markdown README badge. It preserves user text and line
+`PlanSetupFiles` previews owned configuration, the shared `.zoomies/AI_CONTEXT.md`
+guide, short assistant entry points and the optional GitHub-rendered Markdown README badge. It preserves user text and line
 endings, returns original blob SHAs for publication preconditions, and refuses
 custom configuration or edited/ambiguous managed sections. Exact retries return
-no changes. Callers must fetch regular files at one trusted commit, check live
-write permissions and compare the base commit before publication. A blob SHA is
+no changes. Existing `.claude/CLAUDE.md` files are supported, and exact Claude
+wrappers importing root `AGENTS.md` retain a single entry point. Copied chat
+prompts remain self-contained and share the guide's retrieval instructions.
+Callers must fetch regular files at one trusted commit, check live write permissions and compare the base commit before publication. A blob SHA is
 not proof that a GitHub contents response was a regular file rather than a
 symlink. Workflow templates, setup PR persistence and verified enablement remain
 separate work; this planner performs no repository writes or source grants.

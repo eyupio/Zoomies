@@ -122,7 +122,7 @@ func (c *appClient) ReadContextSetup(ctx context.Context, repo, branch string) (
 		out.Files = append(out.Files, aicontext.SetupFile{Mode: entry.GetMode(), Path: p, SHA: entry.GetSHA(), Content: string(content)})
 		return nil
 	}
-	for _, p := range []string{aicontext.ConfigPath, "CLAUDE.md", "AGENTS.md", aicontext.WorkflowPath, aicontext.GeneratorPackagePath, aicontext.GeneratorLockPath} {
+	for _, p := range []string{aicontext.ConfigPath, aicontext.ContextGuidePath, "CLAUDE.md", ".claude/CLAUDE.md", "AGENTS.md", aicontext.WorkflowPath, aicontext.GeneratorPackagePath, aicontext.GeneratorLockPath} {
 		if err := read(p); err != nil {
 			return nil, err
 		}

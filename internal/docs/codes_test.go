@@ -355,7 +355,7 @@ func TestOneDescriptionPerScreenshot(t *testing.T) {
 // different readers -- one for a visitor, one for a contributor -- so they are
 // allowed to differ in wording, but neither is allowed to name a path that is
 // not there or to leave a top-level directory out.
-var layouts = []string{"../../README.md", "../../CLAUDE.md"}
+var layouts = []string{"../../README.md", "../../AGENTS.md"}
 
 // The fenced block under a layout heading, and one `path  what it is for` line
 // inside it. The continuation lines of a wrapped description start with spaces
