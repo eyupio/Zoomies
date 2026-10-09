@@ -2,6 +2,7 @@ package controller
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"runtime"
 	"slices"
@@ -576,6 +577,39 @@ func TestTheStatusWithholdsAnAttemptsErrorBelowPlatform(t *testing.T) {
 	t.Run("a controller that has never had an attempt", func(t *testing.T) {
 		if got := (UpdatesView{}).For(false); got.Controller != nil {
 			t.Errorf("controller = %+v, want null", got.Controller)
+		}
+	})
+}
+
+// A check that could not be completed is the controller's sentence, whole, and
+// is still the sentinel that tells the API it was upstream's failure and not its
+// own.
+func TestAFailedReleaseListReadKeepsItsSentenceAndIsTheCheckFailedSentinel(t *testing.T) {
+	h := newHarness(t)
+	withVersion(t, "1.3.0")
+	h.inMode("manual")
+
+	t.Run("GitHub refuses", func(t *testing.T) {
+		h.stubGitHub(http.StatusForbidden, `{"message":"rate limited"}`)
+		err := h.c.checkForRelease(h.ctx)
+		if !errors.Is(err, ErrUpdateCheckFailed) {
+			t.Fatalf("error = %v, want ErrUpdateCheckFailed", err)
+		}
+		if !strings.HasPrefix(err.Error(), "GitHub answered 403 ") || strings.Contains(err.Error(), ErrUpdateCheckFailed.Error()) {
+			t.Errorf("error = %q, want the controller's own sentence only", err)
+		}
+	})
+	t.Run("the network is down", func(t *testing.T) {
+		h.c.httpClient = &http.Client{Transport: unreachable{}}
+		err := h.c.checkForRelease(h.ctx)
+		if !errors.Is(err, ErrUpdateCheckFailed) || !strings.Contains(err.Error(), "api.github.com") {
+			t.Errorf("error = %v, want ErrUpdateCheckFailed and the sentence about outbound HTTPS", err)
+		}
+	})
+	t.Run("an answer that is not a list", func(t *testing.T) {
+		h.stubGitHub(http.StatusOK, `{"not":"a list"}`)
+		if err := h.c.checkForRelease(h.ctx); !errors.Is(err, ErrUpdateCheckFailed) {
+			t.Errorf("error = %v, want ErrUpdateCheckFailed", err)
 		}
 	})
 }

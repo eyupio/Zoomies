@@ -1,6 +1,8 @@
 package api
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"maps"
@@ -69,16 +71,19 @@ func (s *Server) handleUpdateController(w http.ResponseWriter, r *http.Request) 
 		return
 	}
 	id := Identity(r.Context())
-	status, err := s.ctrl.RequestControllerUpdate(r.Context(), controller.UpdateActor{ID: id.ID, Name: id.Name}, in.Tag)
+	status, attemptID, err := s.ctrl.RequestControllerUpdateAttempt(r.Context(), controller.UpdateActor{ID: id.ID, Name: id.Name}, in.Tag)
 	if err != nil {
 		s.failUpdate(w, r, err)
 		return
 	}
+	// Detached from the request: the helper may already be running what was asked,
+	// and a browser that gave up waiting must not leave that with no record of who
+	// asked.
+	detail := map[string]any{}
 	if attempt := status.Controller; attempt != nil {
-		s.auth.Auditor().Act(r.Context(), id, "update.controller_requested", "update", attempt.ID, map[string]any{
-			"from": attempt.From, "to": attempt.To,
-		})
+		detail["from"], detail["to"] = attempt.From, attempt.To
 	}
+	s.auth.Auditor().Act(context.WithoutCancel(r.Context()), id, "update.controller_requested", "update", attemptID, detail)
 	writeJSON(w, http.StatusAccepted, status.For(isPlatform(r)))
 }
 
@@ -104,9 +109,19 @@ var updateRefusalCodes = []struct {
 }
 
 // failUpdate answers an error from an update call: a refusal as the 409 its code
-// names, with the sentence the controller wrote for the person who pressed the
+// names, a release check that GitHub or the network would not finish as a 502,
+// each with the sentence the controller wrote for the person who pressed the
 // button, and anything else as the server failure it is.
 func (s *Server) failUpdate(w http.ResponseWriter, r *http.Request, err error) {
+	if errors.Is(err, controller.ErrUpdateCheckFailed) {
+		// Upstream's failure, not this controller's, so it is a warning: an error in
+		// the log teaches an operator to look for a fault that is not there. The
+		// sentence is the controller's, written for the person who pressed the
+		// button.
+		s.logger(r).Warn("the release check could not be completed", "error", err)
+		writeError(w, http.StatusBadGateway, errorEnvelope{Error: errorBody{Code: codeUpdateCheckFailed, Message: err.Error()}})
+		return
+	}
 	for _, refusal := range updateRefusalCodes {
 		if errors.Is(err, refusal.err) {
 			writeError(w, http.StatusConflict, errorEnvelope{Error: errorBody{Code: refusal.code, Message: err.Error()}})
@@ -118,16 +133,27 @@ func (s *Server) failUpdate(w http.ResponseWriter, r *http.Request, err error) {
 
 // decodeUpdateRequest reads the optional body of POST /updates/controller.
 //
-// An empty body is allowed, and a field the endpoint does not define is a 422
-// naming it, not a 400: the body is valid JSON and was understood, and the field
-// is what to go back and fix. A typo that was ignored would be a 202 for a
-// request that did not say what its sender meant.
+// An empty body is allowed, and so is a null one, which says what no body does.
+// A field the endpoint does not define is a 422 naming it, not a 400: the body is
+// valid JSON and was understood, and the field is what to go back and fix. A typo
+// that was ignored would be a 202 for a request that did not say what its sender
+// meant. A body that is not an object at all is told what to send, in words
+// that name no type of the server's.
 func decodeUpdateRequest(w http.ResponseWriter, r *http.Request, into *updateControllerRequest) bool {
 	if r.ContentLength == 0 {
 		return true
 	}
+	var body json.RawMessage
+	if !decodeLenient(w, r, &body) {
+		return false
+	}
+	body = bytes.TrimSpace(body)
+	if string(body) == "null" {
+		return true
+	}
 	var fields map[string]json.RawMessage
-	if !decodeLenient(w, r, &fields) {
+	if len(body) == 0 || body[0] != '{' || json.Unmarshal(body, &fields) != nil {
+		unprocessable(w, `send a JSON object such as {"tag": "v1.3.5"}, or no body to take the newest release`, nil)
 		return false
 	}
 	// In name order, so that a body with two mistakes is always told about the

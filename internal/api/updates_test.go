@@ -133,6 +133,10 @@ func TestTheUpdateStatusModeEnumListsEveryModeTheSettingOffers(t *testing.T) {
 type releaseFeed struct {
 	mu   sync.Mutex
 	list string
+	// refuse, when non-zero, is the status GitHub answers with whatever the list
+	// is; down is a network that cannot be reached at all.
+	refuse int
+	down   error
 }
 
 func (f *releaseFeed) serve(list string) {
@@ -141,15 +145,33 @@ func (f *releaseFeed) serve(list string) {
 	f.list = list
 }
 
+func (f *releaseFeed) answer(status int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refuse = status
+}
+
+func (f *releaseFeed) unreachable(err error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.down = err
+}
+
 func (f *releaseFeed) RoundTrip(r *http.Request) (*http.Response, error) {
 	if r.URL.Host != "api.github.com" {
 		return http.DefaultTransport.RoundTrip(r)
 	}
 	f.mu.Lock()
-	list := f.list
+	list, refuse, down := f.list, f.refuse, f.down
 	f.mu.Unlock()
+	if down != nil {
+		return nil, down
+	}
 	status := http.StatusOK
-	if list == "" {
+	switch {
+	case refuse != 0:
+		status, list = refuse, `{"message":"refused in a test"}`
+	case list == "":
 		status, list = http.StatusServiceUnavailable, `{"message":"no network in tests"}`
 	}
 	return &http.Response{
@@ -365,22 +387,26 @@ func TestTheControllerRouteTakesATagThatIsInTheList(t *testing.T) {
 }
 
 // wantUpdateRefusals is every sentinel in the controller's updates_errors.go with
-// the code the API gives it. The fenced one has no code of its own: it is the
-// plain conflict every other handler gives a controller that may not act.
+// the status and code the API gives it. The fenced one has no code of its own:
+// it is the plain conflict every other handler gives a controller that may not
+// act.
 var wantUpdateRefusals = []struct {
-	name string
-	err  error
-	code string
+	name   string
+	err    error
+	status int
+	code   string
 }{
-	{"ErrUpdateCheckDisabled", controller.ErrUpdateCheckDisabled, "update.check_disabled"},
-	{"ErrUpdateModeOff", controller.ErrUpdateModeOff, "update.mode_off"},
-	{"ErrUpdateHelperMissing", controller.ErrUpdateHelperMissing, "update.helper_missing"},
-	{"ErrUpdateInProgress", controller.ErrUpdateInProgress, "update.in_progress"},
-	{"ErrUpdateNotARelease", controller.ErrUpdateNotARelease, "update.not_a_release"},
-	{"ErrUpdateNothingNewer", controller.ErrUpdateNothingNewer, "update.nothing_newer"},
-	{"ErrUpdateHostCannotUpdate", controller.ErrUpdateHostCannotUpdate, "update.host_cannot_update"},
-	{"ErrUpdateRolloutHalted", controller.ErrUpdateRolloutHalted, "update.rollout_halted"},
-	{"ErrUpdateFenced", controller.ErrUpdateFenced, "conflict"},
+	{"ErrUpdateCheckDisabled", controller.ErrUpdateCheckDisabled, http.StatusConflict, "update.check_disabled"},
+	{"ErrUpdateModeOff", controller.ErrUpdateModeOff, http.StatusConflict, "update.mode_off"},
+	{"ErrUpdateHelperMissing", controller.ErrUpdateHelperMissing, http.StatusConflict, "update.helper_missing"},
+	{"ErrUpdateInProgress", controller.ErrUpdateInProgress, http.StatusConflict, "update.in_progress"},
+	{"ErrUpdateNotARelease", controller.ErrUpdateNotARelease, http.StatusConflict, "update.not_a_release"},
+	{"ErrUpdateNothingNewer", controller.ErrUpdateNothingNewer, http.StatusConflict, "update.nothing_newer"},
+	{"ErrUpdateHostCannotUpdate", controller.ErrUpdateHostCannotUpdate, http.StatusConflict, "update.host_cannot_update"},
+	{"ErrUpdateRolloutHalted", controller.ErrUpdateRolloutHalted, http.StatusConflict, "update.rollout_halted"},
+	{"ErrUpdateFenced", controller.ErrUpdateFenced, http.StatusConflict, "conflict"},
+	// Not a refusal of the request: GitHub would not let the check finish.
+	{"ErrUpdateCheckFailed", controller.ErrUpdateCheckFailed, http.StatusBadGateway, "update.check_failed"},
 }
 
 // A refusal a client can do something different about has a code of its own, and
@@ -394,7 +420,7 @@ func TestEachUpdateRefusalCarriesItsStableCode(t *testing.T) {
 				rec := httptest.NewRecorder()
 				h.api.failUpdate(rec, httptest.NewRequest(http.MethodPost, updatesControllerPath, nil), err)
 				resp := &response{status: rec.Code, body: rec.Body.Bytes()}
-				resp.mustStatus(t, http.StatusConflict, "refusing with "+tc.name)
+				resp.mustStatus(t, tc.status, "refusing with "+tc.name)
 				if got := resp.errorCode(t); got != tc.code {
 					t.Errorf("%v has code %q, want %q", err, got, tc.code)
 				}
@@ -827,5 +853,212 @@ func TestAnUpdatesFrameTheFilterCannotReadIsOnlyPassedToThePlatform(t *testing.T
 	out, ok := updatesFor(whole, false)
 	if !ok || strings.Contains(string(out), "/var/lib") {
 		t.Errorf("updatesFor(below platform) = %q, %v, want the frame with the path withheld", out, ok)
+	}
+}
+
+// A release check that GitHub or the network would not finish is not the
+// server's fault and not the person's. The controller wrote a sentence for it that
+// says what failed and what to try, and an opaque 500 hid that from the one
+// person who can act on it.
+func TestAFailedReleaseCheckIsABadGatewayThatCarriesTheControllersSentence(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(f *releaseFeed)
+		want  []string
+	}{
+		{"GitHub is unavailable", func(f *releaseFeed) { f.answer(http.StatusServiceUnavailable) },
+			[]string{"GitHub answered 503", "try again later"}},
+		{"GitHub refuses the controller", func(f *releaseFeed) { f.answer(http.StatusForbidden) },
+			[]string{"GitHub answered 403", "nothing has changed"}},
+		{"the network is down", func(f *releaseFeed) { f.unreachable(errors.New("dial tcp: no route to host")) },
+			[]string{"could not reach GitHub", "no route to host", "outbound HTTPS requests to api.github.com"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			as := h.updateCallers()
+			h.ctrl.UpdateConfig(func(c *config.Config) { c.Updates.Mode = "manual" })
+			tc.setup(h.feed)
+
+			resp := h.do(request{method: http.MethodPost, path: updatesCheckPath, cookie: as.admin})
+			resp.mustStatus(t, http.StatusBadGateway, tc.name)
+			if got := resp.errorCode(t); got != "update.check_failed" {
+				t.Errorf("code = %q, want update.check_failed", got)
+			}
+			for _, want := range tc.want {
+				if !strings.Contains(resp.errorMessage(t), want) {
+					t.Errorf("message = %q, want it to say %q", resp.errorMessage(t), want)
+				}
+			}
+			if strings.Contains(resp.errorMessage(t), "request ID") {
+				t.Errorf("message = %q, want the controller's sentence and not the server-failure one", resp.errorMessage(t))
+			}
+			logged := h.logs.text()
+			if strings.Contains(logged, "ERROR") {
+				t.Errorf("an upstream failure was logged as an error:\n%s", logged)
+			}
+			if !strings.Contains(logged, "WARN the release check could not be completed") {
+				t.Errorf("an upstream failure left no warning in the log:\n%s", logged)
+			}
+		})
+	}
+}
+
+// A body that is not an object has no field to name, so the refusal says what to
+// send. The decoder's own complaint would name a type of the server's.
+func TestABodyThatIsNotAnObjectIsToldWhatToSend(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdate(as)
+
+	for _, body := range []string{`[]`, `"v1.3.5"`, `42`, `true`} {
+		t.Run(body, func(t *testing.T) {
+			resp := h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform,
+				rawBody: body, headers: map[string]string{"Content-Type": "application/json"}})
+			resp.mustStatus(t, http.StatusUnprocessableEntity, body)
+			msg := resp.errorMessage(t)
+			if !strings.Contains(msg, `send a JSON object such as {"tag": "v1.3.5"}, or no body`) {
+				t.Errorf("message = %q, want what to send", msg)
+			}
+			for _, leak := range []string{"unmarshal", "Go value", "json:", "main."} {
+				if strings.Contains(msg, leak) {
+					t.Errorf("message = %q, want no Go type or package names (%q)", msg, leak)
+				}
+			}
+		})
+	}
+	if open := h.openUpdateAttempts(); len(open) != 0 {
+		t.Errorf("%d attempts open after refused bodies, want none", len(open))
+	}
+}
+
+// The body limit is the server's, and the refusal says so as it does everywhere
+// else: 413, because there is nothing wrong with the JSON, only too much of it.
+func TestAnOversizedBodyOnTheControllerRouteIsTooLarge(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdate(as)
+
+	resp := h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform,
+		rawBody: `{"tag":"` + strings.Repeat("a", maxBodyBytes) + `"}`, headers: map[string]string{"Content-Type": "application/json"}})
+	resp.mustStatus(t, http.StatusRequestEntityTooLarge, "an oversized body")
+	if got := resp.errorCode(t); got != codeTooLarge {
+		t.Errorf("code = %q, want %q", got, codeTooLarge)
+	}
+	if open := h.openUpdateAttempts(); len(open) != 0 {
+		t.Errorf("%d attempts open after a refused body, want none", len(open))
+	}
+}
+
+// A tag of null says what leaving it out says: the newest release.
+func TestANullTagIsTheSameAsNoTag(t *testing.T) {
+	for _, body := range []string{`{"tag": null}`, `null`} {
+		t.Run(body, func(t *testing.T) {
+			h := newHarness(t)
+			as := h.updateCallers()
+			h.readyToUpdate(as)
+			resp := h.do(request{method: http.MethodPost, path: updatesControllerPath, cookie: as.platform,
+				rawBody: body, headers: map[string]string{"Content-Type": "application/json"}})
+			resp.mustStatus(t, http.StatusAccepted, body)
+			if open := h.openUpdateAttempts(); len(open) != 1 || open[0].ToVersion != "v1.3.5" {
+				t.Errorf("open attempts = %+v, want one for the newest release, v1.3.5", open)
+			}
+		})
+	}
+}
+
+// The codes are written in three places a compiler does not connect: the
+// constants here, the enum a generated client switches on, and the conventions
+// list. A code in the constants and not the enum is one the client's types say
+// cannot happen.
+func TestTheErrorCodesInGoAndInTheDocumentAreTheSameSet(t *testing.T) {
+	file, err := parser.ParseFile(token.NewFileSet(), "errors.go", nil, 0)
+	if err != nil {
+		t.Fatalf("reading errors.go: %v", err)
+	}
+	inGo := map[string]bool{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			vs := spec.(*ast.ValueSpec)
+			for i, name := range vs.Names {
+				lit, ok := vs.Values[i].(*ast.BasicLit)
+				if strings.HasPrefix(name.Name, "code") && ok && lit.Kind == token.STRING {
+					inGo[strings.Trim(lit.Value, `"`)] = true
+				}
+			}
+		}
+	}
+	if !inGo["update.mode_off"] || !inGo["internal"] {
+		t.Fatalf("found %v in errors.go, so this read the constants wrongly", inGo)
+	}
+
+	doc := loadSpec(t)
+	components, _ := doc["components"].(map[string]any)
+	schemas, _ := components["schemas"].(map[string]any)
+	envelope, _ := schemas["ErrorEnvelope"].(map[string]any)
+	props, _ := envelope["properties"].(map[string]any)
+	errObj, _ := props["error"].(map[string]any)
+	errProps, _ := errObj["properties"].(map[string]any)
+	code, _ := errProps["code"].(map[string]any)
+	enum, _ := code["enum"].([]any)
+	inDoc := map[string]bool{}
+	for _, v := range enum {
+		if s, ok := v.(string); ok {
+			inDoc[s] = true
+		}
+	}
+	for c := range inGo {
+		if !inDoc[c] {
+			t.Errorf("errors.go has the code %q and the ErrorCode enum in api/openapi.yaml does not", c)
+		}
+	}
+	for c := range inDoc {
+		if !inGo[c] {
+			t.Errorf("the ErrorCode enum in api/openapi.yaml has %q and errors.go has no constant for it", c)
+		}
+	}
+
+	conventions, err := os.ReadFile(filepath.Join("..", "..", "docs", "api-surface.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for c := range inGo {
+		if strings.HasPrefix(c, "update.") {
+			continue // listed together under Updates, where the docs test checks them.
+		}
+		if !strings.Contains(string(conventions), "`"+c+"`") {
+			t.Errorf("docs/api-surface.md does not list the error code %q", c)
+		}
+	}
+	if !strings.Contains(string(conventions), "`update.check_failed`") {
+		t.Error("docs/api-surface.md does not list update.check_failed")
+	}
+}
+
+// What a check learns is every open page's to know, and the page that pressed the
+// button is only one of them.
+func TestACheckSendsTheNewStatusToEveryOpenPage(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	useVersion(t, "1.3.4")
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Updates.Mode = "manual" })
+	h.offerRelease("v1.3.5")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	frames, _ := h.openStream(t, ctx, "/api/v1/events", as.viewer, nil)
+	await(t, frames, "the opening comment", func(f sseFrame) bool { return f.comment != "" })
+
+	h.do(request{method: http.MethodPost, path: updatesCheckPath, cookie: as.admin}).
+		mustStatus(t, http.StatusOK, "checking for a release")
+
+	frame := await(t, frames, "the status the check learnt", ofKind(events.KindUpdates))
+	var status updatesResponse
+	decodeFrame(t, frame, &status)
+	if status.Latest == nil || status.Latest.Tag != "v1.3.5" || status.CheckedAt == nil {
+		t.Errorf("the frame holds %+v, want the release the check has just read", status)
 	}
 }

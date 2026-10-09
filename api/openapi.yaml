@@ -6084,7 +6084,8 @@ paths:
         answers with the status it leaves. At most one request goes to GitHub a minute: a press
         inside the minute is not an error, and answers the status as it stands. Refused with
         `update.check_disabled` while `updates.check_interval` is `0`, which is the setting that
-        keeps this controller from ever asking. Takes no body.
+        keeps this controller from ever asking, and with `update.check_failed` (502) when GitHub
+        or the network to it would not let the read finish. Takes no body.
       x-zoomies-role: admin
       responses:
         "200":
@@ -6095,6 +6096,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/Forbidden" }
         "409": { $ref: "#/components/responses/UpdateRefused" }
+        "502": { $ref: "#/components/responses/UpdateCheckFailed" }
 
   /updates/controller:
     post:
@@ -6344,6 +6346,16 @@ components:
         `update.rollout_halted` while a halted rollout waits for a person. A controller that may
         not act (it is fenced for recovery, or another holds the lease) is the plain `conflict`.
         The message says what stopped it and what to change.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    UpdateCheckFailed:
+      description: >-
+        GitHub, or the network to it, would not let the release check finish, and nothing has changed.
+        The code is `update.check_failed` and the message says what failed and what to try: that the
+        controller may need an outbound HTTPS rule to `api.github.com`, or that GitHub answered with a
+        status and the check can be tried again later. It is the controller's upstream that failed and
+        not the controller, so it is a 502 and is logged as a warning.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -6676,7 +6688,7 @@ components:
           properties:
             code:
               type: string
-              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, too_large, rate_limited, limit_reached, update.mode_off, update.check_disabled, update.helper_missing, update.in_progress, update.not_a_release, update.nothing_newer, update.host_cannot_update, update.rollout_halted, internal]
+              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, too_large, rate_limited, limit_reached, update.mode_off, update.check_disabled, update.helper_missing, update.in_progress, update.not_a_release, update.nothing_newer, update.host_cannot_update, update.rollout_halted, update.check_failed, internal]
             message: { type: string, description: Written for a person to read, and to act on. }
             field: { type: string, description: "The form field at fault, or on a `limit_reached` refusal the `limits.*` setting that refused." }
             detail: { type: string }

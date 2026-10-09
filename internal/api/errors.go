@@ -55,6 +55,13 @@ const (
 	codeUpdateRolloutHalted    = "update.rollout_halted"
 )
 
+// codeUpdateCheckFailed is the one update code that is not a refusal and not a 409:
+// the request was fine and GitHub, or the network to it, did not let the check
+// finish. It is a 502 so that a client can tell a thing to retry from a thing to
+// change, and so that the controller's log is not given an error for a failure
+// that is somebody else's.
+const codeUpdateCheckFailed = "update.check_failed"
+
 // statusClientClosed is nginx's 499: the client hung up before the response.
 // No client ever reads it -- by then there is none -- but the access log
 // separates a request the browser abandoned from one the controller failed.

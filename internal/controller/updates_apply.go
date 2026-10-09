@@ -107,7 +107,14 @@ func (c *Controller) probeUpdateHelper() helperProbe {
 	}}
 }
 
-// RequestControllerUpdate asks the helper beside this controller to take it to
+// RequestControllerUpdate is RequestControllerUpdateAttempt for a caller that
+// wants only the status.
+func (c *Controller) RequestControllerUpdate(ctx context.Context, by UpdateActor, tag string) (*UpdatesView, error) {
+	view, _, err := c.RequestControllerUpdateAttempt(ctx, by, tag)
+	return view, err
+}
+
+// RequestControllerUpdateAttempt asks the helper beside this controller to take it to
 // tag, or to the newest release that can be installed here when tag is empty,
 // and returns the status with the attempt in it.
 //
@@ -119,23 +126,26 @@ func (c *Controller) probeUpdateHelper() helperProbe {
 //
 // The helper's unit stops after five starts in ten minutes. One open attempt at a
 // time, each closed by an answer or after 90 minutes, keeps requests well below it.
-func (c *Controller) RequestControllerUpdate(ctx context.Context, by UpdateActor, tag string) (*UpdatesView, error) {
+//
+// The attempt's id comes back beside the status so that a caller that audits the
+// press does not have to find it in the status, where it is only the latest.
+func (c *Controller) RequestControllerUpdateAttempt(ctx context.Context, by UpdateActor, tag string) (*UpdatesView, string, error) {
 	if !c.mayAct() {
-		return nil, fmt.Errorf("%w: %s", ErrUpdateFenced, c.notActingReason())
+		return nil, "", fmt.Errorf("%w: %s", ErrUpdateFenced, c.notActingReason())
 	}
 	if c.updateMode() == updates.ModeOff {
-		return nil, ErrUpdateModeOff
+		return nil, "", ErrUpdateModeOff
 	}
 	if _, ok := version.Release(version.Version); !ok {
-		return nil, ErrUpdateNotARelease
+		return nil, "", ErrUpdateNotARelease
 	}
 	helper := c.probeUpdateHelper()
 	if !helper.ready {
-		return nil, fmt.Errorf("%w: %s", ErrUpdateHelperMissing, helper.refusal)
+		return nil, "", fmt.Errorf("%w: %s", ErrUpdateHelperMissing, helper.refusal)
 	}
 	target, err := c.controllerTarget(tag)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 
 	attempt := &store.UpdateAttempt{
@@ -144,9 +154,9 @@ func (c *Controller) RequestControllerUpdate(ctx context.Context, by UpdateActor
 	}
 	if err := c.st.CreateUpdateAttempt(ctx, attempt); err != nil {
 		if errors.Is(err, store.ErrConflict) {
-			return nil, ErrUpdateInProgress
+			return nil, "", ErrUpdateInProgress
 		}
-		return nil, fmt.Errorf("recording the update attempt: %w", err)
+		return nil, "", fmt.Errorf("recording the update attempt: %w", err)
 	}
 	// A new attempt supersedes the last one's failure in the problems list now,
 	// not at the next pass.
@@ -168,7 +178,7 @@ func (c *Controller) RequestControllerUpdate(ctx context.Context, by UpdateActor
 		c.withdrawRequest(*attempt)
 		c.lookAtUpdates(context.WithoutCancel(ctx))
 		_, _ = c.publishUpdates(context.WithoutCancel(ctx))
-		return nil, fmt.Errorf("%w: %w", ErrUpdateHelperMissing, err)
+		return nil, "", fmt.Errorf("%w: %w", ErrUpdateHelperMissing, err)
 	}
 	c.log.Info("asked the update helper to update this controller",
 		"attempt", attempt.ID, "from", attempt.FromVersion, "to", target, "requested_by", attempt.RequestedBy)
@@ -181,9 +191,9 @@ func (c *Controller) RequestControllerUpdate(ctx context.Context, by UpdateActor
 		// to press again, and the press would be refused as in flight. They get
 		// the attempt they made, and the next pass sends the whole status.
 		c.log.Warn("asked for the update, but could not work out the status to return", "attempt", attempt.ID, "error", err)
-		return c.requestedView(*attempt, helper.view), nil
+		return c.requestedView(*attempt, helper.view), attempt.ID, nil
 	}
-	return view, nil
+	return view, attempt.ID, nil
 }
 
 // requestedView is the status as far as it is known without reading anything:

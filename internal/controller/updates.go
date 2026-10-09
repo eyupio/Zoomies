@@ -207,12 +207,12 @@ func (c *Controller) checkForReleaseList(ctx context.Context) error {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		c.log.Debug("could not ask GitHub for the release list", "error", err)
-		return fmt.Errorf("could not reach GitHub for the release list (%w); check that this controller may make outbound HTTPS requests to api.github.com", err)
+		return checkFailed(err, "could not reach GitHub for the release list (%v); check that this controller may make outbound HTTPS requests to api.github.com", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != http.StatusOK {
 		c.log.Debug("the release list request was refused", "status", resp.StatusCode)
-		return fmt.Errorf("GitHub answered %d to the request for the release list, so nothing has changed; try again later", resp.StatusCode)
+		return checkFailed(nil, "GitHub answered %d to the request for the release list, so nothing has changed; try again later", resp.StatusCode)
 	}
 
 	var listed []githubRelease
@@ -224,7 +224,7 @@ func (c *Controller) checkForReleaseList(ctx context.Context) error {
 	}
 	if err != nil {
 		c.log.Debug("could not read the release list", "error", err)
-		return errors.New("GitHub's answer was not a list of releases, so nothing has changed; try again later")
+		return checkFailed(err, "GitHub's answer was not a list of releases, so nothing has changed; try again later")
 	}
 
 	releases := make([]updates.Release, 0, len(listed))
@@ -283,7 +283,14 @@ func (g githubRelease) release() updates.Release {
 // The minute is counted from the request and not from its success, because a
 // refusal from GitHub is a reason to ask less often.
 func (c *Controller) CheckForReleases(ctx context.Context) error {
-	_, err := c.askForReleases(ctx)
+	asked, err := c.askForReleases(ctx)
+	if asked && err == nil {
+		// What the list says has changed for every page that is open, not only for
+		// the one that pressed the button, and no row is written to say so.
+		if _, err := c.publishUpdates(context.WithoutCancel(ctx)); err != nil {
+			c.log.Warn("read the release list, but could not work out the update status for the event stream", "error", err)
+		}
+	}
 	return err
 }
 
