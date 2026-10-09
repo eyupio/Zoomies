@@ -1499,7 +1499,9 @@ export interface paths {
          *     repository permissions the migration wizard needs (`contents`,
          *     `pull_requests` and `workflows`, all write) are added only when
          *     `migration` is true, because nothing else in Zoomies writes to a
-         *     repository.
+         *     repository. An organisation App also asks for `administration` read
+         *     when `kennel_settings` is true, for the Kennel Club checks of a
+         *     repository's settings.
          */
         post: operations["createAppManifest"];
         delete?: never;
@@ -3811,6 +3813,71 @@ export interface paths {
          * @description A consistent copy of the live database, taken with `VACUUM INTO`, checked with `PRAGMA integrity_check`, and written with its manifest into `backup.directory`. Retention (`backup.keep`) runs afterwards. Refused with 409 while another backup is being taken.
          */
         post: operations["takeBackup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/transfers/preparation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Follow complete instance preparation */
+        get: operations["getTransferPreparation"];
+        put?: never;
+        /**
+         * Drain this instance for transfer
+         * @description Stops new runner and machine demand without changing saved pool settings. Busy jobs finish naturally. Idle runners withdraw safely, cleanup continues, and the recovery fence is raised automatically when no work is in flight. Preparation survives a restart. Requires process operator authority.
+         */
+        post: operations["prepareInstanceTransfer"];
+        /**
+         * Cancel preparation before cutover
+         * @description Once fenced, use the explicit recovery action after checking no destination is running.
+         */
+        delete: operations["cancelInstanceTransfer"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/transfers/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export a complete portable instance
+         * @description Requires a drained, fenced source. All database records and fleet credentials travel under a disposable transfer key inside the encrypted archive. The source encryption key and configuration file do not travel. Stop the source controller before cutover and keep it stopped while the destination runs. Requires process operator authority.
+         */
+        post: operations["exportInstanceTransfer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/transfers/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prepare a portable instance for this destination
+         * @description Authenticates an encrypted archive, verifies the database and re-seals secrets under this destination's key. Returns inventory counts and a prepared backup without replacing the database. Stage it using the restore endpoint with source_stopped=true, then restart to apply. The destination must be empty and keep its own operator access. Source operator authority and sign-in configuration are invalidated at apply. The imported instance remains fenced. Requires process operator authority.
+         */
+        post: operations["importInstanceTransfer"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6965,8 +7032,25 @@ export interface components {
             /** @description Why the fence is on -- normally the backup this database was restored from. */
             reason?: string;
         };
+        TransferProgress: {
+            draining: boolean;
+            ready: boolean;
+            live_runners: number;
+            busy_runners: number;
+            pending_cleanup: number;
+            active_jobs: number;
+            machine_operations: number;
+        };
+        TransferInfo: {
+            version: number;
+            prepared: boolean;
+            inventory: {
+                [key: string]: number;
+            };
+        };
         /** @description One backup, as the Backups tab lists it. The manifest's facts are lifted out flat. */
         Backup: {
+            transfer?: components["schemas"]["TransferInfo"];
             /**
              * @description The backup's directory name.
              * @example zoomies-20260916-120000
@@ -7207,6 +7291,7 @@ export interface components {
             problems: string[];
         };
         StagedRestore: {
+            source_stopped?: boolean;
             backup_id: string;
             dir: string;
             /** Format: date-time */
@@ -8684,8 +8769,10 @@ export interface components {
             endpoint?: string;
             /** @description QEMU templates detected by the setup command. */
             templates?: components["schemas"]["ProxmoxSetupTemplate"][];
-            /** @description Returned only at creation; contains the short-lived setup capability. */
+            /** @description Returned only at creation; the whole setup script */
             command?: string;
+            /** @description Returned only at creation; the same setup as two lines that fetch the hosted connect-proxmox.sh. Contains the short-lived setup capability. */
+            short_command?: string;
         };
         /** @description Creating and editing a provider take the same body. On a PATCH every field is optional and independent; what is not named is left alone. */
         ProviderInput: {
@@ -12128,6 +12215,19 @@ export interface operations {
                      * @default false
                      */
                     migration?: boolean;
+                    /**
+                     * @description Also request `administration` read on an organisation App, for
+                     *     the Kennel Club checks of a repository's Actions settings and
+                     *     required status checks. GitHub offers no narrower permission
+                     *     for them, and it also lets an App read configuration Zoomies
+                     *     has no use for, so leave it off for a fleet that will not turn
+                     *     those checks on. A repository App holds `administration` write
+                     *     already, so this changes nothing for one. Adding it later is
+                     *     possible, but GitHub holds the change until the account's owner
+                     *     accepts it on the installation.
+                     * @default false
+                     */
+                    kennel_settings?: boolean;
                 };
             };
         };
@@ -15933,6 +16033,133 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
+    getTransferPreparation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current drain and cleanup progress */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferProgress"];
+                };
+            };
+        };
+    };
+    prepareInstanceTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Preparation started or already in progress */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferProgress"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    cancelInstanceTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Preparation cancelled */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    exportInstanceTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: password */
+                    passphrase: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The encrypted portable archive */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    importInstanceTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                    /** Format: password */
+                    passphrase: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Verified and sealed for this destination */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Backup"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            /** @description The upload is over the limit. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
     uploadBackup: {
         parameters: {
             query?: never;
@@ -16412,6 +16639,8 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": {
+                    /** @description Required for complete transfers; confirm the source controller is stopped and will remain stopped. */
+                    source_stopped?: boolean;
                     /** @description Revoke every API token as well. */
                     revoke_api_tokens?: boolean;
                     /** @description Forget every host's agent credential */

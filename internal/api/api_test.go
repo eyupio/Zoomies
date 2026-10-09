@@ -859,6 +859,11 @@ func routeTable(ids fixtureIDs) []route {
 
 		{method: "GET", path: "/api/v1/backups", role: store.RolePlatform, action: auth.ActionBackupsRead},
 		{method: "POST", path: "/api/v1/backups", role: store.RolePlatform, action: auth.ActionBackupsWrite},
+		{method: "GET", path: "/api/v1/transfers/preparation", role: store.Roles()[len(store.Roles())-1], action: auth.ActionBackupsRead},
+		{method: "POST", path: "/api/v1/transfers/preparation", role: store.Roles()[len(store.Roles())-1], action: auth.ActionBackupsRestore},
+		{method: "DELETE", path: "/api/v1/transfers/preparation", role: store.Roles()[len(store.Roles())-1], action: auth.ActionBackupsRestore},
+		{method: "POST", path: "/api/v1/transfers/export", role: store.Roles()[len(store.Roles())-1], action: auth.ActionBackupsRead, body: map[string]string{"passphrase": "a long transfer passphrase"}},
+		{method: "POST", path: "/api/v1/transfers/import", role: store.Roles()[len(store.Roles())-1], action: auth.ActionBackupsRestore},
 		{method: "POST", path: "/api/v1/backups/upload", role: store.RolePlatform, action: auth.ActionBackupsWrite},
 		{method: "DELETE", path: "/api/v1/backups/restore", role: store.RolePlatform, action: auth.ActionBackupsRestore},
 		{method: "POST", path: "/api/v1/backups/restore/apply", role: store.RolePlatform, action: auth.ActionBackupsRestore},

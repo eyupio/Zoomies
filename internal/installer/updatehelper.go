@@ -623,7 +623,7 @@ func openUpdateFolder(dir string, serviceUID int, ownerOf func(os.FileInfo) (int
 		} else if uid != serviceUID {
 			err = fmt.Errorf("the update folder %s is owned by uid %d and not by uid %d, the account the helper was installed for; %s", dir, uid, serviceUID, updateFolderHint)
 		} else if opened.Mode().Perm()&0o022 != 0 {
-			err = fmt.Errorf("the update folder %s is writable by its group or the world (mode %o), and only the account zoomies runs as may write it; make it writable by its owner alone", dir, opened.Mode().Perm())
+			err = fmt.Errorf("the update folder %s is writable by its group or the world (mode %o), and only the account zoomies runs as may write it; make it writable by its owner alone with \"sudo chmod 750 %s\"", dir, opened.Mode().Perm(), dir)
 		}
 	}
 	if err != nil {
@@ -654,7 +654,7 @@ func checkUpdateFolderParent(parent string, serviceUID int, ownerOf func(os.File
 		return fmt.Errorf("%s, which holds the update folder, is owned by uid %d, which is neither root nor the account zoomies runs as (uid %d), and that account could have its folder replaced; %s", parent, uid, serviceUID, updateFolderHint)
 	}
 	if parentInfo.Mode().Perm()&0o022 != 0 {
-		return fmt.Errorf("%s, which holds the update folder, is writable by its group or the world (mode %o), so somebody else could put another folder in its place; make it writable by its owner alone", parent, parentInfo.Mode().Perm())
+		return fmt.Errorf("%s, which holds the update folder, is writable by its group or the world (mode %o), so somebody else could put another folder in its place; make it writable by its owner alone with \"sudo chmod 750 %s\" (not -R: folders inside it may be open on purpose), then %s", parent, parentInfo.Mode().Perm(), parent, updateFolderHint)
 	}
 	return nil
 }

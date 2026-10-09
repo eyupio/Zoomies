@@ -127,8 +127,13 @@ func (c *Controller) reconcileLocked(ctx context.Context) (time.Time, error) {
 	c.setLastPlan(plan)
 	c.setReserved(snap)
 	c.apply(ctx, snap, plan)
-	c.routeFallbacks(ctx, snap, plan)
-	c.publishCapacitySignals(ctx, snap, plan)
+	if !c.transferDraining.Load() {
+		c.routeFallbacks(ctx, snap, plan)
+		c.publishCapacitySignals(ctx, snap, plan)
+	}
+	if err := c.finishTransferDrain(ctx); err != nil {
+		return started, err
+	}
 	return started, nil
 }
 
@@ -143,6 +148,13 @@ func (c *Controller) snapshot(ctx context.Context) (scheduler.Snapshot, error) {
 	// The scheduler sizes a pool by its minimum, so it is handed the minimum
 	// in force -- the fleet's where the pool set none -- rather than the row.
 	pools = c.sizingPools(pools)
+	if c.transferDraining.Load() {
+		for i, p := range pools {
+			copy := *p
+			copy.Enabled = false
+			pools[i] = &copy
+		}
+	}
 	runners, err := c.st.SchedulingRunners(ctx)
 	if err != nil {
 		return scheduler.Snapshot{}, fmt.Errorf("listing scheduling runners: %w", err)
@@ -422,6 +434,9 @@ func (c *Controller) recordScaling(ctx context.Context, pp scheduler.PoolPlan, c
 // queuedSince is when the pool's first waiting job was queued, or zero when it
 // has none.
 func (c *Controller) createRunner(ctx context.Context, pool *store.Pool, host *store.Host, a scheduler.Action, queuedSince time.Time) error {
+	if c.transferDraining.Load() {
+		return errors.New("this instance is draining for transfer; no new runners are created")
+	}
 	if !c.mayAct() {
 		return nil
 	}

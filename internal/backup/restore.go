@@ -32,6 +32,10 @@ var ErrControllerRunning = errors.New("backup: a controller is running on this d
 // RestoreOptions is what a restore may be asked to do beyond putting the file
 // back.
 type RestoreOptions struct {
+	// SourceStopped acknowledges that cutover will not leave two live controllers.
+	SourceStopped bool
+	// TransferOperator establishes local destination access when no operator exists yet.
+	TransferOperator *store.User
 	// Replace allows a database already at database.path to be moved aside.
 	// Without it, an existing database is refused.
 	Replace bool
@@ -88,6 +92,18 @@ func Check(ctx context.Context, cfg *config.Config, dir string) (*Manifest, stri
 		return m, problem, err
 	}
 	if m != nil {
+		if m.Transfer != nil {
+			v, err := verifyDir(ctx, &Entry{Dir: dir, Manifest: m})
+			if err != nil {
+				return m, problem, err
+			}
+			if !v.OK {
+				return m, problem, fmt.Errorf("transfer snapshot is not usable: %s", strings.Join(v.Problems, "; "))
+			}
+		}
+		if m.Transfer != nil && (m.Transfer.Version != TransferVersion || !m.Transfer.Prepared) {
+			return m, problem, errors.New("prepare this portable snapshot with an instance transfer import first")
+		}
 		if err := checkKey(cfg, m); err != nil {
 			return m, problem, err
 		}
@@ -169,6 +185,20 @@ func Restore(ctx context.Context, cfg *config.Config, dir string, opts RestoreOp
 	m, problem, err := Check(ctx, cfg, dir)
 	if err != nil {
 		return nil, err
+	}
+	if m != nil && m.Transfer != nil {
+		prepared, cleanup, err := prepareTransferRestore(ctx, cfg, dir, opts)
+		if err != nil {
+			return nil, err
+		}
+		defer cleanup()
+		opts.Replace = true
+		report, err := Restore(ctx, cfg, prepared, opts)
+		if report != nil {
+			report.Source = dir
+			report.Invalidated = append(report.Invalidated, "Replaced source operator access and sign-in configuration with the destination's; external sign-in needs a destination mapping.")
+		}
+		return report, err
 	}
 	report := &RestoreReport{Source: dir, ManifestProblem: problem, KeyChecked: m != nil && m.Key.Fingerprint != "", Invalidated: []string{}}
 
@@ -468,6 +498,7 @@ const (
 
 // Staged is a restore that has been checked and is waiting for a restart.
 type Staged struct {
+	SourceStopped bool `json:"source_stopped,omitempty"`
 	// BackupID and Dir name the backup; the id is for people and the
 	// directory is what the restore opens.
 	BackupID string `json:"backup_id"`
@@ -511,6 +542,14 @@ func Stage(ctx context.Context, cfg *config.Config, entry *Entry, s Staged) (*St
 	m, _, err := Check(ctx, cfg, entry.Dir)
 	if err != nil {
 		return nil, err
+	}
+	if m != nil && m.Transfer != nil {
+		prepared, cleanup, err := prepareTransferRestore(ctx, cfg, entry.Dir, RestoreOptions{SourceStopped: s.SourceStopped})
+		if err != nil {
+			return nil, err
+		}
+		_ = prepared
+		cleanup()
 	}
 	s.BackupID = entry.ID
 	s.Dir = entry.Dir
@@ -614,6 +653,7 @@ func ApplyStaged(ctx context.Context, cfg *config.Config, now func() time.Time) 
 	out := &Outcome{BackupID: s.BackupID, AttemptedAt: now().UTC()}
 	report, err := Restore(ctx, cfg, s.Dir, RestoreOptions{
 		Replace:          true,
+		SourceStopped:    s.SourceStopped,
 		RevokeAPITokens:  s.RevokeAPITokens,
 		ResetAgentTokens: s.ResetAgentTokens,
 		Now:              now,

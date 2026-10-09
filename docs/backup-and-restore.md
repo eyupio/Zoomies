@@ -596,3 +596,68 @@ nothing that belongs to another installation. Export first if it may ever be
 wanted. The one row left afterwards is the `installation.purge` audit entry
 recording that it happened. Export and import are audited as
 `installation.export` and `installation.import`.
+
+## Move a complete instance
+
+The **Move a complete instance** section of Settings, Backups moves the database,
+including history, IDs, relationships and fleet credentials, to an independently
+configured controller. It works in either direction. It does not copy host files,
+container caches, a running job or the service installation.
+
+Choose **Prepare for transfer** on the source. This one action pauses new demand,
+lets busy jobs finish naturally, safely withdraws idle runners and waits for
+cleanup and machine operations. It leaves saved pool settings intact and
+survives a restart. The progress counts identify what remains; an offline agent
+or failed cleanup must be resolved rather than assumed safe. When the counts
+reach zero, Zoomies raises its recovery fence and enables encrypted download.
+
+Choose a passphrase and download the complete instance. Every retained fleet and team secret is
+converted to a fresh transfer key; that key travels only inside the encrypted
+archive. The source encryption key and configuration file never travel. Keep
+the archive and passphrase private: together they open the entire instance.
+
+On the destination, verify the archive in the same section. Use a compatible
+Zoomies release, an empty fleet and the destination's own operator account or
+API token. The verification reports inventory counts and seals the snapshot
+under the destination's key. It changes no live data. Stop the source controller,
+confirm it will stay stopped, then choose **Import and restart**. The destination
+keeps its existing operator access, process settings and encryption key; its
+bootstrap database is moved aside for rollback. Source operator accounts are
+disabled and their tokens revoked. Team passwords, API tokens and authenticator
+secrets survive. Source process secrets, operator passwords and operator authenticator
+secrets are omitted from the archive. Sessions, unused enrolment tokens and old OAuth capabilities
+are invalidated; external sign-in needs a destination identity mapping.
+
+After restart, sign in using the destination's operator credentials. The fleet
+stays fenced: repoint agents and GitHub webhooks, check provider gateways and
+verify rented-machine ownership before lifting the fence. Backup remotes are
+retained without source backup credentials and disabled until configured. A restored machine is marked unverified.
+Keep the source stopped while the destination runs. To abandon cutover, stop the
+destination before restoring or unfencing the source. A downloaded archive never
+deletes the source or resumes a second controller automatically.
+
+The command line uses the same engine:
+
+```sh
+zoomies transfer prepare
+zoomies transfer status
+# Once ready, stop the source controller.
+zoomies transfer export --out instance.zbk --passphrase-file ./move.pass
+# On an empty destination with its controller stopped and its own key configured:
+zoomies transfer import instance.zbk --source-stopped --passphrase-file ./move.pass
+```
+
+For a new destination without operator access, add `--operator-name` and
+`--operator-password-file` to import. Use a private
+password file and at least twelve password characters. An active team identity must not collide with the destination operator; a
+collision is refused before replacing the database. A disabled historical
+operator with the same username receives an archival name, keeping its ID and
+audit attribution. `zoomies transfer cancel` resumes saved pools
+while preparation is still draining. Once fenced, use the explicit recovery
+fence action after checking that no destination is running.
+
+Transfer uploads are encrypted, authenticated through the final chunk and
+bounded to 8 GiB. Inflated database bytes and archive padding are also bounded;
+metadata members may not exceed 1 MiB. Wrong passphrases, corruption, unsupported
+schemas, unknown encrypted columns, occupied destinations and unreadable secrets
+are refused before replacing the live database. No passphrase is staged or logged.

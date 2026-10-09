@@ -166,6 +166,14 @@
    * code, and the permission list is the first thing a security reviewer reads.
    */
   let migration = $state(false);
+  /**
+   * Whether an organisation App also asks for Administration read, for Kennel
+   * Club's checks of a repository's settings. Off unless the operator says so:
+   * GitHub offers no narrower permission, and it also lets an App read
+   * configuration a runner fleet has no use for. A repository App holds
+   * Administration write already, so the question is not put to one.
+   */
+  let kennelSettings = $state(false);
   let code = $state('');
   let installationId = $state('');
   /**
@@ -274,6 +282,7 @@
     apiBase = '';
     appName = '';
     migration = false;
+    kennelSettings = false;
     code = '';
     installationId = '';
     appIdInput = '';
@@ -467,6 +476,9 @@
       ? 'actions: write, read workflow jobs and cancel workflow runs from Zoomies'
       : 'actions: read, read workflow runs and jobs for the fallback poller',
     'metadata: read, required by GitHub for every App',
+    ...(kennelSettings && targetType !== 'repo'
+      ? ["administration: read, for Kennel Club's checks of repository settings"]
+      : []),
     ...(migration
       ? [
           'contents: write, read and rewrite workflow files for the migration wizard',
@@ -540,6 +552,7 @@
         target_type: targetType as TargetType,
         api_base_url: apiBase.trim() || undefined,
         migration,
+        kennel_settings: targetType === 'repo' ? undefined : kennelSettings,
       });
       postUrl = result.post_url ?? '';
       manifest = result.manifest ?? '';
@@ -566,7 +579,14 @@
   let builtFrom = $state('');
   /** Everything the manifest was built from, so a change to any of it is noticed. */
   function fingerprint(): string {
-    return JSON.stringify([target.trim(), targetType, apiBase.trim(), appName.trim(), migration]);
+    return JSON.stringify([
+      target.trim(),
+      targetType,
+      apiBase.trim(),
+      appName.trim(),
+      migration,
+      kennelSettings && targetType !== 'repo',
+    ]);
   }
   $effect(() => {
     const now = fingerprint();
@@ -1026,6 +1046,17 @@
               label="Also let Zoomies open migration pull requests"
               description="Adds write access to contents, pull requests and workflows, which only the migration wizard uses. Runners do not need it. Adding it later is not a click: the account's owner has to approve the change on GitHub."
             />
+
+            <!-- The same for the one permission Kennel Club's checks of a
+                 repository's settings need. A repository App holds it already,
+                 so only an organisation App is asked. -->
+            {#if targetType !== 'repo'}
+              <Checkbox
+                bind:checked={kennelSettings}
+                label="Also let Kennel Club check repository settings"
+                description="Adds read access to administration, which only Kennel Club's checks of Actions settings and required status checks use. GitHub offers no narrower permission, and it also lets the App read repository configuration Zoomies does not use. Adding it later is not a click: the account's owner has to approve the change on GitHub."
+              />
+            {/if}
 
             <!-- Two optional answers that almost nobody gives, behind a fold so
                  everybody else is asked for one thing. A field that has an

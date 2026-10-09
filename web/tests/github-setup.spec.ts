@@ -189,6 +189,77 @@ test('the App asks for write access to code only when the operator ticks the box
   expect(asked.at(-1)).toMatchObject({ target: 'acme', migration: false });
 });
 
+/**
+ * Administration read lets an App read configuration a runner fleet has no use
+ * for, and only Kennel Club's checks of a repository's settings need it. An
+ * organisation App asks for it only when the operator ticks the box. A repository
+ * App holds Administration write already, so it is not offered the box and the
+ * request does not carry the answer.
+ */
+test('an organisation App asks for administration read only when the operator ticks the box', async ({
+  page,
+}) => {
+  const asked: Record<string, unknown>[] = [];
+  await page.route('**/api/v1/meta', async (route) => {
+    const response = await route.fetch();
+    const meta = (await response.json()) as Record<string, unknown>;
+    meta.external_url = 'https://zoomies.example.test';
+    meta.webhook_url = 'https://zoomies.example.test/webhooks/github';
+    await route.fulfill({ response, json: meta });
+  });
+  await page.route('**/api/v1/installations/manifest', async (route) => {
+    asked.push(route.request().postDataJSON() as Record<string, unknown>);
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        post_url: 'https://github.com/settings/apps/new',
+        manifest: '{"name":"zoomies-acme"}',
+        state: 'a-state',
+      }),
+    });
+  });
+  await goto(page, '/installations', 'Installations');
+  await page.getByRole('button', { name: 'Connect GitHub' }).first().click();
+  const dialog = page.getByRole('dialog', { name: 'Connect GitHub' });
+  const kennel = dialog.getByRole('checkbox', { name: /check repository settings/ });
+  const continueButton = dialog.getByRole('button', { name: 'Continue', exact: true });
+
+  // Unticked, and the list has no administration line.
+  await expect(kennel).not.toBeChecked();
+  await expect(dialog).not.toContainText('administration:');
+
+  // Ticking it changes the list the operator is reading, not just a flag.
+  await kennel.check();
+  await expect(dialog).toContainText('administration: read');
+  await dialog.getByLabel('Organisation login').fill('acme');
+  await continueButton.click();
+  await expect(dialog.getByRole('button', { name: 'Create the App on GitHub' })).toBeVisible();
+  expect(asked.at(-1)).toMatchObject({ target: 'acme', kennel_settings: true });
+
+  // Going back and unticking it invalidates the manifest that was built with it.
+  await dialog.getByRole('button', { name: 'Back' }).click();
+  await kennel.uncheck();
+  await expect(dialog).not.toContainText('administration:');
+  await continueButton.click();
+  await expect(dialog.getByRole('button', { name: 'Create the App on GitHub' })).toBeVisible();
+  expect(asked).toHaveLength(2);
+  expect(asked.at(-1)).toMatchObject({ target: 'acme', kennel_settings: false });
+
+  // A repository App is not asked: it holds administration write already.
+  await dialog.getByRole('button', { name: 'Back' }).click();
+  await kennel.check();
+  await dialog.getByRole('radio', { name: 'A single repository' }).check();
+  await expect(kennel).toHaveCount(0);
+  await expect(dialog).toContainText('administration: write');
+  await expect(dialog).not.toContainText('administration: read');
+  await dialog.getByLabel('Repository', { exact: true }).fill('acme/widgets');
+  await continueButton.click();
+  await expect(dialog.getByRole('button', { name: 'Create the App on GitHub' })).toBeVisible();
+  expect(asked).toHaveLength(3);
+  expect(asked.at(-1)).toMatchObject({ target: 'acme/widgets', target_type: 'repo' });
+  expect(asked.at(-1)).not.toHaveProperty('kennel_settings');
+});
+
 test('the first step asks for one thing, and keeps the two optional answers behind a fold', async ({
   page,
 }) => {

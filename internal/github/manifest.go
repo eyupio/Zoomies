@@ -55,6 +55,15 @@ type ManifestOptions struct {
 	// default hands every installation write access to code and to CI workflows
 	// for a feature most of them will never use.
 	Migration bool
+	// KennelSettings adds Administration read to an organisation App, for the
+	// Kennel Club checks that read a repository's Actions settings and the status
+	// checks its default branch requires (kennel.settings_checks). GitHub offers
+	// no narrower permission for those settings, and it also lets an App read a
+	// repository's collaborators and configuration, which Kennel Club does not
+	// use, so it is asked for only when the operator says they want those checks.
+	// A repository App already holds Administration write, which includes read,
+	// so the option changes nothing for one.
+	KennelSettings bool
 }
 
 // manifest is the wire format of GitHub's App manifest.
@@ -131,7 +140,7 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 		// workflow_job is the only event Zoomies acts on. Subscribing to more
 		// would mean parsing payloads it has no use for.
 		DefaultEvents:      []string{"workflow_job"},
-		DefaultPermissions: manifestPermissions(o.Organization != "", o.AllowWorkflowCancellation, o.Migration),
+		DefaultPermissions: manifestPermissions(o),
 	}
 	b, err := json.Marshal(m)
 	if err != nil {
@@ -150,6 +159,12 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 // the sentence that ends a security review, so an App that carried them by
 // default made every installation pay for a feature most never use.
 //
+// Administration read is asked for the same way, for the same reason: it lets an
+// App read configuration Zoomies has no use for, and only the Kennel Club checks
+// of a repository's settings need it. An organisation App holds it only when
+// KennelSettings says so. A repository App holds Administration write already,
+// to register its runners, and that is not lowered to read.
+//
 // The cost of the choice is real, and it is why this is a question on the
 // consent screen rather than a silent default either way. Adding a permission
 // to an App that already exists is not a setting an operator can just flip:
@@ -158,16 +173,17 @@ func Manifest(o ManifestOptions) ([]byte, error) {
 // workflow. So the question is asked where saying yes costs a click, and the
 // wizard names exactly what is missing, and where to add it, when the answer
 // was no (MissingForMigration).
-func manifestPermissions(org, allowWorkflowCancellation, migration bool) map[string]string {
+func manifestPermissions(o ManifestOptions) map[string]string {
+	org := o.Organization != ""
 	actions := "read"
-	if allowWorkflowCancellation {
+	if o.AllowWorkflowCancellation {
 		actions = "write"
 	}
 	p := map[string]string{
 		"actions":  actions,
 		"metadata": "read",
 	}
-	if migration {
+	if o.Migration {
 		// The migration wizard's three: read a repository's workflows, commit
 		// the rewritten file to a branch, and open the pull request. GitHub
 		// requires "workflows" specifically for a change under
@@ -178,6 +194,9 @@ func manifestPermissions(org, allowWorkflowCancellation, migration bool) map[str
 	}
 	if org {
 		p["organization_self_hosted_runners"] = "write"
+		if o.KennelSettings {
+			p["administration"] = "read"
+		}
 	} else {
 		p["administration"] = "write"
 	}
