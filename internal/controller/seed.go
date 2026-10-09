@@ -964,6 +964,13 @@ var demoBacklogJobNames = []string{"build", "test", "lint"}
 // the fixture writes by hand.
 const seedBacklogFirstJob = 52
 
+// The jobs seeded for why, one per class the loop above has no room for:
+// numbered past anything the backlog can reach.
+const (
+	demoTimedOutJobID            = "job_demo090"
+	demoRegistrationFailureJobID = "job_demo091"
+)
+
 // seedJobs writes fifty jobs with queue waits and outcomes that look like a
 // real morning: mostly quick and successful, a long tail that makes the p95
 // worth showing, and a couple nothing claims.
@@ -1010,6 +1017,10 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			RunAttempt:     1 + i%7/6,
 		}
 
+		// One failure the fleet owns, seeded with the kill, its figures and its
+		// last lines once the row exists; declared here because the writes
+		// that follow the switch need to know.
+		lostRunner := i == 43
 		switch {
 		case i < 44:
 			// Finished. A tenth of them waited a long time, which is what the
@@ -1028,7 +1039,6 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			// recent finished job, so that it remains well inside the hour the
 			// problems drawer looks back over after both browser projects and a
 			// retry have run.
-			lostRunner := i == 43
 			if lostRunner {
 				j.Conclusion = "failure"
 				started = now.Add(-25 * time.Minute)
@@ -1100,9 +1110,30 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 			}
 		}
 
-		saved, change, err := c.st.ApplyJob(ctx, j)
+		var change store.JobChange
+		if lostRunner {
+			// The peak is recorded only against a running job, as a real
+			// one's is: it runs, its usage is sampled, then it ends. So the
+			// kill is seeded the way it happened, and the created flag from
+			// this first write is the one the timeline is written from.
+			running := *j
+			running.State, running.Conclusion, running.CompletedAt = store.JobInProgress, "", nil
+			running.Steps = demoSteps(j.JobName, "", *j.StartedAt, time.Time{})
+			if _, ch, err := c.st.ApplyJob(ctx, &running); err != nil {
+				return fmt.Errorf("seeding job %d as running: %w", i, err)
+			} else {
+				change = ch
+			}
+			if err := c.st.RecordJobUsage(ctx, j.RunnerID, 2.5, 7900); err != nil {
+				return fmt.Errorf("seeding job %d's peak: %w", i, err)
+			}
+		}
+		saved, ch, err := c.st.ApplyJob(ctx, j)
 		if err != nil {
 			return fmt.Errorf("seeding job %d: %w", i, err)
+		}
+		if !lostRunner {
+			change = ch
 		}
 		// The size of the runner that took the job, as a controller that
 		// records it does: the jobs the stamped releases ran, half of them on
@@ -1120,6 +1151,19 @@ func (c *Controller) seedJobs(ctx context.Context, now time.Time, rng *rand.Rand
 		if err := c.seedJobTimeline(ctx, saved, change); err != nil {
 			return err
 		}
+		if lostRunner {
+			// The kill itself, and the last lines the runner wrote, which is
+			// what the explanation quotes.
+			if _, _, err := c.st.MarkJobOOMKilled(ctx, saved.RunnerID, saved.RunnerFault); err != nil {
+				return fmt.Errorf("seeding job %d's kill: %w", i, err)
+			}
+			if _, err := c.st.SetJobOutputTail(ctx, saved.RunnerID, demoOOMTail()); err != nil {
+				return fmt.Errorf("seeding job %d's output: %w", i, err)
+			}
+		}
+	}
+	if err := c.seedWhyJobs(ctx, now, pools, runners); err != nil {
+		return err
 	}
 
 	// The vendor repository's other job: one running right now, on a machine
@@ -1235,14 +1279,115 @@ func demoSteps(jobName, conclusion string, started, completed time.Time) store.J
 			step.Status, step.Conclusion, step.CompletedAt = "in_progress", "", nil
 		case conclusion == "" && i > 3:
 			step.Status, step.Conclusion, step.StartedAt, step.CompletedAt = "queued", "", nil, nil
-		case (conclusion == "failure" || conclusion == "cancelled") && i == 3:
+		case (conclusion == "failure" || conclusion == "cancelled" || conclusion == "timed_out") && i == 3:
 			step.Conclusion = conclusion
-		case (conclusion == "failure" || conclusion == "cancelled") && i == 4:
+		case (conclusion == "failure" || conclusion == "cancelled" || conclusion == "timed_out") && i == 4:
 			step.Conclusion = "skipped"
 		}
 		steps = append(steps, step)
 	}
 	return steps
+}
+
+// demoOOMTail is what a runner killed for memory last wrote: a build that
+// grew, the kernel's own line, and the runner tidying up after it. The kill is
+// a dozen lines from the end on purpose, so the excerpt shows that it reads
+// up to the decisive line rather than merely the last ones.
+func demoOOMTail() []string {
+	tail := make([]string, 0, 40)
+	for i := 1; i <= 28; i++ {
+		tail = append(tail, fmt.Sprintf("[build] compiling module %d of 240", i*8))
+	}
+	tail = append(tail,
+		"[build] linking zoomies-widgets (release)",
+		"[build] heap 7.6 GB, allocating 512 MB for the link table",
+		"Killed process 2231 (node) total-vm:9812344kB, anon-rss:7900120kB, file-rss:0kB",
+		"##[error]Process completed with exit code 137.",
+		"Cleaning up orphan processes",
+		"Terminating orphan process: pid (2231)",
+		"Post job cleanup.",
+		"[runner] job completed with result: Failed",
+		"[runner] Runner listener exit with 0 return code, stop the service, no retry needed",
+		"[runner] Exiting runner...",
+		"[entrypoint] runner exited after its job",
+		"[entrypoint] exit code 137",
+	)
+	return tail
+}
+
+// seedWhyJobs writes one job per class of failure the morning above has no
+// room for: a job GitHub timed out, and a job whose runner never registered.
+// They are older than everything else, so the most recent failure stays the
+// lost runner the problems drawer looks for.
+func (c *Controller) seedWhyJobs(ctx context.Context, now time.Time, pools []*store.Pool, runners []*store.Runner) error {
+	pool := pools[0]
+	if _, err := c.st.GetJob(ctx, demoTimedOutJobID); err == nil {
+		return nil
+	}
+	started := now.Add(-3 * time.Hour)
+	timedOut := started.Add(60 * time.Minute)
+	r := runners[1]
+	job := &store.Job{
+		ID: demoTimedOutJobID, GitHubJobID: 80090, GitHubRunID: 40045, RunNumber: 345,
+		Repo: demoRepos[0], Workflow: "Nightly", JobName: "test",
+		Labels: pool.Labels, InstallationID: pool.InstallationID, PoolID: pool.ID, Matched: true,
+		State: store.JobCompleted, Conclusion: "timed_out",
+		QueuedAt: started.Add(-40 * time.Second), StartedAt: &started, CompletedAt: &timedOut,
+		RunnerID: r.ID, RunnerName: r.Name, HostID: r.HostID,
+		HTMLURL:    fmt.Sprintf("https://github.com/%s/actions/runs/%d", demoRepos[0], 40045),
+		HeadBranch: "main", HeadSHA: fmt.Sprintf("%040x", 0xC0FFEE+90*7919), RunAttempt: 1,
+		Steps:             demoSteps("test", "timed_out", started, timedOut),
+		ControllerVersion: "v1.3.3", ControllerChannel: "stable", AgentVersion: "v1.3.3",
+	}
+	saved, change, err := c.st.ApplyJob(ctx, job)
+	if err != nil {
+		return fmt.Errorf("seeding the timed-out job: %w", err)
+	}
+	if err := c.seedJobTimeline(ctx, saved, change); err != nil {
+		return err
+	}
+
+	// A runner GitHub would not register, and the job it was started for,
+	// which GitHub then failed: the timeline is written here rather than by
+	// seedJobTimeline because that one reads a fault as a runner lost under
+	// the job, and this runner never got as far as the job.
+	queued := now.Add(-2 * time.Hour)
+	failedAt := queued.Add(12 * time.Minute)
+	reg := &store.Job{
+		ID: demoRegistrationFailureJobID, GitHubJobID: 80091, GitHubRunID: 40046, RunNumber: 346,
+		Repo: demoRepos[1], Workflow: "CI", JobName: "build",
+		Labels: pool.Labels, InstallationID: pool.InstallationID, PoolID: pool.ID, Matched: true,
+		State: store.JobCompleted, Conclusion: "failure",
+		QueuedAt: queued, StartedAt: &queued, CompletedAt: &failedAt,
+		RunnerFault: "GitHub would not register zoomies-demo-linux-x64-f4k3: github: create jit config: 403 Forbidden",
+		FaultKind:   store.FaultRegistration,
+		HTMLURL:     fmt.Sprintf("https://github.com/%s/actions/runs/%d", demoRepos[1], 40046),
+		HeadBranch:  "main", HeadSHA: fmt.Sprintf("%040x", 0xC0FFEE+91*7919), RunAttempt: 1,
+		Steps:             demoSteps("build", "failure", queued, failedAt),
+		ControllerVersion: "v1.3.3", ControllerChannel: "stable", AgentVersion: "v1.3.3",
+	}
+	saved, change, err = c.st.ApplyJob(ctx, reg)
+	if err != nil {
+		return fmt.Errorf("seeding the registration-failure job: %w", err)
+	}
+	if !change.Created {
+		return nil
+	}
+	for _, e := range []*store.JobEvent{
+		{Kind: store.JobEventQueued, Source: sourceWebhook, At: queued,
+			Message: fmt.Sprintf("GitHub queued %s in %s, asking for [%s]", jobTitle(saved), saved.Repo, strings.Join(saved.Labels, ", "))},
+		{Kind: c.claimKind(saved), Source: sourceWebhook, At: queued.Add(time.Second), Message: c.claimMessage(ctx, saved)},
+		{Kind: store.JobEventRunnerStartFailed, Source: sourceController, At: queued.Add(30 * time.Second),
+			RunnerID: "run_demo09", RunnerName: "zoomies-demo-linux-x64-f4k3",
+			Message: "a runner this pool started for work like this one never took a job: " + saved.RunnerFault + ". This job is still queued and the next runner may run it"},
+		{Kind: store.JobEventCompleted, Source: sourceWebhook, At: failedAt, Message: completionMessage(saved)},
+	} {
+		e.JobID = saved.ID
+		if err := c.st.AppendJobEvent(ctx, e); err != nil {
+			return fmt.Errorf("seeding the registration-failure job's timeline: %w", err)
+		}
+	}
+	return nil
 }
 
 // seedJobTimeline writes the entries a seeded job would have earned had its

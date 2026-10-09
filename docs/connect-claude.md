@@ -187,6 +187,15 @@ page after it, back through every job the controller has kept
 `controller_version`, `host_id` and `hosted` narrow it, and `since` and `until`
 take a duration such as `30d` or a timestamp.
 
+`get_job` is one job, its timeline and the controller's explanation as one
+document, and the explanation now says which **class** of failure the job is
+(`oom`, `timeout`, `queued-blocked`, `runner-startup-failure`, `workflow-failure`
+and the rest of a closed set), how sure the fleet is and why not when it is not,
+the evidence that decides it, the catalog code to read on and the next steps in
+order. It is the same answer `zoomies why` prints. The runner's last lines, and
+any evidence quoted from them, come in a second block Claude is told is
+untrusted, as a runner's log does: a workflow wrote them.
+
 The token Claude holds is refused by the REST API, the event stream and
 everything else that is not `/mcp`. For automation that needs the API, create
 an [API token](security.md#identities) instead.

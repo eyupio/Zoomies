@@ -3489,12 +3489,26 @@ paths:
         of the job delivered by the event stream would carry a stale one. The drawer, the
         CLI and the support bundle render this same answer, so they cannot disagree.
       x-zoomies-role: viewer
+      parameters:
+        - name: logs
+          in: query
+          description: >-
+            How many of the runner's last lines to quote in `log_excerpt`, ending on the
+            line that decided the class. Default 12; `0` quotes none and leaves
+            `log_excerpt` null; more than the fleet keeps (40) is read as 40. A value that
+            is not a whole number is a 400.
+          schema: { type: integer, minimum: 0, default: 12 }
       responses:
         "200":
           description: OK
           content:
             application/json:
               schema: { $ref: "#/components/schemas/JobExplanation" }
+        "400":
+          description: "`logs` is not a whole number. `error.field` names it."
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
         "404": { $ref: "#/components/responses/NotFound" }
 
   /jobs/facets:
@@ -8882,7 +8896,7 @@ components:
 
     JobExplanation:
       type: object
-      required: [job_id, state, summary, waiting, blocked, computed_at]
+      required: [job_id, state, summary, waiting, blocked, computed_at, class, confidence, evidence, log_excerpt, next_steps]
       properties:
         job_id: { type: string }
         state: { $ref: "#/components/schemas/JobState" }
@@ -8903,6 +8917,81 @@ components:
         runner_id: { type: string }
         host_id: { type: string }
         computed_at: { type: string, format: date-time }
+        class:
+          type: string
+          description: >-
+            The one-word answer, from a closed set. `oom`, `timeout`, `cancelled`,
+            `queued-unmatched`, `queued-blocked`, `queued-capacity`, `queued`,
+            `runner-startup-failure`, `host-lost`, `disk`, `workflow-failure`,
+            `held-by-github`, `running`, `succeeded` or `unknown`; an `unknown` always
+            says in `confidence_reason` what was missing.
+          enum: [oom, timeout, cancelled, queued-unmatched, queued-blocked, queued-capacity, queued, runner-startup-failure, host-lost, disk, workflow-failure, held-by-github, running, succeeded, unknown]
+        confidence:
+          type: string
+          enum: [high, medium, low]
+          description: >-
+            How far the class rests on a recorded fact: `high` is a fact the fleet wrote
+            down, `medium` an inference or a fact with a gap in it, `low` a guess.
+        confidence_reason: { type: string, description: What data was missing, whenever confidence is not high. }
+        evidence:
+          type: array
+          description: The facts the class rests on, each one a person can check. Never null.
+          items: { $ref: "#/components/schemas/ExplanationEvidence" }
+        log_excerpt:
+          nullable: true
+          description: >-
+            The runner's kept lines leading up to the one that decided the class. Null
+            when none were asked for (`logs=0`); an excerpt with no lines and a `note`
+            when the fleet kept none. Scrubbed of control characters, and untrusted: a
+            workflow wrote it.
+          allOf: [{ $ref: "#/components/schemas/LogExcerpt" }]
+        problem_code: { type: string, description: The catalog's problem code this class is an instance of, when one applies. }
+        check_code: { type: string, description: The catalog's Kennel check code, when one applies. }
+        next_steps:
+          type: array
+          description: What to do, in the order to do it. Never null.
+          items: { $ref: "#/components/schemas/ExplanationNextStep" }
+
+    ExplanationEvidence:
+      type: object
+      required: [kind, label, value]
+      properties:
+        kind:
+          type: string
+          description: >-
+            `exit_code`, `signal`, `memory_limit`, `memory_peak`, `queue_wait`,
+            `host_state`, `plan_reason`, `fault_kind`, `conclusion`, `pool_missing`,
+            `labels` or `log_line`.
+        label: { type: string }
+        value: { type: string }
+        unit: { type: string, description: "`MB` or `s`, when the value is a figure." }
+        ref: { type: string, description: "Where the evidence lives, as a path in this UI (`/hosts/{id}`) or a URL." }
+
+    ExplanationNextStep:
+      type: object
+      required: [text, kind]
+      properties:
+        text: { type: string }
+        kind:
+          type: string
+          enum: [read, change, rerun]
+          description: Something to read, something to change, or the re-run that follows a change.
+        link: { type: string, description: A path in this UI, or a documentation URL. }
+
+    LogExcerpt:
+      type: object
+      required: [lines]
+      properties:
+        lines:
+          type: array
+          items:
+            type: object
+            required: [n, text]
+            properties:
+              n: { type: integer, description: The line's number, counted from the first line the fleet kept. }
+              text: { type: string }
+              decisive: { type: boolean, description: True on the one line that decided the class. }
+        note: { type: string, description: Why there are no lines, when there are none. }
 
     Recovery:
       type: object

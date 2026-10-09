@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"path/filepath"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 )
@@ -922,5 +923,40 @@ func TestTheOlderOfTwoInstallationsOnOneTargetWins(t *testing.T) {
 		if got.ID != first.ID {
 			t.Fatalf("resolved to %s, want the older installation %s every time", got.ID, first.ID)
 		}
+	}
+}
+
+// A runner's last lines are evidence, not a log: forty lines is enough to
+// show what killed it and little enough that every failed job can keep them.
+// Longer lines are cut, because one 10 MB line of base64 is not evidence.
+func TestAJobKeepsAtMostFortyLinesOfOutput(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	j, err := s.UpsertJob(ctx, &Job{GitHubJobID: 1, Repo: "acme/widgets", Workflow: "CI", JobName: "build", State: JobInProgress, RunnerID: "run_1", QueuedAt: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	lines := make([]string, 50)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("%02d ", i+1) + strings.Repeat("x", 500)
+	}
+	jobID, err := s.SetJobOutputTail(ctx, "run_1", lines)
+	if err != nil || jobID != j.ID {
+		t.Fatalf("SetJobOutputTail = %q, %v; want %s", jobID, err, j.ID)
+	}
+	got, err := s.GetJob(ctx, j.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.OutputTail) != 40 || !strings.HasPrefix(got.OutputTail[0], "11 ") || !strings.HasPrefix(got.OutputTail[39], "50 ") {
+		t.Fatalf("kept %d lines, first %q", len(got.OutputTail), got.OutputTail[0][:3])
+	}
+	for _, l := range got.OutputTail {
+		if n := len([]rune(l)); n != 400 {
+			t.Fatalf("a kept line is %d runes, want 400", n)
+		}
+	}
+	if id, err := s.SetJobOutputTail(ctx, "run_nobody", lines); err != nil || id != "" {
+		t.Fatalf("a runner with no job: %q, %v; want nothing and no error", id, err)
 	}
 }

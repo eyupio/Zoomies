@@ -36,6 +36,9 @@ const (
 	stuckPoolID    = "pool_demostuckblocked"
 	stuckPoolName  = "zoomies-demo-stuck-blocked"
 	stuckHeldJobID = "job_demostuckheldjob"
+	// stuckBlockedJobID is the job waiting on the pool nothing can place: the
+	// fixture for an explanation whose class is the scheduler's own reason.
+	stuckBlockedJobID = "job_demostuckblocked"
 	// StuckThrottledHostName is the fixture's throttled host, named here so
 	// a browser test can find its card.
 	StuckThrottledHostName = "demo-throttled-1"
@@ -142,7 +145,29 @@ func (c *Controller) seedBlockedPool(ctx context.Context) error {
 	if err := c.st.CreatePool(ctx, p); err != nil {
 		return fmt.Errorf("seeding the blocked pool: %w", err)
 	}
-	return nil
+	return c.seedBlockedJob(ctx, p)
+}
+
+// seedBlockedJob queues one job the blocked pool claims, so that the pool's
+// reason for placing nothing has a job to be the explanation of.
+func (c *Controller) seedBlockedJob(ctx context.Context, p *store.Pool) error {
+	if _, err := c.st.GetJob(ctx, stuckBlockedJobID); err == nil {
+		return nil
+	}
+	queued := c.Now().Add(-10 * time.Minute)
+	job := &store.Job{
+		ID: stuckBlockedJobID, GitHubJobID: 80095, GitHubRunID: 40050, RunNumber: 350,
+		Repo: demoRepos[0], Workflow: "CI", JobName: "build",
+		Labels: p.Labels, InstallationID: p.InstallationID, PoolID: p.ID, Matched: true,
+		State: store.JobQueued, QueuedAt: queued, EligibleAt: &queued,
+		HTMLURL:    fmt.Sprintf("https://github.com/%s/actions/runs/%d", demoRepos[0], 40050),
+		HeadBranch: "main", HeadSHA: fmt.Sprintf("%040x", 0xC0FFEE+95*7919), RunAttempt: 1,
+	}
+	saved, change, err := c.st.ApplyJob(ctx, job)
+	if err != nil {
+		return fmt.Errorf("seeding the blocked job: %w", err)
+	}
+	return c.seedJobTimeline(ctx, saved, change)
 }
 
 // seedHeldJob writes a job GitHub is holding for a deployment review.

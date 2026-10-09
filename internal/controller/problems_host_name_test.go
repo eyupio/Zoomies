@@ -301,7 +301,7 @@ func TestOtherSentencesThatNameAHostNeverLetItOpenACodeSpan(t *testing.T) {
 		}
 		h.advance(store.HeartbeatTimeout + time.Minute)
 
-		got, err := h.c.ExplainJob(h.ctx, job.ID)
+		got, err := h.c.ExplainJob(h.ctx, job.ID, 0)
 		if err != nil {
 			t.Fatalf("ExplainJob: %v", err)
 		}

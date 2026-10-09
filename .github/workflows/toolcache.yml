@@ -30,7 +30,7 @@ jobs:
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: "1.27.1"
+          go-version: "1.27.2"
 
       # A row whose archive is unchanged keeps the digest the lock already
       # holds, so a quiet week downloads nothing but the publishers' indexes,

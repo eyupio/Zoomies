@@ -95,10 +95,12 @@ func TestSeedDemoBuildsAFleet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}
-	// Fifty of a morning's history, the two on a vendor's runners, and the
-	// backlog that explains the runners this fleet has not finished starting.
-	if total != 55 {
-		t.Fatalf("seeded %d jobs, want 55", total)
+	// Fifty of a morning's history, the two on a vendor's runners, the backlog
+	// that explains the runners this fleet has not finished starting, and the
+	// two older failures seeded for why: a job GitHub timed out and a job
+	// whose runner never registered.
+	if total != 57 {
+		t.Fatalf("seeded %d jobs, want 57", total)
 	}
 	var completed, queued, running, unmatched, elsewhere int
 	for _, j := range jobs {
@@ -228,7 +230,9 @@ func TestSeedDemoGivesJobsStepsATimelineAndOneLostRunner(t *testing.T) {
 		if j.Conclusion == "failure" && j.FailedStep() == nil {
 			t.Errorf("failed job %s names no failed step", j.ID)
 		}
-		if j.RunnerFault != "" {
+		// The runner lost under the job, not the one that never registered:
+		// the registration failure has no runner to have lost.
+		if j.RunnerFault != "" && j.RunnerID != "" {
 			lost = j
 		}
 	}
@@ -771,5 +775,83 @@ func TestTheDemoFleetCreatesNoRunnerItCannotRegister(t *testing.T) {
 		if !seeded[r.ID] {
 			t.Fatalf("the loop created %s (%s, %q) for a pool whose installation cannot register one", r.ID, r.State, r.Message)
 		}
+	}
+}
+
+// The demo is the acceptance run for why: each kind of failure it seeds comes
+// back as its class at high confidence, with the evidence that decides it,
+// and a job the fleet never touched is the workflow's own failure rather
+// than a shrug. A demo that could not explain itself would be a demo of the
+// one page nobody could trust.
+func TestEverySeededFailureExplainsItselfAtHighConfidence(t *testing.T) {
+	h := newHarness(t)
+	t.Setenv(StuckSeedEnvVar, "1")
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("SeedDemo: %v", err)
+	}
+	if err := h.c.SeedStuck(h.ctx); err != nil {
+		t.Fatalf("SeedStuck: %v", err)
+	}
+	// The blocked pool's reason lives in the scheduler's plan, which a pass
+	// writes; the class reads it from there, as the drawer and the CLI do.
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatalf("Reconcile: %v", err)
+	}
+
+	for _, tc := range []struct {
+		job   string
+		class WhyClass
+	}{
+		{"job_demo043", WhyOOM},
+		{demoTimedOutJobID, WhyTimeout},
+		{"job_demo049", WhyQueuedUnmatched},
+		{demoRegistrationFailureJobID, WhyRunnerStartupFailure},
+		{stuckBlockedJobID, WhyQueuedBlocked},
+	} {
+		got, err := h.c.ExplainJob(h.ctx, tc.job, 12)
+		if err != nil {
+			t.Fatalf("ExplainJob(%s): %v", tc.job, err)
+		}
+		if got.Class != tc.class || got.Confidence != WhyHigh {
+			t.Errorf("%s: class %s (%s) %q, want %s (high)", tc.job, got.Class, got.Confidence, got.ConfidenceReason, tc.class)
+		}
+	}
+
+	oom, err := h.c.ExplainJob(h.ctx, "job_demo043", 12)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e := findEvidence(oom.Evidence, "memory_peak"); e.Value != "7900" {
+		t.Errorf("the seeded kill carries no peak: %+v", oom.Evidence)
+	}
+	if e := findEvidence(oom.Evidence, "memory_limit"); e.Value != "8192" {
+		t.Errorf("the seeded kill carries no limit: %+v", oom.Evidence)
+	}
+	if oom.LogExcerpt == nil || len(oom.LogExcerpt.Lines) == 0 || !oom.LogExcerpt.Lines[len(oom.LogExcerpt.Lines)-1].Decisive {
+		t.Errorf("the seeded kill quotes no decisive line: %+v", oom.LogExcerpt)
+	}
+
+	// A workflow's own failure: a seeded job that concluded failure with no
+	// fault of the fleet's is never unknown.
+	failed, _, err := h.st.ListJobs(h.ctx, store.JobFilter{Conclusions: []string{"failure"}}, store.Page{Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	theirs := 0
+	for _, j := range failed {
+		if j.FleetFailed() {
+			continue
+		}
+		theirs++
+		got, err := h.c.ExplainJob(h.ctx, j.ID, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.Class != WhyWorkflowFailure || got.Confidence != WhyHigh {
+			t.Errorf("%s: a failure the fleet did not cause is %s (%s), want workflow-failure (high)", j.ID, got.Class, got.Confidence)
+		}
+	}
+	if theirs == 0 {
+		t.Fatal("the demo seeds no failure that is the workflow's own")
 	}
 }

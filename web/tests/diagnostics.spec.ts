@@ -126,8 +126,10 @@ test('the problems drawer names the stuck runners and what to do about them', as
   await expect(drawer).toContainText(/has not registered/i);
   await expect(drawer).toContainText(/check the agent log on the host/i);
 
-  // And the pool nothing can place is in the same list, with its own answer.
-  await expect(drawer).toContainText(/cannot start the runners it wants/i);
+  // And the pool nothing can place is in the same list, with its own answer:
+  // the fixture queues one job in it, so the problem is an error with a job
+  // waiting rather than a warning about a pool that merely wants runners.
+  await expect(drawer).toContainText(/has 1 job waiting and nowhere to run them/i);
 });
 
 test('a pool nothing can place says so rather than reading as a busy fleet', async ({ page }) => {
@@ -153,7 +155,8 @@ test('a job GitHub is holding says it is held, and is not charged a queue wait',
   // and it is the same one `zoomies jobs get` prints -- which is the point of
   // moving it: two renderings of one answer instead of two answers.
   await expect(page.getByText(/holding this job for a deployment review/i)).toBeVisible();
-  await expect(page.getByText(/approve the deployment on GitHub/i)).toBeVisible();
+  // The fix is also the first next step, offered as the link to GitHub.
+  await expect(page.getByRole('link', { name: /approve the deployment on GitHub/i })).toBeVisible();
   // The time a held job spends is GitHub's, not the queue's: a number here
   // would charge this fleet for a review it cannot influence.
   await expect(page.getByText('Not queued yet')).toBeVisible();

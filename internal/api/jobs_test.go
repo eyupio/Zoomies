@@ -2,6 +2,7 @@ package api
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"slices"
 	"strings"
@@ -558,5 +559,78 @@ func TestCancellingAWorkflowRunClearsItsJobsFromTheFleetsFigures(t *testing.T) {
 	why := h.do(request{method: "GET", path: "/api/v1/jobs/" + running.ID + "/explanation", cookie: operator})
 	if !strings.Contains(string(why.body), "workflow run was cancelled") {
 		t.Errorf("explanation: %s", why.body)
+	}
+}
+
+// The explanation now says which class of failure a job is and quotes the
+// runner's last lines around the decisive one. The lines are the only part
+// a caller can size, and the bounds matter: none when none were asked for,
+// never more than the store keeps, and a value that is not a number is a
+// 400 that names the parameter rather than a silent default.
+func TestTheExplanationCarriesItsClassAndABoundedExcerpt(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	h.host("vm-1")
+	h.pool(inst, "linux-x64")
+	done := time.Now().Add(-time.Minute)
+	job, err := h.st.UpsertJob(h.ctx, &store.Job{
+		GitHubJobID: 7002, Repo: "acme/widgets", Workflow: "CI", JobName: "build",
+		Labels: store.NormalizeLabels([]string{"self-hosted", "linux-x64"}),
+		State:  store.JobCompleted, Conclusion: "failure", QueuedAt: time.Now().Add(-time.Hour), CompletedAt: &done,
+		RunnerID: "run_oom", RunnerFault: "runner exited with code 137: the container was killed for exceeding its memory limit", FaultKind: store.FaultOutOfMemory,
+	})
+	if err != nil {
+		t.Fatalf("UpsertJob: %v", err)
+	}
+	tail := make([]string, 40)
+	for i := range tail {
+		tail[i] = fmt.Sprintf("step output %d", i+1)
+	}
+	tail[30] = "Killed process 2231 (node) total-vm:9812344kB"
+	if _, err := h.st.SetJobOutputTail(h.ctx, "run_oom", tail); err != nil {
+		t.Fatalf("SetJobOutputTail: %v", err)
+	}
+
+	u, _ := h.user("viewer", store.RoleViewer)
+	get := func(query string) (map[string]any, *response) {
+		resp := h.do(request{method: http.MethodGet, path: "/api/v1/jobs/" + job.ID + "/explanation" + query, cookie: h.session(u)})
+		var out map[string]any
+		if resp.status == http.StatusOK {
+			resp.into(t, &out)
+		}
+		return out, resp
+	}
+
+	out, resp := get("")
+	resp.mustStatus(t, http.StatusOK, "explanation")
+	if out["class"] != "oom" || out["problem_code"] != "jobs.oom_killed" {
+		t.Fatalf("class %v, problem_code %v; want oom and jobs.oom_killed", out["class"], out["problem_code"])
+	}
+	kinds := map[string]bool{}
+	for _, e := range out["evidence"].([]any) {
+		kinds[e.(map[string]any)["kind"].(string)] = true
+	}
+	if !kinds["fault_kind"] || !kinds["exit_code"] || !kinds["conclusion"] {
+		t.Fatalf("evidence kinds = %v; want the fault, the exit code and the conclusion", kinds)
+	}
+	if steps := out["next_steps"].([]any); len(steps) == 0 {
+		t.Fatal("no next steps for an out-of-memory kill")
+	}
+	excerpt := out["log_excerpt"].(map[string]any)
+	lines := excerpt["lines"].([]any)
+	if len(lines) != 12 || lines[11].(map[string]any)["decisive"] != true {
+		t.Fatalf("default excerpt = %d lines, last %v; want 12 ending on the decisive one", len(lines), lines[len(lines)-1])
+	}
+
+	if out, _ := get("?logs=0"); out["log_excerpt"] != nil {
+		t.Fatalf("logs=0 gives null, not %v", out["log_excerpt"])
+	}
+	if out, _ := get("?logs=99"); len(out["log_excerpt"].(map[string]any)["lines"].([]any)) != 31 {
+		t.Fatalf("logs=99 is clamped to what the store keeps: %v", out["log_excerpt"])
+	}
+	_, resp = get("?logs=x")
+	resp.mustStatus(t, http.StatusBadRequest, "logs=x")
+	if !strings.Contains(string(resp.body), `"logs"`) {
+		t.Fatalf("the 400 does not name the parameter: %s", resp.body)
 	}
 }
