@@ -284,15 +284,21 @@ missing). A script can tell "the fleet broke it" from "the fleet could not say".
 With [size routing](auto-pools.md) on or being watched, `jobs get` says how a job
 was classed and why, where it was sent, and which class of host took it, and
 `jobs advice` lists the workflows whose `runs-on` could say something better,
-the costliest first, each with what to write instead (`--kind too_small`,
-`unguaranteed` or `too_large` narrows it). `zoomies size-pins` puts a job, or a
+the costliest first, each with what to write instead and the figures it rests
+on: the p95 and the most any run used, of memory and CPU, over a window that
+defaults to the fourteen days the class is decided over (`--window 7d`, `2w`
+or `36h`; retention bounds it, and the note under the table says when it did),
+and whether the fleet has a host of the class at all. A job with too few runs
+is a row that says how many it has, not an absence. `--kind too_small`,
+`unguaranteed` or `too_large` narrows it, as does `--repo owner/name`.
+`zoomies size-pins` puts a job, or a
 whole repository, in a class by hand, which reaches the jobs already waiting as
 well as the ones that arrive; `zoomies auto-pools` says what the controller keeps
 for each size of host and why a host is in none.
 
 | Command | What it does |
 | --- | --- |
-| `jobs advice [--kind <kind>]` | What to change in the `runs-on` of jobs whose measured runs call for something other than what they ask for. |
+| `jobs advice [--kind <kind>] [--repo <owner/name>] [--window <span>]` | What to change in the `runs-on` of jobs whose measured runs call for something other than what they ask for, with the p95, the max and the run count behind each, over the window asked for. |
 | `size-pins list` | Every pin. |
 | `size-pins set <owner/repo> --class <small\|medium\|large> [--workflow <w> --job <j>]` | Pin a repository, or one job in it, to a class. |
 | `size-pins delete <owner/repo> [--workflow <w> --job <j>]` | Take a pin away; the jobs it covered go back to the class their runs say. |

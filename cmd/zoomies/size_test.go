@@ -496,3 +496,84 @@ func TestJobsGetSaysHowAJobWasClassedWhereItWentAndWhereItRan(t *testing.T) {
 		t.Fatalf("a job nobody classed has size rows:\n%s", out)
 	}
 }
+
+const adviceWithFigures = `{"total":2,"limit":20,"offset":0,"counts":{"too_small":1,"unguaranteed":0,"too_large":0,"not_enough_data":1},
+  "window":{"asked":"336h0m0s","applied":"168h0m0s","bound":"retention"},"items":[
+  {"repo":"acme/widgets","workflow":"CI","job_name":"e2e","kind":"too_small","state":"ok","min_runs":5,"asked":"medium","class":"large",
+   "recommended_class":"large","reason":"its memory needs about 6.2 GB","runs":12,"labels":["self-hosted","zoomies-medium"],
+   "message":"its runs-on asks for zoomies-medium, and its runs call for large.","fix":"write zoomies-large in runs-on in place of zoomies-medium.",
+   "observed":{"runs":12,"cpu":{"p50":1,"p95":1.5,"max":2},"memory_mb":{"p50":5200,"p95":6000,"max":7100}},"fits":{"ok":false,"missing":"large"}},
+  {"repo":"acme/widgets","workflow":"CI","job_name":"new","kind":"","state":"not_enough_data","min_runs":5,"class":"large",
+   "recommended_class":"large","reason":"its memory needs about 6.2 GB","runs":2,"labels":["self-hosted","zoomies-medium"],
+   "message":"2 of 5 measured runs so far; advice needs 5.","fix":"",
+   "observed":{"runs":2,"cpu":{"p50":0,"p95":0,"max":0},"memory_mb":{"p50":1000,"p95":1000,"max":1000}},"fits":{"ok":true}}]}`
+
+// A row is only as good as the figures a reader can check it against, so the
+// table carries them: the p95 and the most any run used, how many runs in the
+// window, and whether the fleet has a host of the class at all.
+func TestJobsAdviceShowsTheFiguresBehindEachRow(t *testing.T) {
+	rec := &recorder{}
+	srv := replyWith(rec, map[string]string{"GET /api/v1/label-advice": adviceWithFigures})
+	defer srv.Close()
+	e, out, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"jobs", "advice", "--url", srv.URL}); code != exitOK {
+		t.Fatalf("exit code = %d\n%s", code, errOut)
+	}
+	got := out.String() + errOut.String()
+	for _, want := range []string{"P95 MEMORY", "6000 MB", "7100 MB", "1.5", "12",
+		"No host in this fleet is large", "over the last 7 days", "bounded by retention"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output does not contain %q:\n%s", want, got)
+		}
+	}
+}
+
+func TestJobsAdviceSendsTheWindowAndRepository(t *testing.T) {
+	rec := &recorder{}
+	srv := replyWith(rec, map[string]string{"GET /api/v1/label-advice": adviceWithFigures})
+	defer srv.Close()
+	e, _, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"jobs", "advice", "--window", "7d", "--repo", "acme/widgets", "--url", srv.URL}); code != exitOK {
+		t.Fatalf("exit code = %d\n%s", code, errOut)
+	}
+	req, _ := rec.last(http.MethodGet)
+	for _, want := range []string{"window=7d", "repo=acme%2Fwidgets"} {
+		if !strings.Contains(req.query, want) {
+			t.Errorf("the query %q does not carry %q", req.query, want)
+		}
+	}
+}
+
+// A job with too few runs is a row that says how far it is from being advised
+// on, taking the minimum from the payload, and a figure no run measured is a
+// dash and never 0.00.
+func TestJobsAdvicePrintsASparseRowAsNotEnoughData(t *testing.T) {
+	rec := &recorder{}
+	srv := replyWith(rec, map[string]string{"GET /api/v1/label-advice": adviceWithFigures})
+	defer srv.Close()
+	e, out, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"jobs", "advice", "--url", srv.URL}); code != exitOK {
+		t.Fatalf("exit code = %d\n%s", code, errOut)
+	}
+	got := out.String() + errOut.String()
+	if !strings.Contains(got, "not enough data yet, 2 of 5 runs") {
+		t.Errorf("the sparse row is not said:\n%s", got)
+	}
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "/ new") || strings.Contains(line, "not enough") {
+			if strings.Contains(line, "0.00") || strings.Contains(line, " 0 ") {
+				t.Errorf("a figure no run measured prints as zero: %q", line)
+			}
+		}
+	}
+}
+
+func TestJobsAdviceRefusesAWindowItCannotRead(t *testing.T) {
+	e, _, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"jobs", "advice", "--window", "soon", "--url", "http://127.0.0.1:1"}); code != exitUsage {
+		t.Fatalf("exit code = %d, want %d\n%s", code, exitUsage, errOut)
+	}
+	if !strings.Contains(errOut.String(), "window") {
+		t.Fatalf("the error does not name the flag: %s", errOut)
+	}
+}

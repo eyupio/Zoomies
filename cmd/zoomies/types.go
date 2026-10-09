@@ -311,18 +311,46 @@ func (a *labelAdviceItem) sanitise() {
 	a.Message, a.Fix = plain(a.Message), plain(a.Fix)
 }
 
-// labelAdviceItem is one thing to change in one job's runs-on.
+// labelAdviceItem is one thing to change in one job's runs-on, with the
+// figures it rests on.
 type labelAdviceItem struct {
-	Repo     string   `json:"repo"`
-	Workflow string   `json:"workflow"`
-	JobName  string   `json:"job_name"`
-	Kind     string   `json:"kind"`
-	Asked    string   `json:"asked"`
-	Class    string   `json:"class"`
-	Runs     int      `json:"runs"`
-	Labels   []string `json:"labels"`
-	Message  string   `json:"message"`
-	Fix      string   `json:"fix"`
+	Repo             string   `json:"repo"`
+	Workflow         string   `json:"workflow"`
+	JobName          string   `json:"job_name"`
+	Kind             string   `json:"kind"`
+	State            string   `json:"state"`
+	MinRuns          int      `json:"min_runs"`
+	Asked            string   `json:"asked"`
+	Class            string   `json:"class"`
+	RecommendedClass string   `json:"recommended_class"`
+	Reason           string   `json:"reason"`
+	Runs             int      `json:"runs"`
+	Labels           []string `json:"labels"`
+	Message          string   `json:"message"`
+	Fix              string   `json:"fix"`
+	Observed         *struct {
+		Runs     int           `json:"runs"`
+		CPU      adviceFigures `json:"cpu"`
+		MemoryMB adviceFigures `json:"memory_mb"`
+	} `json:"observed"`
+	Fits *struct {
+		OK      bool   `json:"ok"`
+		Missing string `json:"missing"`
+	} `json:"fits"`
+}
+
+// adviceFigures are three points of one dimension of what a job's runs used.
+type adviceFigures struct {
+	P50 float64 `json:"p50"`
+	P95 float64 `json:"p95"`
+	Max float64 `json:"max"`
+}
+
+// adviceWindow is the span a page of advice's figures cover and what bounded it.
+type adviceWindow struct {
+	Asked   string `json:"asked"`
+	Applied string `json:"applied"`
+	Bound   string `json:"bound"`
 }
 
 // autoPoolsItem is GET /auto-pools: the state of size routing and of the pools
