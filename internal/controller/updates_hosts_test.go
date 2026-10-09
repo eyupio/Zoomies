@@ -1033,6 +1033,55 @@ func TestTheUnavailableNoteLeavesOutTheEmbeddedAgentAndIncompatibleHosts(t *test
 	}
 }
 
+// The note and the card are two views of one answer. A note about a host whose
+// card offers the button, or a card that says the helper is in the way with no
+// note beside it, would leave an operator choosing which of the two to believe.
+func TestTheUnavailableNoteIsRaisedForExactlyTheHostsWhoseCardBlamesTheHelper(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	hosts := []*store.Host{
+		h.agentHost("vm-no-helper", "1.3.4"),
+		h.updatableHost("vm-ready"),
+		h.agentHost("vm-current", "1.3.5"),
+		h.agentHost("vm-build", "main-sha-abc1234"),
+		h.agentHost("vm-quiet", ""),
+		h.agentHost("vm-no-systemd", "1.3.4"),
+	}
+	h.c.noteHelperUnsupported(hosts[5].ID, string(updates.HelperUnsupportedNoSystemd))
+
+	noted := func() map[string]bool {
+		ps, err := h.c.Problems(h.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := make(map[string]bool)
+		for _, p := range ps {
+			if p.Code == "host.update_unavailable" {
+				out[p.TargetID] = true
+			}
+		}
+		return out
+	}
+	got := noted()
+	for _, host := range hosts {
+		u := h.view(host.ID).Update
+		blamesHelper := u.State == HostUpdateUnsupported || strings.Contains(u.Reason, "helper install")
+		if got[host.ID] != blamesHelper {
+			t.Errorf("%s: noted %v, but its card says %+v", host.Name, got[host.ID], u)
+		}
+	}
+	if len(got) != 2 {
+		t.Errorf("noted %d hosts, want the one without the helper and the one that can never have it", len(got))
+	}
+
+	// With updating off nothing is offered, so nothing is noted, even of the
+	// host whose card still says the helper can never be installed there.
+	h.inMode("off")
+	if got := noted(); len(got) != 0 {
+		t.Errorf("with updating off %d hosts are noted as unable to update from here", len(got))
+	}
+}
+
 // An older agent that is somehow sent the task answers that it does not know the
 // kind, and the card says what that means rather than repeating the agent.
 func TestAnAgentThatDoesNotKnowTheTaskIsToldItIsOlder(t *testing.T) {
