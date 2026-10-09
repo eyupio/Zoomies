@@ -20,8 +20,10 @@ type assistantChatInput struct {
 }
 
 // handleAssistantChat answers a conversation as a stream of Server-Sent Events:
-// `delta` frames carrying text, one `usage` frame when the provider reports it,
-// and `done`, or `error` if the answer failed after it began.
+// `delta` frames carrying text, `tool` frames as Eli looks at the fleet (with
+// the tool's name and running, done or failed), one `usage` frame when the
+// provider reports it, and `done` (saying whether the fleet could be read and
+// which tools were used), or `error` if the answer failed after it began.
 //
 // Anything that can be refused is refused before the stream opens, with a status
 // and a code a client can act on, so a stream that opens has an answer coming.
@@ -33,6 +35,12 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	req := controller.AssistantChatRequest{ProviderID: in.ProviderID}
+	// The tools are the person's own: the same routes with the same identity.
+	// Whether the provider may be shown the fleet through them is decided by the
+	// controller, per provider.
+	if id := Identity(r.Context()); id != nil {
+		req.Tools = s.assistantToolbox(r, id)
+	}
 	for _, m := range in.Messages {
 		req.Messages = append(req.Messages, controller.AssistantChatMessage{Role: m.Role, Content: m.Content})
 	}
@@ -61,24 +69,42 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 		}
 		return stream.event(kind, "", b) == nil
 	}
+	outcome := "answered"
+	// The audit row says who asked which provider to read what, and never what
+	// was said: it is written however the answer ends.
+	defer func() {
+		s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "assistant.chat", "assistant_provider", chat.ProviderID, map[string]any{
+			"provider": chat.Provider, "model": chat.Model, "fleet_access": chat.FleetAccess,
+			"tools": chat.ToolsUsed(), "outcome": outcome,
+		})
+	}()
 	for {
 		ev, ok := chat.Next(r.Context())
 		if !ok {
+			outcome = "abandoned"
 			return
 		}
 		switch {
 		case ev.Err != nil:
+			outcome = "failed"
 			send("error", map[string]string{"message": ev.Err.Error()})
 			return
+		case ev.Tool != nil:
+			if !send("tool", map[string]string{"name": ev.Tool.Name, "status": ev.Tool.Status}) {
+				outcome = "abandoned"
+				return
+			}
 		case ev.Usage != nil:
 			if !send("usage", map[string]int{"input_tokens": ev.Usage.InputTokens, "output_tokens": ev.Usage.OutputTokens}) {
+				outcome = "abandoned"
 				return
 			}
 		case ev.Done:
-			send("done", map[string]string{"provider": chat.Provider, "model": chat.Model})
+			send("done", map[string]any{"provider": chat.Provider, "model": chat.Model, "fleet_access": chat.FleetAccess, "tools": chat.ToolsUsed()})
 			return
 		case ev.Delta != "":
 			if !send("delta", map[string]string{"text": ev.Delta}) {
+				outcome = "abandoned"
 				return
 			}
 		}

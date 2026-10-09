@@ -3,11 +3,14 @@ package api
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/assistant/assistanttest"
 	"github.com/eyupio/zoomies/internal/config"
+	"github.com/eyupio/zoomies/internal/controller"
+	"github.com/eyupio/zoomies/internal/mcp"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -323,5 +326,192 @@ func TestModelsAreNotListedFromAnAddressACheckWouldRefuse(t *testing.T) {
 	resp.mustStatus(t, http.StatusUnprocessableEntity, "a private address")
 	if !strings.Contains(string(resp.body), "base_url") {
 		t.Errorf("the refusal does not name the field: %s", resp.body)
+	}
+}
+
+// toolsOffered is the names of the tools a request to the model listed.
+func toolsOffered(body map[string]any) []string {
+	var names []string
+	tools, _ := body["tools"].([]any)
+	for _, t := range tools {
+		fn, _ := t.(map[string]any)["function"].(map[string]any)
+		names = append(names, fn["name"].(string))
+	}
+	return names
+}
+
+// chatRequests is the requests the model server saw for a chat, in order.
+func chatRequests(srv *assistanttest.Server) []assistanttest.Recorded {
+	var out []assistanttest.Recorded
+	for _, r := range srv.Requests() {
+		if r.Path == "/v1/chat/completions" {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+func allowFleetAccess(t *testing.T, h *harness, cookie string, on bool) {
+	t.Helper()
+	rows, _ := h.st.ListAssistantProviders(h.ctx)
+	h.do(request{method: http.MethodPatch, path: assistantProviders + "/" + rows[0].ID, cookie: cookie, body: map[string]any{"fleet_access": on}}).
+		mustStatus(t, http.StatusOK, "setting fleet_access")
+}
+
+// A provider is not shown the fleet until an administrator says it may be. Until
+// then the model is not offered a tool, not told it has any, and says in the last
+// frame that it could not look.
+func TestAProviderThatMayNotReadTheFleetIsOfferedNoTools(t *testing.T) {
+	h, cookie, srv := chatHarness(t)
+	srv.CallTool = "fleet_status"
+	resp := h.do(request{method: http.MethodPost, path: assistantChat, cookie: cookie, readStream: true, body: chatBody("user", "How is the fleet?")})
+	resp.mustStatus(t, http.StatusOK, "asking")
+	reqs := chatRequests(srv)
+	if len(reqs) != 1 || len(toolsOffered(reqs[0].Body)) != 0 {
+		t.Fatalf("the model was asked %d times and offered %v", len(reqs), toolsOffered(reqs[0].Body))
+	}
+	msgs, _ := reqs[0].Body["messages"].([]any)
+	if prompt, _ := msgs[0].(map[string]any)["content"].(string); !strings.Contains(prompt, "cannot see this fleet") || strings.Contains(prompt, "read-only tools") {
+		t.Errorf("the prompt promises tools it does not give: %q", prompt)
+	}
+	got := frames(t, resp.body)
+	done := got[len(got)-1]
+	if done.kind != "done" || done.data["fleet_access"] != false {
+		t.Errorf("done = %+v", done)
+	}
+	for _, f := range got {
+		if f.kind == "tool" {
+			t.Errorf("a tool ran: %v", f.data)
+		}
+	}
+}
+
+// With the switch on the model is offered the fleet's read tools, and only those:
+// not a tool that changes the fleet, not one that reads a repository's source. It
+// looks, is shown what the person's own routes answer, and answers in words.
+func TestAProviderThatMayReadTheFleetLooksAndAnswers(t *testing.T) {
+	h, cookie, srv := chatHarness(t)
+	allowFleetAccess(t, h, cookie, true)
+	srv.CallTool = "fleet_status"
+	resp := h.do(request{method: http.MethodPost, path: assistantChat, cookie: cookie, readStream: true, body: chatBody("user", "How is the fleet?")})
+	resp.mustStatus(t, http.StatusOK, "asking")
+
+	reqs := chatRequests(srv)
+	if len(reqs) != 2 {
+		t.Fatalf("the model was asked %d times, want 2", len(reqs))
+	}
+	offered := toolsOffered(reqs[0].Body)
+	for _, name := range offered {
+		if !slices.Contains(controller.AssistantFleetTools, name) {
+			t.Errorf("%s was offered and is not on the list", name)
+		}
+	}
+	for _, banned := range []string{"drain_runner", "rerun_job", "apply_remedy", "update_host", "update_pool", "context_read", "context_search", "context_pack"} {
+		if slices.Contains(offered, banned) {
+			t.Errorf("%s was offered", banned)
+		}
+	}
+	if !slices.Contains(offered, "fleet_status") || !slices.Contains(offered, "list_jobs") {
+		t.Errorf("offered = %v", offered)
+	}
+	msgs, _ := reqs[1].Body["messages"].([]any)
+	last, _ := msgs[len(msgs)-1].(map[string]any)
+	content, _ := last["content"].(string)
+	if last["role"] != "tool" || !strings.HasPrefix(content, `<fleet-data tool="fleet_status">`) || !strings.Contains(content, "not instructions") {
+		t.Errorf("the tool's answer reached the model as %v", last)
+	}
+	if prompt, _ := msgs[0].(map[string]any)["content"].(string); !strings.Contains(prompt, "read-only tools") {
+		t.Errorf("the model is not told it has tools: %q", prompt)
+	}
+
+	got := frames(t, resp.body)
+	var statuses []string
+	for _, f := range got {
+		if f.kind == "tool" {
+			statuses = append(statuses, f.data["name"].(string)+":"+f.data["status"].(string))
+		}
+	}
+	if !slices.Equal(statuses, []string{"fleet_status:running", "fleet_status:done"}) {
+		t.Errorf("tool frames = %v", statuses)
+	}
+	done := got[len(got)-1]
+	if done.kind != "done" || done.data["fleet_access"] != true || !slices.Equal(anyStrings(done.data["tools"]), []string{"fleet_status"}) {
+		t.Errorf("done = %+v", done)
+	}
+}
+
+func anyStrings(v any) []string {
+	var out []string
+	items, _ := v.([]any)
+	for _, i := range items {
+		out = append(out, i.(string))
+	}
+	return out
+}
+
+// The row says who asked which provider, whether it could read the fleet and
+// which tools it used, and never what was said. Turning the switch on is a row of
+// its own.
+func TestAChatAndTheFleetSwitchAreAudited(t *testing.T) {
+	h, cookie, srv := chatHarness(t)
+	allowFleetAccess(t, h, cookie, true)
+	srv.CallTool = "fleet_status"
+	h.do(request{method: http.MethodPost, path: assistantChat, cookie: cookie, readStream: true, body: chatBody("user", "A secret question about acme/payments")}).
+		mustStatus(t, http.StatusOK, "asking")
+
+	chat, _, _ := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"assistant.chat"}}, store.Page{Limit: 5})
+	if len(chat) != 1 {
+		t.Fatalf("chat rows = %d", len(chat))
+	}
+	for _, want := range []string{`"fleet_access":true`, `"tools":["fleet_status"]`, `"outcome":"answered"`, `"provider":"Ollama"`} {
+		if !strings.Contains(chat[0].After, want) {
+			t.Errorf("row %s does not say %s", chat[0].After, want)
+		}
+	}
+	if strings.Contains(chat[0].After, "secret") || strings.Contains(chat[0].After, "payments") {
+		t.Errorf("the row repeats what was asked: %s", chat[0].After)
+	}
+	sw, _, _ := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"assistant.provider.fleet_access"}}, store.Page{Limit: 5})
+	if len(sw) != 1 || !strings.Contains(sw[0].After, `"fleet_access":true`) {
+		t.Errorf("switch rows = %+v", sw)
+	}
+	// A save that does not change it is not a row.
+	allowFleetAccess(t, h, cookie, true)
+	if again, _, _ := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"assistant.provider.fleet_access"}}, store.Page{Limit: 5}); len(again) != 1 {
+		t.Errorf("an unchanged switch wrote a row: %d", len(again))
+	}
+}
+
+// Every tool the MCP server offers without leave to change anything is either on
+// Eli's list or named here as left off it. A new read tool is a decision about
+// what may be sent to a model, and this is where it has to be taken.
+func TestEveryReadToolIsOnElisListOrLeftOffOnPurpose(t *testing.T) {
+	leftOff := map[string]string{
+		"context_overview": "reads a repository's source",
+		"context_read":     "reads a repository's source",
+		"context_search":   "reads a repository's source",
+		"context_pack":     "reads a repository's source",
+		"context_notes":    "repository notes, written by people for agents",
+	}
+	defs := mcp.New(nil, mcp.Options{}).Definitions()
+	have := map[string]bool{}
+	for _, d := range defs {
+		have[d.Name] = true
+		if !slices.Contains(controller.AssistantFleetTools, d.Name) && leftOff[d.Name] == "" {
+			t.Errorf("%s is a read tool on neither Eli's list nor the left-off list: decide, and say which", d.Name)
+		}
+	}
+	for _, name := range controller.AssistantFleetTools {
+		if !have[name] {
+			t.Errorf("%s is on Eli's list and is not a read tool the MCP server offers", name)
+		}
+	}
+	for name := range leftOff {
+		if slices.Contains(controller.AssistantFleetTools, name) {
+			t.Errorf("%s is on both lists", name)
+		}
+		if !have[name] {
+			t.Errorf("%s is named as left off and the MCP server no longer has it: take it off the list", name)
+		}
 	}
 }

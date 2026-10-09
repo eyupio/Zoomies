@@ -41,19 +41,20 @@ func (f *Fake) Chat(ctx context.Context, req Request) (Stream, error) {
 	}
 	last := lastUserMessage(req.Messages)
 	var events []Event
-	if hasTool(req.Tools, "echo") {
+	switch {
+	case hasTool(req.Tools, "echo"):
 		args, _ := json.Marshal(struct {
 			Text string `json:"text"`
 		}{last})
 		events = append(events, Event{ToolCall: &ToolCall{ID: "call_echo", Name: "echo", Arguments: args}})
-	} else {
-		reply := f.opts.Reply(last)
-		for i, word := range strings.Split(reply, " ") {
-			if i > 0 {
-				word = " " + word
-			}
-			events = append(events, Event{Delta: word})
-		}
+	case toolAnswer(req.Messages) != "":
+		// What a tool showed is what the demo model repeats, so the whole loop
+		// can be followed end to end with no account and no key.
+		events = words("The built-in model looked at the fleet and saw: " + toolAnswer(req.Messages))
+	case hasTool(req.Tools, "fleet_status") && strings.Contains(strings.ToLower(last), "fleet"):
+		events = append(events, Event{ToolCall: &ToolCall{ID: "call_fleet_status", Name: "fleet_status", Arguments: json.RawMessage(`{}`)}})
+	default:
+		events = words(f.opts.Reply(last))
 	}
 	events = append(events,
 		Event{Usage: &Usage{InputTokens: len(last), OutputTokens: len(events), Reported: true}},
@@ -121,4 +122,35 @@ func hasTool(tools []Tool, name string) bool {
 		}
 	}
 	return false
+}
+
+// words streams a reply a word at a time.
+func words(reply string) []Event {
+	var events []Event
+	for i, word := range strings.Split(reply, " ") {
+		if i > 0 {
+			word = " " + word
+		}
+		events = append(events, Event{Delta: word})
+	}
+	return events
+}
+
+// toolAnswer is the first line of what the last tool said, when the
+// conversation ends with one, and empty otherwise.
+func toolAnswer(messages []Message) string {
+	if len(messages) == 0 || messages[len(messages)-1].Role != RoleTool {
+		return ""
+	}
+	text := messages[len(messages)-1].Content
+	// The controller fences a result in a marker; the demo reads what is inside.
+	if _, after, ok := strings.Cut(text, ">\n"); ok {
+		text = after
+	}
+	text, _, _ = strings.Cut(text, "\n</fleet-data>")
+	text = strings.Join(strings.Fields(text), " ")
+	if len(text) > 160 {
+		text = text[:160] + "..."
+	}
+	return text
 }
