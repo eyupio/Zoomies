@@ -122,7 +122,8 @@ func (s *Server) handleDeleteSizePin(w http.ResponseWriter, r *http.Request) {
 // whatever page or kind was asked for.
 type adviceResponse struct {
 	page[*scheduler.Advice]
-	Counts map[string]int `json:"counts"`
+	Counts map[string]int          `json:"counts"`
+	Window controller.AdviceWindow `json:"window"`
 }
 
 // handleLabelAdvice answers GET /api/v1/label-advice.
@@ -134,15 +135,26 @@ func (s *Server) handleLabelAdvice(w http.ResponseWriter, r *http.Request) {
 		badRequestField(w, "kind", "kind is too_small, unguaranteed or too_large")
 		return
 	}
-	all, _, err := s.ctrl.LabelAdvice(r.Context(), controller.AdviceOptions{})
+	window, err := querySpan(r, "window", 0)
+	if err != nil {
+		badRequestField(w, "window", err.Error())
+		return
+	}
+	all, applied, err := s.ctrl.LabelAdvice(r.Context(), controller.AdviceOptions{Window: window, Repo: r.URL.Query().Get("repo")})
 	if err != nil {
 		s.internal(w, r, "working out label advice", err)
 		return
 	}
-	counts := map[string]int{scheduler.AdviceTooSmall: 0, scheduler.AdviceUnguaranteed: 0, scheduler.AdviceTooLarge: 0}
+	// A sparse row has no kind, so a kind filter never returns it, and it is
+	// counted under its state rather than under the empty kind.
+	counts := map[string]int{scheduler.AdviceTooSmall: 0, scheduler.AdviceUnguaranteed: 0, scheduler.AdviceTooLarge: 0, scheduler.AdviceStateNotEnoughData: 0}
 	var matching []*scheduler.Advice
 	for _, a := range all {
-		counts[a.Kind]++
+		if a.State != scheduler.AdviceStateOK {
+			counts[a.State]++
+		} else {
+			counts[a.Kind]++
+		}
 		if kind == "" || a.Kind == kind {
 			matching = append(matching, a)
 		}
@@ -150,5 +162,5 @@ func (s *Server) handleLabelAdvice(w http.ResponseWriter, r *http.Request) {
 	p := parsePage(r)
 	lo := min(p.Offset, len(matching))
 	hi := min(lo+p.Limit, len(matching))
-	writeJSON(w, http.StatusOK, adviceResponse{page: newPage(matching[lo:hi], len(matching), p), Counts: counts})
+	writeJSON(w, http.StatusOK, adviceResponse{page: newPage(matching[lo:hi], len(matching), p), Counts: counts, Window: applied})
 }

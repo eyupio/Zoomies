@@ -99,7 +99,8 @@ export function classCell(job: Job): string {
 
 /* -- label advice ----------------------------------------------------------- */
 
-const ADVICE: Record<LabelAdvice['kind'], { label: string; hint: string }> = {
+/** A sparse row has no kind and no entry here; the card words it from its state. */
+const ADVICE: Record<Exclude<LabelAdvice['kind'], ''>, { label: string; hint: string }> = {
   too_small: {
     label: 'Names a class that is too small',
     hint: 'It can only run on hosts smaller than its runs need, and is killed when it needs more than they have.',
@@ -116,7 +117,7 @@ const ADVICE: Record<LabelAdvice['kind'], { label: string; hint: string }> = {
 
 /** What a kind of advice means. A kind this build has not heard of is shown as it came. */
 export function adviceWords(kind: string): { label: string; hint: string } {
-  return ADVICE[kind as LabelAdvice['kind']] ?? { label: kind, hint: '' };
+  return ADVICE[kind as Exclude<LabelAdvice['kind'], ''>] ?? { label: kind, hint: '' };
 }
 
 /** The key a pin and an advice row share, so a row knows whether it is already pinned. */
