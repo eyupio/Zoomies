@@ -23,12 +23,17 @@ var unsupportedCauses = []struct {
 	embedded bool
 	// says is what the controller's sentence and refusal name.
 	says string
+	// command is the upgrade by hand the status offers to copy, and byHand what
+	// the refusal says to do instead. Windows has no sudo, and zoomies upgrade
+	// drives systemd or launchd and no Windows service, so it is given no
+	// command, only what to do.
+	command, byHand string
 }{
-	{"macOS", updates.HelperHost{GOOS: "darwin", Systemd: true}, true, "Linux"},
-	{"Windows", updates.HelperHost{GOOS: "windows"}, true, "Linux"},
-	{"a Linux host without systemd", updates.HelperHost{GOOS: "linux"}, true, "systemd"},
-	{"a controller-only container", updates.HelperHost{GOOS: "linux", InContainer: true}, false, "shared folder"},
-	{"a container under a rootless runtime", updates.HelperHost{GOOS: "linux", InContainer: true, RootlessRuntime: true}, true, "rootless"},
+	{"macOS", updates.HelperHost{GOOS: "darwin", Systemd: true}, true, "Linux", "sudo zoomies upgrade", "zoomies upgrade"},
+	{"Windows", updates.HelperHost{GOOS: "windows"}, true, "Linux", "", "zoomies.exe"},
+	{"a Linux host without systemd", updates.HelperHost{GOOS: "linux"}, true, "systemd", "sudo zoomies upgrade", "zoomies upgrade"},
+	{"a controller-only container", updates.HelperHost{GOOS: "linux", InContainer: true}, false, "shared folder", "sudo zoomies upgrade", "zoomies upgrade"},
+	{"a container under a rootless runtime", updates.HelperHost{GOOS: "linux", InContainer: true, RootlessRuntime: true}, true, "rootless", "sudo zoomies upgrade", "zoomies upgrade"},
 }
 
 // A controller the helper can never be installed beside is shown so, with the
@@ -54,8 +59,11 @@ func TestAControllerThatCannotHaveTheHelperSaysWhyAndOffersNoInstall(t *testing.
 			if helper.InstallCommand != "" || strings.Contains(helper.Reason, helperInstallCommand) {
 				t.Errorf("the status still suggests installing the helper: %+v", helper)
 			}
-			if !strings.Contains(helper.Reason, tc.says) || helper.UpgradeCommand != controllerUpgradeCommand {
-				t.Errorf("the status says %+v, want a reason naming %q and the upgrade command", helper, tc.says)
+			if !strings.Contains(helper.Reason, tc.says) || helper.UpgradeCommand != tc.command {
+				t.Errorf("the status says %+v, want a reason naming %q and the upgrade command %q", helper, tc.says, tc.command)
+			}
+			if tc.command == "" && (strings.Contains(helper.Reason, "command below") || !strings.Contains(helper.Reason, tc.byHand)) {
+				t.Errorf("with no command to copy the status says %q, want what to do by hand and no command below", helper.Reason)
 			}
 			if strings.Contains(helper.Reason, h.updateDir) || strings.Contains(helper.Reason, "/") {
 				t.Errorf("every role reads the reason, and it names a path: %q", helper.Reason)
@@ -64,8 +72,8 @@ func TestAControllerThatCannotHaveTheHelperSaysWhyAndOffersNoInstall(t *testing.
 			_, err := h.c.RequestControllerUpdate(h.ctx, alice, "")
 			assertRefusedWithNothingWritten(t, h, err, ErrUpdateHelperMissing)
 			if strings.Contains(err.Error(), helperInstallCommand) || !strings.Contains(err.Error(), tc.says) ||
-				!strings.Contains(err.Error(), "zoomies upgrade") {
-				t.Errorf("the refusal = %v, want the reason and zoomies upgrade, and no install command", err)
+				!strings.Contains(err.Error(), tc.byHand) || (tc.command == "" && strings.Contains(err.Error(), "zoomies upgrade")) {
+				t.Errorf("the refusal = %v, want the reason and %s, and no install command", err, tc.byHand)
 			}
 
 			if codes := h.problemCodes(); contains(codes, "controller.update_helper_missing") {

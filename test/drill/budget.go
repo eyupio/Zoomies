@@ -46,7 +46,19 @@ const (
 	waitUpdate = 30 * time.Second
 )
 
-// drillBudget is the longest one drill may legitimately take.
-const drillBudget = waitProcessUp + waitRunnerCreated + waitWorkloadUp +
+// everyWaitOnce is a drill that meets each of the waits above one time.
+const everyWaitOnce = waitProcessUp + waitRunnerCreated + waitWorkloadUp +
 	waitJobDone + waitRunnerGone + waitPromptCleanup + waitRecovery + waitStaysUp +
 	waitBuild + waitUpdate
+
+// updateDrillWaits is the update drill counted as it runs, which meets some
+// waits more than once: two release builds; the controller, its agent and the
+// agent without the helper's marker each starting; the runner, its workload and
+// the job; the agent offering to update, writing the request and reporting the
+// release; and the fleet seeing the adopted runner exit and its workload go.
+const updateDrillWaits = 2*waitBuild + 3*waitProcessUp +
+	waitRunnerCreated + waitWorkloadUp + waitJobDone +
+	3*waitUpdate + 2*waitRecovery
+
+// drillBudget is the longest one drill may legitimately take.
+const drillBudget = max(everyWaitOnce, updateDrillWaits)

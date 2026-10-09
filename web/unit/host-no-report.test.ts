@@ -65,6 +65,8 @@ test('the upgrade command is never built from a host field and never reaches a v
   // Both ways of updating are named, because a viewer can ask either person, and
   // neither is claimed to be something Zoomies does by itself.
   assert.match(viewer.detail, /needs an administrator, who can press Update/);
+  // The button is there only where the helper is, so the sentence says so.
+  assert.match(viewer.detail, /press Update on its host card where the update helper is installed/);
   assert.match(viewer.detail, /or an operator, who can run its upgrade command/);
   assert.doesNotMatch(viewer.detail, /never updates a host itself/);
   // No command to offer: say so rather than invent one.
