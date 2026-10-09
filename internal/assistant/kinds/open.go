@@ -54,7 +54,7 @@ func Open(kind assistant.Kind, cfg Config) (assistant.Provider, error) {
 		// Claude Code dials Anthropic itself, outside the dialer this package
 		// applies, so the one promise local-only makes cannot be kept for it.
 		if cfg.LocalOnly {
-			return nil, errors.New("Claude Code sends what is asked to Anthropic, which is not on this machine or its network, and Local models only is on")
+			return nil, errors.New("the Claude Code provider sends what is asked to Anthropic, which is not on this machine or its network, and Local models only is on")
 		}
 		return provider.NewClaudeCode(pc), nil
 	}
