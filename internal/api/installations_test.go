@@ -110,6 +110,37 @@ func TestManifestRefusesAGitHubTheBrowserCouldNotPostTo(t *testing.T) {
 	}
 }
 
+// Administration read reaches more than the checks that need it do, so an
+// organisation App asks for it only when the request says so, and a request from a
+// client written before the question existed gets the smaller set. A repository
+// App holds Administration write already and is not lowered to read.
+func TestManifestAsksForAdministrationReadOnlyWhenTheRequestSaysSo(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("admin", store.RoleAdmin)
+	administration := func(body map[string]any) string {
+		t.Helper()
+		resp := h.do(request{method: http.MethodPost, path: "/api/v1/installations/manifest", cookie: h.session(admin), body: body})
+		resp.mustStatus(t, http.StatusOK, "building a manifest")
+		var m struct {
+			Permissions map[string]string `json:"default_permissions"`
+		}
+		if err := json.Unmarshal([]byte(resp.json(t)["manifest"].(string)), &m); err != nil {
+			t.Fatalf("the manifest is not JSON: %v", err)
+		}
+		return m.Permissions["administration"]
+	}
+
+	if got := administration(map[string]any{"target": "acme", "target_type": "org"}); got != "" {
+		t.Errorf("an organisation App asks for administration:%s without being asked to", got)
+	}
+	if got := administration(map[string]any{"target": "acme", "target_type": "org", "kennel_settings": true}); got != "read" {
+		t.Errorf("administration = %q, want read", got)
+	}
+	if got := administration(map[string]any{"target": "acme/widgets", "target_type": "repo", "kennel_settings": true}); got != "write" {
+		t.Errorf("a repository App asks for administration:%q, want write", got)
+	}
+}
+
 // The user's click posts to Zoomies first. The controller validates the
 // handshake, then preserves the POST across a redirect to GitHub so Android
 // cannot dispatch the clicked URL to a different browser or app.
