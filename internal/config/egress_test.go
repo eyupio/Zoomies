@@ -211,3 +211,48 @@ func findingFor(fs Findings, code string) *Finding {
 	}
 	return nil
 }
+
+// A local model is the normal case for the assistant, so its provider URL
+// has its own switch rather than borrowing the blanket one: the refusal
+// names it, and the blanket switch is not consulted.
+func TestCheckProviderURLNamesTheAssistantSwitch(t *testing.T) {
+	f := CheckProviderURL("http://127.0.0.1:11434", false)
+	if f == nil || f.Code != "egress.private_target" {
+		t.Fatalf("finding %+v", f)
+	}
+	if !strings.Contains(f.Fix, AllowPrivateProviderSetting) {
+		t.Errorf("fix %q does not name %s", f.Fix, AllowPrivateProviderSetting)
+	}
+	if f := CheckProviderURL("http://127.0.0.1:11434", true); f != nil {
+		t.Errorf("allowed, got %+v", f)
+	}
+	for _, allow := range []bool{false, true} {
+		if f := CheckProviderURL("https://api.openai.com/v1", allow); f != nil {
+			t.Errorf("public URL with allow=%v: %+v", allow, f)
+		}
+	}
+}
+
+func TestTheAssistantSwitchesArePlatformSettingsWithEnvironmentOverrides(t *testing.T) {
+	for key, env := range map[string]string{
+		AllowPrivateProviderSetting: "ZOOMIES_ASSISTANT_ALLOW_PRIVATE_PROVIDER",
+		LocalOnlySetting:            "ZOOMIES_ASSISTANT_LOCAL_ONLY",
+	} {
+		s, ok := LookupSetting(key)
+		if !ok {
+			t.Fatalf("%s is not in the registry", key)
+		}
+		if s.Scope != ScopePlatform || s.Env != env || !s.Live {
+			t.Errorf("%s: scope %s env %s live %v", key, s.Scope, s.Env, s.Live)
+		}
+	}
+	t.Setenv("ZOOMIES_ASSISTANT_ALLOW_PRIVATE_PROVIDER", "true")
+	t.Setenv("ZOOMIES_ASSISTANT_LOCAL_ONLY", "true")
+	c := Default()
+	if err := c.applyEnv(); err != nil {
+		t.Fatal(err)
+	}
+	if !c.Assistant.AllowPrivateProvider || !c.Assistant.LocalOnly {
+		t.Errorf("environment overrides did not set the fields: %+v", c.Assistant)
+	}
+}

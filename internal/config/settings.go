@@ -294,6 +294,14 @@ var registry = buildRegistry([]Setting{
 		Summary: "Let the URLs this controller dials -- the OIDC issuer, the GitHub API, the capacity-demand destination, the runner download mirror, a backup remote and a provider -- name this machine, a link-local address or a private network. Off, writing one through the API is refused and one in the file or environment is warned about, as egress.private_target. Turn it on when one of them really lives on a network you own.",
 	},
 	{
+		Key: "assistant.allow_private_provider", Label: "Allow a private provider address", Env: "ZOOMIES_ASSISTANT_ALLOW_PRIVATE_PROVIDER", Kind: KindBool, Scope: ScopePlatform, Live: true,
+		Summary: "Let an assistant provider's address name this machine or a private network, which is where a local model lives. Off, saving one is refused as egress.private_target. It opens only the assistant's providers; security.allow_private_egress is not consulted for them and stays as it is.",
+	},
+	{
+		Key: "assistant.local_only", Label: "Local models only", Env: "ZOOMIES_ASSISTANT_LOCAL_ONLY", Kind: KindBool, Scope: ScopePlatform, Live: true,
+		Summary: "Refuse any assistant connection that resolves to a public address, after resolving it, so nothing the assistant is told can leave this machine or the LAN whatever a provider row says. A hosted provider cannot be reached while this is on.",
+	},
+	{
 		Key: "security.disable_auth", Label: "Disable authentication", Env: "ZOOMIES_DISABLE_AUTH", Kind: KindBool, Scope: ScopePlatform,
 		Summary:       "Remove all authentication. It exists for local development, and it is refused wherever this controller looks reachable.",
 		RestartReason: "the authentication service takes its security settings when it is built",
@@ -1156,7 +1164,7 @@ func StoredSettings() []Setting {
 var SectionOrder = []string{
 	"server", "database", "security", "github", "agent", "runners", "scheduler",
 	"log", "oidc", "metrics", "status", "retention", "limits", "backup", "images", "updates", "capacity_demand",
-	"provider", "kennel", "ui",
+	"provider", "kennel", "ui", "assistant",
 }
 
 // CompareKeys orders two dotted keys by section first and then alphabetically,
