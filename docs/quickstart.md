@@ -413,7 +413,7 @@ never a silent default.
 
 One key is never on in a template: `update_helper: true` adds the [update
 helper](security.md#what-the-agent-owns-on-a-host), which is a grant of root to
-a request the service writes. On the controller's host the platform role can then update the controller from Settings → Updates; the web UI cannot update other hosts yet, so on an agent host installing it now only makes the host ready for a later release. Left out or `false`, nothing is
+a request the service writes. The update helper runs `zoomies upgrade` as root for a validated request, so that the web UI can update this host (and on the controller's host, `zoomies updates apply` can too). Only the host's owner installs it, and `sudo zoomies updates helper remove` takes it away. Left out or `false`, nothing is
 added and the run prints how to add it later.
 
 ## If something is wrong

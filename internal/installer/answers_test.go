@@ -232,8 +232,8 @@ func TestTheAnswersFileAcceptsTheUpdateHelperKey(t *testing.T) {
 			t.Errorf("%s: want a refusal naming the key, got %v", typo, err)
 		}
 	}
-	if !strings.Contains(exampleAnswers, UpdateHelperControllerOnlyYet) {
-		t.Error("the printed template documents update_helper without saying what the web UI can and cannot do with it yet")
+	if !strings.Contains(exampleAnswers, UpdateHelperExplained) {
+		t.Error("the printed template documents update_helper without saying what the helper is for")
 	}
 	if !strings.Contains(exampleAnswers, "update_helper:") {
 		t.Error("the printed template does not document update_helper")

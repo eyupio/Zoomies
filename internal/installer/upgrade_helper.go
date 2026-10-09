@@ -17,18 +17,13 @@ import (
 // helper is a pair of systemd units, and nothing else could start it.
 const noSystemdForHelper = `the update helper is a pair of systemd units, and this host does not run systemd; update it by hand with "sudo zoomies upgrade"`
 
-// UpdateHelperControllerOnlyYet is said wherever the helper is offered or
-// described for a host that may be the controller's: in this release the web UI
-// can update the controller and nothing else, so the sentence has to promise
-// the one and refuse the other. A later release lets it update hosts, and
-// removes this sentence from every place that carries it; a test finds them by
-// it.
-const UpdateHelperControllerOnlyYet = "On the controller's host the platform role can then update the controller from Settings → Updates; the web UI cannot update other hosts yet, so on an agent host installing it now only makes the host ready for a later release."
-
-// UpdateHelperAgentHostNotUsedYet is the same promise for the one place that
-// knows the host is an agent's, `zoomies agent join`, where the controller
-// half of UpdateHelperControllerOnlyYet would describe a machine this is not.
-const UpdateHelperAgentHostNotUsedYet = "The web UI cannot update a host yet; a later release adds that, and installing the helper now only makes this host ready for it."
+// UpdateHelperExplained says what the update helper is for, wherever it is
+// offered or described: the upgrade's, init's and the join's question, the hint
+// after a no, the answer file, the help of "zoomies updates helper install" and
+// the pages that describe the offer. It is one sentence for the controller's host
+// and an agent's alike, because the web UI updates both, and a test finds every
+// place by it, so a release that changes what the helper is for changes them all.
+const UpdateHelperExplained = "The update helper runs `zoomies upgrade` as root for a validated request, so that the web UI can update this host (and on the controller's host, `zoomies updates apply` can too). Only the host's owner installs it, and `sudo zoomies updates helper remove` takes it away."
 
 // upgradeHelperHost is what the update helper question reads from the host.
 type upgradeHelperHost struct {
@@ -91,18 +86,6 @@ type helperOffer struct {
 	// hold, when set, is asked once the helper could be installed here, and a
 	// true stops the offer there. It has said why itself.
 	hold func() bool
-	// note is the sentence that says what the web UI can do with the helper in
-	// this release. Empty is UpdateHelperControllerOnlyYet; a join, which is
-	// always an agent's host, says UpdateHelperAgentHostNotUsedYet.
-	note string
-}
-
-// sentence is what the offer tells the person the helper is for, today.
-func (o helperOffer) sentence() string {
-	if o.note != "" {
-		return o.note
-	}
-	return UpdateHelperControllerOnlyYet
 }
 
 // offer asks, as a question of its own, whether this host may be made ready to
@@ -147,12 +130,10 @@ func (o helperOffer) offer(ctx context.Context) {
 	case o.Requested:
 	case o.Interactive && o.In != nil:
 		fmt.Fprintln(out, "Make this host ready to be updated from the web UI?")
-		fmt.Fprintln(out, "  "+o.sentence())
-		fmt.Fprintln(out, "  The update helper is a pair of systemd units ("+UpdatePathUnit+" and "+UpdateServiceUnit+")")
-		fmt.Fprintln(out, "  that run `zoomies upgrade` as root for a validated request; a request names a")
-		fmt.Fprintln(out, "  release and nothing else. The account Zoomies runs as ("+helper.Account+")")
-		fmt.Fprintln(out, "  can trigger an upgrade by writing a request. `sudo zoomies updates helper remove`")
-		fmt.Fprintln(out, "  takes it away.")
+		fmt.Fprintln(out, "  "+UpdateHelperExplained)
+		fmt.Fprintln(out, "  It is a pair of systemd units ("+UpdatePathUnit+" and "+UpdateServiceUnit+"),")
+		fmt.Fprintln(out, "  and a request names a release and nothing else. The account Zoomies runs as")
+		fmt.Fprintln(out, "  ("+helper.Account+") can trigger an upgrade by writing a request.")
 		if !askDefaultNo(o.In, out, "Add the update helper? [y/N] ") {
 			o.skipped()
 			return
@@ -228,7 +209,7 @@ func (o JoinOptions) offerUpdateHelper(ctx context.Context) {
 	helperOffer{
 		Out: o.Out, In: o.In, ConfigDir: o.configDir(),
 		Interactive: o.Interactive && !o.NonInteractive, Requested: o.UpdateHelper,
-		host: helperHostOr(o.helperHost), run: o.run, note: UpdateHelperAgentHostNotUsedYet,
+		host: helperHostOr(o.helperHost), run: o.run,
 	}.offer(ctx)
 }
 
@@ -258,7 +239,7 @@ func helperInstallCommand(configDir string) string {
 }
 
 func (o helperOffer) skipped() {
-	PaletteFor(o.Out).Hint(o.Out, "The update helper was not added. %s", o.sentence())
+	PaletteFor(o.Out).Hint(o.Out, "The update helper was not added. %s", UpdateHelperExplained)
 	fmt.Fprintln(o.Out, "Add later: "+helperInstallCommand(o.ConfigDir))
 }
 

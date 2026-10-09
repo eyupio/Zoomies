@@ -201,14 +201,12 @@ second question, on its own:
 Add the update helper? [y/N]
 ```
 
-The [update helper](security.md#what-the-agent-owns-on-a-host) is what will let
-the web UI update the host. On the controller's host the platform role can then update the controller from Settings → Updates; the web UI cannot update other hosts yet, so on an agent host installing it now only makes the host ready for a later release.
+The [update helper](security.md#what-the-agent-owns-on-a-host) is what lets
+the web UI update the host. The update helper runs `zoomies upgrade` as root for a validated request, so that the web UI can update this host (and on the controller's host, `zoomies updates apply` can too). Only the host's owner installs it, and `sudo zoomies updates helper remove` takes it away.
 
-It is a pair of systemd units that run `zoomies upgrade` as root for a
-validated request; a request names a release and nothing else. The account Zoomies runs as can trigger an
-upgrade by writing a request, which is why it is a question of its own and
-never part of the batch above. `sudo zoomies updates helper remove` takes it
-away.
+It is a pair of systemd units, and a request names a release and nothing else.
+The account Zoomies runs as can trigger an upgrade by writing a request, which
+is why it is a question of its own and never part of the batch above.
 
 * **`--yes` does not answer it.** `zoomies upgrade --yes` still adds the layout
   additions and moves the settings, and still leaves this question at its

@@ -241,7 +241,7 @@ func plainAPIError(err error) error {
 
 func updatesHelperInstall(ctx context.Context, e *env, args []string) error {
 	flags := newFlagSet(e, "zoomies updates helper install [--config-dir path]",
-		`Install the update helper, which lets the controller update this host when an administrator asks or the update mode says so. `+installer.UpdateHelperControllerOnlyYet+` It makes the update folder, owned by the account zoomies runs as, writes root's pointer to it in `+installer.UpdateHelperStateDir+`, and installs and starts the zoomies-update units, which run "zoomies updates helper run" as root when the service writes a request. Everything the helper would refuse is refused here first. Nothing installs the helper but its owner: the controller's update mode cannot.`)
+		`Install the update helper on this host. `+installer.UpdateHelperExplained+` It makes the update folder, owned by the account zoomies runs as, writes root's pointer to it in `+installer.UpdateHelperStateDir+`, and installs and starts the zoomies-update units, which run "zoomies updates helper run" as root when the service writes a request. Everything the helper would refuse is refused here first. Nothing installs the helper but its owner: the controller's update mode cannot.`)
 	configDir := flags.String("config-dir", "", "the deployment's configuration directory, where zoomies.yaml and deployment.json are (default: "+config.ConfigDir()+")")
 	flags.example("sudo zoomies updates helper install")
 	if err := flags.parse(args); err != nil {
