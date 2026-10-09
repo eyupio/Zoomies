@@ -101,6 +101,9 @@ func TestTheStatusNamesTheTargetAndWhenAutoWouldTakeIt(t *testing.T) {
 	h := newHarness(t)
 	withVersion(t, "1.3.0")
 	h.inMode("auto")
+	// With the helper ready nothing but the soak stands in the way, so the
+	// planner's sentence is the rule's own.
+	h.installHelper()
 	assets := completeAssets(t)
 	published := whenAgo(6*time.Hour + 30*time.Minute)
 	h.readTheList(
@@ -403,18 +406,18 @@ func TestTheStatusAlwaysCarriesEveryFieldAndIsNullWhereThereIsNothing(t *testing
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		t.Fatalf("the status is not a JSON object: %v", err)
 	}
-	for _, key := range []string{"mode", "soak", "running", "latest", "target", "reason", "checked_at", "helper", "controller"} {
+	for _, key := range []string{"mode", "soak", "running", "latest", "target", "reason", "checked_at", "helper", "controller", "rollout"} {
 		if _, ok := fields[key]; !ok {
 			t.Errorf("the status has no %q: %s", key, raw)
 		}
 	}
-	for _, key := range []string{"latest", "target", "checked_at", "controller"} {
+	for _, key := range []string{"latest", "target", "checked_at", "controller", "rollout"} {
 		if got := string(fields[key]); got != "null" {
 			t.Errorf("%s = %s, want null while there is nothing to name", key, got)
 		}
 	}
-	if len(fields) != 9 {
-		t.Errorf("the status has %d fields, want the nine the document lists: %s", len(fields), raw)
+	if len(fields) != 10 {
+		t.Errorf("the status has %d fields, want the ten the document lists: %s", len(fields), raw)
 	}
 }
 

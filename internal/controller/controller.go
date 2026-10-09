@@ -1162,6 +1162,9 @@ func (c *Controller) DeleteHostForgettingMachine(ctx context.Context, id, machin
 	c.hostChecks.forget(id)
 	c.forgetHostUpdates(id)
 	c.dropMemoryState(id)
+	// The delete cancelled the host's open update, and a rollout that was
+	// waiting on it can move on now rather than at the next tick.
+	c.KickUpdates()
 	c.publishRunnersDeleted(runners)
 	if machineID != "" {
 		c.PublishMachineDeleted(machineID)

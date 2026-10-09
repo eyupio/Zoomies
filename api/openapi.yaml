@@ -12214,7 +12214,7 @@ components:
           examples: [v1.3.5]
     UpdatesStatus:
       type: object
-      required: [mode, soak, running, latest, target, reason, checked_at, helper, controller]
+      required: [mode, soak, running, latest, target, reason, checked_at, helper, controller, rollout]
       properties:
         mode:
           type: string
@@ -12244,8 +12244,11 @@ components:
         reason:
           type: string
           description: >-
-            A sentence or two, in an operator's words, that says what the mode would do and why.
-            It always says something: it is what to show when there is nothing to offer.
+            A sentence or two, in an operator's words, that says what happens next and why: the
+            planner's sentence, which is the release rule's own unless an update in flight, a
+            rollout or the helper decides what happens next. It always says something: it is what
+            to show when there is nothing to offer. It moves with the clock only by the hour or
+            the minute of a wait, and never with a heartbeat.
         checked_at:
           type: [string, "null"]
           format: date-time
@@ -12261,6 +12264,38 @@ components:
           oneOf:
             - $ref: "#/components/schemas/UpdatesAttempt"
             - type: "null"
+        rollout:
+          description: >-
+            The open rollout, or the last one that ended, so that a page can say how it went.
+            Null when there has never been one.
+          oneOf:
+            - $ref: "#/components/schemas/UpdatesRollout"
+            - type: "null"
+    UpdatesRollout:
+      type: object
+      required: [id, target, state, halted_reason, done, total, current]
+      properties:
+        id: { type: string, examples: [rol_k3fqz2mx7abcd] }
+        target: { type: string, description: The release tag it takes hosts to., examples: [v1.3.5] }
+        state:
+          type: string
+          enum: [running, halted, done, cancelled]
+          description: >-
+            `running` while it moves one host at a time, `halted` after a host's update failed or
+            timed out (nothing moves until an administrator resumes or cancels it), then `done` or
+            `cancelled`.
+        halted_reason:
+          type: string
+          description: >-
+            The sentence it halted with, naming the host and the release; empty unless it halted.
+            It never carries the helper's text, so every role reads it.
+        done: { type: integer, description: Hosts it has updated. }
+        total:
+          type: integer
+          description: >-
+            Hosts it has updated and hosts it would still update. For one that has ended, the
+            hosts it asked.
+        current: { type: string, description: The name of the host being updated now, and empty with none. }
 
     # --- agent protocol (internal) ------------------------------------------
     # The wire types of the agent routes. internal/agent/protocol.go owns them;

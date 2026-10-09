@@ -11,8 +11,17 @@
 -- state is running until the rollout ends, halted while it waits for an
 -- operator (halted_reason is the sentence they read), then done or cancelled
 -- for good. trigger and started_by mean what they do on an attempt: manual or
--- auto, and the user or token that asked, or '' for the planner. Times are
--- Unix milliseconds, as everywhere.
+-- auto, and who asked, by the name the attempts record (the planner's own
+-- name for its rollouts). Times are Unix milliseconds, as everywhere.
+--
+-- host_ids is the hosts it was started for, a JSON array, and empty for every
+-- host that is behind: an administrator who asked for one host must not find
+-- the fleet restarted. resumed_at is when it started or was last resumed; a
+-- failure before it is one an operator has resumed past, and must not halt it
+-- again. cancelled_by is the person who cancelled it, and '' when it was not
+-- cancelled or the planner cancelled it: auto does not start again a rollout a
+-- person stopped, but one it stopped itself (the mode switched) is no such
+-- decision.
 CREATE TABLE update_rollouts (
     id            TEXT    PRIMARY KEY,
     target        TEXT    NOT NULL,
@@ -20,7 +29,10 @@ CREATE TABLE update_rollouts (
     state         TEXT    NOT NULL DEFAULT 'running',
     started_by    TEXT    NOT NULL DEFAULT '',
     halted_reason TEXT    NOT NULL DEFAULT '',
+    host_ids      TEXT    NOT NULL DEFAULT '[]',
+    cancelled_by  TEXT    NOT NULL DEFAULT '',
     started_at    INTEGER NOT NULL,
+    resumed_at    INTEGER NOT NULL,
     finished_at   INTEGER
 ) WITHOUT ROWID;
 

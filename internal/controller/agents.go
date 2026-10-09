@@ -896,10 +896,11 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 	// every pool on that backend looks healthy and quietly starts no runner.
 	probed := hostBackends(req.Backends)
 	kinds := probed.Kinds()
+	versionMoved := req.Version != "" && req.Version != h.Version
 	backendsChanged := len(probed) > 0 && !slices.Equal(kinds, h.Backends)
 	changed := backendsChanged ||
 		(len(probed) > 0 && !slices.Equal(probed, h.BackendInfo)) ||
-		(req.Version != "" && req.Version != h.Version) ||
+		versionMoved ||
 		// Written whenever the list differs, an empty one included: an agent
 		// rolled back to a release that cannot move a live quota has to stop
 		// being counted as one that can, or an elastic pool keeps reading its
@@ -950,6 +951,11 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 			// A host that has just gained a backend may be the one a stalled
 			// pool has been waiting for.
 			c.Nudge()
+		}
+		if versionMoved {
+			// A host on a new version may be a rollout's step arriving, and the
+			// next host should not wait ten seconds for its turn.
+			c.KickUpdates()
 		}
 	}
 	// After the row has the version the agent reports: that version, and not the

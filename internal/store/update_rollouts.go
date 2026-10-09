@@ -27,18 +27,27 @@ type UpdateRollout struct {
 	State        string
 	StartedBy    string
 	HaltedReason string
-	StartedAt    time.Time
-	FinishedAt   *time.Time
+	// HostIDs is the hosts it was started for, and empty for every host that is
+	// behind.
+	HostIDs StringSlice
+	// CancelledBy is the person who cancelled it, and empty when it was not
+	// cancelled or the planner did.
+	CancelledBy string
+	StartedAt   time.Time
+	// ResumedAt is when it started or was last resumed.
+	ResumedAt  time.Time
+	FinishedAt *time.Time
 }
 
-const updateRolloutCols = `id, target, trigger, state, started_by, halted_reason, started_at, finished_at`
+const updateRolloutCols = `id, target, trigger, state, started_by, halted_reason, host_ids, cancelled_by, started_at, resumed_at, finished_at`
 
 func scanUpdateRollout(sc interface{ Scan(...any) error }) (UpdateRollout, error) {
 	var r UpdateRollout
-	var started int64
+	var started, resumed int64
 	var finished sql.NullInt64
-	err := sc.Scan(&r.ID, &r.Target, &r.Trigger, &r.State, &r.StartedBy, &r.HaltedReason, &started, &finished)
-	r.StartedAt, r.FinishedAt = at(started), atp(finished)
+	err := sc.Scan(&r.ID, &r.Target, &r.Trigger, &r.State, &r.StartedBy, &r.HaltedReason, &r.HostIDs, &r.CancelledBy,
+		&started, &resumed, &finished)
+	r.StartedAt, r.ResumedAt, r.FinishedAt = at(started), at(resumed), atp(finished)
 	return r, err
 }
 
@@ -53,12 +62,14 @@ func (s *Store) CreateUpdateRollout(ctx context.Context, r *UpdateRollout) error
 		return fmt.Errorf("update rollout trigger %q is neither %q nor %q", r.Trigger, UpdateTriggerManual, UpdateTriggerAuto)
 	}
 	r.ID = NewID(PrefixUpdateRollout)
-	r.State, r.HaltedReason, r.FinishedAt = RolloutRunning, "", nil
+	r.State, r.HaltedReason, r.CancelledBy, r.FinishedAt = RolloutRunning, "", "", nil
 	r.StartedAt = s.Now()
+	r.ResumedAt = r.StartedAt
 	return s.tx(ctx, func(tx *sql.Tx) error {
 		_, err := tx.ExecContext(ctx, `INSERT INTO update_rollouts (`+updateRolloutCols+`)
-			VALUES (?, ?, ?, ?, ?, ?, ?, NULL)`,
-			r.ID, r.Target, r.Trigger, r.State, r.StartedBy, r.HaltedReason, ms(r.StartedAt))
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)`,
+			r.ID, r.Target, r.Trigger, r.State, r.StartedBy, r.HaltedReason, r.HostIDs, r.CancelledBy,
+			ms(r.StartedAt), ms(r.ResumedAt))
 		return wrapWrite(err)
 	})
 }
@@ -88,10 +99,11 @@ func (s *Store) HaltUpdateRollout(ctx context.Context, id, reason string) (bool,
 
 // ResumeUpdateRollout lets a halted rollout carry on, forgetting why it had
 // stopped, and reports whether it did. It is false when the rollout was not
-// halted.
+// halted. The resume is stamped, so that the failure it was resumed from is
+// not taken as a reason to halt again.
 func (s *Store) ResumeUpdateRollout(ctx context.Context, id string) (bool, error) {
-	return s.moveUpdateRollout(ctx, `UPDATE update_rollouts SET state = ?, halted_reason = ''
-		WHERE id = ? AND state = ?`, RolloutRunning, id, RolloutHalted)
+	return s.moveUpdateRollout(ctx, `UPDATE update_rollouts SET state = ?, halted_reason = '', resumed_at = ?
+		WHERE id = ? AND state = ?`, RolloutRunning, ms(s.Now()), id, RolloutHalted)
 }
 
 // FinishUpdateRollout ends an open rollout, running or halted, as done or
@@ -105,6 +117,32 @@ func (s *Store) FinishUpdateRollout(ctx context.Context, id, state string) (bool
 	}
 	return s.moveUpdateRollout(ctx, `UPDATE update_rollouts SET state = ?, finished_at = ?
 		WHERE id = ? AND state IN (?, ?)`, state, ms(s.Now()), id, RolloutRunning, RolloutHalted)
+}
+
+// CancelUpdateRollout ends an open rollout as cancelled by a person, and
+// reports whether it did, as FinishUpdateRollout does. Who is kept, because a
+// person's cancel is a decision the planner honours and its own is not.
+func (s *Store) CancelUpdateRollout(ctx context.Context, id, by string) (bool, error) {
+	if strings.TrimSpace(by) == "" {
+		return false, fmt.Errorf("a rollout cancelled by a person must say who")
+	}
+	return s.moveUpdateRollout(ctx, `UPDATE update_rollouts SET state = ?, cancelled_by = ?, finished_at = ?
+		WHERE id = ? AND state IN (?, ?)`, RolloutCancelled, by, ms(s.Now()), id, RolloutRunning, RolloutHalted)
+}
+
+// LastEndedUpdateRollout returns the most recent rollout that has ended, or
+// ErrNotFound when none has.
+func (s *Store) LastEndedUpdateRollout(ctx context.Context) (*UpdateRollout, error) {
+	r, err := scanUpdateRollout(s.read.QueryRowContext(ctx, `SELECT `+updateRolloutCols+`
+		FROM update_rollouts WHERE state IN (?, ?) ORDER BY finished_at DESC, started_at DESC, id DESC LIMIT 1`,
+		RolloutDone, RolloutCancelled))
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &r, nil
 }
 
 // moveUpdateRollout runs one guarded UPDATE, whose WHERE names the state the

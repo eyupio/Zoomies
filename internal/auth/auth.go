@@ -218,6 +218,16 @@ func SystemIdentity() *Identity {
 	return &Identity{Kind: KindSystem, ID: "system", Name: "zoomies", Role: store.RoleAdmin}
 }
 
+// AutoUpdateIdentity is the actor for what automatic updating does on its own:
+// asking for an update, and starting, halting, finishing or cancelling a
+// rollout. It is apart from SystemIdentity so that an operator reading the
+// audit log can tell an update nobody pressed for from the rest of the
+// controller's housekeeping, and it carries the platform role because updating
+// the controller is the platform's to do.
+func AutoUpdateIdentity() *Identity {
+	return &Identity{Kind: KindSystem, ID: "auto-update", Name: "zoomies auto-update", Role: store.RolePlatform}
+}
+
 // AgentIdentity is the actor for a request authenticated with an agent's own
 // token. Agents are not fleet operators: they may only reach /api/v1/agent/*,
 // which the API routes separately, so this identity carries the viewer role and

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"slices"
 	"testing"
 	"time"
 )
@@ -300,5 +301,86 @@ func TestDeletingAHostLeavesTheRolloutAlone(t *testing.T) {
 	got, err := s.ListUpdateAttempts(ctx, UpdateScopeHost, host.ID, 10)
 	if err != nil || len(got) != 1 || got[0].RolloutID != r.ID || got[0].State != UpdateCancelled {
 		t.Errorf("the host's attempt = %+v (%v), want cancelled and still naming its rollout", got, err)
+	}
+}
+
+// A rollout started for named hosts must remember them, or the planner would
+// walk it over every host that is behind.
+func TestARolloutRemembersTheHostsItWasStartedFor(t *testing.T) {
+	s, _ := rolloutStore(t)
+	named := newRollout()
+	named.HostIDs = StringSlice{"host_b", "host_a"}
+	mustCreateRollout(t, s, named)
+	if got := mustRollout(t, s, named.ID); !slices.Equal(got.HostIDs, []string{"host_b", "host_a"}) {
+		t.Errorf("host ids = %v, want the two it was started for", got.HostIDs)
+	}
+	if _, err := s.FinishUpdateRollout(context.Background(), named.ID, RolloutDone); err != nil {
+		t.Fatal(err)
+	}
+	every := mustCreateRollout(t, s, newRollout())
+	if got := mustRollout(t, s, every.ID); len(got.HostIDs) != 0 {
+		t.Errorf("host ids = %v, want none: a rollout of every host behind", got.HostIDs)
+	}
+}
+
+// The failure a rollout halted on happened before it was resumed; the planner
+// reads that from resumed_at, so a resume that did not move it would halt the
+// rollout again on the next pass.
+func TestResumingARolloutStampsWhenItResumed(t *testing.T) {
+	ctx := context.Background()
+	s, clock := rolloutStore(t)
+	r := mustCreateRollout(t, s, newRollout())
+	if got := mustRollout(t, s, r.ID); !got.ResumedAt.Equal(updateAttemptsNow) {
+		t.Fatalf("resumed at %v, want the start", got.ResumedAt)
+	}
+	if ok, err := s.HaltUpdateRollout(ctx, r.ID, "vm-2 did not come back"); err != nil || !ok {
+		t.Fatalf("HaltUpdateRollout = %v, %v", ok, err)
+	}
+	clock.at = updateAttemptsNow.Add(time.Hour)
+	if ok, err := s.ResumeUpdateRollout(ctx, r.ID); err != nil || !ok {
+		t.Fatalf("ResumeUpdateRollout = %v, %v", ok, err)
+	}
+	got := mustRollout(t, s, r.ID)
+	if !got.ResumedAt.Equal(updateAttemptsNow.Add(time.Hour)) || !got.StartedAt.Equal(updateAttemptsNow) {
+		t.Errorf("after the resume started %v and resumed %v, want the start kept and the resume stamped", got.StartedAt, got.ResumedAt)
+	}
+}
+
+// A person's cancel is a decision auto honours, and the planner's own is not,
+// so who cancelled is kept; and the last ended rollout is what the planner
+// reads it from.
+func TestACancelByAPersonIsRecordedAndTheLastEndedRolloutIsFound(t *testing.T) {
+	ctx := context.Background()
+	s, clock := rolloutStore(t)
+	if _, err := s.LastEndedUpdateRollout(ctx); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("LastEndedUpdateRollout with none = %v, want ErrNotFound", err)
+	}
+	first := mustCreateRollout(t, s, newRollout())
+	clock.at = updateAttemptsNow.Add(time.Minute)
+	if ok, err := s.FinishUpdateRollout(ctx, first.ID, RolloutCancelled); err != nil || !ok {
+		t.Fatalf("FinishUpdateRollout = %v, %v", ok, err)
+	}
+	second := mustCreateRollout(t, s, newRollout())
+	if _, err := s.CancelUpdateRollout(ctx, second.ID, ""); err == nil {
+		t.Error("a cancel naming nobody was accepted")
+	}
+	clock.at = updateAttemptsNow.Add(time.Hour)
+	if ok, err := s.CancelUpdateRollout(ctx, second.ID, "alice"); err != nil || !ok {
+		t.Fatalf("CancelUpdateRollout = %v, %v", ok, err)
+	}
+	if ok, err := s.CancelUpdateRollout(ctx, second.ID, "bob"); err != nil || ok {
+		t.Errorf("a second cancel = %v, %v, want false: the first ending stands", ok, err)
+	}
+	got, err := s.LastEndedUpdateRollout(ctx)
+	if err != nil || got.ID != second.ID || got.State != RolloutCancelled || got.CancelledBy != "alice" {
+		t.Fatalf("LastEndedUpdateRollout = %+v (%v), want the second, cancelled by alice", got, err)
+	}
+	if got := mustRollout(t, s, first.ID); got.CancelledBy != "" {
+		t.Errorf("the planner's cancel recorded %q as who cancelled", got.CancelledBy)
+	}
+	// An open rollout is not the last ended one.
+	mustCreateRollout(t, s, newRollout())
+	if got, err := s.LastEndedUpdateRollout(ctx); err != nil || got.ID != second.ID {
+		t.Errorf("LastEndedUpdateRollout with one open = %+v (%v), want the second still", got, err)
 	}
 }

@@ -141,33 +141,41 @@ func (e *hostCannotUpdateError) Is(target error) bool { return target == ErrUpda
 // The helper's path unit stops after five starts in ten minutes. One open attempt
 // per host, and the planner's 30-minute wait after a failure, keep a host far below it.
 func (c *Controller) RequestHostUpdate(ctx context.Context, by UpdateActor, hostID string) (*HostView, error) {
+	view, _, err := c.requestHostUpdate(ctx, by, hostID, askedByHand)
+	return view, err
+}
+
+// requestHostUpdate is RequestHostUpdate for either asker, returning the attempt
+// it opened as well: the button and the planner go through every refusal alike,
+// so the card and the planner never disagree about a host.
+func (c *Controller) requestHostUpdate(ctx context.Context, by UpdateActor, hostID string, ask updateAsk) (*HostView, *store.UpdateAttempt, error) {
 	if !c.mayAct() {
-		return nil, fmt.Errorf("%w: %s", ErrUpdateFenced, c.notActingReason())
+		return nil, nil, fmt.Errorf("%w: %s", ErrUpdateFenced, c.notActingReason())
 	}
 	if c.updateMode() == updates.ModeOff {
-		return nil, ErrUpdateModeOff
+		return nil, nil, ErrUpdateModeOff
 	}
 	h, err := c.st.GetHost(ctx, hostID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	target := hostTarget()
 	if target == "" {
-		return nil, ErrUpdateNotARelease
+		return nil, nil, ErrUpdateNotARelease
 	}
 	if can, why, _ := hostCanSelfUpdate(h, target, c.hostHelperUnsupported(h)); !can {
-		return nil, &hostCannotUpdateError{sentence: why}
+		return nil, nil, &hostCannotUpdateError{sentence: why}
 	}
 
 	attempt := &store.UpdateAttempt{
 		Scope: store.UpdateScopeHost, HostID: h.ID, FromVersion: h.Version, ToVersion: target,
-		Trigger: store.UpdateTriggerManual, RequestedBy: requestedBy(by),
+		Trigger: ask.trigger, RequestedBy: requestedBy(by), RolloutID: ask.rolloutID,
 	}
 	if err := c.st.CreateUpdateAttempt(ctx, attempt); err != nil {
 		if errors.Is(err, store.ErrConflict) {
-			return nil, ErrUpdateInProgress
+			return nil, nil, ErrUpdateInProgress
 		}
-		return nil, fmt.Errorf("recording the update attempt: %w", err)
+		return nil, nil, fmt.Errorf("recording the update attempt: %w", err)
 	}
 	c.log.Info("asked a host's agent to update it", "attempt", attempt.ID, "host", h.ID, "name", h.Name,
 		"from", attempt.FromVersion, "to", target, "requested_by", attempt.RequestedBy)
@@ -177,7 +185,7 @@ func (c *Controller) RequestHostUpdate(ctx context.Context, by UpdateActor, host
 	c.sendHostUpdate(h, *attempt)
 	c.publishHost(h)
 	view := c.HostView(h)
-	return &view, nil
+	return &view, attempt, nil
 }
 
 // sendHostUpdate queues the task for an open attempt, unless the host's agent
