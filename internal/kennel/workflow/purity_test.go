@@ -12,16 +12,14 @@ import (
 )
 
 // The parser is shared by the controller's collector and by the offline
-// `zoomies kennel check`, and the second of those must run on a laptop with no
-// controller and no GitHub client. So it may import the standard library's pure
-// parts and the YAML library, and nothing from this module: the moment it reaches
-// for the store, the GitHub package or the controller, the offline command
-// would drag them along.
-//
-// If a change here is deliberate, this list is what has to change with it, and a
-// reviewer is meant to see it do so.
+// zoomies kennel check, and the second of those must run on a laptop with no
+// controller and no GitHub client. So it may import the standard library's
+// pure parts and the YAML library, and nothing from this module: the moment it
+// reaches for the store, the GitHub package or the controller, the offline
+// command would drag them along. A deliberate change here changes this list,
+// where a reviewer sees it.
 var allowedImports = []string{
-	"bytes", "fmt", "io", "regexp", "strings", "gopkg.in/yaml.v3",
+	"bytes", "errors", "io", "regexp", "strings", "unicode/utf8", "gopkg.in/yaml.v3",
 }
 
 func sources(t *testing.T) []string {
@@ -58,9 +56,9 @@ func TestTheParserImportsNothingFromThisModuleOrTheOutsideWorld(t *testing.T) {
 	}
 }
 
-// The parser is handed bytes and answers with counts. A file read, an
-// environment lookup or a clock would make its answer depend on where and when
-// it ran, which is what a fixture-driven test cannot describe.
+// The parser is handed bytes and answers with facts. A file read, an
+// environment lookup or a clock would make its answer depend on where and
+// when it ran, which is what a fixture-driven test cannot describe.
 func TestTheParserNeverReadsAClockTheFilesystemOrTheEnvironment(t *testing.T) {
 	forbidden := map[string][]string{
 		"time": {"Now", "Since", "Until", "After", "AfterFunc", "Sleep", "Tick", "NewTicker", "NewTimer"},
@@ -78,7 +76,7 @@ func TestTheParserNeverReadsAClockTheFilesystemOrTheEnvironment(t *testing.T) {
 				return true
 			}
 			if id, ok := sel.X.(*ast.Ident); ok && slices.Contains(forbidden[id.Name], sel.Sel.Name) {
-				t.Errorf("%s: %s.%s: the parser is given bytes and gives counts", fset.Position(sel.Pos()), id.Name, sel.Sel.Name)
+				t.Errorf("%s: %s.%s: the parser is given bytes and gives facts", fset.Position(sel.Pos()), id.Name, sel.Sel.Name)
 			}
 			return true
 		})

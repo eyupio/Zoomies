@@ -66,7 +66,7 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import StateCell from '$lib/components/StateCell.svelte';
-  import { endOfDay, startOfDay } from '$lib/jobs/DateRange.svelte';
+  import { endOfMoment, startOfMoment } from '$lib/jobs/DateRange.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
   import JobDrawer from '$lib/jobs/JobDrawer.svelte';
   import JobFilters from '$lib/jobs/JobFilters.svelte';
@@ -210,8 +210,8 @@
         state: filters.state,
         provisioning: filters.provisioning,
         cancelling: inHand ? false : undefined,
-        since: startOfDay(filters.since),
-        until: endOfDay(filters.until),
+        since: startOfMoment(filters.since),
+        until: endOfMoment(filters.until),
         unmatched: filters.unmatched ? true : undefined,
         hosted: filters.hosted === 'false' ? false : undefined,
         failed: filters.failed ? true : undefined,

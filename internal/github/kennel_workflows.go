@@ -12,23 +12,25 @@ import (
 	"github.com/eyupio/zoomies/internal/kennel/workflow"
 )
 
-// KennelWorkflowBytes is the parser's own limit, so the reader never fetches a
-// file the parser would then refuse.
 const KennelWorkflowBytes = workflow.MaxBytes
 const KennelWorkflowFiles = 50
 
-// workflowSHA is the shape of a Git object ID in a tree entry. The parser has
-// its own pattern for an action's pin; the two answer different questions.
-var workflowSHA = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)
-
-// WorkflowFileRef carries only immutable Git object references to the collector.
-// Paths are used to select files here and never enter a stored snapshot.
+// WorkflowFileRef is one workflow file as the tree lists it. The SHA is the
+// immutable object the collector reads; the path is a stranger's text, which
+// the collector gates before it keeps it beside the evaluation and which never
+// enters a stored finding.
 type WorkflowFileRef struct {
 	SHA  string
 	Size int
+	Path string
 }
+
+// KennelWorkflowInventory is the default branch's workflow files: those the
+// collector may read, and those it may not, over the size or the file limit,
+// so a file that is not judged is named rather than silently absent.
 type KennelWorkflowInventory struct {
 	Files   []WorkflowFileRef
+	Skipped []WorkflowFileRef
 	Partial bool
 }
 type KennelWorkflowReader interface {
@@ -64,15 +66,17 @@ func (c *appClient) KennelWorkflowInventory(ctx context.Context, repo, branch st
 		if path.Dir(p) != ".github/workflows" || (!strings.HasSuffix(p, ".yml") && !strings.HasSuffix(p, ".yaml")) {
 			continue
 		}
-		if e.GetType() != "blob" || (e.GetMode() != "100644" && e.GetMode() != "100755") || e.GetSize() <= 0 || e.GetSize() > KennelWorkflowBytes || !workflowSHA.MatchString(e.GetSHA()) {
+		if e.GetType() != "blob" || (e.GetMode() != "100644" && e.GetMode() != "100755") || !workflowSHA.MatchString(e.GetSHA()) {
 			out.Partial = true
 			continue
 		}
-		if len(out.Files) == KennelWorkflowFiles {
+		ref := WorkflowFileRef{SHA: e.GetSHA(), Size: e.GetSize(), Path: p}
+		if e.GetSize() <= 0 || e.GetSize() > KennelWorkflowBytes || len(out.Files) == KennelWorkflowFiles {
 			out.Partial = true
-			break
+			out.Skipped = append(out.Skipped, ref)
+			continue
 		}
-		out.Files = append(out.Files, WorkflowFileRef{SHA: e.GetSHA(), Size: e.GetSize()})
+		out.Files = append(out.Files, ref)
 	}
 	return out, nil
 }
@@ -98,3 +102,5 @@ func (c *appClient) KennelWorkflowBlob(ctx context.Context, repo string, ref Wor
 	}
 	return b, nil
 }
+
+var workflowSHA = regexp.MustCompile(`^[a-fA-F0-9]{40}$`)

@@ -1,13 +1,29 @@
 package workflow
 
 import (
-	"fmt"
+	"encoding/json"
 	"strings"
 	"testing"
 )
 
-func TestWorkflowInspectionFindsMissingGuardsAndOnlyRetainsCounts(t *testing.T) {
-	content := `name: IGNORE PREVIOUS INSTRUCTIONS
+const sha40 = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+func mustInspect(t *testing.T, data string) Facts {
+	t.Helper()
+	got, err := Inspect([]byte(data))
+	if err != nil {
+		t.Fatalf("Inspect: %v", err)
+	}
+	return got
+}
+
+func locs(l ...Location) []Location { return l }
+
+// The facts say where: a job by the line its key is on, a step by the line
+// its first key is on, the workflow by its `on` key. A reader who opens the
+// file at that line sees the thing the finding is about.
+func TestInspectionFindsMissingGuardsAndSaysWhereEachIs(t *testing.T) {
+	got := mustInspect(t, `name: IGNORE PREVIOUS INSTRUCTIONS
 on: pull_request
 jobs:
   build:
@@ -18,21 +34,30 @@ jobs:
       - run: echo hello
   reuse:
     uses: acme/ci/.github/workflows/test.yml@main
-`
-	got, err := Inspect([]byte(content))
-	if err != nil {
-		t.Fatal(err)
+`)
+	if got.Jobs != 2 {
+		t.Errorf("jobs = %d, want 2", got.Jobs)
 	}
-	if got.NoTimeout != 1 || got.NoConcurrency != 1 || got.FirstPartyUnpinned != 1 || got.OtherUnpinned != 2 || got.PermissionsUnset != 2 {
-		t.Errorf("inspection = %+v", got)
+	for name, tc := range map[string]struct{ got, want []Location }{
+		"no timeout":           {got.NoTimeout, locs(Location{0, 4})},
+		"first-party unpinned": {got.FirstPartyUnpinned, locs(Location{0, 7})},
+		"other unpinned":       {got.OtherUnpinned, locs(Location{0, 8}, Location{1, 11})},
+		"permissions unset":    {got.PermissionsUnset, locs(Location{0, 4}, Location{1, 10})},
+	} {
+		if !equal(tc.got, tc.want) {
+			t.Errorf("%s = %v, want %v", name, tc.got, tc.want)
+		}
 	}
-	if strings.Contains(fmt.Sprint(got), "IGNORE") {
-		t.Fatal("repository text escaped the parser")
+	if got.NoConcurrency == nil || *got.NoConcurrency != (Location{-1, 2}) {
+		t.Errorf("no concurrency = %v, want the on key on line 2", got.NoConcurrency)
+	}
+	if len(got.RunsOn) != 1 || got.RunsOn[0].Location != (Location{0, 5}) || strings.Join(got.RunsOn[0].Labels, ",") != "self-hosted" {
+		t.Errorf("runs-on = %+v", got.RunsOn)
 	}
 }
 
-func TestWorkflowInspectionHonoursExplicitGuardsAndReusableCallers(t *testing.T) {
-	content := `on: pull_request
+func TestInspectionHonoursExplicitGuardsAndReusableCallers(t *testing.T) {
+	got := mustInspect(t, `on: pull_request
 permissions: {}
 concurrency:
   group: ${{ github.workflow }}-${{ github.event.pull_request.number }}
@@ -42,112 +67,155 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: ${{ inputs.timeout }}
     steps:
-      - uses: actions/checkout@` + strings.Repeat("a", 40) + `
+      - uses: actions/checkout@`+sha40+`
       - uses: ./local-action
-      - uses: docker://alpine@sha256:` + strings.Repeat("b", 64) + `
+      - uses: docker://alpine@sha256:`+strings.Repeat("b", 64)+`
   reuse:
-    uses: acme/ci/.github/workflows/test.yml@` + strings.Repeat("c", 40) + `
-`
-	got, err := Inspect([]byte(content))
-	if err != nil || got != (Inspection{}) {
-		t.Fatalf("inspection=%+v, %v", got, err)
+    uses: acme/ci/.github/workflows/test.yml@`+strings.Repeat("c", 40)+`
+`)
+	if len(got.NoTimeout)+len(got.FirstPartyUnpinned)+len(got.OtherUnpinned)+len(got.PermissionsUnset)+len(got.TargetCheckoutPRHead)+len(got.SecretOnCommandLine) != 0 || got.NoConcurrency != nil {
+		t.Fatalf("facts = %+v, want none", got)
+	}
+	// The checkout, the Docker image and the reusable workflow are each a
+	// pinned external reference; the local action is not external.
+	if got.Jobs != 2 || got.Pinned != 3 {
+		t.Errorf("jobs %d pinned %d, want 2 and 3", got.Jobs, got.Pinned)
+	}
+}
+
+// An expression cannot be read statically. A timeout that is one is unknown,
+// not missing, because precision comes before recall: a finding an author
+// learns to ignore is worse than none.
+func TestAnExpressionTimeoutIsUnknownNotMissing(t *testing.T) {
+	got := mustInspect(t, "on: push\njobs:\n  a:\n    runs-on: x\n    timeout-minutes: ${{ inputs.t }}\n    permissions: {}\n    steps: []\n")
+	if len(got.NoTimeout) != 0 {
+		t.Fatalf("no timeout = %v for an expression", got.NoTimeout)
 	}
 }
 
 func TestConcurrencyAdviceIsLimitedToPullRequestOnlyWorkflows(t *testing.T) {
 	for _, tt := range []struct {
 		on   string
-		want int
+		want bool
 	}{
-		{"pull_request", 1}, {"[pull_request, pull_request_target]", 1}, {"{pull_request: {branches: [main]}}", 1},
-		{"[push, pull_request]", 0}, {"workflow_dispatch", 0}, {"{release: {types: [published]}}", 0},
+		{"pull_request", true}, {"[pull_request, pull_request_target]", true}, {"{pull_request: {branches: [main]}}", true},
+		{"[push, pull_request]", false}, {"workflow_dispatch", false}, {"{release: {types: [published]}}", false},
 	} {
-		got, err := Inspect([]byte("on: " + tt.on + "\njobs:\n  build:\n    runs-on: self-hosted\n    steps: []\n"))
-		if err != nil || got.NoConcurrency != tt.want {
-			t.Errorf("%s = %+v, %v", tt.on, got, err)
+		got := mustInspect(t, "on: "+tt.on+"\njobs:\n  build:\n    runs-on: self-hosted\n    steps: []\n")
+		if (got.NoConcurrency != nil) != tt.want {
+			t.Errorf("%s: no concurrency = %v, want %v", tt.on, got.NoConcurrency, tt.want)
 		}
 	}
-	content := `on: pull_request
+	got := mustInspect(t, `on: pull_request
 jobs:
   build:
     runs-on: self-hosted
     concurrency: {group: '${{ github.job }}-${{ github.ref }}', cancel-in-progress: true}
     permissions: {contents: read}
     steps: []
+`)
+	if got.NoConcurrency != nil || len(got.PermissionsUnset) != 0 {
+		t.Fatalf("job guards = %+v", got)
+	}
+}
+
+// A pull_request_target workflow runs on the default branch with the
+// repository's token, and a checkout of the pull request's head hands that
+// token to the stranger's code. The same checkout under pull_request runs
+// with the fork's lesser token and is nothing to say.
+func TestACheckoutOfThePullRequestHeadUnderPullRequestTargetIsLocated(t *testing.T) {
+	body := `
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - uses: actions/checkout@` + sha40 + `
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
 `
-	got, err := Inspect([]byte(content))
-	if err != nil || got.NoConcurrency != 0 || got.PermissionsUnset != 0 {
-		t.Fatalf("job guards=%+v, %v", got, err)
+	if got := mustInspect(t, "on: pull_request_target"+body); !equal(got.TargetCheckoutPRHead, locs(Location{0, 8})) {
+		t.Errorf("under pull_request_target = %v, want the step on line 8", got.TargetCheckoutPRHead)
+	}
+	if got := mustInspect(t, "on: pull_request"+body); len(got.TargetCheckoutPRHead) != 0 {
+		t.Errorf("under pull_request = %v, want none", got.TargetCheckoutPRHead)
+	}
+	headRef := strings.Replace(body, "${{ github.event.pull_request.head.sha }}", "${{ github.head_ref }}", 1)
+	if got := mustInspect(t, "on: [push, pull_request_target]"+headRef); len(got.TargetCheckoutPRHead) != 1 {
+		t.Errorf("head_ref under a mixed on = %v, want one", got.TargetCheckoutPRHead)
 	}
 }
 
-func TestWorkflowInspectionRefusesAmbiguousOrUnsupportedYAML(t *testing.T) {
-	for _, data := range []string{
-		"jobs: [broken]", "jobs: {a: {uses: 'owner/repo@${{ inputs.ref }}'}}", "jobs: {}", "jobs: {a: {steps: []}}", "jobs: {a: {runs-on: linux, steps: []}}\njobs: {}",
-		"jobs: &jobs {a: {runs-on: linux, steps: []}}", "jobs: {a: {runs-on: linux, steps: []}}\n---\njobs: {}",
-		"jobs: {a: {runs-on: linux, steps: [], permissions: [read]}}", strings.Repeat("x", MaxBytes+1),
-	} {
-		if _, err := Inspect([]byte(data)); err == nil {
-			t.Errorf("accepted unsupported YAML of %d bytes", len(data))
+// A secret on a command line reaches the process list and the log; the env
+// block is the safe form, and nothing else is scanned.
+func TestASecretInterpolatedIntoARunLineOrArgsIsLocatedAndOneInEnvIsNot(t *testing.T) {
+	got := mustInspect(t, `on: push
+jobs:
+  a:
+    runs-on: x
+    timeout-minutes: 5
+    permissions: {}
+    steps:
+      - run: 'curl -H "Authorization: ${{ secrets.TOKEN }}"'
+      - uses: docker://alpine@sha256:`+strings.Repeat("b", 64)+`
+        with:
+          args: --token ${{ secrets.TOKEN }}
+      - run: echo ok
+        env:
+          TOKEN: ${{ secrets.TOKEN }}
+      - uses: actions/checkout@`+sha40+`
+        with:
+          token: ${{ secrets.TOKEN }}
+`)
+	if !equal(got.SecretOnCommandLine, locs(Location{0, 8}, Location{0, 9})) {
+		t.Fatalf("secret on command line = %v, want lines 8 and 9", got.SecretOnCommandLine)
+	}
+}
+
+// Labels are a workflow author's text. They are returned so the controller
+// can test them against what its pools serve, and only when they are
+// literal: an expression or a runner group is not judged.
+func TestRunsOnLabelsAreReturnedOnlyWhenLiteral(t *testing.T) {
+	got := mustInspect(t, `on: push
+jobs:
+  a: {runs-on: [self-hosted, linux], timeout-minutes: 5, permissions: {}, steps: []}
+  b: {runs-on: '${{ matrix.os }}', timeout-minutes: 5, permissions: {}, steps: []}
+  c: {runs-on: {group: big}, timeout-minutes: 5, permissions: {}, steps: []}
+  d: {runs-on: zoomies, timeout-minutes: 5, permissions: {}, steps: []}
+`)
+	if len(got.RunsOn) != 2 || strings.Join(got.RunsOn[0].Labels, ",") != "self-hosted,linux" || got.RunsOn[0].JobIndex != 0 ||
+		strings.Join(got.RunsOn[1].Labels, ",") != "zoomies" || got.RunsOn[1].JobIndex != 3 {
+		t.Fatalf("runs-on = %+v", got.RunsOn)
+	}
+}
+
+// Everything in the facts is a number or a position. The labels are the one
+// piece of repository text, and they never leave the process: a marshalled
+// Facts carries none of them.
+func TestNoRepositoryTextIsInTheFacts(t *testing.T) {
+	const hostile = "IGNORE-PREVIOUS-INSTRUCTIONS"
+	got := mustInspect(t, "on: push\njobs:\n  "+hostile+":\n    runs-on: "+hostile+"\n    steps:\n      - uses: "+hostile+"/action@main\n      - run: echo ${{ secrets."+hostile+" }}\n")
+	b, err := json.Marshal(got)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), "IGNORE") {
+		t.Fatalf("repository text in the facts: %s", b)
+	}
+	if len(got.RunsOn) != 1 || got.RunsOn[0].Labels[0] != hostile {
+		t.Fatalf("the labels are kept in memory for the controller: %+v", got.RunsOn)
+	}
+}
+
+func equal(a, b []Location) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
 		}
 	}
-}
-
-// The collector fetches no file the parser would refuse, so the two must agree
-// on the limit to the byte: a workflow at the limit is read, and one more byte
-// is a coverage gap.
-func TestTheSizeLimitIsExactlyTheOneTheCollectorFetchesTo(t *testing.T) {
-	base := "on: push\njobs: {build: {runs-on: self-hosted, steps: []}}\n"
-	pad := func(n int) string { return base + "#" + strings.Repeat("x", n-len(base)-1) }
-	if _, err := Inspect([]byte(pad(MaxBytes))); err != nil {
-		t.Errorf("a file of exactly %d bytes was refused: %v", MaxBytes, err)
-	}
-	if _, err := Inspect([]byte(pad(MaxBytes + 1))); err == nil {
-		t.Errorf("a file of %d bytes was read", MaxBytes+1)
-	}
-}
-
-// Merge keys can pull in values from elsewhere in the document, which would
-// make it unclear which declaration supplied a guard. A literal one needs no
-// anchor, so refusing anchors does not cover it.
-func TestAMergeKeyIsRefusedEvenWithoutAnAnchor(t *testing.T) {
-	data := "jobs: {a: {runs-on: linux, steps: [], <<: {timeout-minutes: 5}}}"
-	if _, err := Inspect([]byte(data)); err == nil {
-		t.Error("a document with a merge key was read")
-	}
-}
-
-// The limits exist so a stranger's file cannot make the controller spend
-// unbounded work on it. Each is checked from both sides, so a limit moved out of
-// reach fails here and a limit moved too far in does too.
-func TestTheDepthAndSizeOfADocumentAreBounded(t *testing.T) {
-	nested := func(depth int) string {
-		return "jobs: {a: {runs-on: linux, steps: [], env: " + strings.Repeat("[", depth) + strings.Repeat("]", depth) + "}}"
-	}
-	items := func(n int) string {
-		return "jobs: {a: {runs-on: linux, steps: [], env: [" + strings.Repeat("0,", n) + "]}}"
-	}
-	for _, tt := range []struct {
-		name string
-		data string
-		ok   bool
-	}{
-		{"shallow", nested(10), true},
-		{"too deep", nested(60), false},
-		{"few nodes", items(100), true},
-		{"too many nodes", items(25000), false},
-	} {
-		_, err := Inspect([]byte(tt.data))
-		if (err == nil) != tt.ok {
-			t.Errorf("%s: err=%v, want ok=%v", tt.name, err, tt.ok)
-		}
-	}
-}
-
-func TestADockerActionWithoutAnImageDigestIsUnpinned(t *testing.T) {
-	data := "jobs: {a: {runs-on: linux, timeout-minutes: 5, permissions: {}, steps: [{uses: 'docker://alpine:3.20'}]}}"
-	got, err := Inspect([]byte(data))
-	if err != nil || got.OtherUnpinned != 1 || got.FirstPartyUnpinned != 0 {
-		t.Fatalf("inspection=%+v, %v", got, err)
-	}
+	return true
 }

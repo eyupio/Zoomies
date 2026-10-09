@@ -118,6 +118,23 @@ Fix
 Verify
 :   Press Recheck once the workflow has been reviewed or moved; the finding closes when no run for those events has executed here in the window.
 
+### `exposure.target_checkout_pr_head` { #exposure-target_checkout_pr_head }
+
+Area
+:   exposure
+
+Severity
+:   error
+
+Detects
+:   A workflow that strangers can trigger (pull_request_target) checks out the pull request's own code, which then runs with the repository's token and secrets.
+
+Fix
+:   Do not check out the pull request's head under pull_request_target; read what the event carries, or run the code under pull_request, where it gets the fork's lesser token and no secrets.
+
+Verify
+:   Press Recheck after the change reaches the default branch; the finding closes when no pull_request_target workflow checks out the pull request's head.
+
 ### `capacity.unserved_label` { #capacity-unserved_label }
 
 Area
@@ -390,6 +407,74 @@ Fix
 Verify
 :   Press Recheck after the change reaches the default branch; the finding closes when every job has a permissions block of its own or its workflow's.
 
+### `ci.workflow_unreadable` { #ci-workflow_unreadable }
+
+Area
+:   ci
+
+Severity
+:   warning
+
+Detects
+:   A workflow file could not be read within Kennel Club's limits, so nothing in it was judged.
+
+Fix
+:   Bring the file within the limits: under 256 KiB, no YAML anchors, aliases or merge keys, no duplicate keys, one document, valid UTF-8 and a jobs mapping; or split it into smaller workflows.
+
+Verify
+:   Press Recheck after the change reaches the default branch; the finding closes when the file is read and judged.
+
+### `ci.pins_without_updater` { #ci-pins_without_updater }
+
+Area
+:   ci
+
+Severity
+:   info
+
+Detects
+:   Actions are pinned to commits but no updater configuration moves the pins, so they age until somebody remembers.
+
+Fix
+:   Configure Dependabot or Renovate for GitHub Actions so the pinned commits are moved by pull request, or confirm that an external service moves them.
+
+Verify
+:   Press Recheck once the configuration is on the default branch; the finding closes when the next tree read finds it.
+
+### `ci.label_unserved` { #ci-label_unserved }
+
+Area
+:   ci
+
+Severity
+:   info
+
+Detects
+:   A job's runs-on names labels no pool here serves, so the job will wait until a pool matches it.
+
+Fix
+:   Change the job's runs-on to labels a pool serves, or add the label to a pool that can run the job.
+
+Verify
+:   Press Recheck after the pool or the workflow changes; the finding closes when every job's runs-on is served.
+
+### `ci.secret_on_command_line` { #ci-secret_on_command_line }
+
+Area
+:   ci
+
+Severity
+:   warning
+
+Detects
+:   A secret is interpolated into a run line or a command-line argument, where it reaches the process list and the log.
+
+Fix
+:   Pass the secret through the step's env block and read it from the environment in the command; never interpolate it into run or args.
+
+Verify
+:   Press Recheck after the change reaches the default branch; the finding closes when no run line or args interpolates a secret.
+
 <!-- zoomies:catalogue-end -->
 
 **Exposure** is about strangers. Code from outside your project should never
@@ -486,6 +571,20 @@ One more thing looks like a standing and is not one: **Not tracked** means
 somebody told Kennel Club not to look at the repository. See
 [Stopping Kennel Club looking at a repository](#stopping-kennel-club-looking-at-a-repository).
 
+### Where a workflow finding points
+
+A finding from a workflow file says which file, which job and which line, as
+`.github/workflows/ci.yml:41 (job 2)`, so the person who opens it knows where
+to look before they open the editor. The file is identified by the SHA of the
+blob that was read, not by its path: a path is text somebody chose and a blob
+SHA is not, so the page shows the path only where it has the shape a workflow
+path always has, and otherwise says the workflow has an unusual name. A waiver
+of such a finding is about that one file, named by the first twelve characters
+of its SHA, and ends by itself when the file changes, because the finding it
+excused is no longer the finding there is. A finding about the repository as a
+whole, such as pins that no updater moves, has no file and a waiver of it covers
+the repository.
+
 ## What it reads
 
 Every check names the facts it needs, and a check whose facts cannot be read is
@@ -497,7 +596,7 @@ Every check names the facts it needs, and a check whose facts cannot be read is
 | **Repository details** | The repository's own record, above all whether it is public. | *Repository permissions: Metadata: Read-only* |
 | **Workflow runs** | What triggered the runs this fleet ran, and which repository they came from. Read for **public repositories only**. | *Repository permissions: Actions: Read-only* |
 | **Repository setup files** | The default branch's file names. Read only when `kennel.repository_setup` is on. | *Repository permissions: Contents: Read-only*, needed for private repositories |
-| **Workflow best practices** | The default branch's workflow files, read for timeouts, concurrency, action pins and token permissions. Read only when `kennel.workflow_checks` is on. | *Repository permissions: Contents: Read-only*, needed for private repositories |
+| **Workflow best practices** | The default branch's workflow files, read for timeouts, concurrency, action pins, token permissions, a `pull_request_target` workflow that checks out the pull request's head, a secret interpolated into a command line, a `runs-on` label no pool of this fleet serves, pins that no updater moves, and a file that could not be read at all. A finding from here names the file, the job and the line. Read only when `kennel.workflow_checks` is on. | *Repository permissions: Contents: Read-only*, needed for private repositories |
 
 A source can be in one of these states, and the Kennel Club page shows it beside
 the repository it affects:
@@ -536,7 +635,7 @@ are made only when one of the opt-in switches is on.
 | `GET /orgs/{org}/actions/runner-groups` | Whether the organisation runner group a pool joins allows public repositories, so a finding can say so. |
 | `GET /rate_limit` | The limit the installation reports, which the budget is a share of. GitHub does not count this request against the limit. |
 | `GET /repos/{owner}/{repo}/git/trees/{tree}` | The default branch's file names, one conditional request for each repository on each refresh, for the setup checks and to find the workflow files. Inspection stops at 10,000 entries, and a truncated tree produces no "missing" findings. |
-| `GET /repos/{owner}/{repo}/git/blobs/{blob}` | One workflow file, pinned to the immutable blob the tree named. At most 50 files a refresh, each at most 256 KiB. The file is parsed and never executed, and what is kept is counts: no path, job name, expression or text. |
+| `GET /repos/{owner}/{repo}/git/blobs/{blob}` | One workflow file, pinned to the immutable blob the tree named. At most 50 files a refresh, each at most 256 KiB. The file is parsed and never executed, and what is kept is where each finding is, as the blob's SHA, a job's index and a line number, together with the file's path where it is one of the usual shape: no job name, expression or text. |
 
 ## What it never does
 

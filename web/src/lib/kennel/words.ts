@@ -415,3 +415,19 @@ export function kennelSwitchOutcome(
 export function kennelPinnedSentence(variable: string, holds: boolean): string {
   return `${variable} is set in this controller's environment, and the environment has the last word, so Kennel Club stays ${holds ? 'on' : 'off'} until that is changed there.`;
 }
+
+/**
+ * Where a workflow finding points, as a person reads it: the path with the
+ * line, and the job counted from one. A path the gate did not let through is
+ * said to be unusual rather than shown, and a finding about the whole file
+ * carries no line.
+ */
+export function fileEvidenceText(path: string, jobIndex: number, line: number): string {
+  const job = jobIndex >= 0 ? ` (job ${jobIndex + 1})` : '';
+  if (!path) {
+    return line > 0
+      ? `a workflow with an unusual name, line ${line}${job}`
+      : 'a workflow with an unusual name';
+  }
+  return line > 0 ? `${path}:${line}${job}` : path;
+}

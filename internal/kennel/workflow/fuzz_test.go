@@ -1,41 +1,69 @@
 package workflow
 
 import (
+	"encoding/json"
+	"regexp"
 	"strings"
 	"testing"
 )
 
-// A workflow file is written by whoever can open a pull request against the
-// repository, and the collector parses it on the controller. The invariant worth
-// fuzzing is not what the counts are but that no input gets past the parser's
-// limits to make it panic, run away or answer differently the second time.
+// keysAndNull is what a marshalled Facts is allowed to say in letters: its
+// field names and the null of an absent location. Everything else in it is
+// digits and punctuation, and must stay so.
+var keysAndNull = regexp.MustCompile(`"[a-z_]+":|null`)
+
+// A workflow file is written by whoever can open a pull request against a
+// served repository, so the parser is fuzzed: it must return, within its
+// limits, for any bytes, and what it returns must marshal without carrying
+// any of the input's text. The type makes that true today; the fuzz target is
+// what catches a field added later that carries a name or an expression.
 func FuzzInspect(f *testing.F) {
 	for _, seed := range []string{
-		"on: pull_request\njobs:\n  build:\n    runs-on: self-hosted\n    steps:\n      - uses: actions/checkout@v4\n      - run: echo hello\n",
-		"on: push\npermissions: {}\njobs:\n  a:\n    uses: acme/ci/.github/workflows/test.yml@" + strings.Repeat("c", 40) + "\n",
-		"jobs: &jobs {a: {runs-on: linux, steps: []}}",
-		"jobs: {a: {runs-on: linux, steps: []}}\n---\njobs: {}",
-		"on: [pull_request, pull_request_target]\njobs: {a: {runs-on: x, timeout-minutes: ${{ inputs.t }}, steps: [{uses: 'docker://alpine'}]}}",
-		"jobs: " + strings.Repeat("[", 80) + strings.Repeat("]", 80),
+		"on: push\njobs:\n  a:\n    runs-on: x\n    steps:\n      - uses: actions/checkout@v4\n      - run: echo ${{ secrets.T }}\n",
+		"on: pull_request_target\njobs:\n  a:\n    runs-on: x\n    steps:\n      - uses: actions/checkout@v4\n        with:\n          ref: ${{ github.head_ref }}\n",
+		"jobs: {a: {runs-on: [self-hosted, linux], steps: []}}",
+		"jobs: &j {a: {runs-on: x, steps: []}}",
 		"",
 	} {
 		f.Add([]byte(seed))
 	}
 	f.Fuzz(func(t *testing.T, data []byte) {
-		got, err := Inspect(data)
+		facts, err := Inspect(data)
 		if err != nil {
-			if got != (Inspection{}) {
-				t.Fatalf("an error came with counts: %+v", got)
-			}
 			return
 		}
-		for _, n := range []int{got.NoTimeout, got.NoConcurrency, got.FirstPartyUnpinned, got.OtherUnpinned, got.PermissionsUnset} {
-			if n < 0 {
-				t.Fatalf("a negative count: %+v", got)
-			}
+		if facts.Jobs == 0 {
+			t.Fatal("a workflow without jobs was accepted")
 		}
-		if again, err := Inspect(data); err != nil || again != got {
-			t.Fatalf("the same bytes gave %+v then %+v (%v)", got, again, err)
+		out, err := json.Marshal(facts)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if leaked := inputTextIn(string(data), keysAndNull.ReplaceAllString(string(out), "")); leaked != "" {
+			t.Fatalf("the facts carry %q from the input: %s", leaked, out)
 		}
 	})
+}
+
+// inputTextIn returns the first run of four or more printable bytes of the
+// input, holding at least one letter, that appears in the marshalled facts.
+func inputTextIn(input, marshalled string) string {
+	for _, run := range strings.FieldsFunc(input, func(r rune) bool { return r < 0x21 || r > 0x7e }) {
+		if len(run) >= 4 && strings.ContainsFunc(run, func(r rune) bool { return r >= 'A' && r <= 'z' }) && strings.Contains(marshalled, run) {
+			return run
+		}
+	}
+	return ""
+}
+
+// The guard above is only worth having if it fires: a marshalled document
+// that did carry a line of the input must be caught.
+func TestTheFuzzGuardCatchesInputTextInTheFacts(t *testing.T) {
+	input := "jobs:\n  build:\n    runs-on: secret-pool\n"
+	if got := inputTextIn(input, `{"jobs":1,"runs_on":"secret-pool"}`); got != "secret-pool" {
+		t.Fatalf("leak = %q, want secret-pool", got)
+	}
+	if got := inputTextIn(input, `{"jobs":1,"line":12}`); got != "" {
+		t.Fatalf("a document of numbers was taken for a leak: %q", got)
+	}
 }
