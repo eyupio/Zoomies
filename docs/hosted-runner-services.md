@@ -1,9 +1,9 @@
 ---
 icon: material/cloud-check-outline
-title: "Zoomies vs Blacksmith, WarpBuild and RunsOn"
+title: "Zoomies vs Blacksmith, WarpBuild, RunsOn and Depot"
 description: >-
-  How running your own runners with Zoomies compares with Blacksmith, WarpBuild
-  and RunsOn: where jobs run, what each costs, and when each is the better
+  How running your own runners with Zoomies compares with Blacksmith, WarpBuild,
+  RunsOn and Depot: where jobs run, what each costs, and when each is the better
   choice.
 ---
 
@@ -16,7 +16,8 @@ account for a fee. Zoomies is a third kind: free software you run on machines
 you already have, wherever they are.
 
 The prices below are from each company's own pricing page, as of September
-2026. They change often; check the linked page before relying on a number.
+2026 (Depot's, as of 9 October 2026). They change often; check the linked page
+before relying on a number.
 
 ## At a glance
 
@@ -26,6 +27,7 @@ The prices below are from each company's own pricing page, as of September
 | [Blacksmith](https://www.blacksmith.sh/pricing) | Blacksmith's infrastructure | Per minute, with 3,000 free minutes a month | Linux x64 and arm64, Windows, macOS |
 | [WarpBuild](https://www.warpbuild.com/pricing) | WarpBuild's cloud | Per minute | Linux x64 and arm64, Windows, macOS |
 | [WarpBuild BYOC](https://www.warpbuild.com/docs/ci/byoc) | Your AWS, Google Cloud or Azure account | $0.002 a minute to WarpBuild, plus your cloud bill | Linux; Windows on AWS and Azure |
+| [Depot](https://depot.dev/pricing) | Depot's infrastructure (single-tenant EC2 instances), or your own AWS account | A monthly plan (Developer $20 with 2,000 minutes, Startup $200 with 20,000), then $0.006 a minute | Linux x86 and Arm, Windows; macOS on Startup and Business plans |
 | [RunsOn](https://runs-on.com/pricing/) | Your AWS account, on EC2 | A yearly licence from €300 (free for non-commercial use), plus your AWS bill | Linux x64 and arm64, Windows |
 | Zoomies | Machines you own or rent, anywhere | Nothing, [AGPL-3.0](https://github.com/eyupio/zoomies/blob/main/LICENSE), plus the machines | Linux x64 and arm64; Windows [not yet qualified](index.md#what-is-qualified) |
 
@@ -42,8 +44,17 @@ Sizes differ between services, so compare the machine as well as the price.
 ## When a runner service is the better choice
 
 - **You need macOS.** Zoomies has no macOS runner image, RunsOn does not run
-  macOS, and WarpBuild's BYOC pricing lists Linux and Windows only. Blacksmith
-  and WarpBuild's own cloud do run macOS.
+  macOS, and WarpBuild's BYOC pricing lists Linux and Windows only. Blacksmith,
+  WarpBuild's own cloud and Depot (on its Startup and Business plans) do run
+  macOS.
+- **You want the fleet run for you, with a cache built in.** Depot's
+  [GitHub Actions runners](https://depot.dev/docs/github-actions/overview) run
+  each job on a fresh EC2 instance that is never reused and, per its docs, are
+  integrated with Depot's cache with no configuration; egress filtering is listed
+  on its Business plan, which Zoomies does not offer. Depot's runners only
+  support repositories owned by a GitHub organisation, so a personal-account
+  repository needs something else; Zoomies works with a personal-account
+  repository too ([FAQ](faq.md#do-i-need-a-github-organisation)).
 - **You do not want machines to look after.** A per-minute service has no hosts
   to patch, no disks to fill and no images to keep current. That is most of what
   you are paying for, and it is worth paying for if nobody on the team wants the
@@ -61,7 +72,8 @@ Sizes differ between services, so compare the machine as well as the price.
 - **You already run on AWS**, and want CI inside the same account, network and
   bill. RunsOn launches EC2 instances in your account at spot prices with no
   per-minute markup, for a yearly licence; WarpBuild's BYOC does the same across
-  AWS, Google Cloud and Azure for a per-minute fee.
+  AWS, Google Cloud and Azure for a per-minute fee. Depot's docs say its
+  runners can also run in your own AWS account.
 - **You want a machine per job.** RunsOn gives each job its own EC2 instance.
   Zoomies gives each job a fresh container on a shared host, see
   [hosts and pools](hosts-and-pools.md).
