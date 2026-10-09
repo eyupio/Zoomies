@@ -1,17 +1,22 @@
 /**
  * What the Updates page says, as functions of what the API answered.
  *
- * Everything here is in the conditional. This part of the product reads what an
- * update mode would do and installs nothing, so a sentence saying an update is
- * happening, or will, would promise what nothing keeps. The controller's own
- * sentence for each state travels with the status and is shown as it was given;
- * these are the lines around it, kept out of the components so that they are
- * tested once and read the same wherever they appear.
+ * What the mode would take is in the conditional, because nothing moves a
+ * release on its own yet. An update a person has asked for is in the present,
+ * and only as far as the controller has said so: a sentence that an update
+ * worked is written from an attempt the controller closed as succeeded, or from
+ * a build it reports running the release, and never from a request having been
+ * accepted. The controller's own sentence for each state travels with the status
+ * and is shown as it was given; these are the lines around it, kept out of the
+ * components so that they are tested once and read the same wherever they appear.
  */
 import type { Role, UpdatesStatus } from '../api/types';
 import { describeWindow, parseGoDuration, pluralise, toMillis } from '../format';
+import type { RestartCopy } from '../settings/restart-copy';
 
 export type UpdateMode = UpdatesStatus['mode'];
+/** The controller's latest update attempt, open or ended. */
+export type ControllerAttempt = NonNullable<UpdatesStatus['controller']>;
 
 const HOUR = 3_600_000;
 const MINUTE = 60_000;
@@ -141,3 +146,198 @@ export function releaseHref(url: string | null | undefined): string | null {
 export function modeSettingHref(can: (needed: Role) => boolean): string | null {
   return can('platform') ? '/settings/configuration?setting=updates.mode' : null;
 }
+
+/* -- updating the controller ---------------------------------------------- */
+
+/** Release binaries report 1.3.5 where the tag is v1.3.5, so the two are compared without the v. */
+function bare(version: string): string {
+  return version.trim().replace(/^v/, '');
+}
+
+/** Whether the build the controller reports is the release the attempt asked for. */
+export function runsRelease(running: string, tag: string): boolean {
+  return bare(running) !== '' && bare(running) === bare(tag);
+}
+
+/**
+ * Where to look when an update did not end well. Both are on the controller's
+ * host, and neither names a path, so every role may be told.
+ */
+export const HELPER_LOOK_AT =
+  "Look at zoomies updates helper status, and at the journal of the unit zoomies-update (journalctl -u zoomies-update), on the controller's host.";
+
+export interface AttemptWords {
+  /** One word for the badge. */
+  label: string;
+  /** Never a status colour except for an update that did not work, which is what danger is for. */
+  tone: 'neutral' | 'accent' | 'danger';
+  title: string;
+  detail: string;
+  /** Still in flight: the page keeps watching and says nothing final. */
+  open: boolean;
+  /** Where to look when it did not end well, or empty. */
+  lookAt: string;
+}
+
+/**
+ * The controller's latest attempt, in words.
+ *
+ * `running` is the build the controller reports now. An attempt still open
+ * while the controller already runs the release it asked for is shown as done:
+ * the new process records the ending a moment after it starts, and for that
+ * moment the status already says what happened. That is the controller's word,
+ * not this page's guess. An open attempt with the old build running is never
+ * shown as done, however long the page has waited.
+ */
+export function attemptWords(attempt: ControllerAttempt, running: string): AttemptWords {
+  const { to, from } = attempt;
+  const arrived = runsRelease(running, to);
+  const state = attempt.state === 'requested' && arrived ? 'succeeded' : attempt.state;
+  // Which build the controller runs, said without "still" once it is the target:
+  // an attempt that ended without the update can be read after somebody upgraded
+  // by hand, and "still" is a claim about the build it left.
+  const runs = arrived
+    ? `This controller runs ${running} now.`
+    : `This controller still runs ${running}.`;
+  switch (state) {
+    case 'requested':
+      return {
+        label: 'In progress',
+        tone: 'accent',
+        title: `Updating to ${to}`,
+        detail:
+          `The update from ${from} was asked for. The update helper on the controller's host installs ${to} and the controller restarts. ` +
+          'This page says how it ended when the controller does, and not before.',
+        open: true,
+        lookAt: '',
+      };
+    case 'succeeded':
+      return {
+        label: 'Updated',
+        tone: 'accent',
+        title: `Updated to ${to}`,
+        detail: `This controller was on ${from} and runs ${running} now.`,
+        open: false,
+        lookAt: '',
+      };
+    case 'timed_out':
+      return {
+        label: 'Timed out',
+        tone: 'danger',
+        title: `The update to ${to} timed out`,
+        detail: arrived
+          ? `No answer came from the update helper within 90 minutes. ${runs}`
+          : `No answer came from the update helper within 90 minutes, and this controller still runs ${running}.`,
+        open: false,
+        lookAt: HELPER_LOOK_AT,
+      };
+    case 'cancelled':
+      return {
+        label: 'Cancelled',
+        tone: 'neutral',
+        title: `The update to ${to} was cancelled`,
+        detail: runs,
+        open: false,
+        lookAt: '',
+      };
+    default:
+      return {
+        label: 'Failed',
+        tone: 'danger',
+        title: `The update to ${to} did not succeed`,
+        detail: runs,
+        open: false,
+        lookAt: HELPER_LOOK_AT,
+      };
+  }
+}
+
+/** Whether an attempt is one the page is waiting on, read the way `attemptWords` reads it. */
+export function attemptIsOpen(attempt: ControllerAttempt | null, running: string): boolean {
+  return attempt !== null && attemptWords(attempt, running).open;
+}
+
+export type UpdateOffer =
+  /** The button is offered, for this release. */
+  | { kind: 'offer'; tag: string }
+  /** An attempt is open, so the progress is shown in place of the button. */
+  | { kind: 'in-flight' }
+  /** No button, and the sentence says why. */
+  | { kind: 'none'; sentence: string; installCommand: string };
+
+/**
+ * Whether the controller can be updated from this page, by this reader, and if
+ * not, why not in the words of the first thing in the way.
+ *
+ * The order is the order an operator would fix them in: who you are, whether
+ * updating is on, whether this build is one that updates, whether the helper is
+ * there, and last whether there is anything to take.
+ */
+export function controllerOffer(status: UpdatesStatus, canPlatform: boolean): UpdateOffer {
+  if (attemptIsOpen(status.controller, status.running.version)) return { kind: 'in-flight' };
+  const none = (sentence: string, installCommand = ''): UpdateOffer => ({
+    kind: 'none',
+    sentence,
+    installCommand,
+  });
+  if (!canPlatform) return none('Updating the controller needs the platform role.');
+  if (status.mode === 'off')
+    return none('Updating is off. Set updates.mode to manual or auto to update from here.');
+  if (!status.running.release)
+    return none('This build is not from a release, so there is nothing to update it to from here.');
+  if (status.helper.state !== 'ready')
+    return none(status.helper.reason, status.helper.install_command);
+  const target = status.target;
+  if (!target?.newer)
+    return none('No newer release is on offer, so there is nothing to update to.');
+  return { kind: 'offer', tag: target.tag };
+}
+
+/**
+ * What the confirmation says before the controller is updated.
+ *
+ * The last line is as true as the code that makes the copy: the store copies the
+ * database before it applies a migration, and only when one is pending, so a
+ * release that changes nothing there takes none.
+ */
+export function confirmControllerUpdate(
+  tag: string,
+  running: string,
+): {
+  title: string;
+  description: string;
+  consequences: readonly string[];
+  confirmLabel: string;
+} {
+  return {
+    title: 'Update the controller',
+    description: `Update this controller from ${running} to ${tag}?`,
+    consequences: [
+      'The controller restarts. This page loses its connection for a short while and finds it again by itself.',
+      'Jobs that are running keep running.',
+      'If the release changes the database, a copy of it is kept first beside the database, and the last two copies are kept. A release that changes nothing there takes none.',
+    ],
+    confirmLabel: `Update to ${tag}`,
+  };
+}
+
+/** What the restart state says while the controller is stopped and started again by an update. */
+export const UPDATE_RESTART: RestartCopy = {
+  titles: {
+    stopping: 'Waiting for the controller to restart',
+    starting: 'Waiting for the controller to answer',
+    back: 'The controller is answering again',
+    'stuck-up': 'The controller has not stopped',
+    'stuck-down': 'The controller has not come back yet',
+  },
+  stopping: 'The update helper is replacing the controller. This page waits for the restart.',
+  starting:
+    'This page has lost its connection to the controller, which is what the restart of an update looks like. It finds the controller again by itself. Jobs that are running keep running.',
+  back: 'Reloading, to read how the update ended.',
+  stuckUp: () => 'The controller is still answering.',
+  stuckDown: (seconds) =>
+    `The controller has not answered in ${pluralise(Math.round(seconds / 60), 'minute')}. ` +
+    'It serves nothing while it migrates its database, which on a large one can take minutes, so it may still be starting. ' +
+    `The update stays open until the controller says how it ended, and a build that fails to start is not rolled back for you. ${HELPER_LOOK_AT}`,
+  command: 'zoomies updates helper status',
+};

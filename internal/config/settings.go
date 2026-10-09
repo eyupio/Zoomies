@@ -833,6 +833,11 @@ var registry = buildRegistry([]Setting{
 		Key: "retention.machines", Label: "Keep deleted machines for", Env: "ZOOMIES_RETENTION_MACHINES", Kind: KindDuration, Scope: ScopePlatform, Live: true,
 		Summary: "How long a deleted machine's row is kept, so what the fleet rented and gave back is still answerable after the machine itself is gone.",
 	},
+	{
+		Key: "retention.update_attempts", Label: "Keep update history for", Env: "ZOOMIES_RETENTION_UPDATE_ATTEMPTS", Kind: KindDuration, Scope: ScopePlatform, Live: true,
+		Floor:   24 * time.Hour,
+		Summary: "How long a finished attempt to update the controller or a host is kept, so why a host is behind stays answerable. An attempt still open is never removed. 0 keeps every attempt.",
+	},
 
 	// ---------------------------------------------------------------------
 	// limits -- fleet-wide ceilings. Platform-scoped, because a ceiling is
@@ -879,7 +884,7 @@ var registry = buildRegistry([]Setting{
 	{
 		Key: "updates.mode", Label: "Release update mode", Env: "ZOOMIES_UPDATE_MODE", Kind: KindEnum, Scope: ScopePlatform, Live: true,
 		Choices: updateModes,
-		Summary: "What this controller does about a newer release of Zoomies. off says that one exists and nothing more. manual adds Update buttons for the controller and its hosts, and nothing moves without a click. auto takes the newest release once it has been public for the soak, and the hosts that have opted in then follow it, one at a time. " + updatesNotInstalledYet,
+		Summary: "What this controller does about a newer release of Zoomies. off says that one exists and nothing more. manual adds Update buttons for the controller and its hosts, and nothing moves without a click. auto takes the newest release once it has been public for the soak, and the hosts that have opted in then follow it, one at a time. " + updatesControllerOnlyYet,
 	},
 	{
 		Key: "updates.soak", Label: "Release update soak", Env: "ZOOMIES_UPDATE_SOAK", Kind: KindDuration, Scope: ScopePlatform, Live: true,

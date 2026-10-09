@@ -36,7 +36,8 @@ Conventions:
 * Errors return `{ "error": { "code": "...", "message": "...", "field": "...",
   "detail": "..." } }` with a message written for a human. Codes:
   `bad_request`, `unauthorized`, `forbidden`, `not_found`, `conflict`,
-  `unprocessable`, `rate_limited`, `internal`.
+  `unprocessable`, `too_large`, `rate_limited`, `limit_reached`, the `update.*`
+  refusals and `update.check_failed` listed under [Updates](#updates), and `internal`.
 * Timestamps are RFC 3339 with a `Z` offset. Durations are Go duration strings
   (`"5m"`, `"1h30s"`).
 * Mutating requests require `Content-Type: application/json` and, for cookie
@@ -455,14 +456,36 @@ fleet. [Backup and restore](backup-and-restore.md) is the operator's page.
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/updates` | viewer | What an update would take, and why. `mode` and `soak` are the settings as the controller acts on them. `running` is the build, with whether it came from a `release`. `latest` is the newest release that can be installed on this system (`tag`, `url`, `published_at`; `url` is empty when GitHub's address is not an absolute https URL), and `target` is what the mode would do about it: `newer` says whether it is a later release than the build, and `due_at` is the end of the soak in `auto` and null in `manual`. `reason` is a sentence or two, and always says something. `checked_at` is when the release list was read. While `mode` is `off`, and until the list has been read, `latest`, `target` and `checked_at` are null and `reason` says why; a list that was read and holds nothing that can be installed has a `checked_at`, no `latest`, and a sentence that says what a complete release is. A build that is not from a release is left alone, and the sentence says so. Computed, not stored. |
+| GET | `/api/v1/updates` | viewer | What an update would take, and why. `mode` and `soak` are the settings as the controller acts on them. `running` is the build, with whether it came from a `release`. `latest` is the newest release that can be installed on this system (`tag`, `url`, `published_at`; `url` is empty when GitHub's address is not an absolute https URL), and `target` is what the mode would do about it: `newer` says whether it is a later release than the build, and `due_at` is the end of the soak in `auto` and null in `manual`. `reason` is a sentence or two, and always says something. `checked_at` is when the release list was read. While `mode` is `off`, and until the list has been read, `latest`, `target` and `checked_at` are null and `reason` says why; a list that was read and holds nothing that can be installed has a `checked_at`, no `latest`, and a sentence that says what a complete release is. A build that is not from a release is left alone, and the sentence says so. `helper` says whether the update helper is installed on the controller's host (`state` is `ready` or `missing`, with a `reason` and, when missing, the `install_command` to copy, which is empty where the helper cannot be installed because the controller's host is not Linux). `controller` is the controller's latest update attempt (`id`, `state`, `from`, `to`, `trigger`, `requested_at`, `finished_at` and the `error` it ended with), in every mode, or null when it has never had one. Computed, not stored. |
+| POST | `/api/v1/updates/check` | admin | Ask GitHub for the release list now, and answer with the status once it has been read; the same status is sent to every open page as `updates.updated`. At most one request goes out a minute, and a press inside the minute answers the status as it stands. Refused with `update.check_disabled` while `updates.check_interval` is `0`. Takes no body. |
+| POST | `/api/v1/updates/controller` | platform | Ask the update helper on the controller's host to replace its binary, with the newest release that can be installed on this system or with the optional `tag` in the body (`{ "tag": "v1.3.5" }`). Answers `202` with the status, whose `controller` is the attempt just opened. A field the body does not define is a `422` naming it. Audited as `update.controller_requested` once it is accepted. |
 
-It takes no role above `viewer`: it names a public release and the build this
+`GET /updates` takes no role above `viewer`: it names a public release and the build this
 controller runs, and nothing of the fleet's. It is, though, the first route a
 viewer can read that carries the platform-scoped `mode` and `soak`, which is
 accepted because they say what the controller will do and not how to get in. It answers `200` in every mode,
 because the page that reads it is the one an operator opens to find out why
 nothing is offered.
+
+Below `platform` the `error` of the controller's attempt, which is often the
+helper's own sentence or the controller's about a folder it could not write, is a
+fixed sentence for the attempt's state, in `GET /updates`, in the answer to the
+check and in the `updates.updated` event alike. The event stream filters it per
+subscriber, as it does the problems list, so no frame carries the text to an
+administrator.
+
+Refusals of an update are `409`s with a code of their own, because each asks
+something different of the person: `update.mode_off` (switch `updates.mode` on),
+`update.check_disabled` (`updates.check_interval` is `0`), `update.helper_missing`
+(install the helper on the controller's host), `update.in_progress` (an update is
+already open for that target), `update.not_a_release` (the build did not come
+from a release), `update.nothing_newer` (no newer release in the list the
+controller read, or a tag that is not one), `update.host_cannot_update` and
+`update.rollout_halted`. A controller that is fenced for recovery, or does not
+hold the database's lease, is the plain `conflict`. A release check that GitHub, or the
+network to it, would not let finish is a `502` with `update.check_failed`, whose message
+says what failed and what to try; it is logged as a warning, because it is not a fault of
+this controller.
 
 ## Diagnostics
 

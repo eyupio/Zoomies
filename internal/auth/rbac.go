@@ -167,7 +167,16 @@ const (
 // been taken, and nothing of the fleet's. It is the first viewer-readable route
 // that carries the platform-scoped mode and soak, which say what the controller
 // will do and open nothing.
-const ActionUpdatesRead Action = "updates.read"
+//
+// Asking GitHub now is an administrator's, as every other check that spends the
+// controller's requests is. Updating the controller is the platform role's: it
+// replaces the binary of the process every fleet on the instance depends on, and
+// restarts it, which is a decision about the instance and not about one fleet.
+const (
+	ActionUpdatesRead  Action = "updates.read"
+	ActionUpdatesCheck Action = "updates.check"
+	ActionUpdatesApply Action = "updates.apply"
+)
 
 // Account and credential actions.
 const (
@@ -287,7 +296,9 @@ var actionRoles = map[Action]store.Role{
 
 	ActionAuditRead: store.RoleViewer,
 
-	ActionUpdatesRead: store.RoleViewer,
+	ActionUpdatesRead:  store.RoleViewer,
+	ActionUpdatesCheck: store.RoleAdmin,
+	ActionUpdatesApply: store.RolePlatform,
 
 	ActionMigrationsRead:  store.RoleOperator,
 	ActionMigrationsWrite: store.RoleOperator,

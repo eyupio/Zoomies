@@ -820,6 +820,17 @@ export const importSettings = (body: Body<'importSettings'>) =>
 export const getUpdates = (signal?: AbortSignal) =>
   api.get<Result<'getUpdates'>>('/updates', { signal });
 
+/** Ask GitHub for the release list now (admin). Answers the status once it has been read. */
+export const checkForUpdates = () => api.post<Result<'checkForUpdates'>>('/updates/check', {});
+
+/**
+ * Ask the update helper to replace the controller's binary (platform). Without a tag it takes the
+ * newest release that can be installed on this system. Answers 202 with the status, whose
+ * `controller` is the attempt just opened.
+ */
+export const updateController = (tag?: string) =>
+  api.post<Result<'updateController'>>('/updates/controller', tag ? { body: { tag } } : {});
+
 /* -- backups -------------------------------------------------------------- */
 
 export const listBackups = (signal?: AbortSignal) =>

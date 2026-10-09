@@ -9,22 +9,19 @@
   way to tell "still restarting" from "never coming back". When it does come
   back the page reloads: the restore ended every session, so what loads is the
   sign-in page, and behind it a fenced fleet.
+
+  An update restarts the controller too, and borrows the rest of this. What
+  differs is handed in: the words, the page to return to, how long the start is
+  given, and what counts as the controller answering. An update cannot use the
+  health probe, because a restart quicker than its interval falls between two
+  probes and is never seen; it passes the event stream's state instead, and
+  begins in the second half, since it mounts this only once the stream has gone.
 -->
 <script lang="ts">
   import { onDestroy } from 'svelte';
   import { Power, RefreshCw, TriangleAlert } from '@lucide/svelte';
   import Button from '$lib/components/Button.svelte';
-
-  interface Props {
-    /** What the restart is for, in a phrase: "restoring zoomies-…". */
-    reason: string;
-  }
-
-  let { reason }: Props = $props();
-
-  type Phase = 'stopping' | 'starting' | 'back' | 'stuck-up' | 'stuck-down';
-  let phase = $state<Phase>('stopping');
-  let elapsed = $state(0);
+  import { RESTORE_RESTART, type RestartCopy, type RestartPhase } from './restart-copy';
 
   /*
     How long each half is given before the page stops promising anything. A
@@ -35,8 +32,6 @@
   const START_LIMIT_S = 120;
   const TICK_MS = 1000;
 
-  let timer: ReturnType<typeof setInterval> | null = null;
-
   async function alive(): Promise<boolean> {
     try {
       const res = await fetch('/healthz', { cache: 'no-store', credentials: 'same-origin' });
@@ -46,9 +41,41 @@
     }
   }
 
+  interface Props {
+    /** What the restart is for, in a phrase: "restoring zoomies-…". */
+    reason: string;
+    /** The words for each half. A restore's, unless the caller has its own. */
+    copy?: RestartCopy;
+    /** Where the page goes once the controller answers, and when the reader asks to reload. */
+    returnTo?: string;
+    /** `starting` when the caller has already seen the controller go. */
+    begin?: Extract<RestartPhase, 'stopping' | 'starting'>;
+    /** Seconds the start is given before the page stops promising anything. */
+    startLimit?: number;
+    /** Whether the controller is answering. The health probe, unless the caller knows better. */
+    answering?: () => boolean | Promise<boolean>;
+  }
+
+  let {
+    reason,
+    copy = RESTORE_RESTART,
+    returnTo = '/settings/backups',
+    begin = 'stopping',
+    startLimit = START_LIMIT_S,
+    answering = alive,
+  }: Props = $props();
+
+  // Read once: which half it begins in is where it began, and the phase is the
+  // component's own from then on.
+  // svelte-ignore state_referenced_locally
+  let phase = $state<RestartPhase>(begin);
+  let elapsed = $state(0);
+
+  let timer: ReturnType<typeof setInterval> | null = null;
+
   async function tick(): Promise<void> {
     elapsed += 1;
-    const up = await alive();
+    const up = await answering();
     if (phase === 'stopping') {
       if (!up) {
         phase = 'starting';
@@ -64,8 +91,8 @@
         phase = 'back';
         stop();
         // A moment for the reader to see it, then the page starts over.
-        setTimeout(() => window.location.replace('/settings/backups'), 900);
-      } else if (elapsed >= START_LIMIT_S) {
+        setTimeout(() => window.location.replace(returnTo), 900);
+      } else if (elapsed >= startLimit) {
         phase = 'stuck-down';
         stop();
       }
@@ -83,15 +110,7 @@
   });
   onDestroy(stop);
 
-  const title = $derived(
-    {
-      stopping: 'Stopping the controller',
-      starting: 'Waiting for it to start again',
-      back: 'It is back',
-      'stuck-up': 'The controller has not stopped',
-      'stuck-down': 'The controller has not come back',
-    }[phase],
-  );
+  const title = $derived(copy.titles[phase]);
 </script>
 
 <section
@@ -113,31 +132,16 @@
     <h3>{title}</h3>
     <p class="reason">{reason}</p>
     {#if phase === 'stopping'}
-      <p>
-        The restore is applied by the next controller to start, before it opens the database. This
-        page is watching for the process to stop.
-      </p>
+      <p>{copy.stopping}</p>
     {:else if phase === 'starting'}
-      <p>
-        It has stopped. A service manager starts it again in a few seconds; this page reloads the
-        moment it answers. Everyone is signed out by the restore, so what loads is the sign-in page,
-        and behind it a fleet held for recovery until you lift the fence.
-      </p>
+      <p>{copy.starting}</p>
     {:else if phase === 'back'}
-      <p>Reloading.</p>
+      <p>{copy.back}</p>
     {:else if phase === 'stuck-up'}
-      <p>
-        {STOP_LIMIT_S} seconds on, the controller still answers. It was asked to stop and did not, which
-        usually means a long-running request held it open. The restore stays staged: when the process
-        does stop, the next start applies it.
-      </p>
+      <p>{copy.stuckUp(STOP_LIMIT_S)}</p>
     {:else}
-      <p>
-        It stopped and nothing has started it in {START_LIMIT_S} seconds. If it runs under systemd or
-        a container with a restart policy, look at that; if you ran it by hand, start it again, the staged
-        restore is applied when it starts, whoever starts it.
-      </p>
-      <pre class="mono">zoomies controller</pre>
+      <p>{copy.stuckDown(startLimit)}</p>
+      {#if copy.command}<pre class="mono">{copy.command}</pre>{/if}
     {/if}
     {#if phase === 'stuck-up' || phase === 'stuck-down'}
       <div class="actions">
@@ -145,7 +149,7 @@
           size="sm"
           variant="secondary"
           icon={RefreshCw}
-          onclick={() => window.location.replace('/settings/backups')}
+          onclick={() => window.location.replace(returnTo)}
         >
           Reload the page
         </Button>

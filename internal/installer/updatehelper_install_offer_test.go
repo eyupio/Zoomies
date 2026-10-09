@@ -87,8 +87,11 @@ func TestInitDoesNotInstallTheHelperUnlessAsked(t *testing.T) {
 			if tc.says != "" && !strings.Contains(out, tc.says) {
 				t.Errorf("output does not say %q:\n%s", tc.says, out)
 			}
-			if got, want := strings.Count(out, UpdateHelperNotUsedYet), saidTimes(tc.asks, tc.says); got != want {
-				t.Errorf("%q is said %d times, want %d:\n%s", UpdateHelperNotUsedYet, got, want, out)
+			if got, want := strings.Count(out, UpdateHelperControllerOnlyYet), saidTimes(tc.asks, tc.says); got != want {
+				t.Errorf("%q is said %d times, want %d:\n%s", UpdateHelperControllerOnlyYet, got, want, out)
+			}
+			if strings.Contains(out, UpdateHelperAgentHostNotUsedYet) {
+				t.Errorf("an install, which may be the controller's, says what only an agent host's join says:\n%s", out)
 			}
 			if tc.asks {
 				for _, want := range []string{"sudo zoomies updates helper remove", "as root", "validated request", "by writing a request", "web UI"} {
@@ -280,8 +283,11 @@ func TestAgentJoinOffersTheHelperAndDefaultsToNo(t *testing.T) {
 			if tc.says != "" && !strings.Contains(out, tc.says+" --config-dir "+h.configDir) {
 				t.Errorf("output does not say %q:\n%s", tc.says, out)
 			}
-			if got, want := strings.Count(out, UpdateHelperNotUsedYet), saidTimes(tc.asks, tc.says); got != want {
-				t.Errorf("%q is said %d times, want %d:\n%s", UpdateHelperNotUsedYet, got, want, out)
+			if got, want := strings.Count(out, UpdateHelperAgentHostNotUsedYet), saidTimes(tc.asks, tc.says); got != want {
+				t.Errorf("%q is said %d times, want %d:\n%s", UpdateHelperAgentHostNotUsedYet, got, want, out)
+			}
+			if strings.Contains(out, UpdateHelperControllerOnlyYet) {
+				t.Errorf("a join, which is always an agent's host, promises the controller's button:\n%s", out)
 			}
 			if got := h.installed(); got != tc.installed {
 				t.Fatalf("installed = %v, want %v:\n%s", got, tc.installed, out)

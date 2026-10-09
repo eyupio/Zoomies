@@ -132,7 +132,7 @@ type Options struct {
 	// would overwrite an encryption key or a database still asks.
 	AssumeYes bool
 	// UpdateHelper adds the update helper without asking, so that this host is
-	// ready for the web UI to update it (UpdateHelperNotUsedYet). AssumeYes never does: it is a grant of root, not one of
+	// ready for the web UI to update it (UpdateHelperControllerOnlyYet). AssumeYes never does: it is a grant of root, not one of
 	// the install's confirmations.
 	UpdateHelper bool
 

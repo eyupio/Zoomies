@@ -69,6 +69,10 @@ type harness struct {
 	// for everything that does not ask; a lease that has to expire is the one
 	// thing a test cannot wait out honestly.
 	offset *atomic.Int64
+	// updateDir is the update folder the controller is given. It does not exist
+	// until a test makes it, so a controller under test never finds the real
+	// host's helper, or none, by accident.
+	updateDir string
 }
 
 // advance moves the controller's clock forward without moving the test's.
@@ -114,6 +118,7 @@ func newHarness(t *testing.T) *harness {
 	bus := events.New()
 	factory := &fakeFactory{gh: gh}
 	offset := new(atomic.Int64)
+	updateDir := filepath.Join(t.TempDir(), "update")
 
 	fake := provider.NewFake()
 	providers, err := provider.NewRegistry(&sharedFakeFactory{fake: fake})
@@ -133,12 +138,13 @@ func newHarness(t *testing.T) *harness {
 		Providers:  providers,
 		Logger:     slog.New(slog.DiscardHandler),
 		Clock:      func() time.Time { return time.Now().Add(time.Duration(offset.Load())) },
+		UpdateDir:  updateDir,
 	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	return &harness{t: t, c: c, st: st, gh: gh, factory: factory, key: key, cfg: cfg, ctx: ctx,
-		offset: offset, fake: fake, providers: providers}
+		offset: offset, fake: fake, providers: providers, updateDir: updateDir}
 }
 
 // sharedFakeFactory hands out one fake rather than building a new one per
@@ -425,6 +431,7 @@ func (h *harness) restart() *Controller {
 		Providers: h.providers,
 		Logger:    slog.New(slog.DiscardHandler),
 		Clock:     func() time.Time { return time.Now().Add(time.Duration(h.offset.Load())) },
+		UpdateDir: h.updateDir,
 	})
 	if err != nil {
 		h.t.Fatalf("restarting the controller: %v", err)

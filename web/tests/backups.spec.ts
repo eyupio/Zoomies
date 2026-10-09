@@ -7,7 +7,7 @@
  * to know, it verifies, its download is the archive it says it is, a restore
  * is staged by name and can be cancelled, and deleting demands the name too.
  *
- * The one thing not pressed is "Restart and restore": it stops the controller
+ * The one thing not pressed for real is "Restart and restore": it stops the controller
  * the whole suite shares. Staging is where the checks live; the restart is a
  * process exit the Go tests cover.
  */
@@ -136,6 +136,58 @@ test('a restore is staged by name, shown as waiting, and can be cancelled', asyn
   await page.getByRole('button', { name: 'Cancel the restore', exact: true }).click();
   await expect(banner).toBeHidden();
   await expect(remove).not.toHaveAttribute('aria-disabled', 'true');
+});
+
+// The restart state is shared with the controller's own update, which hands it
+// other words and another way of knowing the controller is back. A restore must
+// still be told in its own: the sign-in page, the fence, the health probe.
+test('applying a restore watches the health probe through both halves and says what a restore does', async ({
+  page,
+}) => {
+  await openBackups(page);
+  const row = await takeOne(page);
+  const id = await idOf(row);
+  await row.getByRole('button', { name: `Restore: ${id}` }).click();
+  const confirm = dialog(page, 'Restore backup');
+  await confirm.getByRole('textbox', { name: `Type ${id} to confirm` }).fill(id);
+  await confirm.getByRole('button', { name: 'Stage the restore' }).click();
+  await expect(confirm).toBeHidden();
+
+  // The restart itself is not pressed on the shared controller: the request is
+  // answered here, and the health probe goes down and comes back as a restart
+  // would make it.
+  let probe: 'up' | 'down' = 'up';
+  await page.route('**/api/v1/backups/restore/apply', (route) => route.fulfill({ json: {} }));
+  await page.route('**/healthz', (route) =>
+    probe === 'up' ? route.fulfill({ status: 200, body: 'ok' }) : route.abort('connectionrefused'),
+  );
+  await page.getByRole('button', { name: 'Restart and restore' }).click();
+  await dialog(page, /restart/i)
+    .getByRole('button', { name: 'Restart and restore' })
+    .click();
+
+  const wait = page.locator('section.wait');
+  await expect(wait.getByRole('heading', { name: 'Stopping the controller' })).toBeVisible();
+  await expect(wait).toContainText(`restoring ${id}`);
+  await expect(wait).toContainText('The restore is applied by the next controller to start');
+
+  probe = 'down';
+  await expect(wait.getByRole('heading', { name: 'Waiting for it to start again' })).toBeVisible({
+    timeout: 10_000,
+  });
+  await expect(wait).toContainText('Everyone is signed out by the restore');
+
+  // It answers again, and the page starts over on the page it came from.
+  probe = 'up';
+  await expect(wait.getByRole('heading', { name: 'It is back' })).toBeVisible({ timeout: 10_000 });
+  await expect(page).toHaveURL(/\/settings\/backups$/);
+  await page.unroute('**/healthz');
+  await page.unroute('**/api/v1/backups/restore/apply');
+  await expect(wait).toBeHidden({ timeout: 10_000 });
+
+  // Put it back as it was: staged, so the next test starts from a clean page.
+  await page.getByRole('button', { name: 'Cancel the restore', exact: true }).click();
+  await expect(page.getByRole('region', { name: /waiting for a restart/i })).toBeHidden();
 });
 
 test('deleting a backup demands its name and then it is gone', async ({ page }) => {

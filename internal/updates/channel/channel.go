@@ -280,6 +280,106 @@ func WriteRequest(dir string, r updates.Request) error {
 	return nil
 }
 
+// Withdrawal is what WithdrawRequest found at request.json.
+type Withdrawal int
+
+const (
+	// RequestAbsent means there was nothing to withdraw: the helper took the
+	// request, or there was never one.
+	RequestAbsent Withdrawal = iota
+	// RequestWithdrawn means the request was the caller's, and it is gone.
+	RequestWithdrawn
+	// RequestNotOurs means something is there that is not provably the caller's
+	// request (another id, a file that is not a request, a link, a folder) and it
+	// has been left exactly as it was.
+	RequestNotOurs
+)
+
+// WithdrawRequest removes request.json when it is the request with this id, and
+// nothing else.
+//
+// An attempt that ends without the helper having taken its request (it timed
+// out, or the helper is not running) would otherwise leave the request behind,
+// and WriteRequest refuses every later one while it is there. So the service
+// takes back what it wrote. It is the only writer, but the folder is shared with
+// root and a person may have put something there, so the name is removed only
+// when it is a plain file whose document parses and names this id: what it
+// cannot prove is its own it leaves for a person to look at.
+//
+// The name is looked at without following a link, through a handle on the
+// folder, and the file read is checked to be the one looked at. Between that
+// check and the removal the helper may take the request, which is an answer and
+// not an error. The check and the Remove are two steps, as WriteRequest's look
+// and rename are: a request put there in between would be removed unseen, which
+// the one-open-attempt rule is what prevents.
+func WithdrawRequest(dir, id string) (Withdrawal, error) {
+	info, err := os.Lstat(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return RequestAbsent, nil
+	case err != nil:
+		return RequestAbsent, fmt.Errorf("cannot look at the update folder %s: %w", dir, err)
+	case !info.IsDir():
+		return RequestAbsent, fmt.Errorf("the update folder %s is not a folder (it is a %s); %s", dir, kind(info.Mode()), installHint)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return RequestAbsent, fmt.Errorf("cannot open the update folder %s: %w", dir, err)
+	}
+	defer root.Close()
+
+	before, err := root.Lstat(RequestFile)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return RequestAbsent, nil
+	case err != nil:
+		return RequestAbsent, fmt.Errorf("cannot look for the request in %s: %w", dir, err)
+	case !before.Mode().IsRegular():
+		return RequestNotOurs, nil
+	}
+	f, err := root.Open(RequestFile)
+	if errors.Is(err, fs.ErrNotExist) {
+		return RequestAbsent, nil
+	} else if err != nil {
+		return RequestAbsent, fmt.Errorf("cannot open the request in %s: %w", dir, err)
+	}
+	body, err := readOpened(f, before, updates.MaxRequestBytes)
+	_ = f.Close()
+	if err != nil {
+		return RequestNotOurs, nil
+	}
+	req, err := updates.ParseRequest(body)
+	if err != nil || req.ID != id {
+		return RequestNotOurs, nil
+	}
+	if err := root.Remove(RequestFile); errors.Is(err, fs.ErrNotExist) {
+		return RequestAbsent, nil
+	} else if err != nil {
+		return RequestAbsent, fmt.Errorf("cannot remove the request from %s: %w", dir, err)
+	}
+	return RequestWithdrawn, nil
+}
+
+// readOpened reads at most limit bytes of a file already opened, and refuses it
+// unless it is the regular file that was looked at before it was opened.
+func readOpened(f *os.File, before fs.FileInfo, limit int64) ([]byte, error) {
+	after, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if !after.Mode().IsRegular() || !os.SameFile(before, after) {
+		return nil, errors.New("the file changed while it was being opened")
+	}
+	body, err := io.ReadAll(io.LimitReader(f, limit+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > limit {
+		return nil, fmt.Errorf("the file is over the limit of %d bytes", limit)
+	}
+	return body, nil
+}
+
 // createTemp makes a new file with a name nobody else is using. The name starts
 // with a dot and is not request.json, so the path unit does not mistake it for a
 // request.

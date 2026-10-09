@@ -917,3 +917,43 @@ type bundleResponse struct {
 		Reason  string `json:"reason"`
 	} `json:"truncated"`
 }
+
+// updatesStatus is GET /updates, which is also what POST /updates/check and
+// POST /updates/controller answer with.
+type updatesStatus struct {
+	Mode    string `json:"mode"`
+	Soak    string `json:"soak"`
+	Running struct {
+		Version string `json:"version"`
+		Release bool   `json:"release"`
+	} `json:"running"`
+	Latest *struct {
+		Tag         string    `json:"tag"`
+		PublishedAt time.Time `json:"published_at"`
+	} `json:"latest"`
+	Target *struct {
+		Tag   string     `json:"tag"`
+		Newer bool       `json:"newer"`
+		DueAt *time.Time `json:"due_at"`
+	} `json:"target"`
+	Reason    string     `json:"reason"`
+	CheckedAt *time.Time `json:"checked_at"`
+	Helper    struct {
+		State          string `json:"state"`
+		Reason         string `json:"reason"`
+		InstallCommand string `json:"install_command"`
+	} `json:"helper"`
+	Controller *updatesAttempt `json:"controller"`
+}
+
+// updatesAttempt is the controller's own update attempt, open or ended.
+type updatesAttempt struct {
+	ID          string     `json:"id"`
+	State       string     `json:"state"`
+	From        string     `json:"from"`
+	To          string     `json:"to"`
+	Trigger     string     `json:"trigger"`
+	RequestedAt time.Time  `json:"requested_at"`
+	FinishedAt  *time.Time `json:"finished_at"`
+	Error       string     `json:"error"`
+}

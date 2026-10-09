@@ -34,6 +34,7 @@ info:
     | `viewer` | read everything except secrets |
     | `operator` | act on the fleet and manage pools |
     | `admin` | manage users, tokens, installations and settings |
+    | `platform` | run the process rather than the fleet: its own settings, recovery and backups, and updating the controller itself |
 
     Each operation below records its minimum role in `x-zoomies-role`.
 
@@ -6083,7 +6084,10 @@ paths:
         list of releases has been read it says that, because a list nobody has read and a
         list with nothing in it that can be installed are different things to be told. A
         build that is not from a release is left alone, and the sentence says so. It changes
-        nothing. The same document is the payload of the `updates.updated` event.
+        nothing. The same document is the payload of the `updates.updated` event. Below the
+        `platform` role the text of the controller's last attempt is a fixed sentence for its
+        state, in the response and in the event alike, because the real text can name a path
+        on the controller's host.
       x-zoomies-role: viewer
       responses:
         "200":
@@ -6091,6 +6095,61 @@ paths:
           content:
             application/json:
               schema: { $ref: "#/components/schemas/UpdatesStatus" }
+
+  /updates/check:
+    post:
+      operationId: checkForUpdates
+      tags: [updates]
+      summary: Ask GitHub for the release list now
+      description: >-
+        Reads the list of releases from GitHub instead of waiting for the scheduled check, and
+        answers with the status it leaves. At most one request goes to GitHub a minute: a press
+        inside the minute is not an error, and answers the status as it stands. Refused with
+        `update.check_disabled` while `updates.check_interval` is `0`, which is the setting that
+        keeps this controller from ever asking, and with `update.check_failed` (502) when GitHub
+        or the network to it would not let the read finish. Takes no body.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: The status once the list has been read.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatesStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/UpdateRefused" }
+        "502": { $ref: "#/components/responses/UpdateCheckFailed" }
+
+  /updates/controller:
+    post:
+      operationId: updateController
+      tags: [updates]
+      summary: Update the controller
+      description: >-
+        Asks the update helper installed on the controller's host to replace the controller's
+        binary with the newest release that can be installed on this system, or with `tag`. It
+        answers 202 with the status, which holds the attempt it opened: the helper answers on its
+        own time, and the page follows the attempt in `updates.updated`. Everything that can
+        refuse does so before anything is written, so a refusal leaves nothing in flight. The
+        release has to be one in the list the controller last read, complete for this system and
+        newer than the running build; `check` reads the list again. Audited as
+        `update.controller_requested` once it is accepted, and not before.
+      x-zoomies-role: platform
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/UpdateControllerRequest" }
+      responses:
+        "202":
+          description: Asked for. The `controller` attempt is `requested`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatesStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/UpdateRefused" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
 
   # ==========================================================================
   # Agent routes
@@ -6295,6 +6354,30 @@ components:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
     Conflict:
       description: The request conflicts with the current state.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    UpdateRefused:
+      description: >-
+        The update was refused, and the code says why: `update.mode_off` while `updates.mode` is
+        off, `update.check_disabled` while `updates.check_interval` is 0, `update.helper_missing`
+        when no update helper can carry it out, `update.in_progress` while an update is already open
+        for the same target, `update.not_a_release` for a build that did not come from a release,
+        `update.nothing_newer` when there is no newer release to take or the tag asked for is not
+        one, `update.host_cannot_update` for a host whose agent cannot update itself, and
+        `update.rollout_halted` while a halted rollout waits for a person. A controller that may
+        not act (it is fenced for recovery, or another holds the lease) is the plain `conflict`.
+        The message says what stopped it and what to change.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+    UpdateCheckFailed:
+      description: >-
+        GitHub, or the network to it, would not let the release check finish, and nothing has changed.
+        The code is `update.check_failed` and the message says what failed and what to try: that the
+        controller may need an outbound HTTPS rule to `api.github.com`, or that GitHub answered with a
+        status and the check can be tried again later. It is the controller's upstream that failed and
+        not the controller, so it is a 502 and is logged as a warning.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/ErrorEnvelope" }
@@ -6627,7 +6710,7 @@ components:
           properties:
             code:
               type: string
-              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, too_large, rate_limited, limit_reached, internal]
+              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, too_large, rate_limited, limit_reached, update.mode_off, update.check_disabled, update.helper_missing, update.in_progress, update.not_a_release, update.nothing_newer, update.host_cannot_update, update.rollout_halted, update.check_failed, internal]
             message: { type: string, description: Written for a person to read, and to act on. }
             field: { type: string, description: "The form field at fault, or on a `limit_reached` refusal the `limits.*` setting that refused." }
             detail: { type: string }
@@ -11532,9 +11615,69 @@ components:
           description: >-
             The earliest time the mode takes the release: the end of the soak in `auto`. Null in
             `manual`, where the person asking is the only wait, and whenever `newer` is false.
+    UpdatesHelper:
+      type: object
+      required: [state, reason, install_command]
+      properties:
+        state:
+          type: string
+          enum: [ready, missing]
+          description: >-
+            Whether the update helper is installed on the controller's host. Only a helper,
+            installed by somebody with root there, can replace the controller's binary, so
+            without one the controller cannot update itself.
+        reason:
+          type: string
+          description: A sentence that says what the state means. It names no path.
+        install_command:
+          type: string
+          description: The command that installs the helper, for a person with root on the host to run. Empty when it is ready, and empty where it cannot be installed at all because the helper is a pair of systemd units and the controller's host is not Linux.
+          examples: [sudo zoomies updates helper install]
+    UpdatesAttempt:
+      type: object
+      required: [id, state, from, to, trigger, requested_at, finished_at, error]
+      properties:
+        id: { type: string, examples: [upd_k3fqz2mx7abcd] }
+        state:
+          type: string
+          enum: [requested, succeeded, failed, timed_out, cancelled]
+          description: >-
+            `requested` until it ends. It ends once: `succeeded` when the controller runs the
+            release or a later one, `failed` when the helper refused or the upgrade failed,
+            `timed_out` after 90 minutes with neither, or `cancelled`.
+        from: { type: string, description: The build that asked, as it reports itself., examples: ["1.3.4"] }
+        to: { type: string, description: The release tag it asked for., examples: [v1.3.5] }
+        trigger:
+          type: string
+          enum: [manual, auto]
+          description: "`manual` for a person, `auto` for the update mode."
+        requested_at: { type: string, format: date-time }
+        finished_at:
+          type: [string, "null"]
+          format: date-time
+          description: When it ended. Null while it is `requested`.
+        error:
+          type: string
+          description: >-
+            Why it did not succeed, often the helper's own sentence. Empty when it succeeded or
+            is still in flight. Only the `platform` role is given the text, which can name a
+            folder on the controller's host; every other role is given a fixed sentence for the
+            state in its place, and an empty string where there was nothing to say.
+    UpdateControllerRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        tag:
+          type: string
+          description: >-
+            The release to take, such as `v1.3.5`. Left out, it is the newest release that can be
+            installed on this system. A tag that is not of that form, is not in the list the
+            controller last read, or is not newer than the running build is refused with
+            `update.nothing_newer`.
+          examples: [v1.3.5]
     UpdatesStatus:
       type: object
-      required: [mode, soak, running, latest, target, reason, checked_at]
+      required: [mode, soak, running, latest, target, reason, checked_at, helper, controller]
       properties:
         mode:
           type: string
@@ -11572,6 +11715,15 @@ components:
           description: >-
             When the list of releases `latest` was chosen from was read. Null while updating is
             off, and until a list has been read.
+        helper: { $ref: "#/components/schemas/UpdatesHelper" }
+        controller:
+          description: >-
+            The controller's latest update attempt, in flight or ended, in every mode: one that
+            was in flight when updating was switched off still ends, and says how. Null when it
+            has never had one.
+          oneOf:
+            - $ref: "#/components/schemas/UpdatesAttempt"
+            - type: "null"
 
     # --- agent protocol (internal) ------------------------------------------
     # The wire types of the agent routes. internal/agent/protocol.go owns them;

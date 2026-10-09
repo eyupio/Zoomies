@@ -8,11 +8,13 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/updates"
+	"github.com/eyupio/zoomies/internal/updates/channel"
 	"github.com/eyupio/zoomies/internal/version"
 )
 
@@ -53,6 +55,12 @@ func updatesSeedRequested() (folder string, ok bool) {
 
 // seedUpdates makes a dev build a release behind two others, and reads their
 // list once so the page has something to show before the first scheduled check.
+//
+// It also stands in for the update helper. The folder it was given becomes the
+// controller's update folder and holds the marker an installed helper leaves, so
+// the Update button is offered and a press writes its request where the suite
+// can read it. Nothing answers that request: the suite plays the helper by
+// writing a result.json of its own, which is how it makes an attempt end.
 //
 // That check is half a minute after start and the page is opened sooner; a
 // status that says the list has not been read yet is true, and is not what the
@@ -97,14 +105,34 @@ func (c *Controller) seedUpdates(ctx context.Context) error {
 	}
 	client.Transport = releaseListFixture{body: body, next: next}
 	c.httpClient = &client
-	// Written before the loops start, so nothing is reading it.
+	// Written before the loops start, so nothing is reading them.
 	version.Version = updatesSeedVersion
+	c.updateFolder = folder
+	if err := writeFixtureMarker(folder, now); err != nil {
+		return err
+	}
 
 	if err := c.checkForRelease(ctx); err != nil {
 		return fmt.Errorf("reading the fixture's release list: %w", err)
 	}
 	c.log.Info("seeded the update fixture", "env", UpdatesSeedEnvVar,
 		"update_folder", folder, "running", updatesSeedVersion)
+	return nil
+}
+
+// writeFixtureMarker leaves the marker the installer writes last, which is all
+// the controller looks for to call the helper installed.
+func writeFixtureMarker(folder string, now time.Time) error {
+	body, err := json.Marshal(channel.Marker{
+		V: updates.WireVersion, Version: updatesSeedVersion,
+		Binary: "/nonexistent/zoomies-fixture", InstalledAt: now.UTC(),
+	})
+	if err != nil {
+		return fmt.Errorf("writing the fixture's helper marker: %w", err)
+	}
+	if err := os.WriteFile(filepath.Join(folder, channel.MarkerFile), body, 0o600); err != nil {
+		return fmt.Errorf("writing the fixture's helper marker into %s, which the browser suite makes before it starts the controller: %w", folder, err)
+	}
 	return nil
 }
 

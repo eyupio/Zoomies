@@ -2,6 +2,7 @@ package controller
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"runtime"
 	"slices"
@@ -402,18 +403,18 @@ func TestTheStatusAlwaysCarriesEveryFieldAndIsNullWhereThereIsNothing(t *testing
 	if err := json.Unmarshal(raw, &fields); err != nil {
 		t.Fatalf("the status is not a JSON object: %v", err)
 	}
-	for _, key := range []string{"mode", "soak", "running", "latest", "target", "reason", "checked_at"} {
+	for _, key := range []string{"mode", "soak", "running", "latest", "target", "reason", "checked_at", "helper", "controller"} {
 		if _, ok := fields[key]; !ok {
 			t.Errorf("the status has no %q: %s", key, raw)
 		}
 	}
-	for _, key := range []string{"latest", "target", "checked_at"} {
+	for _, key := range []string{"latest", "target", "checked_at", "controller"} {
 		if got := string(fields[key]); got != "null" {
 			t.Errorf("%s = %s, want null while there is nothing to name", key, got)
 		}
 	}
-	if len(fields) != 7 {
-		t.Errorf("the status has %d fields, want the seven the document lists: %s", len(fields), raw)
+	if len(fields) != 9 {
+		t.Errorf("the status has %d fields, want the nine the document lists: %s", len(fields), raw)
 	}
 }
 
@@ -525,4 +526,110 @@ func TestTheReleasePageIsLinkedOnlyWhenItIsAnAbsoluteHTTPSAddress(t *testing.T) 
 	if got.Latest == nil || got.Latest.Tag != "v1.3.2" || got.Latest.URL != "" {
 		t.Errorf("latest = %+v, want v1.3.2 with no link", got.Latest)
 	}
+}
+
+// An attempt's error is often the helper's own sentence, or the controller's
+// about a folder it could not write, and either can name a path on the
+// controller's host. The status is read by every role and sent to every open
+// page, so only the platform, which owns that host, is given the text; the
+// others are told the state's own sentence, which names nothing.
+func TestTheStatusWithholdsAnAttemptsErrorBelowPlatform(t *testing.T) {
+	const secret = "/var/lib/zoomies-update/request.json"
+	attempt := func(state, text string) *UpdatesAttempt {
+		return &UpdatesAttempt{ID: "upd_1", State: state, From: "1.3.4", To: "v1.3.5", Trigger: "manual", Error: text}
+	}
+	helper := UpdatesHelper{State: HelperReady, Reason: "The update helper is installed on this controller's host, so the controller can update itself."}
+
+	for _, state := range []string{"failed", "timed_out", "cancelled"} {
+		t.Run(state, func(t *testing.T) {
+			view := UpdatesView{Mode: "manual", Helper: helper, Controller: attempt(state, "cannot write in "+secret)}
+
+			if got := view.For(true); got.Controller.Error != "cannot write in "+secret {
+				t.Errorf("the platform's error = %q, want the text as it was written", got.Controller.Error)
+			}
+			below := view.For(false)
+			if below.Controller.Error == "" {
+				t.Error("a role below platform was given no reason at all, so the page cannot say anything about why")
+			}
+			if strings.Contains(below.Controller.Error, secret) || strings.Contains(below.Controller.Error, "/") {
+				t.Errorf("the error below platform = %q, want a sentence that names no path", below.Controller.Error)
+			}
+			if below.Controller.State != state || below.Controller.To != "v1.3.5" {
+				t.Errorf("the attempt below platform = %+v, want its state and target kept", below.Controller)
+			}
+			if below.Helper != helper {
+				t.Errorf("the helper below platform = %+v, want the status's own sentence kept: %+v", below.Helper, helper)
+			}
+			// The view is shared with the other audiences, which are each handed a
+			// value of their own.
+			if view.Controller.Error != "cannot write in "+secret {
+				t.Errorf("narrowing the status changed the one it was made from: %q", view.Controller.Error)
+			}
+		})
+	}
+
+	t.Run("an attempt with nothing to withhold stays empty", func(t *testing.T) {
+		view := UpdatesView{Controller: attempt("requested", "")}
+		if got := view.For(false).Controller.Error; got != "" {
+			t.Errorf("error = %q, want none: a sentence about a failure on an attempt that has not failed", got)
+		}
+	})
+	t.Run("a controller that has never had an attempt", func(t *testing.T) {
+		if got := (UpdatesView{}).For(false); got.Controller != nil {
+			t.Errorf("controller = %+v, want null", got.Controller)
+		}
+	})
+}
+
+// The page shows the helper's sentence as it was written, line breaks and all.
+// The folder is one the service can write, so a result in it is not trusted to
+// be plain text: a direction override would reorder what an operator reads, and
+// the platform is shown the sentence whole. The override is the only thing taken
+// out; the lines of a real sentence stay.
+func TestTheStatusStripsDirectionControlsFromAnAttemptsErrorEvenForThePlatform(t *testing.T) {
+	h := newHarness(t)
+	h.readyToUpdate()
+	a := h.request()
+	h.takeRequest()
+	hostile := "cannot write \u202eelif.tseuqer\u202c in \u2066the folder\u2069\u200e\u200f\u061c.\nSecond line\u2028 here"
+	h.helperAnswers(updates.Result{ID: a.ID, OK: false, Error: hostile, FinishedAt: time.Now()})
+	h.pass(h.c)
+
+	const want = "cannot write elif.tseuqer in the folder.\nSecond line here"
+	if got := h.status().For(true).Controller.Error; got != want {
+		t.Errorf("the platform reads %q, want %q", got, want)
+	}
+}
+
+// A check that could not be completed is the controller's sentence, whole, and
+// is still the sentinel that tells the API it was upstream's failure and not its
+// own.
+func TestAFailedReleaseListReadKeepsItsSentenceAndIsTheCheckFailedSentinel(t *testing.T) {
+	h := newHarness(t)
+	withVersion(t, "1.3.0")
+	h.inMode("manual")
+
+	t.Run("GitHub refuses", func(t *testing.T) {
+		h.stubGitHub(http.StatusForbidden, `{"message":"rate limited"}`)
+		err := h.c.checkForRelease(h.ctx)
+		if !errors.Is(err, ErrUpdateCheckFailed) {
+			t.Fatalf("error = %v, want ErrUpdateCheckFailed", err)
+		}
+		if !strings.HasPrefix(err.Error(), "GitHub answered 403 ") || strings.Contains(err.Error(), ErrUpdateCheckFailed.Error()) {
+			t.Errorf("error = %q, want the controller's own sentence only", err)
+		}
+	})
+	t.Run("the network is down", func(t *testing.T) {
+		h.c.httpClient = &http.Client{Transport: unreachable{}}
+		err := h.c.checkForRelease(h.ctx)
+		if !errors.Is(err, ErrUpdateCheckFailed) || !strings.Contains(err.Error(), "api.github.com") {
+			t.Errorf("error = %v, want ErrUpdateCheckFailed and the sentence about outbound HTTPS", err)
+		}
+	})
+	t.Run("an answer that is not a list", func(t *testing.T) {
+		h.stubGitHub(http.StatusOK, `{"not":"a list"}`)
+		if err := h.c.checkForRelease(h.ctx); !errors.Is(err, ErrUpdateCheckFailed) {
+			t.Errorf("error = %v, want ErrUpdateCheckFailed", err)
+		}
+	})
 }

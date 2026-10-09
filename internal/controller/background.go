@@ -349,6 +349,12 @@ func (c *Controller) prune(ctx context.Context) {
 			c.publishMachinesDeleted(ids)
 			return n, err
 		}},
+		// Only attempts that have finished: an open one is the record that an
+		// update is in flight, and the timeout, not age, closes it.
+		{"update attempts", r.UpdateAttempts, func(ctx context.Context, before time.Time) (int64, error) {
+			n, err := c.st.PruneUpdateAttempts(ctx, before)
+			return int64(n), err
+		}},
 		{"usage capacity", r.Jobs, c.st.PruneUsageCapacity},
 		// The class kept for a job is worked out from its runs, and goes when
 		// they do: a job that comes back after that long starts in the default
