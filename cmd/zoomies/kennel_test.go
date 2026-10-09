@@ -48,6 +48,9 @@ func TestKennelCheckPrintsTheGoldenReportForEachFixtureTree(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%v (run with -update to write it)", err)
 			}
+			// Git on Windows ends the golden file's lines with \r\n; the command
+			// prints \n on every platform.
+			want = bytes.ReplaceAll(want, []byte("\r\n"), []byte("\n"))
 			if !bytes.Equal(got, want) {
 				t.Errorf("output differs from %s:\n%s", golden, got)
 			}
