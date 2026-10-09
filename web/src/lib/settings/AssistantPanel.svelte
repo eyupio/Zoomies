@@ -20,6 +20,7 @@
     updateSettings,
   } from '$lib/api/client';
   import type { AssistantProvider, Setting } from '$lib/api/types';
+  import { eli } from '$lib/assistant/eli.svelte';
   import { supportHint } from '$lib/errors';
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -27,7 +28,7 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Switch from '$lib/components/Switch.svelte';
-  import AssistantChat from './AssistantChat.svelte';
+  import AssistantEliCard from './AssistantEliCard.svelte';
   import AssistantProviderCard from './AssistantProviderCard.svelte';
   import AssistantProviderForm from './AssistantProviderForm.svelte';
 
@@ -47,6 +48,8 @@
     try {
       const [list, cfg] = await Promise.all([listAssistantProviders(), getSettings()]);
       providers = list.items ?? [];
+      // The widget in the corner is told at once, not at the next page load.
+      eli.know(providers);
       settings = cfg.settings ?? [];
     } catch (cause) {
       toasts.error('Could not read the assistant settings', failure(cause));
@@ -163,7 +166,7 @@
 {/if}
 
 {#if !loading}
-  <AssistantChat {providers} />
+  <AssistantEliCard {providers} />
 {/if}
 
 <section class="switches" aria-labelledby="assistant-switches">
