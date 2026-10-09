@@ -653,3 +653,72 @@ func TestARedeliveredUpdateTaskIsAnsweredAgainWithoutASecondRequest(t *testing.T
 		t.Fatalf("the request is now %q (err %v), want the first one untouched", again, err)
 	}
 }
+
+// A controller that restarts asks again for every attempt still open, and the
+// agent that wrote the request may have been restarted too, so it does not
+// remember writing it. The request still waiting is this attempt's, for this
+// release, which is what was asked for: answered as done, and left as it is.
+// A waiting request for anything else is still a reason to refuse.
+func TestAnUpdateTaskFindingItsOwnRequestWaitingIsAnsweredAsWritten(t *testing.T) {
+	runningBuild(t, "1.3.0")
+	for _, tc := range []struct {
+		name    string
+		id, tag string
+		ok      bool
+	}{
+		{"its own", "upd_abc123", "v1.3.5", true},
+		{"another attempt's", "upd_other1", "v1.3.5", false},
+		{"its own id for another release", "upd_abc123", "v1.3.4", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := readyUpdateFolder(t)
+			waiting := updates.Request{V: updates.WireVersion, ID: tc.id, Tag: tc.tag, RequestedBy: "an earlier agent", RequestedAt: time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC)}
+			if err := channel.WriteRequest(dir, waiting); err != nil {
+				t.Fatal(err)
+			}
+			before, err := os.ReadFile(filepath.Join(dir, channel.RequestFile))
+			if err != nil {
+				t.Fatal(err)
+			}
+			h := newHarness(t, 1, withUpdateFolder(dir))
+			h.tr.tasks <- []Task{updateTask("task-1", "upd_abc123", "v1.3.5")}
+			res := h.nextResult()
+			if res.OK != tc.ok {
+				t.Errorf("the update task reported %+v, want OK %v", res, tc.ok)
+			}
+			after, err := os.ReadFile(filepath.Join(dir, channel.RequestFile))
+			if err != nil || string(after) != string(before) {
+				t.Errorf("the waiting request is now %q (err %v), want it untouched", after, err)
+			}
+		})
+	}
+}
+
+// The helper may already have answered this attempt: an agent process before
+// this one wrote the request, the helper took it and wrote its result, and the
+// update failed before the agent was replaced. Writing the request again would
+// ask for the same update twice; the answer is already on its way on the
+// heartbeat.
+func TestAnUpdateTaskTheHelperHasAlreadyAnsweredWritesNothing(t *testing.T) {
+	runningBuild(t, "1.3.0")
+	dir := readyUpdateFolder(t)
+	writeJSON(t, filepath.Join(dir, channel.ResultFile), updates.Result{
+		V: updates.WireVersion, ID: "upd_abc123", OK: false, Tag: "v1.3.5", Error: "the download failed",
+		FinishedAt: time.Date(2026, 3, 1, 9, 0, 0, 0, time.UTC),
+	})
+	h := newHarness(t, 1, withUpdateFolder(dir))
+	h.tr.tasks <- []Task{updateTask("task-1", "upd_abc123", "v1.3.5")}
+	if res := h.nextResult(); !res.OK {
+		t.Fatalf("the update task reported %+v, want OK", res)
+	}
+	noRequestIn(t, dir)
+
+	// A result for another attempt says nothing about this one.
+	h.tr.tasks <- []Task{updateTask("task-2", "upd_def456", "v1.3.5")}
+	if res := h.nextResult(); !res.OK {
+		t.Fatalf("the second update task reported %+v, want OK", res)
+	}
+	if _, err := os.Stat(filepath.Join(dir, channel.RequestFile)); err != nil {
+		t.Errorf("a result for another attempt stopped the request being written: %v", err)
+	}
+}

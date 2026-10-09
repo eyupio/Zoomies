@@ -638,3 +638,56 @@ func TestWithdrawRequestRefusesAFolderThatIsALink(t *testing.T) {
 		t.Errorf("the folder holds %v, want the request still there", got)
 	}
 }
+
+// An agent asked again for an update finds a request waiting, and has to tell
+// its own (the same attempt, the same release) from anybody else's before it
+// answers. So the waiting request is read as WithdrawRequest reads it: never
+// through a link, within the helper's bound, and only as a document the helper
+// would accept.
+func TestPendingRequestReadsOnlyARequestTheHelperWouldRead(t *testing.T) {
+	_, dir := updateFolder(t)
+	if _, found, err := PendingRequest(dir); found || err != nil {
+		t.Fatalf("an empty folder: found %v, err %v; want nothing found", found, err)
+	}
+	if _, found, err := PendingRequest(filepath.Join(dir, "gone")); found || err != nil {
+		t.Fatalf("no folder: found %v, err %v; want nothing found", found, err)
+	}
+	if err := WriteRequest(dir, testRequest("upd_mine")); err != nil {
+		t.Fatal(err)
+	}
+	req, found, err := PendingRequest(dir)
+	if err != nil || !found || req.ID != "upd_mine" || req.Tag != testRequest("upd_mine").Tag {
+		t.Fatalf("PendingRequest = %+v, %v, %v; want the request written", req, found, err)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		plant func(t *testing.T, dir string) bool
+	}{
+		{"a file that is not a request", func(t *testing.T, dir string) bool { writeRaw(t, dir, []byte(`{"id":"upd_mine"`)); return true }},
+		{"a request over the size limit", func(t *testing.T, dir string) bool {
+			writeRaw(t, dir, append([]byte(`{"id":"upd_mine","pad":"`), make([]byte, updates.MaxRequestBytes)...))
+			return true
+		}},
+		{"a link to a request", func(t *testing.T, dir string) bool {
+			mine, err := json.Marshal(testRequest("upd_mine"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "elsewhere.json"), mine, 0o640); err != nil {
+				t.Fatal(err)
+			}
+			return os.Symlink("elsewhere.json", filepath.Join(dir, RequestFile)) == nil
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, dir := updateFolder(t)
+			if !tc.plant(t, dir) {
+				t.Skip("cannot make a symbolic link here")
+			}
+			if req, _, err := PendingRequest(dir); err == nil {
+				t.Errorf("PendingRequest read %+v from what is not a request", req)
+			}
+		})
+	}
+}

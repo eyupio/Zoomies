@@ -128,6 +128,15 @@ func (a *Agent) handleUpdate(ctx context.Context, task Task) {
 		return
 	}
 
+	// The helper has already answered this attempt: the request was written by an
+	// agent process before this one and taken. The answer rides the heartbeat, and
+	// a second request would ask for the same update twice.
+	if res, found, err := channel.ReadResult(dir); err == nil && found && res.ID == task.UpdateID {
+		a.log.Info("asked for an update the helper has already answered; its result goes on the heartbeat", "attempt", task.UpdateID)
+		a.answerUpdate(ctx, task, "")
+		return
+	}
+
 	req := updates.Request{
 		V: updates.WireVersion, ID: task.UpdateID, Tag: tag,
 		RequestedBy: a.updateRequestedBy(), RequestedAt: a.now().UTC(),
@@ -142,6 +151,17 @@ func (a *Agent) handleUpdate(ctx context.Context, task Task) {
 		return
 	}
 	if err := channel.WriteRequest(dir, req); err != nil {
+		// The request waiting may be this attempt's own, written by an agent
+		// process before this one, which a restarted controller asks for again.
+		// That is what was asked for, not a reason to fail the attempt.
+		if errors.Is(err, channel.ErrRequestPending) {
+			if waiting, found, perr := channel.PendingRequest(dir); perr == nil && found &&
+				waiting.ID == task.UpdateID && waiting.Tag == task.UpdateTag {
+				a.log.Info("asked again for an update whose request is still waiting for the helper", "attempt", task.UpdateID)
+				a.answerUpdate(ctx, task, "")
+				return
+			}
+		}
 		// The full error names the folder, which is for this host's log. The
 		// sentence goes to a page every role reads, so it names only the fix.
 		a.log.Warn("could not hand the update request to the helper", "attempt", task.UpdateID, "tag", tag, "error", err)
