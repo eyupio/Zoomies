@@ -2,6 +2,7 @@ package docs
 
 import (
 	"os"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -28,5 +29,35 @@ func TestTheQueuedJobPageAndTheFAQSendAReaderToTheVerdictFirst(t *testing.T) {
 				t.Errorf("%s does not say %q", page, want)
 			}
 		}
+	}
+}
+
+// The CLI page is written by hand and the binary's command list is not, so
+// the two drift unless something holds them together: every subcommand the
+// binary has is named on the page, with its command, in the backticks the
+// page's tables use. A bare verb does not count, because a reader searching
+// for "zoomies kennel recheck" would not find "recheck" under a heading.
+func TestEverySubcommandIsDocumented(t *testing.T) {
+	raw, err := os.ReadFile("../../docs/cli.md")
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := string(raw)
+	names, groups := commandNames(t)
+	var missing []string
+	for name := range names {
+		words := strings.Fields(name)
+		if len(words) != 3 || !groups[words[0]+" "+words[1]] {
+			continue
+		}
+		two := words[1] + " " + words[2]
+		if strings.Contains(page, "`zoomies "+two) || strings.Contains(page, "`"+two+"`") || strings.Contains(page, "`"+two+" ") {
+			continue
+		}
+		missing = append(missing, name)
+	}
+	slices.Sort(missing)
+	if len(missing) > 0 {
+		t.Errorf("these subcommands exist and are not on docs/cli.md:\n  %s", strings.Join(missing, "\n  "))
 	}
 }
