@@ -50,10 +50,9 @@ not verified it says so.
 Merged by the owner after main was merged into it. It adds `ManifestOptions.KennelFiles` (`contents: read`, never lowering
 the migration wizard's write), the installer question, `kennel_files` on `POST /installations/manifest`, a Connect dialog
 switch and docs, and it fixed main's lint (`providers.spec.ts`, `schema.d.ts`). Its Playwright spec was never run locally.
-Branch `claude/zf-235c-chat` should merge main to pick up the lint fix.
 
 ### 2. The assistant chat MVP (the owner asked for "an MVP as soon as we can, then build on top")
-Branch `claude/zf-235c-chat`, draft PR #799 (subscribed). Goal: set up a model on Settings, Assistant and talk to it.
+Merged as #799 (the owner marked it ready and merged it within seconds, so its CI never ran to the end). Goal: set up a model on Settings, Assistant and talk to it.
 
 Built and checked:
 * `internal/controller/assistant_chat.go`: `ValidateAssistantChat` (roles `user`/`assistant` only, ends with a user turn,
@@ -81,7 +80,8 @@ Built and checked:
 Not done:
 * **The Playwright specs have never been run** and the binary was not run by hand against a real model. Next step: get a
   browser working (see above) or rely on CI, and try it once against Ollama (needs `assistant.allow_private_provider`).
-* PR #799 is open as a draft; watch its CI (the Playwright jobs are the first real run of its specs).
+* #799 is merged. Its two Playwright specs in `web/tests/assistant.spec.ts` have still never been seen to run; the first real
+  run is on main. Check main's CI for `assistant.spec.ts`, or run it locally once a browser works.
 * `docs/ui.md` has no sentence about the chat; the plan file `roadmap/plans/2026-10-09-zf-235c-chat-mvp.md` was not
   written; `roadmap/progress.md` ZF-235 row needs the new slice.
 * No audit rows, no per-person limits, no redaction, no stored conversations, no tools: those are deliberately later.
