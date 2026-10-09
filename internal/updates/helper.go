@@ -57,11 +57,19 @@ type HelperHost struct {
 	RootlessRuntime bool
 }
 
-// HelperSupport says why the update helper cannot be installed on h, or nothing
-// when it could be, or when the service cannot tell.
+// HelperSupport says why the update helper can never serve the service on h, or
+// nothing when it could, or when the service cannot tell.
 //
-// It answers only where `zoomies updates helper install` is certain to refuse,
-// and in the order the installer meets the refusals. Anything the service cannot
+// Only its first two answers are refusals of the installer's, and only the
+// systemd one is the installer's own look: `zoomies updates helper install`
+// refuses where /run/systemd/system is missing (backend.HasSystemd, which
+// agent.LocalHelperHost reads too) and is not built for a platform that is not
+// Unix, and an operating system other than Linux always meets one of the two.
+// The two container answers are not refusals at all. The installer would put
+// the helper on the host around such a container, and it would never act on
+// what the container writes: a container that runs no runners mounts no shared
+// folder, and the installer only stops offering it one; one under a rootless
+// runtime writes as an account the helper refuses. Anything the service cannot
 // see (a service that runs as root, a user-namespace-remapped Docker daemon, a
 // Linux host around a container that does not run systemd) is left to the
 // installer, which says so itself, and the status keeps offering the command.
