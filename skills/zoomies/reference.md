@@ -2696,6 +2696,124 @@ Examples:
   zoomies uninstall --yes --volumes
 ```
 
+### zoomies transfer
+
+Move a complete instance between operators
+
+```text
+Move a complete instance, including its history and fleet credentials.
+
+Usage:
+  zoomies transfer <subcommand> [flags]
+
+Subcommands:
+  prepare                            Drain a running instance in one action without interrupting busy jobs
+  status                             Follow runner, job and cleanup progress
+  cancel                             Resume saved pools before the instance is fenced
+  export --out <file> --passphrase-file <file>  Export a drained, fenced instance while its controller is stopped
+  import <file> --source-stopped --passphrase-file <file>  Import into an empty destination, keeping its operator access and recovery fence
+
+Run "zoomies transfer <subcommand> --help" for the flags each one takes.
+```
+
+#### zoomies transfer prepare
+
+Drain a running instance in one action without interrupting busy jobs
+
+```text
+Prepare a running instance for transfer, follow its drain, or cancel before it is fenced.
+
+Usage:
+  zoomies transfer prepare
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --output=table             table, json or yaml
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+```
+
+#### zoomies transfer status
+
+Follow runner, job and cleanup progress
+
+```text
+Prepare a running instance for transfer, follow its drain, or cancel before it is fenced.
+
+Usage:
+  zoomies transfer status
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --output=table             table, json or yaml
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+```
+
+#### zoomies transfer cancel
+
+Resume saved pools before the instance is fenced
+
+```text
+Prepare a running instance for transfer, follow its drain, or cancel before it is fenced.
+
+Usage:
+  zoomies transfer cancel
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --output=table             table, json or yaml
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+```
+
+#### zoomies transfer export
+
+Export a drained, fenced instance while its controller is stopped
+
+```text
+Export a complete instance after draining, raising its recovery fence and stopping its controller.
+
+Usage:
+  zoomies transfer export --out <file> --passphrase-file <file>
+
+Flags:
+  --config                   path to zoomies.yaml
+  --out                      new encrypted archive file; existing files are refused
+  --passphrase-file          file holding the archive passphrase
+
+Examples:
+  zoomies transfer export --out instance.zbk --passphrase-file ./move.pass
+```
+
+#### zoomies transfer import
+
+Import into an empty destination, keeping its operator access and recovery fence
+
+```text
+Import a complete instance into an empty, stopped destination. Its own encryption key and operator access remain in charge.
+
+Usage:
+  zoomies transfer import <file> --source-stopped --passphrase-file <file>
+
+Flags:
+  --config                   path to zoomies.yaml
+  --operator-name            create a destination operator when this host has no existing operator access
+  --operator-password-file   file holding the new destination operator's password
+  --passphrase-file          file holding the archive passphrase
+  --source-stopped           confirm the source controller is stopped and will stay stopped during cutover
+
+Examples:
+  zoomies transfer import instance.zbk --source-stopped --passphrase-file ./move.pass
+  zoomies transfer import instance.zbk --source-stopped --passphrase-file ./move.pass --operator-name new-operator --operator-password-file ./operator.pass
+```
+
 ### zoomies backup
 
 Copy this host's database, with a manifest saying what it needs

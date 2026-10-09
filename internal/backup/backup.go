@@ -105,6 +105,7 @@ func ValidID(id string) bool { return idPattern.MatchString(id) }
 // instance was configured to be. None of it can be recovered from the database
 // file itself once the instance that produced it is gone.
 type Manifest struct {
+	Transfer        *TransferInfo   `json:"transfer,omitempty"`
 	ManifestVersion int             `json:"manifest_version"`
 	TakenAt         time.Time       `json:"taken_at"`
 	Source          string          `json:"source,omitempty"`

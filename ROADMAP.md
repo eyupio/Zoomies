@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 3.6 · 8 October 2026 · derived from the owner's
+Version 3.7 · 9 October 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md),
 reconciled against `main` at `6d12a72` on 6 September, at `9a80b31`
 on 19 September and at `88c41f6` on 8 October, when the owner set a new primary target, withdrew the
@@ -1637,6 +1637,33 @@ acceptance from the version that wrote it.
 * **Decision 28's spike**: a container per job on Proxmox from the published
   runner image, one day, only after a fleet with Proxmox exists.
 
+### ZF-237: move a complete instance between operators
+
+An operator can move a whole instance to another independently configured
+controller without giving it the source encryption key. A mandatory
+passphrase protects a portable snapshot; every stored secret is re-sealed
+under the destination key, and retained history, IDs and relationships survive.
+The source is drained and stopped before cutover. The destination stays fenced
+until its operator verifies agents, webhooks and rented-machine ownership.
+
+Destination process configuration and operator access replace the source's.
+Team passwords, API credentials and two-step secrets remain usable;
+sessions, unused enrolment capabilities and old operator access do not.
+Migration refuses an occupied destination, an unreadable secret, an unsupported
+schema or a damaged archive before changing the live database. Stream archives
+with explicit size limits and retain no passphrase. Ordinary backups keep their
+existing restore contract.
+
+Deliver one-click preparation with busy jobs left to finish, drain progress,
+a shared transfer engine, command-line export/import, REST export
+and staged import, documentation and failure tests. Accept when a complete
+round trip between different encryption keys preserves history and usable
+team credentials, source operator access cannot authenticate at the new
+controller, destination access works after restart, failures leave the source
+and live destination intact, and restored machine proofs remain unverified.
+See [the transfer design](roadmap/instance-transfer.md). The owner requested
+this work on 9 October 2026; it is the next implementation priority.
+
 ## 10. Ordered delivery plan
 
 Consult [progress.md](roadmap/progress.md) before starting; an old
@@ -1645,6 +1672,7 @@ every package in section 8 was re-read on 19 September against the code.
 
 | Order | Work | Exit criterion |
 | --- | --- | --- |
+| next | ZF-237 complete instance transfer | The round-trip, ownership and refusal tests, with CLI and REST documentation |
 | 0 | ZF-005 documentation corrections and the marketplace repin, done, 19 September | The three pages agree with the record; `release.env` pins the current full release |
 | 1 | ZF-207 two audiences: the role and its migration, the actions, the settings scope, the problems split, tokens, copy and audit | The per-role Playwright assertions hold; a single-team instance is unchanged; an upgraded instance has one platform identity |
 | 1b | ZF-224 auto-recovery on a lost runner, off by default | A job the fleet broke is re-run once on its own; a test that failed never is; the bound holds across a restart |
@@ -1705,6 +1733,8 @@ remaining dependency. Do not invent live runs, elapsed observation, benchmark
 results or user feedback; do not wait for them either.
 
 ## 13. Change record
+
+* **9 October 2026: Version 3.7:** ZF-237 added at the owner's request: complete instance transfer between independently configured controllers, with portable secrets, destination operator handover and recovery fencing. It is the next implementation priority.
 
 * **8 October 2026: Version 3.6:** the agent-readiness programme read in.
   ZF-229 (Kennel Club, whose record predates this entry) added to section 8

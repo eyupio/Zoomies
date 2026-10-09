@@ -5795,6 +5795,98 @@ paths:
               schema: { $ref: "#/components/schemas/Backup" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /transfers/preparation:
+    get:
+      operationId: getTransferPreparation
+      tags: [backups]
+      x-zoomies-role: platform
+      summary: Follow complete instance preparation
+      responses:
+        "200":
+          description: Current drain and cleanup progress
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TransferProgress" }
+    post:
+      operationId: prepareInstanceTransfer
+      tags: [backups]
+      x-zoomies-role: platform
+      summary: Drain this instance for transfer
+      description: >-
+        Stops new runner and machine demand without changing saved pool settings. Busy jobs finish naturally. Idle runners withdraw safely, cleanup continues, and the recovery fence is raised automatically when no work is in flight. Preparation survives a restart. Requires process operator authority.
+      responses:
+        "202":
+          description: Preparation started or already in progress
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TransferProgress" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      operationId: cancelInstanceTransfer
+      tags: [backups]
+      x-zoomies-role: platform
+      summary: Cancel preparation before cutover
+      description: >-
+        Once fenced, use the explicit recovery action after checking no destination is running.
+      responses:
+        "204":
+          description: Preparation cancelled
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /transfers/export:
+    post:
+      operationId: exportInstanceTransfer
+      tags: [backups]
+      x-zoomies-role: platform
+      summary: Export a complete portable instance
+      description: >-
+        Requires a drained, fenced source. All database records and fleet credentials travel under a disposable transfer key inside the encrypted archive. The source encryption key and configuration file do not travel. Stop the source controller before cutover and keep it stopped while the destination runs. Requires process operator authority.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [passphrase]
+              properties:
+                passphrase: { type: string, format: password, minLength: 8, maxLength: 4096 }
+      responses:
+        "200":
+          description: The encrypted portable archive
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /transfers/import:
+    post:
+      operationId: importInstanceTransfer
+      tags: [backups]
+      x-zoomies-role: platform
+      summary: Prepare a portable instance for this destination
+      description: >-
+        Authenticates an encrypted archive, verifies the database and re-seals secrets under this destination's key. Returns inventory counts and a prepared backup without replacing the database. Stage it using the restore endpoint with source_stopped=true, then restart to apply. The destination must be empty and keep its own operator access. Source operator authority and sign-in configuration are invalidated at apply. The imported instance remains fenced. Requires process operator authority.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, passphrase]
+              properties:
+                file: { type: string, format: binary }
+                passphrase: { type: string, format: password, maxLength: 4096 }
+      responses:
+        "201":
+          description: Verified and sealed for this destination
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Backup" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "413": { description: The upload is over the limit. }
+
   /backups/upload:
     post:
       operationId: uploadBackup
@@ -6252,6 +6344,7 @@ paths:
             schema:
               type: object
               properties:
+                source_stopped: { type: boolean, description: Required for complete transfers; confirm the source controller is stopped and will remain stopped. }
                 revoke_api_tokens: { type: boolean, description: Revoke every API token as well. }
                 reset_agent_tokens: { type: boolean, description: Forget every host's agent credential, so each agent joins again. }
       responses:
@@ -9535,11 +9628,34 @@ components:
           type: string
           description: Why the fence is on -- normally the backup this database was restored from.
 
+    TransferProgress:
+      type: object
+      required: [draining, ready, live_runners, busy_runners, pending_cleanup, active_jobs, machine_operations]
+      properties:
+        draining: { type: boolean }
+        ready: { type: boolean }
+        live_runners: { type: integer }
+        busy_runners: { type: integer }
+        pending_cleanup: { type: integer }
+        active_jobs: { type: integer }
+        machine_operations: { type: integer }
+
+    TransferInfo:
+      type: object
+      required: [version, prepared, inventory]
+      properties:
+        version: { type: integer }
+        prepared: { type: boolean }
+        inventory:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+
     Backup:
       type: object
       description: One backup, as the Backups tab lists it. The manifest's facts are lifted out flat.
       required: [id, taken_at, source, location, bytes, total_bytes, schema_migrations, secrets, key_matches, key_included, restorable]
       properties:
+        transfer: { $ref: "#/components/schemas/TransferInfo" }
         id: { type: string, description: The backup's directory name., examples: [zoomies-20260916-120000] }
         taken_at: { type: string, format: date-time }
         source:
@@ -9762,6 +9878,7 @@ components:
       type: object
       required: [backup_id, dir, requested_at, revoke_api_tokens, reset_agent_tokens]
       properties:
+        source_stopped: { type: boolean }
         backup_id: { type: string }
         dir: { type: string }
         taken_at: { type: string, format: date-time }

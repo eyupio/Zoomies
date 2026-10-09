@@ -90,6 +90,7 @@ These change nothing. Run them as the question needs.
 * `zoomies audit list`
 * `zoomies users list`, `zoomies tokens list`, `zoomies mcp-clients list`
 * `zoomies config check`, `zoomies config print`, `zoomies config list`, `zoomies config get`
+* `zoomies transfer status`
 * `zoomies doctor`, `zoomies healthcheck`, `zoomies logs`
 * `zoomies deployment status`, `zoomies deployment logs`
 * `zoomies kennel overview`, `zoomies kennel repositories`, `zoomies kennel repository`, `zoomies kennel checks`, `zoomies kennel check` (it reads a checkout on this machine and sends nothing unless `--controller` names a repository to read from the controller)
@@ -121,6 +122,7 @@ minutes.
 * `zoomies tokens create`, `zoomies tokens revoke`, `zoomies tokens delete`, `zoomies tokens purge`
 * `zoomies mcp-clients create`, `zoomies mcp-clients rotate-secret`, `zoomies mcp-clients revoke`
 * `zoomies config set`, `zoomies config unset`, `zoomies config import-env`
+* `zoomies transfer prepare`, `zoomies transfer cancel`, `zoomies transfer export`
 * `zoomies tune`
 
 Some MCP tools are not offered until the controller has been told to offer
@@ -143,6 +145,7 @@ output that keeps coming, ask for a bounded read instead: `zoomies audit list`,
 or `zoomies runners logs` without `--follow`.
 
 * `zoomies controller`, `zoomies agent`, `zoomies gateway`, `zoomies mcp`, `zoomies demo`, `zoomies audit tail`
+* `zoomies transfer import`
 * `zoomies init`, `zoomies upgrade`, `zoomies update`, `zoomies uninstall`, `zoomies restore`
 * `zoomies updates helper`
 * `zoomies deployment start`, `zoomies deployment stop`, `zoomies deployment restart`, `zoomies deployment update`, `zoomies deployment down`
