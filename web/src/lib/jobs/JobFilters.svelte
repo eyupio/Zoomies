@@ -20,7 +20,12 @@
      * has to leave it out.
      */
     provisioning: ProvisioningStatus[];
-    /** Calendar dates, `YYYY-MM-DD`. Converted to instants when the API is called. */
+    /**
+     * Calendar dates, `YYYY-MM-DD`, or with a time of day, `YYYY-MM-DDTHH:MM` on the
+     * operator's clock, which is how a link from a figure that counts a moving window
+     * (the last 7 days, to the minute) asks for the same jobs. Converted to instants
+     * when the API is called.
+     */
     since: string;
     until: string;
     unmatched: boolean;
@@ -154,6 +159,12 @@
     JOB_STATES.map((s) => ({ value: s, label: jobStatus(s).label, hint: jobStatus(s).hint })),
   );
 
+  // A bound with a time of day needs the control that can show it: a date input handed
+  // `2026-10-02T05:12` shows nothing, and the chip beside it would say a filter was in
+  // force that the field does not.
+  const withTime = $derived(value.since.includes('T') || value.until.includes('T'));
+  const moment = (v: string) => v.replace('T', ' ');
+
   const poolName = $derived(new Map(pools.map((p) => [p.id ?? '', p.name ?? p.id ?? ''])));
   // A host the fleet no longer has still filters, so its chip says the id rather than nothing.
   const hostName = $derived(new Map(hosts.map((h) => [h.id ?? '', h.name ?? h.id ?? ''])));
@@ -211,13 +222,20 @@
           {
             id: 'since',
             label: 'From',
-            value: value.since,
+            value: moment(value.since),
             onremove: () => onchange({ since: '' }),
           },
         ]
       : []),
     ...(value.until
-      ? [{ id: 'until', label: 'To', value: value.until, onremove: () => onchange({ until: '' }) }]
+      ? [
+          {
+            id: 'until',
+            label: 'To',
+            value: moment(value.until),
+            onremove: () => onchange({ until: '' }),
+          },
+        ]
       : []),
     ...(value.unmatched
       ? [
@@ -322,6 +340,7 @@
   <DateRange
     since={value.since}
     until={value.until}
+    {withTime}
     label="Queued between"
     onchange={(next) => onchange(next)}
   />

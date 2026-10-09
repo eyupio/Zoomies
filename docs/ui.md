@@ -319,7 +319,11 @@ and the Overview's outcome links still show what they promised.
 
 The rest of the filters (repository, workflow, pool, host, label, outcome, dates)
 live in the URL alongside it, so a view can be pasted into a chat. *Host* is the
-host a job ran on, so it is not offered on the Queue, whose jobs have not run yet. A queued job
+host a job ran on, so it is not offered on the Queue, whose jobs have not run yet.
+A date range takes a time of day as well (`since=2026-10-02T05:12`, on the
+operator's own clock), which is how a link from a figure that counts a moving
+window, such as the last seven days, opens exactly the jobs it counted; a bare
+date still means the whole of that day. A queued job
 that no enabled pool claims is one filter away, *Unmatched only*, and the
 problems drawer links straight to it: on an organisation that also rents
 runners elsewhere, most such jobs are somebody else's rather than a fault.

@@ -40,7 +40,7 @@
   import JobDrawer from '$lib/jobs/JobDrawer.svelte';
   import JobLabels from '$lib/jobs/JobLabels.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
-  import { startOfDay, endOfDay } from '$lib/jobs/DateRange.svelte';
+  import { startOfMoment, endOfMoment } from '$lib/jobs/DateRange.svelte';
   import {
     jobProvisioningActions,
     PROVISIONING_ACTIONS,
@@ -98,8 +98,8 @@
     label: filters.label,
     branch: branch ? [branch] : [],
     provisioning,
-    since: startOfDay(filters.since),
-    until: endOfDay(filters.until),
+    since: startOfMoment(filters.since),
+    until: endOfMoment(filters.until),
     unmatched: filters.unmatched || undefined,
   });
   let liveKey = $state(0);
