@@ -4114,7 +4114,7 @@ export interface paths {
         put?: never;
         /**
          * Ask GitHub for the release list now
-         * @description Reads the list of releases from GitHub instead of waiting for the scheduled check, and answers with the status it leaves. At most one request goes to GitHub a minute: a press inside the minute is not an error, and answers the status as it stands. Refused with `update.check_disabled` while `updates.check_interval` is `0`, which is the setting that keeps this controller from ever asking. Takes no body.
+         * @description Reads the list of releases from GitHub instead of waiting for the scheduled check, and answers with the status it leaves. At most one request goes to GitHub a minute: a press inside the minute is not an error, and answers the status as it stands. Refused with `update.check_disabled` while `updates.check_interval` is `0`, which is the setting that keeps this controller from ever asking, and with `update.check_failed` (502) when GitHub or the network to it would not let the read finish. Takes no body.
          */
         post: operations["checkForUpdates"];
         delete?: never;
@@ -4538,7 +4538,7 @@ export interface components {
         ErrorEnvelope: {
             error: {
                 /** @enum {string} */
-                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "too_large" | "rate_limited" | "limit_reached" | "update.mode_off" | "update.check_disabled" | "update.helper_missing" | "update.in_progress" | "update.not_a_release" | "update.nothing_newer" | "update.host_cannot_update" | "update.rollout_halted" | "internal";
+                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "too_large" | "rate_limited" | "limit_reached" | "update.mode_off" | "update.check_disabled" | "update.helper_missing" | "update.in_progress" | "update.not_a_release" | "update.nothing_newer" | "update.host_cannot_update" | "update.rollout_halted" | "update.check_failed" | "internal";
                 /** @description Written for a person to read */
                 message: string;
                 /** @description The form field at fault, or on a `limit_reached` refusal the `limits.*` setting that refused. */
@@ -9440,6 +9440,15 @@ export interface components {
         };
         /** @description The update was refused, and the code says why: `update.mode_off` while `updates.mode` is off, `update.check_disabled` while `updates.check_interval` is 0, `update.helper_missing` when no update helper can carry it out, `update.in_progress` while an update is already open for the same target, `update.not_a_release` for a build that did not come from a release, `update.nothing_newer` when there is no newer release to take or the tag asked for is not one, `update.host_cannot_update` for a host whose agent cannot update itself, and `update.rollout_halted` while a halted rollout waits for a person. A controller that may not act (it is fenced for recovery, or another holds the lease) is the plain `conflict`. The message says what stopped it and what to change. */
         UpdateRefused: {
+            headers: {
+                [name: string]: unknown;
+            };
+            content: {
+                "application/json": components["schemas"]["ErrorEnvelope"];
+            };
+        };
+        /** @description GitHub, or the network to it, would not let the release check finish, and nothing has changed. The code is `update.check_failed` and the message says what failed and what to try: that the controller may need an outbound HTTPS rule to `api.github.com`, or that GitHub answered with a status and the check can be tried again later. It is the controller's upstream that failed and not the controller, so it is a 502 and is logged as a warning. */
+        UpdateCheckFailed: {
             headers: {
                 [name: string]: unknown;
             };
@@ -15781,6 +15790,7 @@ export interface operations {
             401: components["responses"]["Unauthorized"];
             403: components["responses"]["Forbidden"];
             409: components["responses"]["UpdateRefused"];
+            502: components["responses"]["UpdateCheckFailed"];
         };
     };
     updateController: {
