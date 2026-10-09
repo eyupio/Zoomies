@@ -3139,6 +3139,43 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/assistant/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the assistant's model a question
+         * @description Answers a conversation as a `text/event-stream`: `delta` frames carrying
+         *     `{"text": ...}` as the model writes, one `usage` frame with
+         *     `{"input_tokens", "output_tokens"}` when the provider reports them, and a final
+         *     `done` frame with the provider's name and the model, or an `error` frame with a
+         *     `message` if the answer failed after it began (the status had gone out with the
+         *     first byte by then).
+         *
+         *     The controller keeps nothing between requests: send the conversation so far,
+         *     ending in the person's question, and send it again with the next one. Only
+         *     `user` and `assistant` messages are accepted. The model is told what Zoomies
+         *     is and that it cannot see this fleet or change anything; no tool is offered
+         *     and no fleet data is attached.
+         *
+         *     Everything that can be refused is refused before the stream opens: a conversation
+         *     that is empty, too long or does not end in a user message is a 422 naming the
+         *     message; an instance with no enabled provider, or a named one that is not, is a
+         *     409; a model that would not answer at all (the address was refused, the key was
+         *     wrong) is a 502 with code `assistant.provider_failed`.
+         */
+        post: operations["assistantChat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/assistant/providers": {
         parameters: {
             query?: never;
@@ -4813,7 +4850,7 @@ export interface components {
         ErrorEnvelope: {
             error: {
                 /** @enum {string} */
-                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "too_large" | "rate_limited" | "limit_reached" | "update.mode_off" | "update.check_disabled" | "update.helper_missing" | "update.in_progress" | "update.not_a_release" | "update.nothing_newer" | "update.host_cannot_update" | "update.rollout_halted" | "update.check_failed" | "internal";
+                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "too_large" | "rate_limited" | "limit_reached" | "update.mode_off" | "update.check_disabled" | "update.helper_missing" | "update.in_progress" | "update.not_a_release" | "update.nothing_newer" | "update.host_cannot_update" | "update.rollout_halted" | "update.check_failed" | "assistant.provider_failed" | "internal";
                 /** @description Written for a person to read */
                 message: string;
                 /** @description The form field at fault, or on a `limit_reached` refusal the `limits.*` setting that refused. */
@@ -8906,6 +8943,16 @@ export interface components {
             error?: string;
             /** Format: date-time */
             checked_at: string;
+        };
+        AssistantChatRequest: {
+            /** @description The provider to ask. Omit for the default. A disabled provider is not one to ask. */
+            provider_id?: string;
+            /** @description The conversation so far, oldest first, ending in a `user` message. At most 40 messages, 8 KiB each and 32 KiB in all. */
+            messages: {
+                /** @enum {string} */
+                role: "user" | "assistant";
+                content: string;
+            }[];
         };
         AssistantProvider: {
             id: string;
@@ -14984,6 +15031,41 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    assistantChat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantChatRequest"];
+            };
+        };
+        responses: {
+            /** @description The answer, as it is written */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+            /** @description The model would not answer. The code is `assistant.provider_failed` and the message says why in words that never carry the request or the key. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
         };
     };
     listAssistantProviders: {

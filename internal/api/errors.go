@@ -62,6 +62,11 @@ const (
 // that is somebody else's.
 const codeUpdateCheckFailed = "update.check_failed"
 
+// codeAssistantProviderFailed is the model's end of a chat failing before it
+// began: the address would not answer, the key was refused. The same reasoning
+// makes it a 502, and its message is the adapter's, written for a person.
+const codeAssistantProviderFailed = "assistant.provider_failed"
+
 // statusClientClosed is nginx's 499: the client hung up before the response.
 // No client ever reads it -- by then there is none -- but the access log
 // separates a request the browser abandoned from one the controller failed.

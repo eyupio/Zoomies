@@ -386,6 +386,7 @@ func (s *Server) apiRoutes() chi.Router {
 		})
 		// The assistant's providers: the administrator's, kinds included,
 		// because only the page that adds one asks for them.
+		r.With(s.require(auth.ActionAssistantChat)).Post("/assistant/chat", s.handleAssistantChat)
 		r.Route("/assistant/providers", func(r chi.Router) {
 			r.With(s.require(auth.ActionAssistantRead)).Get("/", s.handleListAssistantProviders)
 			r.With(s.require(auth.ActionAssistantWrite)).Post("/", s.handleCreateAssistantProvider)

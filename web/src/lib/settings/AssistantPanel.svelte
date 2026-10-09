@@ -27,6 +27,7 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Switch from '$lib/components/Switch.svelte';
+  import AssistantChat from './AssistantChat.svelte';
   import AssistantProviderCard from './AssistantProviderCard.svelte';
   import AssistantProviderForm from './AssistantProviderForm.svelte';
 
@@ -159,6 +160,10 @@
       />
     {/each}
   </div>
+{/if}
+
+{#if !loading}
+  <AssistantChat {providers} />
 {/if}
 
 <section class="switches" aria-labelledby="assistant-switches">
