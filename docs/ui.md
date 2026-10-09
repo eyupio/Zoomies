@@ -674,9 +674,16 @@ loads by itself when you leave the key field), so a model the provider has
 retired cannot be picked by mistake. A provider that will not list its models
 leaves the field as a box to type the name into.
 
-Under the provider cards sits **Ask the assistant**, a plain chat with the
-default provider. It cannot see the fleet yet and says so; the conversation
-lives in the page and is gone when you leave it.
+Under the provider cards sits **Ask Eli**, a conversation with the default
+provider. Eli is the assistant's name: Extremely Lively Intelligence. A first
+visit offers four things to ask that need no knowledge of your fleet; after that
+your questions sit on the right and Eli's answers on the left, drawn from the
+Markdown a model writes (lists, tables, code with a copy button, links that open
+in a new tab) and never as markup the page runs. The view follows an answer as it
+arrives and stops following when you scroll up to read, with a **Latest** button
+to return. **Stop** ends an answer, **Try again** asks a failed one a second time,
+and **New conversation** clears the page. Eli cannot see the fleet yet and says
+so; the conversation lives in the page and is gone when you leave it.
 
 ### Backups
 

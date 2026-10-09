@@ -121,7 +121,7 @@ func TestAChatStreamsTheModelsWordsAndEndsWithWhoAnswered(t *testing.T) {
 	if len(asked) != 2 || asked[0]["role"] != "system" || asked[1]["role"] != "user" || asked[1]["content"] != "What is a runner?" {
 		t.Fatalf("the model was sent %v", asked)
 	}
-	if prompt, _ := asked[0]["content"].(string); !strings.Contains(prompt, "Zoomies") || !strings.Contains(prompt, "cannot see this fleet") {
+	if prompt, _ := asked[0]["content"].(string); !strings.Contains(prompt, "You are Eli") || !strings.Contains(prompt, "cannot see this fleet") {
 		t.Errorf("the model is not told what it is, or what it cannot do: %q", prompt)
 	}
 }

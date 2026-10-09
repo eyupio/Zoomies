@@ -83,7 +83,7 @@ test('the demo model answers a question typed on the page, and the next one carr
   const message = page.getByRole('textbox', { name: 'Message' });
   await message.fill('What is a runner?');
   await page.getByRole('button', { name: 'Send' }).click();
-  const answers = page.getByRole('article', { name: 'Assistant' });
+  const answers = page.getByRole('article', { name: 'Eli' });
   await expect(answers.first()).toContainText('The built-in model heard: What is a runner?');
   await expect(answers.first()).toContainText('Demo model (built in)');
   await expect(page.getByRole('article', { name: 'You' }).first()).toContainText(
@@ -100,6 +100,117 @@ test('the demo model answers a question typed on the page, and the next one carr
 
   await page.getByRole('button', { name: 'New conversation' }).click();
   await expect(page.getByRole('article', { name: 'You' })).toHaveCount(0);
+});
+
+/** A streamed answer, cut into small pieces the way a model sends it. */
+function answerStream(markdown: string): string {
+  const pieces = markdown.match(/[\s\S]{1,24}/g) ?? [];
+  return [
+    ...pieces.map((text) => `event: delta\ndata: ${JSON.stringify({ text })}\n\n`),
+    `event: usage\ndata: ${JSON.stringify({ input_tokens: 5, output_tokens: 9 })}\n\n`,
+    `event: done\ndata: ${JSON.stringify({ provider: 'Demo', model: 'demo' })}\n\n`,
+  ].join('');
+}
+
+test('Eli says hello, offers things to ask, and a click asks one', async ({ page }) => {
+  const asked: Array<{ messages: Array<{ role: string; content: string }> }> = [];
+  await page.route('**/api/v1/assistant/chat', async (route) => {
+    asked.push(route.request().postDataJSON());
+    await route.continue();
+  });
+  await goto(page, '/settings/assistant', 'Assistant');
+  await expect(page.getByText("Hi, I'm Eli")).toBeVisible();
+  const starters = page.getByRole('list', { name: 'Things to ask' }).getByRole('button');
+  await expect(starters).toHaveCount(4);
+  const first = (await starters.first().textContent()) ?? '';
+  await starters.first().click();
+  await expect(page.getByRole('article', { name: 'Eli' }).first()).toContainText(
+    `The built-in model heard: ${first}`,
+  );
+  expect(asked[0]!.messages).toEqual([{ role: 'user', content: first }]);
+  // Once there is a conversation the greeting makes way for it.
+  await expect(page.getByText("Hi, I'm Eli")).toHaveCount(0);
+});
+
+test('an answer is drawn from its Markdown, and what is not Markdown is never run', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/assistant/chat', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: answerStream(
+        [
+          '## Where to look',
+          '- **The dashboard** shows runners',
+          '- `GET /api/runners` gives the list',
+          '',
+          '| Pool | Idle |',
+          '|:--|--:|',
+          '| ci | 2 |',
+          '',
+          '```yaml',
+          'runs-on: [self-hosted]',
+          '```',
+          '',
+          'See [the docs](https://docs.zoomies.sh/labels) and [bad](javascript:window.__pwned=1).',
+          '<script>window.__pwned = 1</script> <img src=x onerror="window.__pwned=1">',
+        ].join('\n'),
+      ),
+    }),
+  );
+  await goto(page, '/settings/assistant', 'Assistant');
+  await page.getByRole('textbox', { name: 'Message' }).fill('hello');
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  const answer = page.getByRole('article', { name: 'Eli' });
+  await expect(answer.getByRole('listitem')).toHaveCount(2);
+  await expect(answer.locator('strong', { hasText: 'The dashboard' })).toBeVisible();
+  await expect(answer.getByRole('table')).toBeVisible();
+  await expect(answer.getByRole('cell', { name: '2' })).toBeVisible();
+  await expect(answer.getByText('runs-on: [self-hosted]')).toBeVisible();
+  await expect(answer.getByRole('button', { name: 'Copy code' })).toBeVisible();
+
+  const link = answer.getByRole('link', { name: 'the docs' });
+  await expect(link).toHaveAttribute('href', 'https://docs.zoomies.sh/labels');
+  await expect(link).toHaveAttribute('target', '_blank');
+  await expect(link).toHaveAttribute('rel', /noopener/);
+  // A scheme that runs code is only words, and markup is only characters.
+  await expect(answer.getByRole('link')).toHaveCount(1);
+  await expect(answer).toContainText('[bad](javascript:window.__pwned=1)');
+  await expect(answer).toContainText('<script>window.__pwned = 1</script>');
+  expect(await page.evaluate(() => (window as unknown as { __pwned?: number }).__pwned)).toBe(
+    undefined,
+  );
+  expect(await answer.locator('script, img').count()).toBe(0);
+});
+
+test('a failed answer can be asked again, and the second one replaces it', async ({ page }) => {
+  let calls = 0;
+  await page.route('**/api/v1/assistant/chat', (route) => {
+    calls++;
+    if (calls === 1)
+      return route.fulfill({
+        status: 502,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: { code: 'assistant.provider_failed', message: 'the provider is down' },
+        }),
+      });
+    return route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: answerStream('Back again.'),
+    });
+  });
+  await goto(page, '/settings/assistant', 'Assistant');
+  await page.getByRole('textbox', { name: 'Message' }).fill('hello');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(page.getByRole('alert').filter({ hasText: 'the provider is down' })).toBeVisible();
+  await page.getByRole('button', { name: 'Try again' }).click();
+  await expect(page.getByRole('article', { name: 'Eli' })).toContainText('Back again.');
+  await expect(page.getByRole('alert').filter({ hasText: 'the provider is down' })).toHaveCount(0);
+  await expect(page.getByRole('article', { name: 'You' })).toHaveCount(1);
 });
 
 test('a refused question says why where the answer would have been', async ({ page }) => {
