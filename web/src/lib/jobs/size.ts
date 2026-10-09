@@ -12,6 +12,7 @@
  * the difference between a deliberate fallback and a job that landed elsewhere.
  */
 import type { Job, LabelAdvice, SizeClass } from '../api/types';
+import { describeWindow, formatMegabytes, pluralise } from '../format';
 import { classWord } from '../hosts/tags';
 
 export type SizeBasis = NonNullable<Job['size_basis']>;
@@ -99,7 +100,8 @@ export function classCell(job: Job): string {
 
 /* -- label advice ----------------------------------------------------------- */
 
-const ADVICE: Record<LabelAdvice['kind'], { label: string; hint: string }> = {
+/** A sparse row has no kind and no entry here; the card words it from its state. */
+const ADVICE: Record<Exclude<LabelAdvice['kind'], ''>, { label: string; hint: string }> = {
   too_small: {
     label: 'Names a class that is too small',
     hint: 'It can only run on hosts smaller than its runs need, and is killed when it needs more than they have.',
@@ -116,7 +118,7 @@ const ADVICE: Record<LabelAdvice['kind'], { label: string; hint: string }> = {
 
 /** What a kind of advice means. A kind this build has not heard of is shown as it came. */
 export function adviceWords(kind: string): { label: string; hint: string } {
-  return ADVICE[kind as LabelAdvice['kind']] ?? { label: kind, hint: '' };
+  return ADVICE[kind as Exclude<LabelAdvice['kind'], ''>] ?? { label: kind, hint: '' };
 }
 
 /** The key a pin and an advice row share, so a row knows whether it is already pinned. */
@@ -139,4 +141,38 @@ export function pinScope(row: { repo: string; workflow?: string; job_name?: stri
  */
 export function sentence(text: string): string {
   return text === '' ? text : text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * The figures behind one advice row, in one line: the p95 and the max of
+ * memory, the p95 of CPU, and how many runs over which window. A dimension no
+ * run measured is left out rather than shown as nothing, and the window is the
+ * page's, so the sentence is built here where both are known.
+ */
+export function observedWords(
+  observed: NonNullable<LabelAdvice['observed']>,
+  window: string | null | undefined,
+): string {
+  const parts: string[] = [];
+  if (observed.memory_mb.p95 > 0) {
+    parts.push(`p95 ${formatMegabytes(observed.memory_mb.p95)}`);
+    parts.push(`max ${formatMegabytes(observed.memory_mb.max)}`);
+  }
+  if (observed.cpu.p95 > 0) parts.push(`${cpuFigure(observed.cpu.p95)} CPU at p95`);
+  const span = describeWindow(window);
+  parts.push(`${pluralise(observed.runs, 'run')}${span ? ` in ${span}` : ''}`);
+  return parts.join(' · ');
+}
+
+/** A CPU figure to a tenth, and whole where it is one: "1.5", "2". */
+function cpuFigure(v: number): string {
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
+/**
+ * The words for a row with too few runs. The minimum comes from the payload,
+ * never from a literal here, so a changed rule cannot leave the card lying.
+ */
+export function sparseWords(runs: number, minRuns: number): string {
+  return `Not enough data yet, ${runs} of ${minRuns} runs.`;
 }

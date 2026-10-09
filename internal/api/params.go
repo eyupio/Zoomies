@@ -148,6 +148,41 @@ func queryDuration(r *http.Request, name string, fallback time.Duration) (time.D
 	return d, nil
 }
 
+// querySpan reads a span such as "14d", "2w" or "36h": a Go duration, or whole
+// days or weeks, because a window over job history is asked for in those and
+// Go's own parser stops at hours. Zero and a negative span are refused by
+// name: a window that covers nothing is a request that cannot mean anything.
+func querySpan(r *http.Request, name string, fallback time.Duration) (time.Duration, error) {
+	raw := strings.TrimSpace(r.URL.Query().Get(name))
+	if raw == "" {
+		return fallback, nil
+	}
+	d, ok := parseSpan(raw)
+	if !ok || d <= 0 {
+		return 0, fmt.Errorf("%s must be a span such as 14d, 2w or 36h, not %q", name, raw)
+	}
+	return d, nil
+}
+
+// parseSpan is querySpan's reading of one value.
+func parseSpan(raw string) (time.Duration, bool) {
+	if n := len(raw) - 1; n > 0 {
+		var unit time.Duration
+		switch raw[n] {
+		case 'd':
+			unit = 24 * time.Hour
+		case 'w':
+			unit = 7 * 24 * time.Hour
+		}
+		if unit != 0 {
+			count, err := strconv.Atoi(raw[:n])
+			return time.Duration(count) * unit, err == nil
+		}
+	}
+	d, err := time.ParseDuration(raw)
+	return d, err == nil
+}
+
 // chiURLParam reads a path parameter.
 func chiURLParam(r *http.Request, name string) string {
 	return strings.TrimSpace(chi.URLParam(r, name))

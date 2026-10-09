@@ -37,7 +37,6 @@ func TestLabelAdviceSaysWhatAWorkflowShouldWriteInstead(t *testing.T) {
 		// Landing on a larger host than the default is the harmless direction: the
 		// job is not killed and the labels need not be touched.
 		{"asks for nothing and needs less than the default", kept(store.SizeSmall, 12, "self-hosted", "zoomies"), nil, "", ""},
-		{"too few runs to say anything", kept(store.SizeLarge, AdviceMinRuns-1, "self-hosted", "zoomies-medium"), nil, "", ""},
 		{"nothing was recorded about what it asks for", kept(store.SizeLarge, 12), nil, "", ""},
 		// A job that asks for a pool of somebody's own is not asking for the
 		// automatic ones, and adding a class label to it would send it away from
@@ -72,6 +71,9 @@ func TestLabelAdviceSaysWhatAWorkflowShouldWriteInstead(t *testing.T) {
 			}
 			if got.Class != tc.in.Class || got.Runs != tc.in.Runs || got.Repo != tc.in.Repo || len(got.Labels) != len(tc.in.Labels) {
 				t.Fatalf("the advice does not carry the job: %+v", got)
+			}
+			if got.State != AdviceStateOK || got.MinRuns != AdviceMinRuns || got.RecommendedClass != tc.in.Class || got.Reason != tc.in.Reason {
+				t.Fatalf("the advice does not say what it rests on: %+v", got)
 			}
 			if !strings.HasSuffix(got.Message, ".") || !strings.HasSuffix(got.Fix, ".") {
 				t.Fatalf("the sentences should end: %q / %q", got.Message, got.Fix)
@@ -128,5 +130,41 @@ func TestAdviceIsOrderedByWhatItCostsToLeaveIt(t *testing.T) {
 	}
 	if strings.Join(got, " ") != strings.Join(want, " ") {
 		t.Fatalf("order = %v, want %v", got, want)
+	}
+}
+
+// Too few runs is a row, not an absence: an agent asking why a job has no
+// advice is told how far it is from having some, and the boundary is the
+// named constant on both sides.
+func TestTooFewRunsIsARowThatSaysSo(t *testing.T) {
+	cfg := DefaultSizeConfig()
+	got := cfg.LabelAdvice(kept(store.SizeLarge, AdviceMinRuns-1, "self-hosted", "zoomies-medium"), nil)
+	if got == nil || got.State != AdviceStateNotEnoughData || got.Kind != "" {
+		t.Fatalf("advice = %+v, want a not_enough_data row with no kind", got)
+	}
+	if got.Runs != AdviceMinRuns-1 || got.MinRuns != AdviceMinRuns || got.RecommendedClass != store.SizeLarge || got.Reason == "" {
+		t.Fatalf("the row does not carry the count and the class: %+v", got)
+	}
+	if !strings.Contains(got.Message, "4 of 5 measured runs") || got.Fix != "" {
+		t.Fatalf("message = %q, fix = %q", got.Message, got.Fix)
+	}
+	if at := cfg.LabelAdvice(kept(store.SizeLarge, AdviceMinRuns, "self-hosted", "zoomies-medium"), nil); at == nil || at.State != AdviceStateOK {
+		t.Fatalf("at the minimum the advice is given: %+v", at)
+	}
+	// A job that asks for exactly what it is heading for has nothing to be
+	// told, even once; it is the sparse row's kind that is empty, not its advice.
+	if right := cfg.LabelAdvice(kept(store.SizeLarge, AdviceMinRuns-1, "self-hosted", "zoomies-large"), nil); right == nil || right.State != AdviceStateNotEnoughData {
+		t.Fatalf("a sparse job is a sparse row whatever it asks for: %+v", right)
+	}
+}
+
+func TestSparseRowsSortLast(t *testing.T) {
+	in := []*Advice{
+		{Repo: "a/a", JobName: "sparse", State: AdviceStateNotEnoughData},
+		{Repo: "b/b", JobName: "x", Kind: AdviceTooLarge, State: AdviceStateOK},
+	}
+	SortAdvice(in)
+	if in[0].JobName != "x" || in[1].JobName != "sparse" {
+		t.Fatalf("order = %s, %s", in[0].JobName, in[1].JobName)
 	}
 }
