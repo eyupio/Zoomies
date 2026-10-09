@@ -197,7 +197,7 @@ func (c *Controller) UpdatesView(ctx context.Context) (*UpdatesView, error) {
 		Running: UpdatesRunning{Version: version.Version, Release: fromRelease},
 		Helper:  probe.view,
 	}
-	pic, err := c.updatesSnapshot(ctx, probe)
+	pic, err := c.updatesSnapshot(ctx, cfg, probe)
 	if err != nil {
 		return nil, err
 	}
@@ -307,7 +307,7 @@ func (c *Controller) rolloutView(pic *updatesPicture) *UpdatesRollout {
 		if done[h.ID] || (len(r.HostIDs) > 0 && !slices.Contains(r.HostIDs, h.ID)) {
 			continue
 		}
-		if can, _, _ := hostCanSelfUpdate(h, r.Target, c.hostHelperUnsupported(h), c.updateMode()); can {
+		if can, _, _ := hostCanSelfUpdate(h, r.Target, c.hostHelperUnsupported(h), pic.snap.Mode); can {
 			out.Total++
 		}
 	}

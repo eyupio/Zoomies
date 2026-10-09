@@ -8,6 +8,7 @@ import (
 	"slices"
 
 	"github.com/eyupio/zoomies/internal/auth"
+	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/updates"
 	"github.com/eyupio/zoomies/internal/version"
@@ -48,10 +49,10 @@ type updatesPicture struct {
 // out from them which failures count, so the rule that halts a rollout is one
 // a table of pure tests can try.
 //
-// The helper is the probe's answer, passed in because the status has just made
-// the same probe and a second would read the folder twice.
-func (c *Controller) updatesSnapshot(ctx context.Context, helper helperProbe) (*updatesPicture, error) {
-	cfg := c.cfg().Updates
+// The settings and the helper are passed in, because the status has just read
+// both: a second reading of the settings could give the snapshot another mode
+// than the status beside it, and a second probe would read the folder twice.
+func (c *Controller) updatesSnapshot(ctx context.Context, cfg config.Updates, helper helperProbe) (*updatesPicture, error) {
 	pic := &updatesPicture{}
 	s := updates.Snapshot{
 		Now: c.Now(), Mode: updateModeOf(cfg.Mode), Soak: cfg.Soak, Running: version.Version,
@@ -104,7 +105,7 @@ func (c *Controller) updatesSnapshot(ctx context.Context, helper helperProbe) (*
 	byHost := make(map[string]*updates.HostFacts, len(pic.hosts))
 	target := hostTarget()
 	for _, h := range pic.hosts {
-		can, why, _ := hostCanSelfUpdate(h, target, c.hostHelperUnsupported(h), c.updateMode())
+		can, why, _ := hostCanSelfUpdate(h, target, c.hostHelperUnsupported(h), s.Mode)
 		s.Hosts = append(s.Hosts, updates.HostFacts{
 			ID: h.ID, Name: h.Name, Version: h.Version, GOOS: h.OS, GOARCH: h.Arch,
 			Embedded: h.Embedded, Healthy: h.Healthy(s.Now), CanSelfUpdate: can, WhyNot: why,
@@ -161,7 +162,7 @@ func (c *Controller) runUpdatePlan(ctx context.Context) bool {
 	if !c.mayAct() {
 		return false
 	}
-	pic, err := c.updatesSnapshot(ctx, c.probeUpdateHelper())
+	pic, err := c.updatesSnapshot(ctx, c.cfg().Updates, c.probeUpdateHelper())
 	if err != nil {
 		if ctx.Err() == nil {
 			c.log.Warn("could not read what automatic updating decides on; the next pass will try again", "error", err)
@@ -316,7 +317,8 @@ func (c *Controller) StartHostRollout(ctx context.Context, by UpdateActor, hostI
 	if !c.mayAct() {
 		return nil, fmt.Errorf("%w: %s", ErrUpdateFenced, c.notActingReason())
 	}
-	if c.updateMode() == updates.ModeOff {
+	mode := readUpdateMode(c)
+	if mode == updates.ModeOff {
 		return nil, ErrUpdateModeOff
 	}
 	target := hostTarget()
@@ -352,7 +354,7 @@ func (c *Controller) StartHostRollout(ctx context.Context, by UpdateActor, hostI
 			continue
 		}
 		behind++
-		if can, _, _ := hostCanSelfUpdate(h, target, c.hostHelperUnsupported(h), c.updateMode()); can {
+		if can, _, _ := hostCanSelfUpdate(h, target, c.hostHelperUnsupported(h), mode); can {
 			able++
 		}
 	}

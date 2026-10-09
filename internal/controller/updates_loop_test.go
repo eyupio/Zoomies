@@ -580,7 +580,7 @@ func TestTheLoopDoesNothingWhileFenced(t *testing.T) {
 
 	// The applier checks for itself: a plan read before the fence went up is
 	// not carried out after it.
-	pic, err := h.c.updatesSnapshot(h.ctx, h.c.probeUpdateHelper())
+	pic, err := h.c.updatesSnapshot(h.ctx, h.c.cfg().Updates, h.c.probeUpdateHelper())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -698,5 +698,71 @@ func TestAHostOnANewVersionWakesTheLoop(t *testing.T) {
 	h.agentBeat(host, "1.3.5", nil)
 	if !kicked(h.c) {
 		t.Error("a host on a new version did not wake the update loop")
+	}
+}
+
+// flipModeAfterFirstRead makes the mode read as first on the first reading and
+// as then on every reading after it, which is a person switching updating off
+// while a request is half-way through its checks.
+func flipModeAfterFirstRead(t *testing.T, first, then updates.Mode) {
+	t.Helper()
+	prev := readUpdateMode
+	reads := 0
+	readUpdateMode = func(*Controller) updates.Mode {
+		reads++
+		if reads == 1 {
+			return first
+		}
+		return then
+	}
+	t.Cleanup(func() { readUpdateMode = prev })
+}
+
+// A request reads the mode once and acts on that reading. Read twice, a switch
+// to off in between passed the gate and was then refused as a host that cannot
+// update, and the page switched on the wrong code.
+func TestAHostUpdateReadsTheModeOnceSoASwitchToOffIsNeverTheWrongRefusal(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	flipModeAfterFirstRead(t, updates.ModeManual, updates.ModeOff)
+	_, err := h.c.RequestHostUpdate(h.ctx, alice, host.ID)
+	if errors.Is(err, ErrUpdateHostCannotUpdate) || (err != nil && !errors.Is(err, ErrUpdateModeOff)) {
+		t.Errorf("with the mode switched off mid-request: err = %v, want the request taken on the one reading, or ErrUpdateModeOff", err)
+	}
+
+	other := newHarness(t)
+	other.hostsCanUpdate()
+	second := other.updatableHost("vm-2")
+	flipModeAfterFirstRead(t, updates.ModeOff, updates.ModeManual)
+	if _, err := other.c.RequestHostUpdate(other.ctx, alice, second.ID); !errors.Is(err, ErrUpdateModeOff) {
+		t.Errorf("read as off: err = %v, want ErrUpdateModeOff", err)
+	}
+
+	// Starting a rollout asks the same two questions.
+	third := newHarness(t)
+	third.autoFleet("manual")
+	third.updatableHost("vm-3")
+	flipModeAfterFirstRead(t, updates.ModeManual, updates.ModeOff)
+	if _, err := third.c.StartHostRollout(third.ctx, alice, nil); errors.Is(err, ErrUpdateHostCannotUpdate) || (err != nil && !errors.Is(err, ErrUpdateModeOff)) {
+		t.Errorf("starting a rollout with the mode switched off mid-request: err = %v, want it taken on the one reading, or ErrUpdateModeOff", err)
+	}
+}
+
+// The planner reads the same answer the card does (#797): with updating off a
+// host cannot be updated from here, and says so, in the snapshot as on the card.
+func TestThePlannersSnapshotSaysWhatTheCardSaysWithUpdatingOff(t *testing.T) {
+	h := newHarness(t)
+	h.autoFleet("off")
+	host := h.updatableHost("vm-a")
+	pic, err := h.c.updatesSnapshot(h.ctx, h.c.cfg().Updates, h.c.probeUpdateHelper())
+	if err != nil {
+		t.Fatal(err)
+	}
+	card := h.view(host.ID).Update
+	got := pic.snap.Hosts[0]
+	if got.CanSelfUpdate || card.CanUpdate || got.WhyNot != card.Reason || !strings.Contains(got.WhyNot, "Updating is off") {
+		t.Errorf("snapshot says %v %q and the card %v %q, want both unable, with the same sentence that updating is off",
+			got.CanSelfUpdate, got.WhyNot, card.CanUpdate, card.Reason)
 	}
 }

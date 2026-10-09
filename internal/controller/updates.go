@@ -119,6 +119,11 @@ func releaseVersion(v string) (string, bool) { return version.Release(v) }
 // list is only ever requested because somebody chose a mode that needs it.
 func (c *Controller) updateMode() updates.Mode { return updateModeOf(c.cfg().Updates.Mode) }
 
+// readUpdateMode is updateMode for a caller that must read the mode once and
+// act on that one reading. It is a variable so that a test can switch the mode
+// between two readings, which is the race the single reading designs out.
+var readUpdateMode = (*Controller).updateMode
+
 // updateModeOf reads one loaded updates.mode, for a caller that has already
 // loaded the configuration and must not load it a second time.
 func updateModeOf(word string) updates.Mode {

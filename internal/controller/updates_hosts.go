@@ -184,7 +184,11 @@ func (c *Controller) requestHostUpdate(ctx context.Context, by UpdateActor, host
 	if !c.mayAct() {
 		return nil, nil, fmt.Errorf("%w: %s", ErrUpdateFenced, c.notActingReason())
 	}
-	if c.updateMode() == updates.ModeOff {
+	// Read once, and the one reading answers both questions below. Read twice, a
+	// switch to off between the two would pass the gate and then be refused as a
+	// host that cannot update, with the wrong code for what happened.
+	mode := readUpdateMode(c)
+	if mode == updates.ModeOff {
 		return nil, nil, ErrUpdateModeOff
 	}
 	h, err := c.st.GetHost(ctx, hostID)
@@ -195,7 +199,7 @@ func (c *Controller) requestHostUpdate(ctx context.Context, by UpdateActor, host
 	if target == "" {
 		return nil, nil, ErrUpdateNotARelease
 	}
-	if can, why, _ := hostCanSelfUpdate(h, target, c.hostHelperUnsupported(h), c.updateMode()); !can {
+	if can, why, _ := hostCanSelfUpdate(h, target, c.hostHelperUnsupported(h), mode); !can {
 		return nil, nil, &hostCannotUpdateError{sentence: why}
 	}
 
