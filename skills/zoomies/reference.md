@@ -675,6 +675,7 @@ Subcommands:
   list                               Recent jobs, with filters
   stats                              Counts and percentiles over a period, grouped by release, day, host, pool or job
   get <job-id>                       One job in full
+  why <job>                          Why this job failed, stalled or is waiting
   advice                             What a workflow's runs-on could say better, from what its jobs used
   rerun <job-id>                     Ask GitHub to run this run's failed jobs again
 
@@ -787,6 +788,36 @@ Flags:
   --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
 ```
 
+#### zoomies jobs why
+
+Why this job failed, stalled or is waiting
+
+```text
+Why a job failed, stalled or is waiting.
+
+Usage:
+  zoomies why <job> | --latest-failed
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --latest-failed            explain the newest failed job instead of a named one
+  --logs=12                  how many of the runner's last lines to quote, ending on the one that decided the class
+  --no-logs                  quote none of the runner's output
+  --output=table             table, json or yaml
+  --pool                     with --latest-failed, only jobs this pool claimed (a pool ID)
+  --repo                     with --latest-failed, only this repository (owner/name)
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+
+Examples:
+  zoomies why job_01abc
+  zoomies why https://github.com/acme/widgets/actions/runs/1234/job/5678
+  zoomies why --latest-failed --repo acme/widgets
+  zoomies why job_01abc --output json
+```
+
 #### zoomies jobs advice
 
 What a workflow's runs-on could say better, from what its jobs used
@@ -839,6 +870,36 @@ Flags:
 
 Examples:
   zoomies jobs rerun job_2fq8xk3m
+```
+
+### zoomies why
+
+Why a job failed, stalled or is waiting
+
+```text
+Why a job failed, stalled or is waiting.
+
+Usage:
+  zoomies why <job> | --latest-failed
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --latest-failed            explain the newest failed job instead of a named one
+  --logs=12                  how many of the runner's last lines to quote, ending on the one that decided the class
+  --no-logs                  quote none of the runner's output
+  --output=table             table, json or yaml
+  --pool                     with --latest-failed, only jobs this pool claimed (a pool ID)
+  --repo                     with --latest-failed, only this repository (owner/name)
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+
+Examples:
+  zoomies why job_01abc
+  zoomies why https://github.com/acme/widgets/actions/runs/1234/job/5678
+  zoomies why --latest-failed --repo acme/widgets
+  zoomies why job_01abc --output json
 ```
 
 ### zoomies size-pins

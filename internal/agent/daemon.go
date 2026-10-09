@@ -321,6 +321,9 @@ type tracked struct {
 	// it first would take the exit code with it, and leave the controller
 	// holding a live row for a runner that no longer exists.
 	reported bool
+	// outputTail is what the workload last wrote, read once when it ended
+	// badly, and sent with every report of that end until one is accepted.
+	outputTail []string
 
 	// statsMisses is how many samples in a row failed, so a runner whose readings have gone
 	// stale is said so once and not at every failure.
@@ -393,6 +396,7 @@ func (t *tracked) report() RunnerReport {
 	return RunnerReport{
 		RunnerID:    t.runnerID,
 		HostRemoved: t.hostRemoved,
+		OutputTail:  t.outputTail,
 		State:       t.state,
 		Handle:      t.handle,
 		Phase:       t.phase,

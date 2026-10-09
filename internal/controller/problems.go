@@ -1931,7 +1931,12 @@ func (c *Controller) jobProblems(ctx context.Context, out *[]Problem) error {
 // replaced, backticks are made apostrophes, and it is cut at a length no real name
 // reaches.
 func workflowText(s string) string {
-	const longest = 80
+	return workflowTextN(s, 80)
+}
+
+// workflowTextN is workflowText with the cut chosen by the caller: a problem's
+// sentence stops at 80 runes, a quoted log line at the store's own limit.
+func workflowTextN(s string, longest int) string {
 	var b strings.Builder
 	runes := 0
 	for _, r := range s {

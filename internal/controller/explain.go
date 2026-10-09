@@ -2,6 +2,7 @@ package controller
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -46,6 +47,23 @@ type JobExplanation struct {
 	RunnerID   string    `json:"runner_id,omitempty"`
 	HostID     string    `json:"host_id,omitempty"`
 	ComputedAt time.Time `json:"computed_at"`
+	// Class is the one-word answer, from the closed set in why.go, and
+	// Confidence how far it rests on a recorded fact; ConfidenceReason says
+	// what was missing whenever that is not high.
+	Class            WhyClass      `json:"class"`
+	Confidence       WhyConfidence `json:"confidence"`
+	ConfidenceReason string        `json:"confidence_reason,omitempty"`
+	// Evidence is the facts the class rests on, each one checkable; never
+	// null, so a reader can range over it.
+	Evidence []Evidence `json:"evidence"`
+	// LogExcerpt is the kept lines around the decisive one, null when none
+	// were asked for or none exist.
+	LogExcerpt *LogExcerpt `json:"log_excerpt"`
+	// ProblemCode and CheckCode name the catalog entry, when one applies.
+	ProblemCode string `json:"problem_code,omitempty"`
+	CheckCode   string `json:"check_code,omitempty"`
+	// NextSteps is what to do, in order; never null.
+	NextSteps []NextStep `json:"next_steps"`
 }
 
 // ExplainJob works out why a job is where it is.
@@ -54,8 +72,9 @@ type JobExplanation struct {
 // place a runner, and repeating that decision here would give an operator two
 // answers that drift apart. What this adds is the surrounding facts, which the
 // plan does not carry -- whose runner it is, and whether that runner's host is
-// still alive.
-func (c *Controller) ExplainJob(ctx context.Context, jobID string) (*JobExplanation, error) {
+// still alive. logs is how many lines of the runner's kept output to quote
+// around the decisive one; 0 quotes none.
+func (c *Controller) ExplainJob(ctx context.Context, jobID string, logs int) (*JobExplanation, error) {
 	job, err := c.st.GetJob(ctx, jobID)
 	if err != nil {
 		return nil, err
@@ -67,20 +86,27 @@ func (c *Controller) ExplainJob(ctx context.Context, jobID string) (*JobExplanat
 		RunnerID:   job.RunnerID,
 		ComputedAt: c.Now(),
 	}
+	c.explainSentences(ctx, job, out)
+	c.explainWhy(ctx, job, out, logs)
+	return out, nil
+}
 
+// explainSentences writes the summary, the detail and the fix: the prose
+// half of the answer, kept word for word from before the class existed.
+func (c *Controller) explainSentences(ctx context.Context, job *store.Job, out *JobExplanation) {
 	switch job.State {
 	case store.JobCompleted:
 		c.explainCompleted(job, out)
-		return out, nil
+		return
 	case store.JobInProgress:
 		// Ahead of the running explanation, which would otherwise name a
 		// runner this fleet took away when the cancellation landed.
 		if job.Cancelling() {
 			explainCancelling(job, out)
-			return out, nil
+			return
 		}
 		c.explainRunning(ctx, job, out)
-		return out, nil
+		return
 	case store.JobWaiting:
 		// Not this fleet's wait at all, and saying so is the point: a job
 		// sitting still reads as a slow fleet until somebody says otherwise.
@@ -88,12 +114,71 @@ func (c *Controller) ExplainJob(ctx context.Context, jobID string) (*JobExplanat
 		out.Summary = "GitHub is holding this job for a deployment review."
 		out.Detail = "Nothing here can start it until somebody approves it. The wait for a runner begins when they do, so the queue wait below has not started."
 		out.Fix = "approve the deployment on GitHub, or leave it -- nothing in this fleet is wrong."
-		return out, nil
+		return
 	}
 
 	out.Waiting = true
 	c.explainQueued(ctx, job, out)
-	return out, nil
+}
+
+// explainWhy adds the class, the evidence, the catalog entry and the next
+// steps. It gathers the same facts the sentences read and hands them to the
+// class table, so a class never contradicts the sentence above it.
+func (c *Controller) explainWhy(ctx context.Context, job *store.Job, out *JobExplanation, logs int) {
+	s := whySnapshot{Job: job, Now: c.Now()}
+	if job.PoolID != "" {
+		// Only a pool that is not there is "gone": any other error leaves the
+		// snapshot without a pool, which the class table reads as not knowing,
+		// never as a pool somebody deleted.
+		if pool, err := c.st.GetPool(ctx, job.PoolID); err == nil {
+			s.Pool = pool
+		} else if errors.Is(err, store.ErrNotFound) && job.State == store.JobQueued {
+			s.PoolMissing = true
+		}
+	}
+	if plan, planAt := c.getLastPlan(); plan != nil {
+		s.PlanAt = planAt
+		for i := range plan.Pools {
+			if plan.Pools[i].PoolID == job.PoolID {
+				s.PoolPlan = &plan.Pools[i]
+				break
+			}
+		}
+		for i := range plan.Unmatched {
+			if u := plan.Unmatched[i]; u.Job != nil && u.Job.ID == job.ID {
+				s.Unmatched = &plan.Unmatched[i]
+				break
+			}
+		}
+	}
+	if job.State == store.JobQueued && s.Pool != nil {
+		if counts, err := c.st.CountRunnersByPool(ctx); err == nil {
+			pc := counts[s.Pool.ID]
+			s.Counts = &pc
+		}
+	}
+	if job.State == store.JobInProgress && job.RunnerID != "" {
+		if runner, err := c.st.GetRunner(ctx, job.RunnerID); err == nil {
+			if host, err := c.st.GetHost(ctx, runner.HostID); err == nil {
+				s.Host = host
+			}
+		}
+	}
+	v := classify(s)
+	out.Class, out.Confidence, out.ConfidenceReason = v.Class, v.Confidence, v.ConfidenceReason
+	out.Evidence, out.ProblemCode, out.NextSteps = v.Evidence, v.ProblemCode, v.NextSteps
+	if out.Evidence == nil {
+		out.Evidence = []Evidence{}
+	}
+	if out.NextSteps == nil {
+		out.NextSteps = []NextStep{}
+	}
+	if docs := catalogDocsFor(out.ProblemCode); docs != "" {
+		out.NextSteps = append(out.NextSteps, NextStep{Text: "Read what " + out.ProblemCode + " means and how to see a fix worked.", Kind: "read", Link: docs})
+	}
+	if logs > 0 {
+		out.LogExcerpt = excerptFrom(job.OutputTail, out.Class, logs)
+	}
 }
 
 func (c *Controller) explainCompleted(job *store.Job, out *JobExplanation) {

@@ -1003,5 +1003,11 @@ test('a fleet that has run jobs is never announced its first one while its count
   // to render; the banner fetches its job before it shows.
   await page.waitForTimeout(1_500);
   await expect(page.getByRole('heading', { name: /^Your first job/ })).toHaveCount(0);
-  await expect(page.getByText(/^(One step|Two steps|Three steps|Four steps|No) /)).toHaveCount(0);
+  // The checklist itself, by what it is. This used to look for the words its
+  // opening line starts with ("No ", "One step "), and "No " is also how the
+  // activity matrix opens when no job finished today. That is true of this fleet
+  // when the suite starts within twenty minutes of midnight UTC: the newest job
+  // it is seeded with finished twenty minutes before the start, which is then
+  // yesterday. CI failed on exactly that, on the test and on its retry.
+  await expect(page.getByRole('region', { name: 'Finish setting up' })).toHaveCount(0);
 });

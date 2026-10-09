@@ -426,7 +426,7 @@ func (s *Server) bundleJobs(ctx context.Context, b *supportBundle) error {
 			b.note(true, "explanations", len(b.Explanations), "one per unfinished job, oldest first, up to the cap")
 			break
 		}
-		ex, err := s.ctrl.ExplainJob(ctx, j.ID)
+		ex, err := s.ctrl.ExplainJob(ctx, j.ID, 0)
 		if err != nil {
 			// One job that cannot be explained is not the bundle's failure,
 			// and the job itself is already in the section above.

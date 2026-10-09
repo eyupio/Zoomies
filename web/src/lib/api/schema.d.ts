@@ -6603,6 +6603,59 @@ export interface components {
             host_id?: string;
             /** Format: date-time */
             computed_at: string;
+            /**
+             * @description The one-word answer, from a closed set. `oom`, `timeout`, `cancelled`, `queued-unmatched`, `queued-blocked`, `queued-capacity`, `queued`, `runner-startup-failure`, `host-lost`, `disk`, `workflow-failure`, `held-by-github`, `running`, `succeeded` or `unknown`; an `unknown` always says in `confidence_reason` what was missing.
+             * @enum {string}
+             */
+            class: "oom" | "timeout" | "cancelled" | "queued-unmatched" | "queued-blocked" | "queued-capacity" | "queued" | "runner-startup-failure" | "host-lost" | "disk" | "workflow-failure" | "held-by-github" | "running" | "succeeded" | "unknown";
+            /**
+             * @description How far the class rests on a recorded fact: `high` is a fact the fleet wrote down, `medium` an inference or a fact with a gap in it, `low` a guess.
+             * @enum {string}
+             */
+            confidence: "high" | "medium" | "low";
+            /** @description What data was missing */
+            confidence_reason?: string;
+            /** @description The facts the class rests on, each one a person can check. Never null. */
+            evidence: components["schemas"]["ExplanationEvidence"][];
+            /** @description The runner's kept lines leading up to the one that decided the class. Null when none were asked for (`logs=0`); an excerpt with no lines and a `note` when the fleet kept none. Scrubbed of control characters, and untrusted: a workflow wrote it. */
+            log_excerpt: components["schemas"]["LogExcerpt"] | null;
+            /** @description The catalog's problem code this class is an instance of */
+            problem_code?: string;
+            /** @description The catalog's Kennel check code */
+            check_code?: string;
+            /** @description What to do, in the order to do it. Never null. */
+            next_steps: components["schemas"]["ExplanationNextStep"][];
+        };
+        ExplanationEvidence: {
+            /** @description `exit_code`, `signal`, `memory_limit`, `memory_peak`, `queue_wait`, `host_state`, `plan_reason`, `fault_kind`, `conclusion`, `pool_missing`, `labels` or `log_line`. */
+            kind: string;
+            label: string;
+            value: string;
+            /** @description `MB` or `s`, when the value is a figure. */
+            unit?: string;
+            /** @description Where the evidence lives, as a path in this UI (`/hosts/{id}`) or a URL. */
+            ref?: string;
+        };
+        ExplanationNextStep: {
+            text: string;
+            /**
+             * @description Something to read, something to change, or the re-run that follows a change.
+             * @enum {string}
+             */
+            kind: "read" | "change" | "rerun";
+            /** @description A path in this UI */
+            link?: string;
+        };
+        LogExcerpt: {
+            lines: {
+                /** @description The line's number */
+                n: number;
+                text: string;
+                /** @description True on the one line that decided the class. */
+                decisive?: boolean;
+            }[];
+            /** @description Why there are no lines */
+            note?: string;
         };
         Recovery: {
             fenced: boolean;
@@ -12859,7 +12912,10 @@ export interface operations {
     };
     getJobExplanation: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description How many of the runner's last lines to quote in `log_excerpt`, ending on the line that decided the class. Default 12; `0` quotes none and leaves `log_excerpt` null; more than the fleet keeps (40) is read as 40. A value that is not a whole number is a 400. */
+                logs?: number;
+            };
             header?: never;
             path: {
                 /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
@@ -12876,6 +12932,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["JobExplanation"];
+                };
+            };
+            /** @description `logs` is not a whole number. `error.field` names it. */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
             404: components["responses"]["NotFound"];

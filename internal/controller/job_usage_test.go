@@ -87,7 +87,7 @@ func TestAJobKilledForMemoryIsRecordedExplainedAndReported(t *testing.T) {
 		t.Fatalf("timeline has %d memory kills, want 1", kills)
 	}
 
-	ex, err := h.c.ExplainJob(h.ctx, job.ID)
+	ex, err := h.c.ExplainJob(h.ctx, job.ID, 0)
 	if err != nil {
 		t.Fatalf("ExplainJob: %v", err)
 	}

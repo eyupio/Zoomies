@@ -67,7 +67,7 @@ func TestTheExplanationTellsWaitingApartFromBlocked(t *testing.T) {
 		h.fleet()
 		job := h.queuedJob(t, nil, []string{"self-hosted", "cuda12"})
 
-		got, err := h.c.ExplainJob(h.ctx, job.ID)
+		got, err := h.c.ExplainJob(h.ctx, job.ID, 0)
 		if err != nil {
 			t.Fatalf("ExplainJob: %v", err)
 		}
@@ -100,7 +100,7 @@ func TestTheExplanationTellsWaitingApartFromBlocked(t *testing.T) {
 			t.Fatalf("UpsertJob: %v", err)
 		}
 
-		got, err := h.c.ExplainJob(h.ctx, job.ID)
+		got, err := h.c.ExplainJob(h.ctx, job.ID, 0)
 		if err != nil {
 			t.Fatalf("ExplainJob: %v", err)
 		}
@@ -132,7 +132,7 @@ func TestTheExplanationTellsWaitingApartFromBlocked(t *testing.T) {
 		h.c.lastPlanAt = h.c.Now()
 		h.c.mu.Unlock()
 
-		got, err := h.c.ExplainJob(h.ctx, job.ID)
+		got, err := h.c.ExplainJob(h.ctx, job.ID, 0)
 		if err != nil {
 			t.Fatalf("ExplainJob: %v", err)
 		}
@@ -153,7 +153,7 @@ func TestTheExplanationTellsWaitingApartFromBlocked(t *testing.T) {
 		h.seedRunner(t, pool, host, store.RunnerIdle)
 		job := h.queuedJob(t, pool, []string{"self-hosted", "linux"})
 
-		got, err := h.c.ExplainJob(h.ctx, job.ID)
+		got, err := h.c.ExplainJob(h.ctx, job.ID, 0)
 		if err != nil {
 			t.Fatalf("ExplainJob: %v", err)
 		}
@@ -184,7 +184,7 @@ func TestTheExplanationCatchesARunningJobOnASilentHost(t *testing.T) {
 	}
 
 	// While the host is heartbeating there is nothing to say beyond where it is.
-	got, err := h.c.ExplainJob(h.ctx, job.ID)
+	got, err := h.c.ExplainJob(h.ctx, job.ID, 0)
 	if err != nil {
 		t.Fatalf("ExplainJob: %v", err)
 	}
@@ -194,7 +194,7 @@ func TestTheExplanationCatchesARunningJobOnASilentHost(t *testing.T) {
 
 	// Once it has gone quiet the job is in trouble and nothing else says so.
 	h.advance(store.HeartbeatTimeout + time.Minute)
-	got, err = h.c.ExplainJob(h.ctx, job.ID)
+	got, err = h.c.ExplainJob(h.ctx, job.ID, 0)
 	if err != nil {
 		t.Fatalf("ExplainJob: %v", err)
 	}

@@ -32,6 +32,10 @@ var noEmDashSkippedDirs = map[string]bool{
 	".svelte-kit":       true,
 	"test-results":      true,
 	"playwright-report": true,
+	// The built site and a plan's scratch workspace are git-ignored output of
+	// a local run, not prose anybody wrote here.
+	"site":         true,
+	".superpowers": true,
 }
 
 func TestNoSpacedEmDashIsWrittenAnywhereInTheRepository(t *testing.T) {

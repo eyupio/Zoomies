@@ -23,7 +23,9 @@ invoked wrongly) plus one of the controller's own: `3` when it stopped because
 the settings page asked it to restart, which is how a [staged
 restore](backup-and-restore.md#from-the-settings-page) is applied.
 Non-zero on purpose, so a service manager set to restart on failure starts it
-again.
+again. [`zoomies why`](#zoomies-why) adds two of its own, `2` for a job this
+fleet never saw and `3` for a job it could not class; it is never the
+controller process, so its `3` and the controller's cannot meet.
 
 ## Talking to a controller
 
@@ -246,6 +248,37 @@ the last job of the page before it, so a job queued while you are reading
 cannot repeat or hide a row, which `--offset` cannot promise. `--output json`
 returns every job with its steps; `--include-steps=false` returns one short
 summary per job, small enough to read a hundred of.
+
+### `zoomies why`
+
+`why <job>` is the one question "why did this job fail, stall or run slow",
+answered from the controller's explanation: the sentence, then the **class**
+from a closed set (`oom`, `timeout`, `cancelled`, `queued-unmatched`,
+`queued-blocked`, `queued-capacity`, `queued`, `runner-startup-failure`,
+`host-lost`, `disk`, `workflow-failure`, `held-by-github`, `running`,
+`succeeded` or `unknown`) with how sure the fleet is and, when it is not sure,
+what was missing; the **evidence** the class rests on, each a fact you can
+check; the runner's last lines up to the one that decided it; the catalog code
+to read on; and the next steps in order. `jobs why` is the same command, found
+where jobs live.
+
+`<job>` is a job ID, a GitHub run or job URL (`…/actions/runs/1234` or
+`…/runs/1234/job/5678`, found through the jobs list by repository and run), or
+`--latest-failed`, the most recently queued of the failed jobs, narrowed by
+`--repo owner/name` or `--pool <pool-id>`.
+`--logs N` is how many lines to quote (12 by default, at most 40) and
+`--no-logs` quotes none. `--output json` is the explanation as the controller
+sent it, the same document the job drawer renders.
+
+```sh
+zoomies why job_01abc
+zoomies why https://github.com/acme/widgets/actions/runs/1234/job/5678
+zoomies why --latest-failed --repo acme/widgets
+```
+
+Exit codes: `0` diagnosed, `1` another error, `2` no such job, `3` not enough
+data (the class is `unknown`; the explanation is still printed, with what was
+missing). A script can tell "the fleet broke it" from "the fleet could not say".
 
 ### Size classes
 
@@ -476,7 +509,7 @@ again.
 | `list_problems` | Everything the controller thinks is wrong, with what to do. `GET /problems`. |
 | `list_jobs` | Jobs, with the same filters as `zoomies jobs list`: `failed`, `ours`, `theirs`, `unmatched`, `repo`, `since`, `until`, `job_name`, `hosted`, `controller_version` and `host_id`. Each job is a summary without its steps unless `include_steps` is set, and a full page carries `next` to pass back as `before`. |
 | `job_stats` | Completed jobs counted and timed over a window, grouped by up to two of `controller_version`, `day`, `host`, `pool` and `job_name`. `GET /jobs/stats`. |
-| `get_job` | One job, its timeline and the controller's explanation, as one document. |
+| `get_job` | One job, its timeline and the controller's explanation, as one document: the class of failure, how sure, the evidence, the catalog code and the next steps. The runner's last lines, and any evidence quoted from them, come in a second block announced as untrusted, the way a runner's log does. |
 | `get_runner_log` | The last lines of a runner's output, while the runner still exists. It asks the controller for just the end, holds what it returns to 256 KiB, and says so when it had to shorten it or could only read the start of a very long log. |
 | `list_runners`, `list_pools`, `list_hosts`, `host_health` | The fleet's resources as their `GET` routes return them, with a host's tags and size class, a pool's automatic settings where the controller works them out, and the memory valve: a pool's `memory_burst`, a host's `memory_pool`, and a runner's `memory_resource` and `scratch`. A host's `doctor` is its OS report with the controller's own count, `doctor.summary`, which the tool tells the assistant to read before `doctor.results`; the text in the results is written by the host and is untrusted. |
 | `label_advice` | What to change in the `runs-on` of workflows whose measured runs call for something other than what they ask for, with what to write instead. `GET /label-advice`. |
