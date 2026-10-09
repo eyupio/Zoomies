@@ -16,6 +16,7 @@ import (
 	"github.com/eyupio/zoomies/internal/cryptox"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/updates/channel"
 )
 
 // UninstallOptions configures `zoomies uninstall`.
@@ -49,6 +50,12 @@ type UninstallOptions struct {
 	Out    io.Writer
 	In     io.Reader
 	Logger *slog.Logger
+
+	// helperUnitDir and helperStateDir are where the update helper's units and
+	// root's folder for it are; empty is the real ones. run stands in for
+	// systemctl when the helper is stopped.
+	helperUnitDir, helperStateDir string
+	run                           commandRunner
 }
 
 func (o UninstallOptions) configDir() string {
@@ -63,6 +70,27 @@ func (o UninstallOptions) stateDir() string {
 		return o.StateDir
 	}
 	return config.StateDir()
+}
+
+// updateHelper is what removing the update helper needs. The update folder
+// and its account come from the helper's own pointer.
+func (o UninstallOptions) updateHelper() InstallHelperOptions {
+	h := InstallHelperOptions{ConfigDir: o.configDir(), unitDir: o.helperUnitDir, helperStateDir: o.helperStateDir, run: o.run}
+	if h.unitDir == "" {
+		h.unitDir = systemdUnitDir
+	}
+	if h.helperStateDir == "" {
+		h.helperStateDir = UpdateHelperStateDir
+	}
+	return h
+}
+
+// helperInstalled is whether the update helper is on this host, judged on
+// what only root can write: its units and root's folder for it. The pointer
+// beside the configuration is the service's to replace, so it decides nothing.
+func (o UninstallOptions) helperInstalled() bool {
+	h := o.updateHelper()
+	return helperPresent(h.unitDir, h.helperStateDir)
 }
 
 // sameDir reports whether two paths are the same directory.
@@ -114,6 +142,8 @@ func UninstallItems(opts UninstallOptions) []RemovalItem {
 		{What: "service", Path: SystemdUnitPath(UnitController), Present: exists(SystemdUnitPath(UnitController)),
 			Note: "stopped and disabled first"},
 		{What: "agent service", Path: SystemdUnitPath(UnitAgent), Present: exists(SystemdUnitPath(UnitAgent))},
+		{What: "update helper", Path: filepath.Join(opts.updateHelper().unitDir, UpdatePathUnit), Present: opts.helperInstalled(),
+			Note: "with " + UpdateServiceUnit + ", root's " + opts.updateHelper().helperStateDir + " and the pointers to the update folder; stopped first, and nothing is removed while it is running an update"},
 		{What: "database", Path: filepath.Join(stateDir, "zoomies.db"), Present: exists(filepath.Join(stateDir, "zoomies.db")),
 			Note: "pools, runners, job history and the audit log"},
 		{What: "state directory", Path: stateDir, Present: exists(stateDir)},
@@ -128,6 +158,9 @@ func UninstallItems(opts UninstallOptions) []RemovalItem {
 		items = append(items, RemovalItem{What: "configuration", Path: cfgFile, Present: exists(cfgFile)})
 	}
 	if opts.BinaryPath != "" {
+		previous := opts.BinaryPath + PreviousSuffix
+		items = append(items, RemovalItem{What: "previous binary", Path: previous, Present: exists(previous),
+			Note: "the release the last upgrade replaced, kept for a rollback"})
 		items = append(items, RemovalItem{What: "binary", Path: opts.BinaryPath, Present: exists(opts.BinaryPath),
 			Note: "removed last"})
 	}
@@ -228,6 +261,15 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 		}
 	}
 
+	// Before anything goes: an upgrade the helper is running would have its
+	// binary and units taken from under it. Its trigger is turned off first, so
+	// that no other starts while the operator waits.
+	if opts.helperInstalled() {
+		if err := stopUpdateTrigger(ctx, opts.updateHelper()); err != nil {
+			return fmt.Errorf("installer: nothing was removed, because %w", err)
+		}
+	}
+
 	var done []string
 	var left []string
 	record := func(format string, a ...any) {
@@ -253,6 +295,22 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 			} else {
 				record("stopped and removed the %s service", UnitAgent)
 			}
+		}
+	}
+	// The update helper before the services it updates, so that a request
+	// the controller writes as it stops cannot start an upgrade. The pointer
+	// beside the configuration goes by name even when nothing else of the
+	// helper is left.
+	if opts.helperInstalled() || exists(filepath.Join(opts.configDir(), channel.PointerFile)) {
+		helperRemoved, helperLeft, err := removeUpdateHelper(ctx, opts.updateHelper())
+		for _, line := range helperRemoved {
+			record("removed %s", line)
+		}
+		for _, line := range helperLeft {
+			keep("%s", line)
+		}
+		if err != nil {
+			u.warn("could not remove the update helper: " + err.Error())
 		}
 	}
 	for _, unit := range []string{UnitController, UnitAgent, "zoomies-host-health"} {
@@ -453,6 +511,13 @@ func Uninstall(ctx context.Context, opts UninstallOptions) error {
 	}
 
 	// --- The binary, last -------------------------------------------------
+	if previous := opts.BinaryPath + PreviousSuffix; opts.BinaryPath != "" && exists(previous) {
+		if err := os.Remove(previous); err != nil {
+			u.warn("could not remove " + previous + ": " + err.Error())
+		} else {
+			record("removed %s", previous)
+		}
+	}
 	if opts.BinaryPath != "" && exists(opts.BinaryPath) {
 		if err := os.Remove(opts.BinaryPath); err != nil {
 			u.warn("could not remove " + opts.BinaryPath + ": " + err.Error())

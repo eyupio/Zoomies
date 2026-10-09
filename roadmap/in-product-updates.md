@@ -262,7 +262,9 @@ approved by Enter or by `--yes`, and neither is consent to a root unit.
 * `zoomies init` and `zoomies agent join` ask it at install, with the same flag,
   and `init` takes an answers-file key.
 * `sudo zoomies updates helper install` does it directly.
-* `helper remove` and `zoomies uninstall` take it away, with `zoomies.previous`.
+* `helper remove` and `zoomies uninstall` take it away. `helper remove` leaves
+  `zoomies.previous`, the binary kept for a manual rollback; only `zoomies
+  uninstall` removes that.
 
 A host whose owner did not install it is never updated, whatever the controller's
 mode says. The helper is listed in

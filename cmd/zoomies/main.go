@@ -103,6 +103,7 @@ func commands() []*command {
 		{"size-pins", groupFleet, "Put a job, or a repository, in a size class by hand", runSizePins},
 		{"auto-pools", groupFleet, "What the controller keeps for each size of host", runAutoPools},
 		{"hosts", groupFleet, "Agents, their capacity, and enrolment", runHosts},
+		{"updates", groupFleet, "Release updates, and the helper that applies them", runUpdates},
 		{"providers", groupFleet, "Where machines are rented from, and the machines themselves", runProviders},
 		{"installations", groupFleet, "GitHub App installations", runInstallations},
 		{"export", groupFleet, "Write one installation's whole history as an archive another instance can import", runExport},
@@ -369,6 +370,10 @@ func runGroup(ctx context.Context, e *env, parent, summary string, subs []*subco
 		args[0], parent, strings.Join(names, ", "))
 }
 
+// groupBriefColumn is the width of the name column in a group's usage, which
+// the padding and the check for a line that fills it must agree on.
+const groupBriefColumn = 34
+
 func printGroupUsage(w io.Writer, parent, summary string, subs []*subcommand) {
 	fmt.Fprintf(w, "%s\n\nUsage:\n  zoomies %s <subcommand> [flags]\n\nSubcommands:\n", summary, parent)
 	for _, s := range subs {
@@ -376,7 +381,13 @@ func printGroupUsage(w io.Writer, parent, summary string, subs []*subcommand) {
 		if s.args != "" {
 			line += " " + s.args
 		}
-		fmt.Fprintf(w, "  %-34s %s\n", line, s.brief)
+		// Two spaces at least before the brief, however long the line: the
+		// reference generator tells the brief from the arguments by them, and a
+		// line with one is left out of it, with everything under it.
+		if len(line) >= groupBriefColumn {
+			line += " "
+		}
+		fmt.Fprintf(w, "  %-*s %s\n", groupBriefColumn, line, s.brief)
 	}
 	fmt.Fprintf(w, "\nRun \"zoomies %s <subcommand> --help\" for the flags each one takes.\n", parent)
 }

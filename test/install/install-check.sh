@@ -185,6 +185,36 @@ if ! out=$(UPGRADE_LOG="$upgrade_log" FAKE_RELEASE="$dev/release" PATH="$dev/bin
 else
     printf 'ok   upgrade-yes-approves-what-the-release-adds\n'
 fi
+# The update helper is a grant of root, so --yes does not stand for it and
+# --update-helper is the one way to approve it in advance. It is passed to the
+# apply and not to the preflight, which changes nothing and asks nothing.
+: > "$upgrade_log"
+if ! out=$(UPGRADE_LOG="$upgrade_log" FAKE_RELEASE="$dev/release" PATH="$dev/bin:$PATH" "$SH" "$SCRIPT_UNDER_TEST" \
+    --prefix "$dev/prefix" --version dev --upgrade --mode agent --yes --update-helper 2>&1) ||
+   ! tail -n 1 "$upgrade_log" | grep -qF -- "--update-helper"; then
+    printf 'FAIL --update-helper was not passed to the upgrade: %s\n' "$(cat "$upgrade_log")" >&2
+    failures=$((failures + 1))
+else
+    printf 'ok   upgrade-update-helper-is-passed-on\n'
+fi
+: > "$upgrade_log"
+if ! out=$(UPGRADE_LOG="$upgrade_log" FAKE_RELEASE="$dev/release" PATH="$dev/bin:$PATH" "$SH" "$SCRIPT_UNDER_TEST" \
+    --prefix "$dev/prefix" --version dev --upgrade --mode agent --yes 2>&1) ||
+   grep -qF -- "--update-helper" "$upgrade_log"; then
+    printf 'FAIL --yes alone passed --update-helper on: %s\n' "$(cat "$upgrade_log")" >&2
+    failures=$((failures + 1))
+else
+    printf 'ok   upgrade-yes-does-not-approve-the-update-helper\n'
+fi
+if out=$("$SH" "$SCRIPT_UNDER_TEST" --prefix "$dev/prefix" --version dev --no-init --update-helper 2>&1); then
+    printf 'FAIL --update-helper was accepted without --upgrade\n' >&2
+    failures=$((failures + 1))
+elif ! printf '%s' "$out" | grep -qF -- "--update-helper belongs to --upgrade"; then
+    printf 'FAIL --update-helper without --upgrade gave the wrong refusal: %s\n' "$out" >&2
+    failures=$((failures + 1))
+else
+    printf 'ok   update-helper-belongs-to-upgrade\n'
+fi
 # A refused preflight must not replace the previous binary.
 stub_at "$dev/prefix" "0.1 (old)"
 before=$(sha256sum "$dev/prefix/zoomies")

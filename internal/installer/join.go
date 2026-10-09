@@ -64,15 +64,29 @@ type JoinOptions struct {
 	Answers        *Answers
 	NonInteractive bool
 	// AssumeYes accepts the one confirmation a join asks for: replacing
-	// credentials this host already has.
+	// credentials this host already has. It does not answer the update helper
+	// question, which is a grant of root and has its own flag.
 	AssumeYes bool
-	Out       io.Writer
-	In        io.Reader
-	Logger    *slog.Logger
+	// UpdateHelper adds the update helper without asking, so that this host is
+	// ready for the web UI to update it (UpdateHelperNotUsedYet).
+	UpdateHelper bool
+	// Interactive is whether a person is at a terminal to answer a question that
+	// defaults to no. NonInteractive alone cannot say it: a join run with neither
+	// flag and no terminal would otherwise read an answer off whatever its input
+	// is.
+	Interactive bool
+	Out         io.Writer
+	In          io.Reader
+	Logger      *slog.Logger
 
 	// detection lets `zoomies init` hand over what it already found instead of
 	// probing the host twice.
 	detection *Detection
+
+	// helperHost and run stand in for what the update helper question reads
+	// from the host and the commands it runs, as in UpgradeOptions.
+	helperHost *upgradeHelperHost
+	run        commandRunner
 }
 
 func (o JoinOptions) configDir() string {
@@ -348,6 +362,14 @@ func Join(ctx context.Context, opts JoinOptions) error {
 	}
 	status, _ := mgr.Status(ctx)
 	u.ok("started (" + status + ")")
+
+	// The service is installed and the account it runs as can be read back from
+	// its unit. A refusal is a warning: the token is spent and the host is
+	// joined, and neither is worse for the helper being left for later. Another
+	// supervisor has no helper to offer, but --update-helper still says so.
+	if kind == ServiceSystemd || opts.UpdateHelper {
+		opts.offerUpdateHelper(ctx)
+	}
 
 	u.blank()
 	u.step("Done")

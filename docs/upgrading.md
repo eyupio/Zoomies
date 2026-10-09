@@ -184,6 +184,80 @@ the new image up with, so an unattended upgrade stops before it changes
 anything and says so. `--check` lists what the real run will offer and adds
 none of it.
 
+### Updating from the web UI
+
+On a systemd host that has no update helper yet, an upgrade then asks a
+second question, on its own:
+
+```text
+Add the update helper? [y/N]
+```
+
+The [update helper](security.md#what-the-agent-owns-on-a-host) is what will let
+the web UI update the host. The web UI cannot ask for updates yet; a later release adds that, and installing the helper now only makes this host ready for it.
+
+It is a pair of systemd units that run `zoomies upgrade` as root for a
+validated request; a request names a release and nothing else. The account Zoomies runs as can trigger an
+upgrade by writing a request, which is why it is a question of its own and
+never part of the batch above. `sudo zoomies updates helper remove` takes it
+away.
+
+* **`--yes` does not answer it.** `zoomies upgrade --yes` still adds the layout
+  additions and moves the settings, and still leaves this question at its
+  default.
+* **At a terminal**, Enter, `n` and the end of the input all mean no. Only `y`
+  or `yes` installs it.
+* **`--update-helper`** (`zoomies upgrade --update-helper`, or
+  `install.sh --upgrade --update-helper`) installs it without asking.
+* **Unattended** (`--non-interactive`, or no terminal at all) it adds nothing
+  and prints `Add later: sudo zoomies updates helper install`, with
+  `--config-dir` appended when the upgrade ran against a configuration
+  directory other than the default.
+* **Once the helper is installed** the upgrade it runs for the web UI adds
+  nothing and prints nothing about the helper.
+
+The question comes after the deployment's additions are reviewed and before
+anything is pulled or restarted. It is not asked, and nothing about the helper
+is said, on a host without systemd, on macOS (launchd), for a private
+provider's own service, for a service that runs as root (which can upgrade
+itself and needs no helper), or once the helper is installed. When a service
+cannot be resolved for a reason you can put right (an unreadable unit, an
+account that no longer exists, a unit that names another `--config` directory),
+an upgrade at a terminal says so in one line.
+
+A container that does not yet mount the shared folder gets the mount from the
+restart in the same upgrade, and the helper cannot be installed before then.
+So in that run the question is not asked: the upgrade says that the helper
+needs the shared folder mounted, which the restart adds, and to run
+`sudo zoomies updates helper install` afterwards.
+
+If the install is refused (the binary sits under a folder a group can write, a
+path is under `/home`, Docker remaps user namespaces) the upgrade does not
+fail: it prints the helper's own sentence, says the helper was not added, and
+finishes. Put the refusal right and run `sudo zoomies updates helper install`.
+`--check` asks nothing and adds nothing.
+
+The same question is asked once more, in the same words, at the end of a fresh
+`zoomies init` and of `zoomies agent join`, once the service is installed (for a
+container deployment, once it is up and has its shared folder). It follows the
+same rules:
+
+* **It defaults to no, and `--yes` does not answer it.** `zoomies init --yes`
+  and `zoomies agent join --yes` leave it at its default; on `agent join`,
+  `--yes` means only "replace the credentials this host already has".
+* **`--update-helper`** (on `zoomies init` or `zoomies agent join`) adds the
+  helper without asking. In an [answer file](quickstart.md#unattended-installs)
+  the key is `update_helper: true`.
+* **Unattended** it adds nothing and prints
+  `Add later: sudo zoomies updates helper install`.
+* **A controller-only container** is not asked, since it has no shared folder
+  for the helper to watch.
+* **If the install is refused**, the install or join still finishes: it prints
+  the helper's own sentence and the command to retry.
+
+`zoomies init` on a host where Zoomies is already installed only upgrades it in
+place and does not ask; `zoomies upgrade` is where the question is asked then.
+
 `zoomies upgrade --check` checks the existing deployment without modifying it.
 `zoomies update` is a compatibility alias and accepts the same flags. Both commands
 fetch the newest release (or the rolling `dev` build, for a host running one),

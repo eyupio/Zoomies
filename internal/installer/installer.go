@@ -131,6 +131,10 @@ type Options struct {
 	// AssumeYes accepts confirmations that are not destructive. Anything that
 	// would overwrite an encryption key or a database still asks.
 	AssumeYes bool
+	// UpdateHelper adds the update helper without asking, so that this host is
+	// ready for the web UI to update it (UpdateHelperNotUsedYet). AssumeYes never does: it is a grant of root, not one of
+	// the install's confirmations.
+	UpdateHelper bool
 
 	// ConfigDir and StateDir override the platform defaults. Tests set them;
 	// operators normally do not.
@@ -140,6 +144,12 @@ type Options struct {
 	Out    io.Writer
 	In     io.Reader
 	Logger *slog.Logger
+
+	// helperHost and run stand in for what the update helper question reads
+	// from the host and the commands it runs, so a test does not look at the
+	// real /run/systemd or /etc/systemd.
+	helperHost *upgradeHelperHost
+	run        commandRunner
 }
 
 func (o Options) configDir() string {
@@ -498,6 +508,8 @@ func (i *Installer) runAgent(ctx context.Context) error {
 		Answers:        i.answers,
 		NonInteractive: !i.interactive,
 		AssumeYes:      i.opts.AssumeYes,
+		UpdateHelper:   i.updateHelperRequested(),
+		Interactive:    i.interactive,
 		Out:            i.out,
 		In:             i.in,
 		Logger:         i.log,
@@ -2202,6 +2214,7 @@ func (i *Installer) runInstall(ctx context.Context, p Plan) error {
 		i.stepHealth(ctx, p, mgr)
 	}
 	i.stepCLIConfig(p.ExternalURL, p.Bind, p.TLSMode)
+	i.stepUpdateHelper(ctx, p)
 	i.stepSummary(p, freshKey)
 	return nil
 }
