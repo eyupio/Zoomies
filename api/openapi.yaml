@@ -11767,6 +11767,23 @@ components:
         features: { type: array, items: { type: string }, description: Additive runtime capabilities understood by this agent. }
         backends: { type: array, items: { $ref: "#/components/schemas/BackendInfo" } }
         runners: { type: array, items: { $ref: "#/components/schemas/RunnerReport" } }
+        update: { $ref: "#/components/schemas/AgentUpdateReport" }
+    AgentUpdateReport:
+      type: object
+      description: >-
+        The outcome of an `update_agent` task, sent on the heartbeat of the agent that replaced
+        the one that took it, because the task's own result cannot be sent by a process that
+        restarted. Repeated until the controller has recorded it. Absent when there is nothing to
+        report, and from an agent that cannot update itself (one that does not advertise `self-update`).
+      required: [id, ok, tag, finished_at]
+      properties:
+        id: { type: string, description: The `update_id` of the task this answers. }
+        ok: { type: boolean, description: True when the host now runs `tag`. }
+        tag: { type: string, description: The release the attempt was for, such as `v1.3.5`. }
+        from: { type: string, description: The agent's build version before the attempt, without the leading `v`. }
+        to: { type: string, description: The build version after it. Absent when the attempt never reached a new binary. }
+        error: { type: string, description: Why the attempt failed, as a sentence for the operator. Absent on success. }
+        finished_at: { type: string, format: date-time, description: When the attempt ended, in UTC, by the agent's clock. }
     AgentHeartbeatResponse:
       type: object
       properties:
@@ -11882,7 +11899,10 @@ components:
         memory_limit: { type: integer, format: int64, description: Absent when the container had no limit. }
     AgentTaskKind:
       type: string
-      enum: [create_runner, stop_runner, remove_runner, stream_logs, cancel_logs, prewarm_image, fill_tool_cache]
+      description: >-
+        `update_agent` is queued only for a host whose agent advertises the `self-update` feature;
+        an older agent would report it failed as an unknown kind.
+      enum: [create_runner, stop_runner, remove_runner, stream_logs, cancel_logs, prewarm_image, fill_tool_cache, update_agent]
     AgentTask:
       type: object
       description: One unit of work for an agent. Tasks are idempotent; the controller may redeliver one after a restart.
@@ -11909,6 +11929,8 @@ components:
               tool: { type: string }
               version: { type: string }
               distribution: { type: string }
+        update_id: { type: string, description: "For an update_agent task: the update attempt the controller recorded, which the agent echoes in its heartbeat's `update` report." }
+        update_tag: { type: string, description: "For an update_agent task: the release to move to, exactly vMAJOR.MINOR.PATCH. It is the whole instruction; no URL, path or flag travels with it." }
         issued_at: { type: string, format: date-time }
         attempt: { type: integer, description: "Deliveries of this task so far, from 1. A create that cannot tell whether its runner already exists fails a first delivery promptly and leaves a redelivery for the lease. Absent from older controllers." }
     RunnerSpec:

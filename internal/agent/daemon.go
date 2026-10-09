@@ -19,6 +19,7 @@ import (
 	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/machine"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/updates"
 	"github.com/eyupio/zoomies/internal/version"
 )
 
@@ -1386,6 +1387,17 @@ func validateTask(task Task) error {
 		}
 	case TaskCheckHost:
 		// Nothing to check beyond the ID: it names no runner and carries no spec.
+	case TaskUpdateAgent:
+		// The controller never sends a malformed one; these appear in the agent's
+		// log only if something else is speaking for it. An update with no ID has
+		// no attempt to report against, and the tag is checked here because it is
+		// the one instruction the agent will act on.
+		if task.UpdateID == "" {
+			return errors.New("update_agent task has no update ID, so its outcome cannot be matched to an attempt; the controller must set one")
+		}
+		if !updates.ValidTag(task.UpdateTag) {
+			return fmt.Errorf("update_agent task names %q, which is not a release tag; it must look like vMAJOR.MINOR.PATCH, for example v1.3.5", task.UpdateTag)
+		}
 	default:
 		return fmt.Errorf("unknown task kind %q; this agent speaks protocol version %d, so upgrade it to match the controller", task.Kind, ProtocolVersion)
 	}

@@ -9140,6 +9140,27 @@ export interface components {
             features?: string[];
             backends?: components["schemas"]["BackendInfo"][];
             runners?: components["schemas"]["RunnerReport"][];
+            update?: components["schemas"]["AgentUpdateReport"];
+        };
+        /** @description The outcome of an `update_agent` task, sent on the heartbeat of the agent that replaced the one that took it, because the task's own result cannot be sent by a process that restarted. Repeated until the controller has recorded it. Absent when there is nothing to report, and from an agent that cannot update itself (one that does not advertise `self-update`). */
+        AgentUpdateReport: {
+            /** @description The `update_id` of the task this answers. */
+            id: string;
+            /** @description True when the host now runs `tag`. */
+            ok: boolean;
+            /** @description The release the attempt was for */
+            tag: string;
+            /** @description The agent's build version before the attempt */
+            from?: string;
+            /** @description The build version after it. Absent when the attempt never reached a new binary. */
+            to?: string;
+            /** @description Why the attempt failed */
+            error?: string;
+            /**
+             * Format: date-time
+             * @description When the attempt ended
+             */
+            finished_at: string;
         };
         AgentHeartbeatResponse: {
             /** @description Preserve workloads and quotas while controller authority is paused. */
@@ -9315,8 +9336,11 @@ export interface components {
              */
             memory_limit?: number;
         };
-        /** @enum {string} */
-        AgentTaskKind: "create_runner" | "stop_runner" | "remove_runner" | "stream_logs" | "cancel_logs" | "prewarm_image" | "fill_tool_cache";
+        /**
+         * @description `update_agent` is queued only for a host whose agent advertises the `self-update` feature; an older agent would report it failed as an unknown kind.
+         * @enum {string}
+         */
+        AgentTaskKind: "create_runner" | "stop_runner" | "remove_runner" | "stream_logs" | "cancel_logs" | "prewarm_image" | "fill_tool_cache" | "update_agent";
         /** @description One unit of work for an agent. Tasks are idempotent; the controller may redeliver one after a restart. */
         AgentTask: {
             id: string;
@@ -9341,6 +9365,10 @@ export interface components {
                 version: string;
                 distribution?: string;
             }[];
+            /** @description For an update_agent task: the update attempt the controller recorded, which the agent echoes in its heartbeat's `update` report. */
+            update_id?: string;
+            /** @description For an update_agent task: the release to move to, exactly vMAJOR.MINOR.PATCH. It is the whole instruction; no URL, path or flag travels with it. */
+            update_tag?: string;
             /** Format: date-time */
             issued_at: string;
             /** @description Deliveries of this task so far, from 1. A create that cannot tell whether its runner already exists fails a first delivery promptly and leaves a redelivery for the lease. Absent from older controllers. */
