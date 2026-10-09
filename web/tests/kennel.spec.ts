@@ -1915,6 +1915,61 @@ test.describe('with Kennel Club on', () => {
       await expect(trackSwitch(page)).toBeChecked();
     });
 
+    // A frame on the stream is the repository as the page reads it, and replaces
+    // what the page holds. A read the page asked for earlier can still be on its
+    // way when the frame lands, and its answer is older than the frame: if it is
+    // allowed to replace what the frame set, the page shows the repository as it was
+    // and nothing says otherwise. That is what made the test above fail about once
+    // in a hundred runs, whenever the read the page makes as its stream goes live was
+    // still out when the change was made. Here the read is held on purpose.
+    test('a late answer to an older read does not put back what a newer frame changed', async ({
+      page,
+    }) => {
+      const row = await quietRepository(page);
+      let hold = false;
+      let answered: () => void = () => {};
+      const controllerAnswered = new Promise<void>((resolve) => (answered = resolve));
+      let release: () => void = () => {};
+      const released = new Promise<void>((resolve) => (release = resolve));
+      await page.route(`**/api/v1/kennel/repositories/${row.id}`, async (route) => {
+        if (!hold || route.request().method() !== 'GET') return route.continue();
+        hold = false;
+        const answer = await route.fetch();
+        answered();
+        await released;
+        return route.fulfill({ response: answer });
+      });
+      await goto(page, `/kennel/repositories/${row.id}`, row.name);
+      // A change made before the stream is open sends no frame to anybody, so the
+      // stream has to be live before the page is asked to read again.
+      await expect(page.locator('p.connection[data-state="live"]')).toBeAttached();
+      const notice = page.getByTestId('not-tracked');
+      await expect(notice).toHaveCount(0);
+
+      hold = true;
+      await page.getByRole('button', { name: 'Refresh', exact: true }).click();
+      // The controller answers the read while the repository is still tracked, and
+      // the answer is kept back. Then the change is made, and its frame arrives.
+      await controllerAnswered;
+      await setTracking(page, row.id, { tracked: false, reason: REASON });
+      await expect(notice).toContainText(REASON);
+
+      const arrived = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(`/api/v1/kennel/repositories/${row.id}`) &&
+          response.request().method() === 'GET',
+      );
+      release();
+      await arrived;
+      // Two frames of the page's own drawing, so the answer has been acted on.
+      await page.evaluate(
+        () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done))),
+      );
+      await expect(notice).toContainText(REASON);
+      await expect(trackSwitch(page)).not.toBeChecked();
+      expect((await tracking(page, row.id)).tracking.tracked).toBe(false);
+    });
+
     /* -- several at once, from the list ---------------------------------------- */
 
     // Stopping is the same decision as on a repository's own page, asked of a

@@ -57,6 +57,12 @@ test.describe('signed out', () => {
     await expect(page.locator('#state-word')).toHaveText('blocked');
     await expect(page.getByRole('heading', { name: 'What is happening' })).toBeVisible();
     await expect(page.getByText('Blocking').first()).toBeVisible();
+    // A reason that has lasted a while says since when, after its code. The space
+    // between them is written outside the {#if} that holds the time, because
+    // Svelte drops one written inside it and the line read "code· since 3m".
+    await expect(page.locator('.reason .meta', { hasText: 'since' }).first()).toHaveText(
+      /\S · since /,
+    );
 
     const names = await fleetNames(page);
     expect(names.length, 'the fixture has names to search for').toBeGreaterThan(8);

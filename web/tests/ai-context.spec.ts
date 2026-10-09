@@ -595,6 +595,12 @@ test('a reader sees assistant notes marked AI-written and never rendered as HTML
   await page.getByText('Assistant notes', { exact: true }).click();
   await expect(page.getByText('AI-written', { exact: true })).toBeVisible();
   await expect(page.getByText(/Version 2 by Ada\s+via Claude/)).toBeVisible();
+  // The commit the note was written against follows the time on the same line.
+  // The space between them is written outside the {#if} that holds the commit,
+  // because Svelte drops one written inside it and the line read "2026· written".
+  await expect(page.getByText(/Version 2 by Ada\s+via Claude/)).toHaveText(
+    /\S · written against a{12}/,
+  );
   await page.getByRole('button', { name: 'Read' }).click();
   const body = page.getByLabel('Upgrade plan, as written');
   await expect(body).toHaveText(hostile);

@@ -1238,6 +1238,12 @@ Every PR that touches the UI should be able to answer yes to all of these:
 3. If it is a status, add it to the state map (colour **and** shape).
 4. Write the empty, loading and error states before the happy path. They are
    most of what an operator actually sees.
+5. Keep the space outside the block when a sentence continues across an `{#if}`,
+   `{#each}` or `{:else}`. Svelte drops the whitespace at the start and at the
+   end of a block's body, so a space written inside it is not there on the page:
+   "in use{#if x}" followed by a line break and "· 1 via Tailcat" reads "in use·
+   1 via Tailcat". Put the space before the block, or build the optional part as
+   one string. `npm run lint` finds these (`web/scripts/block-spacing.mjs`).
 
 ---
 
