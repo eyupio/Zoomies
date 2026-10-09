@@ -833,6 +833,11 @@ var registry = buildRegistry([]Setting{
 		Key: "retention.machines", Label: "Keep deleted machines for", Env: "ZOOMIES_RETENTION_MACHINES", Kind: KindDuration, Scope: ScopePlatform, Live: true,
 		Summary: "How long a deleted machine's row is kept, so what the fleet rented and gave back is still answerable after the machine itself is gone.",
 	},
+	{
+		Key: "retention.update_attempts", Label: "Keep update history for", Env: "ZOOMIES_RETENTION_UPDATE_ATTEMPTS", Kind: KindDuration, Scope: ScopePlatform, Live: true,
+		Floor:   24 * time.Hour,
+		Summary: "How long a finished attempt to update the controller or a host is kept, so why a host is behind stays answerable. An attempt still open is never removed. 0 keeps every attempt.",
+	},
 
 	// ---------------------------------------------------------------------
 	// limits -- fleet-wide ceilings. Platform-scoped, because a ceiling is

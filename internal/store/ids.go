@@ -50,6 +50,8 @@ const (
 	PrefixKennelWaiver     = "kcw"
 	// PrefixHostAcceptance names an operator's acceptance of one host's check.
 	PrefixHostAcceptance = "hca"
+	// PrefixUpdateAttempt names one request to update the controller or a host.
+	PrefixUpdateAttempt = "upd"
 )
 
 var idEncoding = base32.NewEncoding("abcdefghijklmnopqrstuvwxyz234567").WithPadding(base32.NoPadding)

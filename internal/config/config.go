@@ -1111,6 +1111,10 @@ type Retention struct {
 	// what it cost, and an operator reconciling a hypervisor bill against the
 	// fleet is reading exactly this.
 	Machines time.Duration `yaml:"machines"`
+	// UpdateAttempts is how long a finished update attempt is kept. It is the
+	// answer to "why is this host behind", so it outlives the job history
+	// around it. An attempt still open is never pruned.
+	UpdateAttempts time.Duration `yaml:"update_attempts"`
 }
 
 // Path returns the file this config was loaded from, or "" for defaults.
@@ -1219,6 +1223,7 @@ func Default() *Config {
 			Samples:        7 * 24 * time.Hour,
 			Webhooks:       7 * 24 * time.Hour,
 			Machines:       7 * 24 * time.Hour,
+			UpdateAttempts: 90 * 24 * time.Hour,
 		},
 		// Hourly is soon enough that a host picks up a rebuilt image the same
 		// working day, and rare enough that the registry never notices.

@@ -204,6 +204,37 @@ func TestPruningKeepsEveryMachineThatMayStillHaveAResource(t *testing.T) {
 	}
 }
 
+// An update that is still in flight is the only record that one is, and the
+// controller's timeout is what closes it, not its age. The finished ones are
+// history and follow retention.update_attempts.
+func TestPruningTakesOldUpdateAttemptsButNeverAnOpenOne(t *testing.T) {
+	h := newHarness(t)
+	finished := &store.UpdateAttempt{Scope: store.UpdateScopeHost, HostID: "host_a", ToVersion: "v1.3.5", Trigger: store.UpdateTriggerManual}
+	open := &store.UpdateAttempt{Scope: store.UpdateScopeController, ToVersion: "v1.3.5", Trigger: store.UpdateTriggerManual}
+	for _, a := range []*store.UpdateAttempt{finished, open} {
+		if err := h.st.CreateUpdateAttempt(h.ctx, a); err != nil {
+			t.Fatalf("CreateUpdateAttempt: %v", err)
+		}
+	}
+	if ok, err := h.st.FinishUpdateAttempt(h.ctx, finished.ID, store.UpdateSucceeded, ""); err != nil || !ok {
+		t.Fatalf("FinishUpdateAttempt = %v, %v", ok, err)
+	}
+
+	h.c.UpdateConfig(func(c *config.Config) { c.Retention = config.Retention{UpdateAttempts: 24 * time.Hour} })
+	h.advance(12 * time.Hour)
+	h.c.prune(h.ctx)
+	if got, err := h.st.ListUpdateAttempts(h.ctx, "", "", 10); err != nil || len(got) != 2 {
+		t.Fatalf("inside the window %d attempts remain (%v), want both", len(got), err)
+	}
+
+	h.advance(48 * time.Hour)
+	h.c.prune(h.ctx)
+	got, err := h.st.ListUpdateAttempts(h.ctx, "", "", 10)
+	if err != nil || len(got) != 1 || got[0].ID != open.ID {
+		t.Fatalf("after the window %+v remain (%v), want only the open attempt", got, err)
+	}
+}
+
 // The prune pass is what rolls usage up. Without it the roll-up never moves,
 // the report falls back to rows a week's retention has already taken, and last
 // month's runner-hours quietly disappear.
