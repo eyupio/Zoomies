@@ -53,6 +53,9 @@ const PAGES = [
   // nothing behind it is an error state rather than the page.
   { path: `/providers/${FIXTURE.providerId}`, heading: FIXTURE.provider },
   { path: `/machines/${FIXTURE.readyMachineId}`, heading: FIXTURE.readyMachine },
+  // The page with a conversation on it: a log that scrolls, a box that grows, and
+  // buttons that are only icons.
+  { path: '/settings/assistant', heading: 'Assistant' },
   { path: '/installations', heading: 'Installations' },
   { path: '/migrate', heading: 'Migrate repositories' },
   // Kennel Club is off in the fixture fleet, so these are the pages somebody
