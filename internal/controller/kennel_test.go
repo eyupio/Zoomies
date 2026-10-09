@@ -1662,3 +1662,42 @@ func TestPartlyCheckedListsPartialAndPendingRepositoriesAndNoOthers(t *testing.T
 		t.Errorf("incomplete with a state = %v, want a refusal naming incomplete", err)
 	}
 }
+
+// ranMatrix records one job of a matrix: a job of a run attempt whose name
+// carries GitHub's " (values)" suffix, which waited for a runner.
+func (f *kennelFixture) ranMatrix(repo string, run int64, pool *store.Pool, name string, waited time.Duration) {
+	f.t.Helper()
+	f.next++
+	now := f.c.Now()
+	if _, err := f.st.UpsertJob(f.ctx, &store.Job{
+		GitHubJobID: f.next, GitHubRunID: run, RunAttempt: 1, JobName: name, Repo: repo, InstallationID: f.inst.ID, PoolID: pool.ID,
+		RunnerID: "run_" + pool.ID, State: store.JobCompleted, Conclusion: "success", Matched: true,
+		Labels:   store.NormalizeLabels([]string{"self-hosted", "linux"}),
+		QueuedAt: now.Add(-time.Hour), StartedAt: ptr(now.Add(-time.Hour + waited)), CompletedAt: ptr(now.Add(-30 * time.Minute)),
+	}); err != nil {
+		f.t.Fatalf("UpsertJob: %v", err)
+	}
+}
+
+// The evaluator decides whether a matrix was too wide; the controller's part is
+// to hand it each matrix and each pool's ceiling, and to point at the pool.
+func TestTheSnapshotCarriesEachMatrixAndEachPoolsCeiling(t *testing.T) {
+	f := newKennelFixture(t)
+	f.repo("acme/api", "private")
+	f.pool.MaxRunners = 2
+	if err := f.st.UpdatePool(f.ctx, f.pool); err != nil {
+		t.Fatal(err)
+	}
+	for i, waited := range []time.Duration{0, 0, 3 * time.Minute, 3 * time.Minute, 6 * time.Minute, 6 * time.Minute} {
+		f.ranMatrix("acme/api", 7, f.pool, fmt.Sprintf("build (%d)", i), waited)
+	}
+	f.pass()
+	v := f.view("acme/api")
+	fd := findingOf(v, kennel.CodeMatrixExceedsPool)
+	if fd == nil {
+		t.Fatalf("findings = %v, want the matrix finding", findingCodes(v))
+	}
+	if len(fd.Evidence) != 1 || fd.Evidence[0].Ref != f.pool.ID {
+		t.Errorf("evidence = %+v, want the pool", fd.Evidence)
+	}
+}

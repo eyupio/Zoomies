@@ -169,6 +169,23 @@ Fix
 Verify
 :   Press Recheck after the next run of the job; the finding closes once no run in the window was cancelled at the six-hour limit.
 
+### `capacity.matrix_exceeds_pool` { #capacity-matrix_exceeds_pool }
+
+Area
+:   capacity
+
+Severity
+:   info
+
+Detects
+:   A matrix's jobs waited together on a pool with fewer runners than the matrix has jobs, so the matrix ran in waves.
+
+Fix
+:   Raise the pool's max_runners to the matrix's width, spread the matrix over more than one pool with runs-on, or cap it with max-parallel so the wait is chosen and not suffered.
+
+Verify
+:   Press Recheck after the pool or the matrix changes; the finding closes when no matrix in the window is wider than the pool it ran on.
+
 ### `setup.readme` { #setup-readme }
 
 Area
