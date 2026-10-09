@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 )
 
@@ -75,6 +76,10 @@ func (s *Store) CreateUpdateAttempt(ctx context.Context, a *UpdateAttempt) error
 		return fmt.Errorf("an update attempt for the controller cannot name a host (%s)", a.HostID)
 	case a.Trigger != UpdateTriggerManual && a.Trigger != UpdateTriggerAuto:
 		return fmt.Errorf("update attempt trigger %q is neither %q nor %q", a.Trigger, UpdateTriggerManual, UpdateTriggerAuto)
+	case strings.TrimSpace(a.ToVersion) == "":
+		// Every ending is judged against the release the attempt asked for, so a
+		// row without one could never be seen to have arrived.
+		return fmt.Errorf("an update attempt must name the release it is for")
 	}
 	a.ID = NewID(PrefixUpdateAttempt)
 	a.State, a.Error, a.FinishedAt = UpdateRequested, "", nil

@@ -88,6 +88,8 @@ func TestAnAttemptMustNameItsTargetConsistently(t *testing.T) {
 		"a controller attempt with a host": {Scope: UpdateScopeController, HostID: "host_a", ToVersion: "v1.3.5", Trigger: UpdateTriggerManual},
 		"an unknown scope":                 {Scope: "fleet", ToVersion: "v1.3.5", Trigger: UpdateTriggerManual},
 		"an unknown trigger":               {Scope: UpdateScopeController, ToVersion: "v1.3.5", Trigger: "cron"},
+		"no release to take":               {Scope: UpdateScopeController, Trigger: UpdateTriggerManual},
+		"a release of only spaces":         {Scope: UpdateScopeController, ToVersion: " ", Trigger: UpdateTriggerManual},
 	} {
 		if err := s.CreateUpdateAttempt(ctx, a); err == nil || errors.Is(err, ErrConflict) {
 			t.Errorf("%s: CreateUpdateAttempt = %v, want a refusal that is not a conflict", name, err)
