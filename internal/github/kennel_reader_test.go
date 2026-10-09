@@ -269,14 +269,51 @@ func TestARepositoryThatGoesPublicIsSeenOnTheNextRead(t *testing.T) {
 
 var idSegment = regexp.MustCompile(`/\d+`)
 
-// Kennel Club's Stage 1 calls the endpoints it documents and no others. A call
-// added later has to change KennelEndpoints in the same change, which is where a
-// reviewer, and the operator who reads the permissions page, will see it.
+// normaliseKennelRequest turns a request the fake recorded into the form
+// KennelEndpoints lists it in. It works by what a path is, not by where a
+// segment falls, because the recorded path is the decoded one: a branch named
+// release/1.0 is two segments there, and a fixed index would mistake the
+// settings endpoints for runs.
+func normaliseKennelRequest(req string) string {
+	method, path, _ := strings.Cut(req, " ")
+	path, _, _ = strings.Cut(path, "?")
+	path = strings.TrimPrefix(path, "/api/v3")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	switch {
+	case len(parts) >= 3 && parts[0] == "repos":
+		rest := parts[3:]
+		switch {
+		case len(rest) >= 3 && rest[0] == "actions" && rest[1] == "runs":
+			rest = []string{"actions", "runs", "{run}"}
+		case len(rest) >= 3 && rest[0] == "git" && (rest[1] == "trees" || rest[1] == "blobs"):
+			rest = []string{"git", rest[1], "{" + strings.TrimSuffix(rest[1], "s") + "}"}
+		case len(rest) >= 3 && rest[0] == "branches" && rest[len(rest)-1] == "protection":
+			rest = []string{"branches", "{branch}", "protection"}
+		case len(rest) >= 3 && rest[0] == "rules" && rest[1] == "branches":
+			rest = []string{"rules", "branches", "{branch}"}
+		}
+		parts = append([]string{"repos", "{owner}", "{repo}"}, rest...)
+	case len(parts) >= 2 && parts[0] == "orgs":
+		parts[1] = "{org}"
+	}
+	norm := method + " /" + strings.Join(parts, "/")
+	return idSegment.ReplaceAllString(norm, "/{n}")
+}
+
+// Kennel Club calls the endpoints it documents and no others, and none of them
+// is a write. A call added later has to change KennelEndpoints in the same
+// change, which is where a reviewer, and the operator who reads the permissions
+// page, will see it.
 func TestKennelClubCallsOnlyTheEndpointsItDocuments(t *testing.T) {
 	f := newFake(t)
 	f.SetVisibility("acme/api", "public")
+	f.SetVisibility("acme/internal", "private")
 	f.SetRunTrigger("acme/api", 5, "pull_request", f.RepositoryID("acme/api")+1)
 	f.AddRunnerGroup("fleet")
+	// A branch with a slash, protected and ruled, so the normaliser is held to
+	// the shape that breaks a fixed index.
+	f.SetBranchProtection("acme/api", "release/1.0", actions("test")...)
+	f.AddBranchRule("acme/api", "release/1.0", actions("lint")...)
 	ctx := context.Background()
 	for _, tc := range []struct {
 		target string
@@ -288,6 +325,17 @@ func TestKennelClubCallsOnlyTheEndpointsItDocuments(t *testing.T) {
 			t.Fatal(err)
 		}
 		if _, err := r.KennelRun(ctx, "acme/api", 5); err != nil {
+			t.Fatal(err)
+		}
+		// Each repository makes the fork-policy read that is its own.
+		sr := c.(KennelSettingsReader)
+		if _, err := sr.KennelSettings(ctx, "acme/api", true); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sr.KennelSettings(ctx, "acme/internal", false); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := sr.KennelProtection(ctx, "acme/api", "release/1.0"); err != nil {
 			t.Fatal(err)
 		}
 		if tc.kind == store.TargetOrg {
@@ -305,29 +353,29 @@ func TestKennelClubCallsOnlyTheEndpointsItDocuments(t *testing.T) {
 	for _, e := range KennelEndpoints {
 		allowed[e] = true
 	}
-	seen := 0
+	seen := map[string]bool{}
 	for _, req := range f.Requests() {
-		method, path, _ := strings.Cut(req, " ")
-		path, _, _ = strings.Cut(path, "?")
-		path = strings.TrimPrefix(path, "/api/v3")
-		parts := strings.Split(strings.Trim(path, "/"), "/")
-		switch {
-		case len(parts) >= 2 && parts[0] == "repos":
-			parts[1], parts[2] = "{owner}", "{repo}"
-			if len(parts) > 5 {
-				parts[5] = "{run}"
-			}
-		case len(parts) >= 2 && parts[0] == "orgs":
-			parts[1] = "{org}"
-		}
-		norm := method + " /" + strings.Join(parts, "/")
-		norm = idSegment.ReplaceAllString(norm, "/{n}")
-		if !allowed[strings.ReplaceAll(norm, "/{n}", "/{run}")] && !allowed[norm] {
+		norm := normaliseKennelRequest(req)
+		if !allowed[norm] {
 			t.Errorf("Kennel Club made a request it does not document: %s (normalised %s)", req, norm)
 		}
-		seen++
+		if !strings.HasPrefix(req, "GET ") {
+			t.Errorf("Kennel Club made a request that is not a GET: %s", req)
+		}
+		seen[norm] = true
 	}
-	if seen == 0 {
+	if len(seen) == 0 {
 		t.Fatal("no requests were recorded; the test proves nothing")
+	}
+	// An endpoint listed and never reached is a list that has drifted from the
+	// code, and it would widen what the operator is told without anything using
+	// it. The tree and blob reads are reached by the workflow and setup tests.
+	for _, e := range KennelEndpoints {
+		if strings.Contains(e, "/git/") {
+			continue
+		}
+		if !seen[e] {
+			t.Errorf("%s is documented and this test never reached it", e)
+		}
 	}
 }

@@ -49,6 +49,9 @@ type fakeRepo struct {
 	// pullBodies keeps each pull request's body by number, so a test can read
 	// what a reviewer would read.
 	pullBodies map[int]string
+	// kennelSettings is what the fake says about the repository's Actions
+	// settings and branch protection; see fake_kennel_settings.go.
+	kennelSettings *fakeKennelSettings
 }
 
 // AddWorkflow puts a workflow file in a repository, creating the repository if

@@ -25,7 +25,7 @@ type RepoReader interface {
 
 var _ RepoReader = (*appClient)(nil)
 
-// KennelEndpoints are the GitHub endpoints Kennel Club's Stage 1 may call, in
+// KennelEndpoints are the GitHub endpoints Kennel Club may call, in
 // the form its documentation lists them. A test runs the reader against the fake
 // and fails on any request that is not one of these, so a new call is a visible
 // change to this list in review rather than something found in a log.
@@ -40,6 +40,15 @@ var KennelEndpoints = []string{
 	// Optional repository setup reads only the default-branch file inventory.
 	"GET /repos/{owner}/{repo}/git/trees/{tree}",
 	"GET /repos/{owner}/{repo}/git/blobs/{blob}",
+	// The optional settings reads. A public repository has an approval policy for
+	// fork pull requests and a private one has the rules for them, so each
+	// repository makes one of the two. Rules need only Metadata; everything else
+	// here needs the App's Administration read permission.
+	"GET /repos/{owner}/{repo}/actions/permissions/workflow",
+	"GET /repos/{owner}/{repo}/actions/permissions/fork-pr-contributor-approval",
+	"GET /repos/{owner}/{repo}/actions/permissions/fork-pr-workflows-private-repos",
+	"GET /repos/{owner}/{repo}/branches/{branch}/protection",
+	"GET /repos/{owner}/{repo}/rules/branches/{branch}",
 }
 
 // KennelRun is the four fields of a workflow run that the exposure checks read.
