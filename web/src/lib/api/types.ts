@@ -187,6 +187,8 @@ export type ProviderSetting = Schemas['ProviderSetting'];
 export type ProviderGuideStep = Schemas['ProviderGuideStep'];
 export type ProviderValidation = Schemas['ProviderValidation'];
 export type ProviderCheck = Schemas['ProviderCheck'];
+/** One provider against one pool: would it rent a machine for it, and whose setting says not. */
+export type ProviderPairing = Schemas['ProviderPairing'];
 export type ProviderChoice = Schemas['ProviderChoice'];
 export type ProviderDiscovery = Schemas['ProviderDiscovery'];
 export type ProviderOrphans = Schemas['ProviderOrphans'];

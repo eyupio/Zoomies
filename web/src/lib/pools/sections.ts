@@ -17,7 +17,7 @@
  */
 import type { PoolDraft } from './draft';
 
-export type SectionId = 'basics' | 'hosts' | 'runner' | 'size' | 'scaling' | 'speed';
+export type SectionId = 'basics' | 'hosts' | 'providers' | 'runner' | 'size' | 'scaling' | 'speed';
 
 export interface SectionDef {
   id: SectionId;
@@ -51,6 +51,14 @@ export const SECTIONS: readonly SectionDef[] = [
     description: 'Which machines these runners may land on.',
     fields: ['host_selector'],
     keys: ['host_selector', 'restrict_hosts'],
+  },
+  {
+    id: 'providers',
+    title: 'Providers',
+    description:
+      'Which providers may rent machines for this pool when no host can run its work. A provider has to agree from its side too.',
+    fields: ['provider_selector'],
+    keys: ['provider_selector'],
   },
   {
     id: 'runner',

@@ -13,12 +13,13 @@
   import {
     checkProvider,
     listMachines,
+    listProviderPairings,
     listProviders,
     pauseProvider,
     resumeProvider,
   } from '$lib/api/client';
   import { events } from '$lib/api/sse';
-  import type { Machine, Provider } from '$lib/api/types';
+  import type { Machine, Provider, ProviderPairing } from '$lib/api/types';
   import { pluralise } from '$lib/format';
   import { router } from '$lib/router';
   import { machineStatus } from '$lib/status';
@@ -43,6 +44,7 @@
 
   let providers = $state<Provider[]>([]);
   let machines = $state<Machine[]>([]);
+  let pairings = $state<ProviderPairing[]>([]);
   let loading = $state(true);
   let loaded = $state(false);
   let error = $state<unknown>(null);
@@ -65,10 +67,15 @@
       // month has hundreds of them. The orphan review is where a confirmed
       // deletion is still worth looking at.
       listMachines({ limit: 200 }, controller.signal),
+      // Which pools each provider would rent for. Without it a card cannot say
+      // that nothing will ever be rented from it, which is the question a new
+      // provider's owner opens this page to ask.
+      listProviderPairings(controller.signal).catch(() => ({ items: [] as ProviderPairing[] })),
     ])
-      .then(([providerPage, machinePage]) => {
+      .then(([providerPage, machinePage, pairingPage]) => {
         providers = providerPage.items ?? [];
         machines = machinePage.items ?? [];
+        pairings = pairingPage.items ?? [];
         error = null;
         loaded = true;
       })
@@ -250,6 +257,7 @@
       {#each providers as provider (provider.id)}
         <ProviderCard
           {provider}
+          pairings={pairings.filter((entry) => entry.provider_id === provider.id)}
           {canOperate}
           checking={checking === provider.id}
           pausing={pausing === provider.id}

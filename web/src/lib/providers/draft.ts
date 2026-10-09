@@ -79,7 +79,14 @@ export const STEP_FIELDS: readonly (readonly string[])[] = [
     'machine_platform',
     'machine_labels',
   ],
-  ['max_machines', 'max_creates_in_flight', 'idle_timeout', 'cost_per_machine_hour', 'enabled'],
+  [
+    'max_machines',
+    'max_creates_in_flight',
+    'idle_timeout',
+    'cost_per_machine_hour',
+    'enabled',
+    'pool_selector',
+  ],
   [],
 ];
 
@@ -107,6 +114,7 @@ export const FIELD_LABELS: Readonly<Record<string, string>> = {
   idle_timeout: 'Idle timeout',
   cost_per_machine_hour: 'Cost per machine-hour',
   enabled: 'Enabled',
+  pool_selector: 'Pools it rents for',
 };
 
 /**
@@ -153,6 +161,8 @@ export interface ProviderDraft {
   /** The driver's own answers, keyed by SettingSpec.key. */
   settings: Record<string, string>;
   machine_labels: Record<string, string>;
+  /** Which pools this provider will rent machines for; empty means every pool. */
+  pool_selector: Record<string, string>;
   machine_capacity: string;
   machine_backend: string;
   machine_cpus: string;
@@ -181,6 +191,7 @@ export function emptyDraft(): ProviderDraft {
     credential: '',
     settings: {},
     machine_labels: {},
+    pool_selector: {},
     machine_capacity: '2',
     machine_backend: 'docker',
     machine_cpus: '',
@@ -215,6 +226,7 @@ export function draftFromProvider(provider: Provider): ProviderDraft {
     tailcat_configured: provider.connection === 'tailcat',
     settings: { ...(provider.settings ?? {}) },
     machine_labels: { ...(provider.machine_labels ?? {}) },
+    pool_selector: { ...(provider.pool_selector ?? {}) },
     machine_capacity: fromNumber(provider.machine_capacity) || base.machine_capacity,
     machine_backend: provider.machine_backend ?? base.machine_backend,
     machine_cpus: fromNumber(provider.machine_cpus),
@@ -292,6 +304,7 @@ export function toProviderBody(
     connection: draft.connection === 'tailcat' ? 'tailcat' : 'direct',
     settings: trimmedMap(draft.settings),
     machine_labels: trimmedMap(draft.machine_labels),
+    pool_selector: trimmedMap(draft.pool_selector),
     machine_capacity: num(draft.machine_capacity) ?? 2,
     machine_backend: draft.machine_backend as BackendKind,
     max_machines: num(draft.max_machines) ?? 0,
@@ -543,6 +556,8 @@ export function providerCommand(
   const labels = trimmedMap(draft.machine_labels);
   const labelWords = Object.entries(labels).map(([k, v]) => `${k}=${v}`);
   if (labelWords.length > 0) parts.push('--labels', shellWord(labelWords.join(',')));
+  const poolWords = Object.entries(trimmedMap(draft.pool_selector)).map(([k, v]) => `${k}=${v}`);
+  if (poolWords.length > 0) parts.push('--pool-selector', shellWord(poolWords.join(',')));
   const capacity = num(draft.machine_capacity);
   if (capacity !== undefined && capacity !== 2) parts.push('--capacity', String(capacity));
   if (draft.machine_backend && draft.machine_backend !== 'docker')

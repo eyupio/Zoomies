@@ -952,6 +952,12 @@ type Pool struct {
 	// every pool until somebody says otherwise.
 	RunnerSettings RunnerSettings `json:"runner_settings"`
 	HostSelector   StringMap      `json:"host_selector"`
+	// ProviderSelector is the pool's half of the agreement with a provider:
+	// which providers may rent machines for it, matched against each
+	// provider's name, kind and machine labels. Empty means any provider. The
+	// provider's own PoolSelector is the other half, and a machine is rented
+	// only where both agree.
+	ProviderSelector StringMap `json:"provider_selector"`
 	// Env is injected into every runner this pool creates.
 	Env StringMap `json:"env"`
 	// RunAsRoot disables the backend's default of dropping to an unprivileged

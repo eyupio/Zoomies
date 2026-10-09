@@ -347,6 +347,9 @@ type Controller struct {
 	// blocked remembers the reason each pool could not place a runner, so that
 	// a fleet that cannot scale says so once rather than every tick.
 	blocked map[string]string
+	// unserved is the pools a selector kept every provider from renting for,
+	// by name, so the log says so once per change.
+	unserved map[string]string
 	// hostHealthy remembers each host's last known health so that only a flip
 	// publishes an event.
 	hostHealthy map[string]bool

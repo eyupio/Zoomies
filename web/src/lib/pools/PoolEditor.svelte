@@ -26,6 +26,8 @@
     getPoolDefaults,
     listInstallations,
     listPoolPlatforms,
+    listProviderPairings,
+    listProviders,
     listRunnerGroups,
     updatePool,
     validatePool,
@@ -35,6 +37,8 @@
     Installation,
     Pool,
     PoolPlatform,
+    Provider,
+    ProviderPairing,
     Resources,
     Result,
     RunnerGroup,
@@ -46,6 +50,7 @@
   import { nicknamedPoolName, poolName, spinWord } from './names';
   import { draftErrors, draftFromPool, emptyDraft, toInteger, toPoolBody } from './draft';
   import type { PoolDraft } from './draft';
+  import { providerMatchesSelector } from '$lib/providers/pairing';
   import { hostMatchesSelector } from './hostSelector';
   import { SECTIONS, editedSections, sectionForField, sectionHead } from './sections';
   import type { SectionId } from './sections';
@@ -58,6 +63,7 @@
   import PoolCheck from './PoolCheck.svelte';
   import PoolRail from './PoolRail.svelte';
   import PoolSection from './PoolSection.svelte';
+  import ProvidersSection from './ProvidersSection.svelte';
   import RunnerSection from './RunnerSection.svelte';
   import ScalingSection from './ScalingSection.svelte';
   import SizeSection from './SizeSection.svelte';
@@ -94,6 +100,7 @@
   let opened = $state<Record<SectionId, boolean>>({
     basics: untrack(() => pool === undefined),
     hosts: false,
+    providers: false,
     runner: false,
     size: false,
     scaling: false,
@@ -155,6 +162,35 @@
   // hard-coded so the picker cannot offer one that does not exist.
   let platforms = $state<PoolPlatform[]>([]);
 
+  // Providers are fetched here rather than kept in the fleet cache, for the
+  // reason the Providers page gives: only the pages that show them should pay
+  // for the request. Null until they have landed, so a slow answer does not
+  // read as "no provider is set up".
+  let providers = $state<Provider[] | null>(null);
+  let pairings = $state<ProviderPairing[]>([]);
+  $effect(() => {
+    const controller = new AbortController();
+    void listProviders(controller.signal)
+      .then((page) => (providers = page.items ?? []))
+      .catch(() => {
+        if (!controller.signal.aborted) providers = [];
+      });
+    // The server's reading of a saved pool, for what a selector cannot say:
+    // whether the machine a provider builds suits it.
+    const id = untrack(() => pool?.id);
+    if (id) {
+      void listProviderPairings(controller.signal)
+        .then((page) => (pairings = (page.items ?? []).filter((entry) => entry.pool_id === id)))
+        .catch(() => undefined);
+    }
+    return () => controller.abort();
+  });
+  const providersMatching = $derived(
+    providers === null
+      ? null
+      : providers.filter((entry) => providerMatchesSelector(entry, draft.provider_selector)).length,
+  );
+
   let verdict = $state<Result<'validatePool'> | null>(null);
   let validating = $state(false);
   let stabilityRevision = $state(0);
@@ -196,6 +232,7 @@
     const out: Record<SectionId, number> = {
       basics: 0,
       hosts: 0,
+      providers: 0,
       runner: 0,
       size: 0,
       scaling: 0,
@@ -219,6 +256,8 @@
       installation: installationLabel,
       hostsTotal: fleet.loaded ? fleet.hosts.length : null,
       hostsMatching: fleet.loaded ? selectedHosts.length : null,
+      providersTotal: providers === null ? null : providers.length,
+      providersMatching,
     }),
   );
   const railItems = $derived(
@@ -678,6 +717,16 @@
         {verdict}
         {validating}
       />
+    </PoolSection>
+
+    <PoolSection
+      {...sectionHead('providers')}
+      summary={summaries.providers}
+      bind:open={opened.providers}
+      problems={problems.providers}
+      edited={edited.has('providers')}
+    >
+      <ProvidersSection {draft} {providers} {pairings} />
     </PoolSection>
 
     <PoolSection

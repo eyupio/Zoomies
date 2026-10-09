@@ -139,6 +139,8 @@ export interface PoolDraft {
   /** Carried through untouched: the editor does not edit it, and must not lose it. */
   pids_limit: string;
   host_selector: Record<string, string>;
+  /** Which providers may rent machines for this pool; empty means any provider. */
+  provider_selector: Record<string, string>;
   /**
    * The editor's own state, not the pool's: whether the operator chose to
    * keep this pool to some hosts. The selector cannot answer it, because
@@ -211,6 +213,7 @@ export function emptyDraft(): PoolDraft {
     tmpfs_daemon_size: '',
     pids_limit: '',
     host_selector: {},
+    provider_selector: {},
     restrict_hosts: false,
     env: {},
   };
@@ -291,6 +294,7 @@ export function draftFromPool(pool: Pool): PoolDraft {
     tmpfs_daemon_size: fromNumber(pool.tmpfs?.daemon?.size_mb),
     pids_limit: fromNumber(resources.pids_limit),
     host_selector: { ...(pool.host_selector ?? {}) },
+    provider_selector: { ...(pool.provider_selector ?? {}) },
     restrict_hosts: Object.keys(pool.host_selector ?? {}).length > 0,
     env: { ...(pool.env ?? {}) },
   };
@@ -311,6 +315,7 @@ export function poolIsTuned(draft: PoolDraft): boolean {
     draft.memory_burst_mode === 'automatic' ||
     draft.restrict_hosts ||
     Object.keys(draft.host_selector).length > 0 ||
+    Object.keys(draft.provider_selector).length > 0 ||
     draft.backend !== 'docker' ||
     draft.docker_mode === 'host-socket' ||
     draft.run_as_root ||
@@ -511,6 +516,9 @@ export function toPoolBody(draft: PoolDraft, options: { complete?: boolean } = {
   };
   if (complete || Object.keys(draft.host_selector).length > 0) {
     body.host_selector = draft.host_selector;
+  }
+  if (complete || Object.keys(draft.provider_selector).length > 0) {
+    body.provider_selector = draft.provider_selector;
   }
   if (complete || Object.keys(draft.env).length > 0) body.env = draft.env;
   return body;

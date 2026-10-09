@@ -81,6 +81,19 @@ type MachineSnapshot struct {
 // MachinePlan is what one pass should do, per provider.
 type MachinePlan struct {
 	Providers []ProviderPlan `json:"providers"`
+	// Unserved is the pools whose queued work a machine would have answered,
+	// where a provider could have built one, and nobody was allowed to. The
+	// money was never the obstacle, so it is not a ProviderPlan's Blocked: an
+	// operator raising a ceiling would be sent to the wrong screen.
+	Unserved []UnservedPool `json:"unserved,omitempty"`
+}
+
+// UnservedPool is one pool no provider will rent for, with the sentence that
+// says whose selector said no.
+type UnservedPool struct {
+	Pool string `json:"pool"`
+	Why  string `json:"why"`
+	Fix  string `json:"fix,omitempty"`
 }
 
 // ProviderPlan is the decision for one provider, with the sentence that
@@ -188,6 +201,7 @@ func DecideMachines(s MachineSnapshot) MachinePlan {
 	}
 
 	demand := map[string][]poolDemand{}
+	var unserved []UnservedPool
 	for _, pool := range pools {
 		pp, ok := planned[pool.ID]
 		// Only a pool the scheduler says is blocked is demand a machine can
@@ -220,7 +234,7 @@ func DecideMachines(s MachineSnapshot) MachinePlan {
 				break
 			}
 			p := byProvider[m.ProviderID]
-			if p == nil || credit[m.ID] <= 0 || !scheduler.HostCanRun(synth[p.ID], pool, s.Now) {
+			if p == nil || credit[m.ID] <= 0 || !providerServes(p, synth[p.ID], pool, s.Now) {
 				continue
 			}
 			take := min(credit[m.ID], short)
@@ -232,6 +246,9 @@ func DecideMachines(s MachineSnapshot) MachinePlan {
 		}
 		p := providerFor(providers, synth, pool, owned, s.Now)
 		if p == nil {
+			if u, ok := unservedBy(providers, synth, pool, s.Now); ok {
+				unserved = append(unserved, u)
+			}
 			// No provider's machines would be allowed to run this pool, so its
 			// blockage is not one money can fix. BlockedNoEligibleHost is a
 			// hint that a machine might help, never an instruction to buy one.
@@ -249,7 +266,7 @@ func DecideMachines(s MachineSnapshot) MachinePlan {
 
 	fleetRoom := s.Limits.MaxMachines - fleetOwned
 	fleetCreateRoom := s.Limits.MaxCreatesInFlight - fleetPending
-	out := MachinePlan{Providers: make([]ProviderPlan, 0, len(providers))}
+	out := MachinePlan{Providers: make([]ProviderPlan, 0, len(providers)), Unserved: unserved}
 	for _, p := range providers {
 		plan := ProviderPlan{ProviderID: p.ID, Have: have[p.ID], Drain: drains[p.ID]}
 		ds := demand[p.ID]
@@ -337,6 +354,30 @@ func providerSynthHost(p *store.Provider, now time.Time) *store.Host {
 	}
 }
 
+// providerServes is whether this provider may rent a machine for this pool:
+// both sides' selectors agree, and the machine it would build is one the pool's
+// runner could be placed on. The two are asked separately because they fail
+// differently: a machine that does not fit is nothing an operator chose, and a
+// selector that refuses is, so only the second is ever explained as a choice.
+func providerServes(p *store.Provider, synth *store.Host, pool *store.Pool, now time.Time) bool {
+	return scheduler.Pair(p, pool).Agrees && scheduler.HostCanRun(synth, pool, now)
+}
+
+// unservedBy explains why no provider will rent for a pool, or returns false
+// when the reason is not a selector: no provider's machine would suit the pool
+// at all, which is not something either side's opt-in decided.
+func unservedBy(providers []*store.Provider, synth map[string]*store.Host, pool *store.Pool, now time.Time) (UnservedPool, bool) {
+	for _, p := range providers {
+		if !scheduler.HostCanRun(synth[p.ID], pool, now) {
+			continue
+		}
+		if pair := scheduler.Pair(p, pool); !pair.Agrees {
+			return UnservedPool{Pool: pool.Name, Why: pair.Why, Fix: pair.Fix}, true
+		}
+	}
+	return UnservedPool{}, false
+}
+
 // providerFor picks which provider a pool's unmet demand is charged to.
 //
 // Exactly one, deterministically. Charging every provider whose machines could
@@ -350,7 +391,7 @@ func providerSynthHost(p *store.Provider, now time.Time) *store.Host {
 func providerFor(providers []*store.Provider, synth map[string]*store.Host, pool *store.Pool, owned map[string]int, now time.Time) *store.Provider {
 	var first *store.Provider
 	for _, p := range providers {
-		if !scheduler.HostCanRun(synth[p.ID], pool, now) {
+		if !providerServes(p, synth[p.ID], pool, now) {
 			continue
 		}
 		if first == nil {

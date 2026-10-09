@@ -761,3 +761,52 @@ func TestAMachineIsKeptWhileAThrottleHasTakenTheSlotsThatWouldReplaceIt(t *testi
 		t.Errorf("a machine was released against slots a throttle had already taken: drain = %v", got.Drain)
 	}
 }
+
+// Renting is spending money, so a provider and a pool must both agree. One
+// side's yes never outweighs the other's no, and the refusal is a sentence that
+// says whose selector said it, because the queue looks identical either way.
+func TestAMachineIsRentedOnlyWhereTheProviderAndThePoolBothAgree(t *testing.T) {
+	tests := []struct {
+		name      string
+		provider  map[string]string
+		pool      map[string]string
+		wantBuy   int
+		wantWhyIn string
+	}{
+		{name: "nobody restricts anything", wantBuy: 1},
+		{name: "both agree", provider: map[string]string{"tier": "large"}, pool: map[string]string{"kind": "fake"}, wantBuy: 1},
+		{name: "the provider refuses the pool", provider: map[string]string{"gpu": ""}, wantWhyIn: "provider lab only rents for pools matching gpu"},
+		{name: "the pool refuses the provider", pool: map[string]string{"name": "elsewhere"}, wantWhyIn: "pool alpha only lets providers matching name=elsewhere"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			p := demandProvider("lab")
+			p.PoolSelector = tc.provider
+			alpha := demandPool("alpha")
+			alpha.Labels = append(alpha.Labels, "tier=large")
+			alpha.ProviderSelector = tc.pool
+			s := MachineSnapshot{
+				Now: machineNow, Pools: []*store.Pool{alpha}, Providers: []*store.Provider{p},
+				Limits: demandLimits(),
+				Plan:   scheduler.Plan{Pools: []scheduler.PoolPlan{demandPoolPlan(alpha, 0, 1, 1, "nowhere")}},
+			}
+
+			plan := DecideMachines(s)
+			if got := planFor(t, plan, p.ID).Create; got != tc.wantBuy {
+				t.Fatalf("create = %d, want %d", got, tc.wantBuy)
+			}
+			if tc.wantWhyIn == "" {
+				if len(plan.Unserved) != 0 {
+					t.Fatalf("a pool that was served is listed as unserved: %+v", plan.Unserved)
+				}
+				return
+			}
+			if len(plan.Unserved) != 1 || !strings.Contains(plan.Unserved[0].Why, tc.wantWhyIn) {
+				t.Fatalf("unserved = %+v, want one that says %q", plan.Unserved, tc.wantWhyIn)
+			}
+			if plan.Unserved[0].Fix == "" {
+				t.Error("the refusal does not say what to change")
+			}
+		})
+	}
+}

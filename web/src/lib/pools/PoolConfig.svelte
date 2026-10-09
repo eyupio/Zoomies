@@ -77,6 +77,7 @@
   });
 
   const selector = $derived(Object.entries(pool.host_selector ?? {}));
+  const providerSelector = $derived(Object.entries(pool.provider_selector ?? {}));
   const env = $derived(Object.entries(pool.env ?? {}));
 </script>
 
@@ -337,6 +338,18 @@
         {#each selector as [key, value] (key)}
           <code>{key}={value}</code>
         {/each}
+      </dd>
+    </div>
+  {/if}
+
+  {#if providerSelector.length > 0}
+    <div class="pair">
+      <dt>Provider selector</dt>
+      <dd>
+        {#each providerSelector as [key, value] (key)}
+          <code>{value === '' ? key : `${key}=${value}`}</code>
+        {/each}
+        <span class="note">Only these providers may rent machines for this pool.</span>
       </dd>
     </div>
   {/if}

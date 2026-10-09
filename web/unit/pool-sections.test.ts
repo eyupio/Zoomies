@@ -77,11 +77,11 @@ test('a field is pointed at the section that owns it', () => {
   assert.equal(sectionForField('env'), null);
 });
 
-test('six sections, each with a name and a sentence about what it decides', () => {
-  assert.equal(SECTIONS.length, 6);
+test('seven sections, each with a name and a sentence about what it decides', () => {
+  assert.equal(SECTIONS.length, 7);
   assert.deepEqual(
     SECTIONS.map((section) => section.id),
-    ['basics', 'hosts', 'runner', 'size', 'scaling', 'speed'],
+    ['basics', 'hosts', 'providers', 'runner', 'size', 'scaling', 'speed'],
   );
   for (const section of SECTIONS) {
     assert.ok(section.title.length > 0);

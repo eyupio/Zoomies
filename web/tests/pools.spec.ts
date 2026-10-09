@@ -16,8 +16,16 @@ import { browserOverride, dataRows, FIXTURE, goto, grid, pageHeading } from './s
 
 test.use(browserOverride);
 
-type SectionId = 'basics' | 'hosts' | 'runner' | 'size' | 'scaling' | 'speed';
-const SECTIONS: readonly SectionId[] = ['basics', 'hosts', 'runner', 'size', 'scaling', 'speed'];
+type SectionId = 'basics' | 'hosts' | 'providers' | 'runner' | 'size' | 'scaling' | 'speed';
+const SECTIONS: readonly SectionId[] = [
+  'basics',
+  'hosts',
+  'providers',
+  'runner',
+  'size',
+  'scaling',
+  'speed',
+];
 
 const nameField = (page: Page) => page.getByRole('textbox', { name: 'Pool name' });
 const createButton = (page: Page) => page.getByRole('button', { name: 'Create pool' });
@@ -243,6 +251,7 @@ test('a new pool opens on the one section it needs, and every other says its ans
   // chosen, and an experienced one reads the whole pool in six lines.
   const answers: [SectionId, RegExp][] = [
     ['hosts', /Any host that can run it/],
+    ['providers', /Any provider that can build a machine for it/],
     ['runner', /Docker · default image/],
     ['size', /One share of each host/],
     ['scaling', /\d+ to \d+ runners · idle 5m/],
@@ -1563,4 +1572,36 @@ test('a button with an icon in a section is a button, and the proposal around it
   // The box the button sits in is the vocabulary's own, so renaming it must not
   // have taken its border away.
   await expect(page.locator('.proposal').first()).toHaveCSS('border-top-width', '1px');
+});
+
+/*
+ * A pool never names a provider; the section says who may rent for it, from
+ * both sides, so an operator whose queue is not moving can tell whose setting
+ * to open.
+ */
+test('the Providers section says how a provider comes to rent for the pool, and who would', async ({
+  page,
+}) => {
+  await goto(page, '/pools/new', 'Create a pool');
+  await expect(section(page, 'providers')).toContainText(
+    /Any provider that can build a machine for it/,
+  );
+
+  await openSection(page, 'providers');
+  await expect(section(page, 'providers')).toContainText(
+    /a provider may rent a machine\.\s+It does\s+so only if/,
+  );
+  // The seeded provider is listed with its answer.
+  await expect(
+    section(page, 'providers').getByRole('link', { name: FIXTURE.provider }),
+  ).toBeVisible();
+  await expect(
+    section(page, 'providers').getByText(/Would (not )?rent for this pool/),
+  ).toBeVisible();
+
+  // A rule that no provider satisfies leaves every provider out, and says so.
+  await section(page, 'providers').getByRole('button', { name: 'Add a rule' }).click();
+  await section(page, 'providers').getByLabel('Rule 1 key').fill('no-such-label');
+  await expect(section(page, 'providers')).toContainText('provider selector leaves it out');
+  await expect(section(page, 'providers')).toContainText(/Only providers where no-such-label/);
 });

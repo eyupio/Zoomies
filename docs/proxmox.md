@@ -278,6 +278,49 @@ providers: a pool asks for the machine it fits, and having one row mean two
 different machines makes the accounting ambiguous in exactly the place it has
 to be exact.
 
+## Which pools use a provider
+
+A pool never names a provider, and a provider is not attached to a pool. Renting
+is the answer to one situation: a pool has queued work and **no host can run
+it**. Then the controller asks the providers that may rent for that pool to
+build a machine, and the machine becomes an ordinary host.
+
+Spending money is the reason both sides get a say, the way a pool's
+`host_selector` and a host's labels both have to agree before a runner lands.
+A machine is rented for a pool only when all three of these hold:
+
+1. **The provider allows the pool.** Its **pool selector** (`--pool-selector`)
+   is matched against the pool: a key with no value asks that the pool carries
+   that label (`gpu`), `tier=large` asks for the label `tier=large`, and `name`
+   and `backend` match the pool's own. Empty means every pool.
+2. **The pool allows the provider.** Its **provider selector**
+   (`--provider-selector` on `zoomies pools`, or **Providers** in the pool
+   editor) is matched against the provider's `name`, its `kind` and its machine
+   labels. Empty means any provider.
+3. **The machine suits the pool.** The backend, operating system and
+   architecture, the pool's host selector against the provider's machine
+   labels, and the size are all checked against the machine the provider would
+   build, before anything is paid for.
+
+Both selectors are empty by default, which is what every pool and provider
+meant before they could say otherwise, so nothing changes until one is set.
+Every entry has to be satisfied, and case does not matter, as
+it does not for GitHub labels.
+
+The selectors decide **what is bought**, not where a runner goes afterwards:
+once the machine is a host, the pool's own `host_selector` is what keeps other
+pools off it.
+
+To see the answer for every pair, open a provider's **Pools** tab, or a pool's
+**Providers** section. Each says which provider would rent for which pool and,
+for the ones it would not, whose selector said so and what to change. The
+Providers page's cards say whether any pool can use a provider at all, which is
+the first thing to check when a new one rents nothing: a ceiling above zero is
+not enough if no pool allows it. The same answer is `GET
+/api/v1/providers/pairings`, and when a pool has work waiting and a selector is
+the only thing in the way, the controller logs it once, naming the pool, the
+setting and the fix.
+
 ## What happens when a pool runs out of hosts
 
 ```mermaid

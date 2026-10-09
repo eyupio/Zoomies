@@ -83,6 +83,8 @@ type poolDocument struct {
 	Cache          store.CacheConfig   `json:"cache"`
 	Tmpfs          store.TmpfsConfig   `json:"tmpfs"`
 	HostSelector   map[string]string   `json:"host_selector"`
+	// ProviderSelector is the pool's half of its agreement with a provider.
+	ProviderSelector map[string]string `json:"provider_selector"`
 	// EnvKeys names the variables the pool injects. Their values stay behind:
 	// a pool's environment is where a registry password ends up, and a file
 	// meant for version control cannot be a place a password ends up.
@@ -151,14 +153,15 @@ func documentPool(p *store.Pool, installation string) poolDocument {
 			ScaleUpDelay:      durationText(p.RunnerSettings.ScaleUpDelay),
 			DockerWait:        durationText(p.RunnerSettings.DockerWait),
 		},
-		Cache:           p.Cache,
-		Tmpfs:           p.Tmpfs,
-		HostSelector:    emptyMap(p.HostSelector),
-		EnvKeys:         envKeys,
-		RunAsRoot:       p.RunAsRoot,
-		Enabled:         p.Enabled,
-		NoDefaultLabels: p.NoDefaultLabels,
-		SizeFromProfile: p.SizeFromProfile,
+		Cache:            p.Cache,
+		Tmpfs:            p.Tmpfs,
+		HostSelector:     emptyMap(p.HostSelector),
+		ProviderSelector: emptyMap(p.ProviderSelector),
+		EnvKeys:          envKeys,
+		RunAsRoot:        p.RunAsRoot,
+		Enabled:          p.Enabled,
+		NoDefaultLabels:  p.NoDefaultLabels,
+		SizeFromProfile:  p.SizeFromProfile,
 	}
 }
 

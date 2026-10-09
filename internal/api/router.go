@@ -364,6 +364,7 @@ func (s *Server) apiRoutes() chi.Router {
 			// can hold a draft: creating the provider is admin's.
 			r.With(s.require(auth.ActionProvidersWrite)).Post("/discover", s.handleDiscoverDraft)
 			r.With(s.require(auth.ActionProvidersRead)).Get("/kinds", s.handleProviderKinds)
+			r.With(s.require(auth.ActionProvidersRead)).Get("/pairings", s.handleProviderPairings)
 			r.With(s.require(auth.ActionProvidersRead)).Get("/{id}", s.handleGetProvider)
 			r.With(s.require(auth.ActionProvidersWrite)).Patch("/{id}", s.handleUpdateProvider)
 			r.With(s.require(auth.ActionProvidersDelete)).Delete("/{id}", s.handleDeleteProvider)
