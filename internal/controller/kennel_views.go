@@ -39,9 +39,6 @@ type KennelSkippedView struct {
 	Reason string               `json:"reason"`
 }
 
-// KennelRepositoryView is one repository and what Kennel Club last concluded
-// about it. It is what GET /kennel/repositories/{id} returns, an item in the
-// list, and the payload of kennel.updated.
 // KennelFindingView is an open finding with the prompt a coding agent is
 // handed for it, rendered here and nowhere else so the page's button, the API
 // and the CLI copy one text. A waived finding is the bare finding: nobody is
@@ -51,6 +48,9 @@ type KennelFindingView struct {
 	Prompt string `json:"prompt"`
 }
 
+// KennelRepositoryView is one repository and what Kennel Club last concluded
+// about it. It is what GET /kennel/repositories/{id} returns, an item in the
+// list, and the payload of kennel.updated.
 type KennelRepositoryView struct {
 	ID             string `json:"id"`
 	Name           string `json:"name"`

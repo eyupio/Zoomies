@@ -1,10 +1,14 @@
 {
+  "version": 5,
+  "root": "hostile",
+  "visibility": "private",
   "files": [
     {
       "sha": "2d6d5c6c46647250349ea137c8d8f61f59fd85b4",
       "path": ""
     }
   ],
+  "unreadable": [],
   "findings": [
     {
       "code": "ci.no_timeout",
@@ -85,9 +89,5 @@
       "code": "ci.pins_without_updater",
       "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
     }
-  ],
-  "root": "hostile",
-  "unreadable": [],
-  "version": 5,
-  "visibility": "private"
+  ]
 }

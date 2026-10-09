@@ -917,7 +917,7 @@ Usage:
 
 Subcommands:
   overview                           The Overview: standings, counts and the repositories to open first
-  repositories [--state s] [--severity s] [--code c] [--q text]  The repositories, narrowed by the list's own filters
+  repositories [--state s] [--severity s] [--code c] [--q text] [--limit n] [--offset n]  The repositories, narrowed by the list's own filters
   repository <id> [--prompts]        One repository: its standing, what could be read, and each finding
   checks                             What is checked, and what is turned off
   recheck <id>                       Ask for a repository to be read again when the budget allows
@@ -962,9 +962,9 @@ Flags:
   --incomplete               true keeps the repositories only partly checked
   --insecure                 do not verify the controller's certificate
   --installation             only this installation's repositories
+  --limit=50                 how many to list
+  --offset=0                 how many to skip
   --output=table             table, json or yaml
-  --page=1                   which page
-  --per-page=50              how many per page
   --q                        only repositories whose name contains this
   --severity                 only repositories with an open finding of this severity
   --state                    only this standing: pending, partial, attention or best_in_show

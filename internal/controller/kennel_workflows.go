@@ -3,16 +3,20 @@ package controller
 import (
 	"context"
 	"errors"
-	"github.com/eyupio/zoomies/internal/kennel/offline"
 	"slices"
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/kennel"
+	"github.com/eyupio/zoomies/internal/kennel/offline"
 	"github.com/eyupio/zoomies/internal/kennel/workflow"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
+// kennelWorkflowsEnabled is whether any check still on reads the workflow
+// files. It follows the checks, not an area: a check outside ci and token
+// reads them too, and with those two areas off by name it would otherwise be
+// skipped on every pass for a source nobody read.
 func kennelWorkflowsEnabled(p kennel.Policy) bool {
 	return kennelSourceWanted(p, kennel.SourceWorkflows)
 }

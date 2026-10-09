@@ -26,17 +26,13 @@ func TestKennelCheckPrintsTheGoldenReportForEachFixtureTree(t *testing.T) {
 				t.Errorf("stderr: %s", errOut)
 			}
 			// The root is where the command was pointed, which is a path on this
-			// machine; the golden file holds the fixture's name instead.
-			var doc map[string]json.RawMessage
-			if err := json.Unmarshal([]byte(out), &doc); err != nil {
-				t.Fatalf("not JSON: %v\n%s", err, out)
+			// machine; the golden file holds the fixture's name instead, and
+			// every other byte is the command's own, in its own order.
+			rootLine := `  "root": "` + filepath.Join(fixtures, name) + `",`
+			if !strings.Contains(out, rootLine+"\n") {
+				t.Fatalf("the output does not carry the root as printed:\n%s", out)
 			}
-			doc["root"] = json.RawMessage(`"` + name + `"`)
-			got, err := json.MarshalIndent(doc, "", "  ")
-			if err != nil {
-				t.Fatal(err)
-			}
-			got = append(got, '\n')
+			got := []byte(strings.Replace(out, rootLine, `  "root": "`+name+`",`, 1))
 			golden := filepath.Join("testdata", "kennel", name+".golden.json")
 			if *update {
 				if err := os.WriteFile(golden, got, 0o644); err != nil {
@@ -96,11 +92,7 @@ func TestKennelCheckNeverTalksToAControllerUnlessAsked(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	t.Cleanup(srv.Close)
-	t.Setenv("ZOOMIES_URL", srv.URL)
-	t.Setenv("ZOOMIES_TOKEN", "zt_test")
 	e, out, errOut := newTestEnv(t)
-	t.Setenv("ZOOMIES_URL", srv.URL)
-	t.Setenv("ZOOMIES_TOKEN", "zt_test")
 	if code := dispatch(t.Context(), e, []string{"kennel", "check", "--url", srv.URL, "--token", "zt_test", filepath.Join(fixtures, "findings")}); code != 4 {
 		t.Errorf("exit = %d\n%s%s", code, out, errOut)
 	}
@@ -121,7 +113,7 @@ func TestKennelVerbsAreThinReadersOfTheRoutes(t *testing.T) {
 	overview := `{"enabled":true,"scope":"everything","repositories":3,"not_tracked":1,"states":{"pending":0,"partial":1,"attention":1,"best_in_show":1},
 	  "counts":{"error":2,"warning":1,"info":0,"waived":1},"checks":[],"attention":[{"id":"kcr_1","name":"acme/api","visibility":"public","state":"attention","counts":{"error":2,"warning":0,"info":0,"waived":0}}],
 	  "coverage":[],"unavailable":[],"oldest_evaluation":null,"disabled_checks":["capacity"]}`
-	list := `{"items":[` + kennelRepoDoc + `],"total":7,"page":1,"per_page":1}`
+	list := `{"items":[` + kennelRepoDoc + `],"total":7,"limit":1,"offset":0}`
 	checks := `[{"code":"ci.no_timeout","area":"ci","severity":"warning","detects":"A job has no timeout.","fix":"Set it.","verify":"Recheck.","docs":"kennel-club.md#ci-no_timeout","needs":[],"disabled":false},
 	  {"code":"capacity.unserved_label","area":"capacity","severity":"warning","detects":"Jobs waited.","fix":"Add a pool.","verify":"Recheck.","docs":"kennel-club.md#capacity-unserved_label","needs":[],"disabled":true}]`
 	var asked []string
@@ -153,7 +145,7 @@ func TestKennelVerbsAreThinReadersOfTheRoutes(t *testing.T) {
 		wants []string
 	}{
 		{"overview", []string{"overview"}, "GET /api/v1/kennel", []string{"3 repositories", "Needs attention", "acme/api", "capacity"}},
-		{"repositories", []string{"repositories", "--state", "attention", "--q", "acme", "--per-page", "1"}, "GET /api/v1/kennel/repositories?page=1&per_page=1&q=acme&state=attention", []string{"ID", "REPOSITORY", "STANDING", "kcr_1", "acme/api", "attention", "1 of 7"}},
+		{"repositories", []string{"repositories", "--state", "attention", "--q", "acme", "--limit", "1"}, "GET /api/v1/kennel/repositories?limit=1&offset=0&q=acme&state=attention", []string{"ID", "REPOSITORY", "STANDING", "kcr_1", "acme/api", "attention", "Showing 1-1 of 7"}},
 		{"repository", []string{"repository", "kcr_1", "--prompts"}, "GET /api/v1/kennel/repositories/kcr_1", []string{"acme/api", "attention", "WARNING  ci.no_timeout", "file .github/workflows/ci.yml:5 (job 0)", "pool zoomies-x", "Fix the Kennel Club finding `ci.no_timeout`"}},
 		{"checks", []string{"checks"}, "GET /api/v1/kennel/checks", []string{"CODE", "AREA", "SEVERITY", "DISABLED", "ci.no_timeout", "capacity.unserved_label", "yes"}},
 		{"recheck", []string{"recheck", "kcr_1"}, "POST /api/v1/kennel/repositories/kcr_1/recheck", []string{"Recheck asked for", "budget allows"}},
@@ -197,11 +189,13 @@ func TestKennelRecheckSaysWhenToTryAgain(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Retry-After", "120")
 		w.WriteHeader(http.StatusTooManyRequests)
-		_, _ = w.Write([]byte(`{"error":{"code":"kennel_cooldown","message":"a recheck was asked for 3 minutes ago; try again in 2 minutes"}}`))
+		// The controller's own sentence: the CLI prints what it says, so the
+		// terminal and the page tell the same time.
+		_, _ = w.Write([]byte(`{"error":{"code":"kennel_cooldown","message":"this repository was asked to be read again a moment ago; it can be asked again at 08:05:00 UTC"}}`))
 	}))
 	t.Cleanup(srv.Close)
 	out, errOut, code := runCLIFailing(t, "kennel", "recheck", "kcr_1", "--url", srv.URL)
-	if code != exitError || !strings.Contains(out+errOut, "try again in 2 minutes") {
+	if code != exitError || !strings.Contains(out+errOut, "can be asked again at 08:05:00 UTC") {
 		t.Errorf("exit %d, output:\n%s%s", code, out, errOut)
 	}
 }
@@ -215,7 +209,7 @@ func TestKennelCheckWithAControllerAppendsTheFleetsFindings(t *testing.T) {
 		w.Header().Set("Content-Type", "application/json")
 		switch r.URL.Path {
 		case "/api/v1/kennel/repositories":
-			_, _ = w.Write([]byte(`{"items":[{"id":"kcr_0","name":"acme/api-docs"},` + kennelRepoDoc + `],"total":2,"page":1,"per_page":50}`))
+			_, _ = w.Write([]byte(`{"items":[{"id":"kcr_0","name":"acme/api-docs"},` + kennelRepoDoc + `],"total":2,"limit":50,"offset":0}`))
 		case "/api/v1/kennel/repositories/kcr_1":
 			_, _ = w.Write([]byte(kennelRepoDoc))
 		default:
@@ -227,7 +221,7 @@ func TestKennelCheckWithAControllerAppendsTheFleetsFindings(t *testing.T) {
 	if code != kennelExitFindings {
 		t.Fatalf("exit %d\n%s%s", code, out, errOut)
 	}
-	if len(asked) != 2 || !strings.Contains(asked[0], "q=acme%2Fapi") || asked[1] != "/api/v1/kennel/repositories/kcr_1" {
+	if len(asked) != 2 || !strings.Contains(asked[0], "q=acme%2Fapi") || !strings.Contains(asked[0], "limit=50") || asked[1] != "/api/v1/kennel/repositories/kcr_1" {
 		t.Errorf("asked %v", asked)
 	}
 	var r struct {

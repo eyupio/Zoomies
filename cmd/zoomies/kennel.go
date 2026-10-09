@@ -21,7 +21,7 @@ const kennelExitFindings = 4
 func runKennel(ctx context.Context, e *env, args []string) error {
 	return runGroup(ctx, e, "kennel", "Kennel Club: how the repositories this fleet serves measure up against what affects CI and the fleet.", []*subcommand{
 		{"overview", "", "The Overview: standings, counts and the repositories to open first", kennelOverview},
-		{"repositories", "[--state s] [--severity s] [--code c] [--q text]", "The repositories, narrowed by the list's own filters", kennelRepositories},
+		{"repositories", "[--state s] [--severity s] [--code c] [--q text] [--limit n] [--offset n]", "The repositories, narrowed by the list's own filters", kennelRepositories},
 		{"repository", "<id> [--prompts]", "One repository: its standing, what could be read, and each finding", kennelRepository},
 		{"checks", "", "What is checked, and what is turned off", kennelChecks},
 		{"recheck", "<id>", "Ask for a repository to be read again when the budget allows", kennelRecheck},
@@ -90,8 +90,8 @@ func kennelRepositories(ctx context.Context, e *env, args []string) error {
 	} {
 		filters[f.name] = fs.String(f.name, "", f.help)
 	}
-	page := fs.Int("page", 1, "which page")
-	perPage := fs.Int("per-page", 50, "how many per page")
+	limit := fs.Int("limit", 50, "how many to list")
+	offset := fs.Int("offset", 0, "how many to skip")
 	cf := registerClientFlags(fs, true)
 	fs.example("zoomies kennel repositories --state attention", "zoomies kennel repositories --code ci.no_timeout --output json")
 	if err := fs.parse(args); err != nil {
@@ -104,15 +104,16 @@ func kennelRepositories(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		return err
 	}
-	q := url.Values{"page": {strconv.Itoa(*page)}, "per_page": {strconv.Itoa(*perPage)}}
+	q := url.Values{"limit": {strconv.Itoa(*limit)}, "offset": {strconv.Itoa(*offset)}}
 	for name, v := range filters {
 		if *v != "" {
 			q.Set(name, *v)
 		}
 	}
 	var pg struct {
-		Items []controller.KennelRepositoryView `json:"items"`
-		Total int                               `json:"total"`
+		Items  []controller.KennelRepositoryView `json:"items"`
+		Total  int                               `json:"total"`
+		Offset int                               `json:"offset"`
 	}
 	raw, err := client.get(ctx, "/kennel/repositories", q, &pg)
 	if err != nil {
@@ -126,9 +127,7 @@ func kennelRepositories(ctx context.Context, e *env, args []string) error {
 		rows = append(rows, []string{r.ID, r.Name, string(r.State), strconv.Itoa(r.Counts.Error), strconv.Itoa(r.Counts.Warning), strconv.Itoa(r.Counts.Info), p.relTimePtr(r.EvaluatedAt)})
 	}
 	p.table([]string{"ID", "REPOSITORY", "STANDING", "ERRORS", "WARNINGS", "INFO", "EVALUATED"}, rows)
-	if pg.Total > len(pg.Items) {
-		fmt.Fprintf(e.out, "\nShowing %d of %d repositories; --page %d for more.\n", len(pg.Items), pg.Total, *page+1)
-	}
+	p.footer(len(pg.Items), pg.Total, pg.Offset)
 	return nil
 }
 
@@ -269,7 +268,7 @@ func kennelFleetFindings(ctx context.Context, client *apiClient, name string, of
 			Name string `json:"name"`
 		} `json:"items"`
 	}
-	if _, err := client.get(ctx, "/kennel/repositories", url.Values{"q": {name}, "per_page": {"50"}}, &pg); err != nil {
+	if _, err := client.get(ctx, "/kennel/repositories", url.Values{"q": {name}, "limit": {"50"}}, &pg); err != nil {
 		return nil, err
 	}
 	id := ""

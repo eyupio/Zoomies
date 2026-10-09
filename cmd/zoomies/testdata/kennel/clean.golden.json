@@ -1,10 +1,14 @@
 {
+  "version": 5,
+  "root": "clean",
+  "visibility": "private",
   "files": [
     {
       "sha": "c866c9c7bd6b3c0a86f99565cf3cae66f8ae703b",
       "path": ".github/workflows/ci.yml"
     }
   ],
+  "unreadable": [],
   "findings": [],
   "not_checked": [
     {
@@ -67,9 +71,5 @@
       "code": "ci.pins_without_updater",
       "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
     }
-  ],
-  "root": "clean",
-  "unreadable": [],
-  "version": 5,
-  "visibility": "private"
+  ]
 }

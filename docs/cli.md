@@ -291,7 +291,7 @@ no controller at all.
 open by severity, which repositories to open first, and what is turned off.
 `repositories` is the list, narrowed by the list's own filters (`--state`,
 `--severity`, `--code`, `--q`, `--installation`, `--incomplete`, `--waived`,
-`--active`, `--tracked`, `--page`, `--per-page`). `repository <id>` is one
+`--active`, `--tracked`, `--limit`, `--offset`). `repository <id>` is one
 repository: its standing, what could be read, and each finding with what to
 change and where it was seen; `--prompts` prints each finding's prompt for a
 coding agent, the same text the page's **Copy prompt** button copies. `checks`
