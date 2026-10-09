@@ -757,6 +757,9 @@ func (c *Controller) kennelSnapshot(ctx context.Context, inst *store.Installatio
 	for _, long := range facts.Long {
 		jobs.Long = append(jobs.Long, kennel.FinishedJob{Duration: long.Duration, Conclusion: long.Conclusion})
 	}
+	for _, m := range facts.Matrices {
+		jobs.Matrices = append(jobs.Matrices, kennel.Matrix{PoolID: m.PoolID, Jobs: m.Jobs, Waited: m.Waited})
+	}
 	var poolFacts []kennel.PoolFact
 	var used []*store.Pool
 	for _, pj := range facts.Pools {
@@ -767,7 +770,7 @@ func (c *Controller) kennelSnapshot(ctx context.Context, inst *store.Installatio
 			continue
 		}
 		used = append(used, p)
-		poolFacts = append(poolFacts, kennel.PoolFact{ID: p.ID, Name: p.Name, JobsRun: pj.Jobs, Dangers: kennelDangers(p)})
+		poolFacts = append(poolFacts, kennel.PoolFact{ID: p.ID, Name: p.Name, JobsRun: pj.Jobs, MaxRunners: p.MaxRunners, Dangers: kennelDangers(p)})
 	}
 
 	public := row.Visibility == string(kennel.VisibilityPublic)

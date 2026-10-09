@@ -838,3 +838,24 @@ func TestARepositoryCarriesItsWorkflowFilesAndAFileFindingSaysWhereItPoints(t *t
 	}
 	t.Fatalf("no ci.no_timeout finding in %+v", raw.Findings)
 }
+
+// A finding's prompt is on the wire so an agent, or the page's button, takes
+// the controller's text and never composes its own.
+func TestAFindingCarriesAPromptAnAgentCanTake(t *testing.T) {
+	s := newKennelStack(t)
+	resp := s.do(request{method: http.MethodGet, path: kennelRepository + s.exposed, cookie: s.viewer})
+	resp.mustStatus(t, http.StatusOK, "get exposed")
+	var raw struct {
+		Findings []map[string]any `json:"findings"`
+	}
+	resp.into(t, &raw)
+	if len(raw.Findings) == 0 {
+		t.Fatal("no findings")
+	}
+	for _, f := range raw.Findings {
+		p, _ := f["prompt"].(string)
+		if !strings.Contains(p, "Fix the Kennel Club finding `"+f["code"].(string)+"`") {
+			t.Errorf("%v: prompt = %q", f["code"], p)
+		}
+	}
+}

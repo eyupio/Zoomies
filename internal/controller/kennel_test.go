@@ -866,8 +866,17 @@ func TestWhatTheFleetDidWaitsTenMinutesAndWhatTheOperatorDecidedDoesNot(t *testi
 	if !row.EvaluatedAt.After(second) {
 		t.Error("an area was turned off and the repository was not evaluated at once")
 	}
-	if v := newKennelRepositoryView(row); len(v.Findings) != 0 || len(v.Disabled) != len(kennel.Checks())-2 {
-		t.Errorf("findings %v, disabled %v: turning exposure off should remove its four checks", findingCodes(v), v.Disabled)
+	// What stays on is the capacity area, the one area no switch or name here
+	// turns off; counting it from the registry keeps a new capacity check from
+	// turning this into a test of the registry's size.
+	capacity := 0
+	for _, ck := range kennel.Checks() {
+		if ck.Area == kennel.AreaCapacity {
+			capacity++
+		}
+	}
+	if v := newKennelRepositoryView(row); len(v.Findings) != 0 || len(v.Disabled) != len(kennel.Checks())-capacity {
+		t.Errorf("findings %v, disabled %v: turning exposure off should leave only the capacity checks on", findingCodes(v), v.Disabled)
 	}
 	// With one area off the rest still run, and the badge is about those: what is
 	// turned off is listed beside it, so nobody reads it as more than it is. Only
@@ -1660,5 +1669,44 @@ func TestPartlyCheckedListsPartialAndPendingRepositoriesAndNoOthers(t *testing.T
 	var invalid *KennelInvalidError
 	if !errors.As(err, &invalid) || invalid.Fields[0].Field != "incomplete" {
 		t.Errorf("incomplete with a state = %v, want a refusal naming incomplete", err)
+	}
+}
+
+// ranMatrix records one job of a matrix: a job of a run attempt whose name
+// carries GitHub's " (values)" suffix, which waited for a runner.
+func (f *kennelFixture) ranMatrix(repo string, run int64, pool *store.Pool, name string, waited time.Duration) {
+	f.t.Helper()
+	f.next++
+	now := f.c.Now()
+	if _, err := f.st.UpsertJob(f.ctx, &store.Job{
+		GitHubJobID: f.next, GitHubRunID: run, RunAttempt: 1, JobName: name, Repo: repo, InstallationID: f.inst.ID, PoolID: pool.ID,
+		RunnerID: "run_" + pool.ID, State: store.JobCompleted, Conclusion: "success", Matched: true,
+		Labels:   store.NormalizeLabels([]string{"self-hosted", "linux"}),
+		QueuedAt: now.Add(-time.Hour), StartedAt: ptr(now.Add(-time.Hour + waited)), CompletedAt: ptr(now.Add(-30 * time.Minute)),
+	}); err != nil {
+		f.t.Fatalf("UpsertJob: %v", err)
+	}
+}
+
+// The evaluator decides whether a matrix was too wide; the controller's part is
+// to hand it each matrix and each pool's ceiling, and to point at the pool.
+func TestTheSnapshotCarriesEachMatrixAndEachPoolsCeiling(t *testing.T) {
+	f := newKennelFixture(t)
+	f.repo("acme/api", "private")
+	f.pool.MaxRunners = 2
+	if err := f.st.UpdatePool(f.ctx, f.pool); err != nil {
+		t.Fatal(err)
+	}
+	for i, waited := range []time.Duration{0, 0, 3 * time.Minute, 3 * time.Minute, 6 * time.Minute, 6 * time.Minute} {
+		f.ranMatrix("acme/api", 7, f.pool, fmt.Sprintf("build (%d)", i), waited)
+	}
+	f.pass()
+	v := f.view("acme/api")
+	fd := findingOf(v, kennel.CodeMatrixExceedsPool)
+	if fd == nil {
+		t.Fatalf("findings = %v, want the matrix finding", findingCodes(v))
+	}
+	if len(fd.Evidence) != 1 || fd.Evidence[0].Ref != f.pool.ID {
+		t.Errorf("evidence = %+v, want the pool", fd.Evidence)
 	}
 }

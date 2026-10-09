@@ -6926,6 +6926,11 @@ components:
         evidence:
           type: array
           items: { $ref: "#/components/schemas/KennelEvidence" }
+        prompt:
+          type: string
+          description: >-
+            The text to hand a coding agent to fix this finding: the code, the sentences above, the evidence quoted in a fenced block headed as
+            repository data, and how to go about the change. Present on an open finding; absent on a waived one, which nobody is asked to fix.
     KennelWaiver:
       type: object
       required: [id, code, subject, severity, reason, by, at, expires_at]

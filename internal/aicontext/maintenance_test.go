@@ -150,3 +150,105 @@ func TestEveryOlderWorkflowGenerationStaysRecognisedAndDistinct(t *testing.T) {
 		})
 	}
 }
+
+func TestMaintenanceAmendsAndRemovesTheGuideWhilePreservingCustomText(t *testing.T) {
+	key, config := setupInputs()
+	changes, err := PlanManagedSetup(key, "owner/repo", config, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var installed []SetupFile
+	for _, change := range changes {
+		content := change.Content
+		if change.Path == ContextGuidePath {
+			content = "Keep my guide introduction.\n\n" + content
+		}
+		installed = append(installed, SetupFile{Path: change.Path, Mode: "100644", SHA: strings.Repeat("a", 40), Content: content})
+	}
+	amended := config
+	amended.Destination = Repository
+	updated, err := PlanMaintenance(key, "owner/repo", config, amended, installed, changes, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, change := range updated {
+		if change.Path == ContextGuidePath {
+			found = strings.HasPrefix(change.Content, "Keep my guide introduction.\n\n") && !strings.Contains(change.Content, "context_overview")
+		}
+	}
+	if !found {
+		t.Fatal("amendment did not update the guide and preserve custom text")
+	}
+	removed, err := PlanMaintenance(key, "owner/repo", config, config, installed, changes, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found = false
+	for _, change := range removed {
+		if change.Path == ContextGuidePath {
+			found = !change.Delete && change.Content == "Keep my guide introduction.\n\n"
+		}
+	}
+	if !found {
+		t.Fatal("removal destroyed custom guide text or left managed instructions")
+	}
+}
+
+func TestRepairMigratesAnOlderSetupToTheSharedGuide(t *testing.T) {
+	key, config := setupInputs()
+	changes, err := PlanManagedSetup(key, "owner/repo", config, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var installed []SetupFile
+	for _, change := range changes {
+		if change.Path == ContextGuidePath {
+			continue
+		}
+		content := change.Content
+		if assistantDocument(change.Path) {
+			content = "Keep my instructions.\r\n\r\n" + managedBlock(repositoryFirstAssistantInstructions(key, "owner/repo", config), "\r\n") + "\r\n"
+		}
+		installed = append(installed, SetupFile{Path: change.Path, Mode: "100644", SHA: strings.Repeat("a", 40), Content: content})
+	}
+	updated, err := PlanMaintenance(key, "owner/repo", config, config, installed, changes, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	guide, entries := false, 0
+	for _, change := range updated {
+		if change.Path == ContextGuidePath {
+			guide = strings.Contains(change.Content, "manifest.json")
+		}
+		if assistantDocument(change.Path) {
+			if !strings.HasPrefix(change.Content, "Keep my instructions.\r\n\r\n") || !strings.Contains(change.Content, ContextGuidePath) || strings.Contains(change.Content, "snapshot.json") {
+				t.Fatal("repair lost custom instructions or retained the long injected prompt")
+			}
+			entries++
+		}
+	}
+	if !guide || entries != 2 {
+		t.Fatal("repair did not migrate the old setup to a shared guide")
+	}
+}
+
+func TestAmendingAnEntirelyManagedGuidePreservesCRLF(t *testing.T) {
+	key, config := setupInputs()
+	old := managedBlock(AssistantInstructions(key, "owner/repo", config), "\r\n") + "\r\n"
+	amended := config
+	amended.Destination = Repository
+	changes, err := PlanMaintenance(key, "owner/repo", config, amended, []SetupFile{{Path: ContextGuidePath, Mode: "100644", SHA: strings.Repeat("a", 40), Content: old}}, nil, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, change := range changes {
+		if change.Path == ContextGuidePath {
+			if strings.Contains(strings.ReplaceAll(change.Content, "\r\n", ""), "\n") || strings.Contains(change.Content, "context_overview") {
+				t.Fatal("guide amendment lost CRLF or retained the old destination")
+			}
+			return
+		}
+	}
+	t.Fatal("guide amendment missing")
+}

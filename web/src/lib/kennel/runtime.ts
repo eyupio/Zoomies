@@ -24,9 +24,38 @@ export const DEFAULT_OVERVIEW_WINDOW: OverviewWindow = '7d';
 /** `retention.jobs`, as it is out of the box: how long the fleet keeps a job. */
 export const DEFAULT_JOB_RETENTION_DAYS = 30;
 
-/** The start of a window of `days` days that ends now. */
+/**
+ * The start of a window of `days` days that ends now, to the minute.
+ *
+ * To the minute because a figure links to the jobs it counted, and the Jobs
+ * page takes a time of day to the minute and no finer. A start with seconds in
+ * it would count a few more or fewer jobs than the list the link opens, so the
+ * window starts on a minute and the two cannot differ by one.
+ */
 export function windowStart(days: number, now: Date): string {
-  return new Date(now.getTime() - days * 24 * 60 * 60 * 1000).toISOString();
+  const ms = now.getTime() - days * 24 * 60 * 60 * 1000;
+  return new Date(Math.floor(ms / 60_000) * 60_000).toISOString();
+}
+
+/**
+ * The Jobs page opened on the jobs a figure counted: this repository's finished
+ * jobs from the window's start, leaving out the ones on somebody else's hosted
+ * runners (what the stats are asked), and from every runner so that the page's
+ * own "ours only" scope cannot cut the list narrower than the figure. `since`
+ * is the window's start as the Jobs page reads it, `YYYY-MM-DDTHH:MM` on the
+ * operator's clock. `narrow` adds what the figure itself narrows by: a pool, a
+ * host, the failures, an order.
+ */
+export function jobsLink(repo: string, since: string, narrow: Record<string, string> = {}): string {
+  const query = new URLSearchParams({
+    repo,
+    state: 'completed',
+    since,
+    hosted: 'false',
+    all: 'true',
+    ...narrow,
+  });
+  return `/jobs?${query}`;
 }
 
 /**

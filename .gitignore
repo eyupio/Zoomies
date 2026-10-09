@@ -20,7 +20,8 @@ coverage.out
 *.db-wal
 /zoomies.yaml
 /encryption.key
-/.zoomies/
+/.zoomies/*
+!/.zoomies/AI_CONTEXT.md
 # The documented first step is `cp .env.example .env`, and what goes in it is
 # ZOOMIES_ENCRYPTION_KEY -- the key everything secret in the database is sealed
 # with. .env.example is the one that belongs in git.

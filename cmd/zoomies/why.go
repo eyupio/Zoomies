@@ -10,20 +10,21 @@ import (
 	"strings"
 )
 
-// whyExit carries one of why's documented exit codes through report: 2 for
-// a job this fleet never saw and 3 for a class the fleet could not decide.
-// It is the same seam doctorExit uses, so a command-specific outcome never
-// has to be a string the dispatcher parses back.
-type whyExit struct {
+// codedExit carries a command's documented exit code through report: why's 2
+// for a job this fleet never saw and 3 for a class the fleet could not
+// decide, kennel check's 4 for findings. It is the same seam doctorExit uses,
+// so a command-specific outcome never has to be a string the dispatcher
+// parses back.
+type codedExit struct {
 	code int
 	msg  string
 }
 
-func (w *whyExit) Error() string { return w.msg }
+func (w *codedExit) Error() string { return w.msg }
 
 const (
-	whyExitNotFound = 2
-	whyExitUnknown  = 3
+	codedExitNotFound = 2
+	codedExitUnknown  = 3
 )
 
 // githubJobURL is the two shapes of URL a person has in their clipboard: the
@@ -87,7 +88,7 @@ func runWhy(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		var ae *apiError
 		if errors.As(err, &ae) && ae.status == 404 {
-			return &whyExit{code: whyExitNotFound, msg: fmt.Sprintf("no job %s here; `zoomies jobs list` shows what this fleet saw", id)}
+			return &codedExit{code: codedExitNotFound, msg: fmt.Sprintf("no job %s here; `zoomies jobs list` shows what this fleet saw", id)}
 		}
 		return err
 	}
@@ -104,7 +105,7 @@ func runWhy(ctx context.Context, e *env, args []string) error {
 		printWhy(p, &why)
 	}
 	if why.Class == "unknown" {
-		return &whyExit{code: whyExitUnknown}
+		return &codedExit{code: codedExitUnknown}
 	}
 	return nil
 }
@@ -151,7 +152,7 @@ func resolveJob(ctx context.Context, client *apiClient, arg string, latestFailed
 			return j.ID, nil
 		}
 	}
-	return "", &whyExit{code: whyExitNotFound, msg: hint}
+	return "", &codedExit{code: codedExitNotFound, msg: hint}
 }
 
 // printWhy lays the explanation out for a person: the sentence, the class,

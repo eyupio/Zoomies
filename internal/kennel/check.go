@@ -21,7 +21,7 @@ import (
 
 // Version is the evaluator's version. A stored evaluation made by an older one
 // is re-run, so bump it whenever a check's meaning or wording changes.
-const Version = 4
+const Version = 5
 
 // Code names one check. Codes are stable across releases and form a closed
 // set: Evaluate returns no code that is not in the registry below.
@@ -48,6 +48,7 @@ const (
 	CodeTargetEventRan           Code = "exposure.target_event_ran"
 	CodeUnservedLabel            Code = "capacity.unserved_label"
 	CodeJobHitDefaultLimit       Code = "capacity.job_hit_default_limit"
+	CodeMatrixExceedsPool        Code = "capacity.matrix_exceeds_pool"
 	CodeTargetCheckoutPRHead     Code = "exposure.target_checkout_pr_head"
 	CodeWorkflowUnreadable       Code = "ci.workflow_unreadable"
 	CodePinsWithoutUpdater       Code = "ci.pins_without_updater"
@@ -221,6 +222,15 @@ var checks = []Check{
 		Verify:  "Press Recheck after the next run of the job; the finding closes once no run in the window was cancelled at the six-hour limit.",
 		Docs:    docsAnchor(CodeJobHitDefaultLimit),
 		eval:    evalJobHitDefaultLimit,
+	},
+	{
+		Code: CodeMatrixExceedsPool, Area: AreaCapacity, Severity: SeverityInfo,
+		Detects: "A matrix's jobs waited together on a pool with fewer runners than the matrix has jobs, so the matrix ran in waves.",
+		Needs:   []Source{SourceFleet},
+		Fix:     "Raise the pool's max_runners to the matrix's width, spread the matrix over more than one pool with runs-on, or cap it with max-parallel so the wait is chosen and not suffered.",
+		Verify:  "Press Recheck after the pool or the matrix changes; the finding closes when no matrix in the window is wider than the pool it ran on.",
+		Docs:    docsAnchor(CodeMatrixExceedsPool),
+		eval:    evalMatrixExceedsPool,
 	},
 	setupCheck(CodeSetupReadme, "README", "People joining the repository have no repository-local starting point for building, testing or running it.", "Add a README with the project purpose, prerequisites and the commands to build, test and run it.", false),
 	setupCheck(CodeSetupLicence, "licence", "People cannot tell from a repository-local licence how they may use or redistribute this public project.", "Choose an appropriate licence with the project owner and record it in a root licence file.", true),

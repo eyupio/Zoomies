@@ -97,4 +97,10 @@ var positives = map[Code]func() Snapshot{
 		s.Fleet.Jobs.Long = []FinishedJob{{Duration: 360*time.Minute + 20*time.Second, Conclusion: "cancelled"}}
 		return s
 	},
+	CodeMatrixExceedsPool: func() Snapshot {
+		s := privateRepo()
+		s.Fleet.Pools = []PoolFact{{ID: "pool_a1", Name: "zoomies-ubuntu-2404", JobsRun: 6, MaxRunners: 2}}
+		s.Fleet.Jobs.Matrices = []Matrix{{PoolID: "pool_a1", Jobs: 6, Waited: 3 * time.Minute}}
+		return s
+	},
 }

@@ -43,7 +43,10 @@ func PlanMaintenance(key RepositoryKey, name string, previous Config, config Con
 			if remove && f.SHA != "" {
 				changes = append(changes, SetupChange{Path: f.Path, Mode: f.Mode, PreviousSHA: f.SHA, Delete: true})
 			}
-		case f.Path == "CLAUDE.md" || f.Path == "AGENTS.md" || markdownReadme(f.Path):
+		case assistantDocument(f.Path) || f.Path == ContextGuidePath || markdownReadme(f.Path):
+			if f.Path == ContextGuidePath && f.SHA != "" && !strings.Contains(f.Content, managedStart) {
+				return nil, fmt.Errorf("%s has no recognised Zoomies ownership", f.Path)
+			}
 			clean, err := removeManagedSection(f.Content)
 			if err != nil {
 				return nil, fmt.Errorf("%s: %w", f.Path, err)
@@ -54,6 +57,16 @@ func PlanMaintenance(key RepositoryKey, name string, previous Config, config Con
 				}
 			} else {
 				f.Content = clean
+				if f.Path == ContextGuidePath {
+					newline := "\n"
+					if strings.Contains(actual[f.Path].Content, "\r\n") {
+						newline = "\r\n"
+					}
+					f.Content += blankLineBefore(clean, newline) + managedBlock(AssistantInstructions(key, name, config), newline) + newline
+					if f.Content != actual[f.Path].Content {
+						changes = append(changes, SetupChange{Path: f.Path, Mode: f.Mode, PreviousSHA: f.SHA, Content: f.Content})
+					}
+				}
 				documents = append(documents, f)
 			}
 		default:

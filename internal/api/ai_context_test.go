@@ -283,8 +283,13 @@ func TestAIContextSetupRequiresReviewAndRecoversTheSamePRWithoutSourceGrants(t *
 	response.mustStatus(t, http.StatusOK, "preview")
 	var plan controller.AIContextSetupPreview
 	response.into(t, &plan)
-	if len(plan.Files) != 6 || plan.Setup != nil {
+	if len(plan.Files) != 7 || plan.Setup != nil {
 		t.Fatalf("unexpected preview: %+v", plan)
+	}
+	guide := findSetupContent(t, &plan, aicontext.ContextGuidePath)
+	entry := findSetupContent(t, &plan, "AGENTS.md")
+	if !strings.Contains(guide, "context_read") || !strings.Contains(guide, "manifest.json") || !strings.Contains(entry, aicontext.ContextGuidePath) || strings.Contains(entry, "snapshot.json") {
+		t.Fatal("setup preview did not separate the shared guide from the short entry point")
 	}
 	h.do(request{method: http.MethodPost, path: path, cookie: admin, body: controller.AIContextSetupApproval{Revision: plan.Revision, PlanHash: "wrong"}}).mustStatus(t, http.StatusConflict, "wrong approval")
 	if len(h.gh.Branches(draft.FullName)) != 1 {

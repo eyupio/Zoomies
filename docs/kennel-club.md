@@ -169,6 +169,23 @@ Fix
 Verify
 :   Press Recheck after the next run of the job; the finding closes once no run in the window was cancelled at the six-hour limit.
 
+### `capacity.matrix_exceeds_pool` { #capacity-matrix_exceeds_pool }
+
+Area
+:   capacity
+
+Severity
+:   info
+
+Detects
+:   A matrix's jobs waited together on a pool with fewer runners than the matrix has jobs, so the matrix ran in waves.
+
+Fix
+:   Raise the pool's max_runners to the matrix's width, spread the matrix over more than one pool with runs-on, or cap it with max-parallel so the wait is chosen and not suffered.
+
+Verify
+:   Press Recheck after the pool or the matrix changes; the finding closes when no matrix in the window is wider than the pool it ran on.
+
 ### `setup.readme` { #setup-readme }
 
 Area
@@ -598,6 +615,14 @@ Every check names the facts it needs, and a check whose facts cannot be read is
 | **Repository setup files** | The default branch's file names. Read only when `kennel.repository_setup` is on. | *Repository permissions: Contents: Read-only*, needed for private repositories |
 | **Workflow best practices** | The default branch's workflow files, read for timeouts, concurrency, action pins, token permissions, a `pull_request_target` workflow that checks out the pull request's head, a secret interpolated into a command line, a `runs-on` label no pool of this fleet serves, pins that no updater moves, and a file that could not be read at all. A finding from here names the file, the job and the line. Read only when `kennel.workflow_checks` is on. | *Repository permissions: Contents: Read-only*, needed for private repositories |
 
+`zoomies kennel check [path]` reads none of this. It reads `.github/workflows`
+from the disk of the machine it runs on, with the same parser and the same
+evaluator, and sends nothing anywhere: the checks that need what the fleet
+observed, the run history or the tree as GitHub lists it are listed as *not
+checked here*, and `--controller owner/name` is the one way a controller joins
+in. A file is known by Git's blob SHA on both sides, so a waiver made on one is
+about the file on the other.
+
 A source can be in one of these states, and the Kennel Club page shows it beside
 the repository it affects:
 
@@ -791,6 +816,20 @@ open it widened, so that a number and the rows behind it agree:
 ![The Kennel Club Repositories list: acme/site needs attention with two errors, acme/widgets and acme/api have no open findings, and the filters above it include Tracked and Active on Zoomies](screenshots/kennel-repositories-dark.webp#only-dark){ .zoomies-shot }
 ![The Kennel Club Repositories list: acme/site needs attention with two errors, acme/widgets and acme/api have no open findings, and the filters above it include Tracked and Active on Zoomies](screenshots/kennel-repositories-light.webp#only-light){ .zoomies-shot }
 
+* **A prompt for a coding agent.** Every open finding has a **Copy prompt for
+  your coding agent** button, and `zoomies kennel repository <id> --prompts`
+  prints the same text: the code, the sentences the page shows, the evidence
+  quoted in a fenced block headed as repository data, and how to go about the
+  change, which is to read the file's history first and make the smallest
+  change that resolves the finding. The page never composes a prompt of its
+  own: the controller renders it, so the button, the API and the terminal hand
+  an agent one text. Over MCP the prompt is left out with the evidence it
+  quotes, and the tool says where to get one. A waived finding has none,
+  because nobody is asked to fix it.
+* **The terminal.** `zoomies kennel` has the Overview, the list, one
+  repository, the catalogue and a recheck, and `zoomies kennel check [path]`
+  runs the workflow checks over a checkout with no controller at all. See
+  [the CLI page](cli.md#zoomies-kennel).
 * **The UI.** Under **Kennel Club** in the side menu: the **Overview** (how many
   repositories are in each standing, what is open by severity, and which to open
   first), **Repositories** (the list, narrowed by standing, severity, check and

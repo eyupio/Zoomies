@@ -282,6 +282,54 @@ Exit codes: `0` diagnosed, `1` another error, `2` no such job, `3` not enough
 data (the class is `unknown`; the explanation is still printed, with what was
 missing). A script can tell "the fleet broke it" from "the fleet could not say".
 
+### `zoomies kennel`
+
+`kennel` is [Kennel Club](kennel-club.md) in a terminal: how the repositories
+this fleet serves measure up against what affects CI and the fleet. Five verbs
+are thin readers of the routes the page uses, and one runs on a checkout with
+no controller at all.
+
+`overview` is the Overview: how many repositories are in each standing, what is
+open by severity, which repositories to open first, and what is turned off.
+`repositories` is the list, narrowed by the list's own filters (`--state`,
+`--severity`, `--code`, `--q`, `--installation`, `--incomplete`, `--waived`,
+`--active`, `--tracked`, `--limit`, `--offset`). `repository <id>` is one
+repository: its standing, what could be read, and each finding with what to
+change and where it was seen; `--prompts` prints each finding's prompt for a
+coding agent, the same text the page's **Copy prompt** button copies. `checks`
+is the catalogue, with what is turned off. `recheck <id>` asks for the
+repository to be read again when the budget allows, and a second ask inside the
+cooldown is told how long to wait. `--output json` on any of them is the
+route's document as the controller sent it.
+
+`check [path]` runs the workflow checks over `.github/workflows` of a checkout
+on this machine (the checkout, or the workflows directory itself; the current
+directory by default), with the same parser and the same evaluator the
+controller runs, and **sends nothing anywhere**: there is no controller in the
+loop unless `--controller owner/name` names one, and then that repository's
+fleet-dependent findings are read from the API and listed beside the local
+ones, marked as the controller's. What a laptop cannot know, the fleet, the run
+history and the repository's tree as GitHub lists it, is listed as *not checked
+here* rather than left silently absent, so "nothing found" means what it says.
+A repository is assumed private, the milder reading, unless `--public` is given.
+`--code a,b` keeps only those checks, `--severity error|warning|info` is a
+floor (`info` by default), and `--prompts` renders a prompt on each finding.
+`--output json` is a document a script or a skill reads, held byte for byte by
+golden files in the repository's tests. A file is known by Git's blob SHA, so
+a file checked here and the same file read from GitHub are known by one name.
+
+```sh
+zoomies kennel overview
+zoomies kennel repositories --state attention
+zoomies kennel repository kcr_k3f9qz2m --prompts
+zoomies kennel check
+zoomies kennel check --output json --prompts ~/src/widgets
+```
+
+Exit codes for `check`: `0` nothing found at the severity asked for, `1`
+another error, including a path with no workflows, `4` findings. A script can
+tell "something to fix" from "it broke".
+
 ### Size classes
 
 With [size routing](auto-pools.md) on or being watched, `jobs get` says how a job

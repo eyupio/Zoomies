@@ -76,6 +76,17 @@ type JobFacts struct {
 	// long ones keeps the snapshot small; deciding which of them hit GitHub's
 	// limit stays here, where it can be tested.
 	Long []FinishedJob
+	// Matrices are the matrices of two or more jobs the fleet ran inside the
+	// window, widest first, capped at 200 by the collector.
+	Matrices []Matrix
+}
+
+// Matrix is one matrix the fleet ran: how wide it was, which pool ran it, and
+// the longest any of its jobs waited for a runner.
+type Matrix struct {
+	PoolID string
+	Jobs   int
+	Waited time.Duration
 }
 
 // Unserved is one job that waited for a label no pool serves.
@@ -108,7 +119,10 @@ type PoolFact struct {
 	ID      string
 	Name    string
 	JobsRun int
-	Dangers []PoolDanger
+	// MaxRunners is the pool's ceiling; 0 is no ceiling, as for an automatic
+	// pool, and such a pool is never too small.
+	MaxRunners int
+	Dangers    []PoolDanger
 }
 
 // RunFacts are five fields of each run the fleet ran in a public repository:

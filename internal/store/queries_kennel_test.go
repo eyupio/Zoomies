@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"reflect"
 	"regexp"
 	"slices"
 	"strings"
@@ -1212,5 +1213,37 @@ func TestTheListCanBeNarrowedToRepositoriesWithAWaivedFinding(t *testing.T) {
 		if total != 1 || len(got) != 1 || got[0].ID != c.want {
 			t.Errorf("%s a waiver: listed %d (total %d), want only %s", c.name, len(got), total, c.want)
 		}
+	}
+}
+
+// A matrix has no flag of its own in the jobs table. It is the jobs of one run
+// attempt, in one pool, whose names share the text before GitHub's " (": what
+// the evaluator needs is each matrix's width and how long its jobs waited.
+func TestKennelFleetFactsGroupsAMatrixByRunAttemptPoolAndNameAndKeepsItsLongestWait(t *testing.T) {
+	ctx := context.Background()
+	s, _, clock := kennelStore(t)
+	now := *clock
+	h := func(d time.Duration) *time.Time { t := now.Add(d); return &t }
+	queued := now.Add(-time.Hour)
+	id := int64(0)
+	add := func(run int64, attempt int, pool, name string, wait time.Duration) {
+		id++
+		job(t, s, id, Job{State: JobCompleted, Conclusion: "success", GitHubRunID: run, RunAttempt: attempt, JobName: name,
+			QueuedAt: queued, StartedAt: h(-time.Hour + wait), CompletedAt: h(-30 * time.Minute), RunnerID: fmt.Sprintf("run_%d", id), PoolID: pool})
+	}
+	for i, wait := range []time.Duration{30 * time.Second, 30 * time.Second, 4 * time.Minute, 4 * time.Minute, 8 * time.Minute, 8 * time.Minute} {
+		add(7, 1, "pool_a", fmt.Sprintf("build (%c)", 'a'+i), wait)
+	}
+	add(7, 1, "pool_b", "lint (x)", 0)
+	add(7, 1, "pool_b", "lint (y)", 0)
+	add(7, 1, "pool_a", "deploy", 0)
+	add(7, 2, "pool_a", "build (a)", 20*time.Minute)
+	f, err := s.KennelFleetFacts(ctx, KennelFleetQuery{Repo: "acme/api", Since: now.Add(-30 * 24 * time.Hour), UnservedSince: now.Add(-7 * 24 * time.Hour), LongFloor: 5 * time.Hour})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []KennelMatrix{{PoolID: "pool_a", Jobs: 6, Waited: 8 * time.Minute}, {PoolID: "pool_b", Jobs: 2, Waited: 0}}
+	if !reflect.DeepEqual(f.Matrices, want) {
+		t.Errorf("matrices = %+v, want %+v: a lone job of a later attempt and a job without a matrix suffix are not matrices", f.Matrices, want)
 	}
 }
