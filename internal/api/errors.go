@@ -67,6 +67,11 @@ const codeUpdateCheckFailed = "update.check_failed"
 // makes it a 502, and its message is the adapter's, written for a person.
 const codeAssistantProviderFailed = "assistant.provider_failed"
 
+// codeAssistantNotYours is a provider that is somebody's own subscription, asked
+// for by somebody else. It is a 403 with a code of its own because a client can do
+// something about it that it cannot about a plain refusal: use another provider.
+const codeAssistantNotYours = "assistant.provider_not_yours"
+
 // statusClientClosed is nginx's 499: the client hung up before the response.
 // No client ever reads it -- by then there is none -- but the access log
 // separates a request the browser abandoned from one the controller failed.

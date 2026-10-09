@@ -51,6 +51,8 @@ export class Conversation {
   busy = $state(false);
   #controller: AbortController | undefined;
   #next = 0;
+  /** Which provider the last question went to, so that asking again goes to the same one. */
+  #provider: string | undefined;
 
   /** Whether the last answer failed, so the page can offer to ask again. */
   get failed(): boolean {
@@ -58,9 +60,10 @@ export class Conversation {
     return last?.role === 'assistant' && !!last.error;
   }
 
-  async send(text: string): Promise<void> {
+  async send(text: string, providerId?: string): Promise<void> {
     const question = text.trim();
     if (!question || this.busy) return;
+    this.#provider = providerId ?? this.#provider;
     // What was said before is what the model is told it said: a turn that failed
     // before it began has nothing to repeat, and is left out.
     const history = this.turns
@@ -74,7 +77,10 @@ export class Conversation {
     this.#controller = controller;
     try {
       await streamAssistantChat(
-        { messages: [...history, { role: 'user', content: question }] },
+        {
+          messages: [...history, { role: 'user', content: question }],
+          ...(this.#provider ? { provider_id: this.#provider } : {}),
+        },
         (frame) => {
           if (frame.kind === 'delta') answer.content += frame.text;
           else if (frame.kind === 'usage')
@@ -106,7 +112,7 @@ export class Conversation {
     if (this.busy || !this.failed) return;
     this.turns.pop();
     const question = this.turns.pop();
-    if (question?.role === 'user') await this.send(question.content);
+    if (question?.role === 'user') await this.send(question.content, this.#provider);
   }
 
   stop(): void {

@@ -429,3 +429,102 @@ test('the card on the Assistant page opens Eli', async ({ page }) => {
   await page.getByRole('button', { name: 'Open Eli' }).click();
   await expect(page.getByRole('dialog', { name: 'Eli' })).toBeVisible();
 });
+
+test('a Claude subscription is added with no address and no key, tested, and Eli answers through it', async ({
+  page,
+}) => {
+  await goto(page, '/settings/assistant', 'Assistant');
+  await page.getByRole('button', { name: 'Add a provider' }).first().click();
+  const form = dialog(page, 'Add a provider');
+  await form.getByLabel('Provider', { exact: true }).selectOption('claude-code');
+
+  // It has nothing to type but a name and a model: no address, no key, and nothing
+  // to lend the fleet to. What it is, and whose it will be, is said before it is added.
+  await expect(form.getByRole('textbox', { name: 'Base URL' })).toHaveCount(0);
+  await expect(form.getByLabel('API key')).toHaveCount(0);
+  await expect(form.getByRole('switch', { name: /read this fleet/ })).toHaveCount(0);
+  await expect(form.getByText(/It is yours alone/)).toBeVisible();
+  await expect(form.getByRole('textbox', { name: 'Name' })).toHaveValue('Claude (my subscription)');
+  await expect(form.getByRole('combobox', { name: 'Model' })).toHaveValue('sonnet');
+
+  try {
+    await form.getByRole('button', { name: 'Test' }).click();
+    await expect(form.getByText(/Answered as Claude Code 2\.1\.300/)).toBeVisible();
+    await form.getByRole('button', { name: 'Add provider' }).click();
+    await expect(form).toBeHidden();
+
+    const card = page.getByRole('article', { name: 'Claude (my subscription)' });
+    await expect(card.getByText('Your subscription')).toBeVisible();
+    await expect(card.getByText('Key set, never shown')).toHaveCount(0);
+    await expect(card.getByText('No key')).toHaveCount(0);
+    await card.getByRole('button', { name: 'Set as default' }).click();
+    await expect(card.getByRole('button', { name: 'Is the default' })).toBeVisible();
+
+    await openEli(page);
+    await expect(page.getByText(/Answers from .*Claude \(my subscription\)/)).toBeVisible();
+    const message = page.getByRole('textbox', { name: 'Message' });
+    await message.fill('hello from the spec');
+    // The page names the provider it said would answer, so the controller's choice
+    // cannot differ from what the panel promised.
+    const asked = page.waitForRequest((r) => r.url().endsWith('/assistant/chat'));
+    await message.press('Enter');
+    const providers = await (await page.request.get('/api/v1/assistant/providers')).json();
+    const mine = providers.items.find((p: { kind: string }) => p.kind === 'claude_code');
+    expect((await asked).postDataJSON().provider_id).toBe(mine.id);
+    await expect(page.getByRole('article', { name: 'Eli' })).toContainText(
+      'Claude Code heard: hello from the spec',
+    );
+    // It cannot be lent the fleet, so Eli says it cannot see it.
+    await expect(page.getByText(/Eli cannot see this fleet through Claude/)).toBeVisible();
+  } finally {
+    // Put the demo model back as the answer, and take the subscription away, so the
+    // specs after this one meet the fleet they were written for.
+    const list = await (await page.request.get('/api/v1/assistant/providers')).json();
+    const demo = list.items.find((p: { kind: string }) => p.kind === 'fake');
+    await page.request.post(`/api/v1/assistant/providers/${demo.id}/default`, { data: {} });
+    const claude = list.items.find((p: { kind: string }) => p.kind === 'claude_code');
+    if (claude)
+      await page.request.delete(`/api/v1/assistant/providers/${claude.id}`, {
+        data: { name: claude.name },
+      });
+  }
+});
+
+test('somebody else’s Claude subscription is on the list, marked, and can be removed but not used', async ({
+  page,
+}) => {
+  await page.route('**/api/v1/assistant/providers', async (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    const res = await route.fetch();
+    const body = await res.json();
+    body.items.push({
+      id: 'prov_alices',
+      name: 'Alice’s Claude',
+      kind: 'claude_code',
+      base_url: '',
+      model: 'sonnet',
+      key_configured: false,
+      enabled: true,
+      is_default: false,
+      local: false,
+      fleet_access: false,
+      subscription: true,
+      owner: 'alice',
+      owned_by_you: false,
+      usable: false,
+      created_at: '2026-10-09T10:00:00Z',
+      updated_at: '2026-10-09T10:00:00Z',
+    });
+    await route.fulfill({ response: res, json: body });
+  });
+  await goto(page, '/settings/assistant', 'Assistant');
+
+  const card = page.getByRole('article', { name: 'Alice’s Claude' });
+  await expect(card.getByText('alice’s subscription')).toBeVisible();
+  await expect(card.getByText(/Only alice can use, test or change this/)).toBeVisible();
+  // Nothing that would spend her plan or change it is offered; taking the row away is.
+  await expect(card.getByRole('button', { name: 'Test' })).toBeDisabled();
+  await expect(card.getByRole('button', { name: 'Set as default' })).toBeDisabled();
+  await expect(card.getByRole('button', { name: 'Edit' })).toBeDisabled();
+  await expect(card.getByRole('button', { name: 'Remove' })).toBeEnabled();
+});

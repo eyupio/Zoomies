@@ -110,6 +110,9 @@
     return choices;
   });
   const preset = $derived(PRESETS.find((p) => p.id === presetId));
+  // Somebody's own subscription has no address to type and no key to hold: it is
+  // used through the vendor's own tool, signed in on the controller's machine.
+  const subscription = $derived(kind === 'claude_code');
   const defaultBaseURL = $derived(kinds.find((k) => k.kind === kind)?.default_base_url ?? '');
   // The hosted kinds have an address of their own when the box is empty.
   const presetBaseURL = $derived(preset?.baseURL || defaultBaseURL);
@@ -135,9 +138,18 @@
     modelsNote = '';
     if (!after) return;
     kind = after.kind;
+    if (name.trim() === '' || name.trim() === (before?.name ?? '')) name = after.name;
+    if (after.subscription) {
+      // Nothing of an address or a key carries over to something that has neither.
+      baseURL = '';
+      apiKey = '';
+      fleetAccess = false;
+      if (model.trim() === '') model = 'sonnet';
+      void loadModels();
+      return;
+    }
     if (baseURL.trim() === '' || baseURL.trim() === (before?.baseURL ?? ''))
       baseURL = after.baseURL;
-    if (name.trim() === '' || name.trim() === (before?.name ?? '')) name = after.name;
   }
 
   function draft(): Record<string, unknown> {
@@ -171,7 +183,7 @@
    * beside it.
    */
   async function loadModels(): Promise<void> {
-    if (loadingModels || (!baseURL.trim() && !presetBaseURL)) return;
+    if (loadingModels || (!subscription && !baseURL.trim() && !presetBaseURL)) return;
     loadingModels = true;
     modelsNote = '';
     try {
@@ -256,27 +268,31 @@
       />
     </Field>
 
-    <Field
-      id="assistant-base-url"
-      label="Base URL"
-      hint={baseURLHint(kind, defaultBaseURL)}
-      error={errors.base_url}
-    >
-      <Input
+    {#if !subscription}
+      <Field
         id="assistant-base-url"
-        bind:value={baseURL}
-        placeholder={defaultBaseURL || 'http://localhost:11434/v1'}
-        autocomplete="off"
-      />
-    </Field>
+        label="Base URL"
+        hint={baseURLHint(kind, defaultBaseURL)}
+        error={errors.base_url}
+      >
+        <Input
+          id="assistant-base-url"
+          bind:value={baseURL}
+          placeholder={defaultBaseURL || 'http://localhost:11434/v1'}
+          autocomplete="off"
+        />
+      </Field>
+    {/if}
 
     <Field
       id="assistant-model"
       label="Model"
       hint={modelsNote ||
-        (models.length > 0
-          ? 'From the provider’s own list.'
-          : 'As the provider names it. Load the list once the address and key are in.')}
+        (subscription
+          ? 'Claude Code’s own names for its models, which follow its updates.'
+          : models.length > 0
+            ? 'From the provider’s own list.'
+            : 'As the provider names it. Load the list once the address and key are in.')}
       error={errors.model}
     >
       {#if models.length > 0}
@@ -291,33 +307,37 @@
       >
     </div>
 
-    <Field
-      id="assistant-api-key"
-      label="API key"
-      hint={editing?.key_configured
-        ? 'One is set. Type a new one to replace it, or leave this empty to keep it.'
-        : 'Sealed with this fleet’s encryption key and never shown again. A local server usually needs none.'}
-      error={errors.api_key}
-    >
-      <Input
+    {#if !subscription}
+      <Field
         id="assistant-api-key"
-        type="password"
-        bind:value={apiKey}
-        autocomplete="new-password"
-        onblur={() => {
-          // The key is the last thing the list needs; ask when it has been typed.
-          if (apiKey !== '' && models.length === 0) void loadModels();
-        }}
-      />
-    </Field>
+        label="API key"
+        hint={editing?.key_configured
+          ? 'One is set. Type a new one to replace it, or leave this empty to keep it.'
+          : 'Sealed with this fleet’s encryption key and never shown again. A local server usually needs none.'}
+        error={errors.api_key}
+      >
+        <Input
+          id="assistant-api-key"
+          type="password"
+          bind:value={apiKey}
+          autocomplete="new-password"
+          onblur={() => {
+            // The key is the last thing the list needs; ask when it has been typed.
+            if (apiKey !== '' && models.length === 0) void loadModels();
+          }}
+        />
+      </Field>
+    {/if}
 
     <Switch bind:checked={enabled} label="The assistant may use this provider" />
 
-    <Switch
-      bind:checked={fleetAccess}
-      label="Let Eli read this fleet through this provider"
-      description="Eli can look at runners, jobs, pools and hosts to answer, and it only reads. What it reads is sent to this provider: runner, job, repository and branch names, and log excerpts when it asks for them. That stays on this network for a provider on this machine or a private one, and leaves it for a hosted one, so leave this off if you do not want that."
-    />
+    {#if !subscription}
+      <Switch
+        bind:checked={fleetAccess}
+        label="Let Eli read this fleet through this provider"
+        description="Eli can look at runners, jobs, pools and hosts to answer, and it only reads. What it reads is sent to this provider: runner, job, repository and branch names, and log excerpts when it asks for them. That stays on this network for a provider on this machine or a private one, and leaves it for a hosted one, so leave this off if you do not want that."
+      />
+    {/if}
 
     {#if tested}
       <p class="tested">{tested}</p>

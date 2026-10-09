@@ -10,6 +10,7 @@
  */
 import { listAssistantProviders } from '$lib/api/client';
 import type { AssistantProvider } from '$lib/api/types';
+import { answeringProvider } from '$lib/settings/assistant';
 import { session } from '$lib/state/session.svelte';
 import { Conversation } from './conversation.svelte';
 
@@ -19,9 +20,13 @@ class Eli {
   open = $state(false);
   #loaded = $state(false);
 
-  /** The provider that answers: the default one, if it is enabled. */
+  /**
+   * The provider that answers this person: the default, if it is enabled and they
+   * may use it, and otherwise the first they may. Somebody else's own subscription
+   * is never one.
+   */
   get answering(): AssistantProvider | undefined {
-    return this.providers.find((p) => p.is_default && p.enabled);
+    return answeringProvider(this.providers);
   }
 
   /** Whether the widget is shown at all. */

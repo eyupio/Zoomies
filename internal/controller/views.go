@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/assistant"
 	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/github"
@@ -2080,19 +2081,27 @@ func machineTimeline(m *store.Machine) []MachineTimelineEntry {
 // this machine or a private network, which is what the page shows beside
 // the local-only switch.
 type AssistantProviderView struct {
-	ID            string                  `json:"id"`
-	Name          string                  `json:"name"`
-	Kind          string                  `json:"kind"`
-	BaseURL       string                  `json:"base_url"`
-	Model         string                  `json:"model"`
-	KeyConfigured bool                    `json:"key_configured"`
-	Enabled       bool                    `json:"enabled"`
-	IsDefault     bool                    `json:"is_default"`
-	Local         bool                    `json:"local"`
-	FleetAccess   bool                    `json:"fleet_access"`
-	LastCheck     *AssistantProviderCheck `json:"last_check,omitempty"`
-	CreatedAt     time.Time               `json:"created_at"`
-	UpdatedAt     time.Time               `json:"updated_at"`
+	ID            string `json:"id"`
+	Name          string `json:"name"`
+	Kind          string `json:"kind"`
+	BaseURL       string `json:"base_url"`
+	Model         string `json:"model"`
+	KeyConfigured bool   `json:"key_configured"`
+	Enabled       bool   `json:"enabled"`
+	IsDefault     bool   `json:"is_default"`
+	Local         bool   `json:"local"`
+	FleetAccess   bool   `json:"fleet_access"`
+	// Subscription is a provider that is somebody's own subscription, used through
+	// the vendor's own tool on this machine. Owner says whose, and OwnedByYou whether
+	// the person asking is the one who may use it. Usable is the same question for
+	// every provider: whether the person asking may.
+	Subscription bool                    `json:"subscription"`
+	Owner        string                  `json:"owner,omitempty"`
+	OwnedByYou   bool                    `json:"owned_by_you"`
+	Usable       bool                    `json:"usable"`
+	LastCheck    *AssistantProviderCheck `json:"last_check,omitempty"`
+	CreatedAt    time.Time               `json:"created_at"`
+	UpdatedAt    time.Time               `json:"updated_at"`
 }
 
 // AssistantProviderView renders one row.
@@ -2101,7 +2110,9 @@ func (c *Controller) AssistantProviderView(p *store.AssistantProvider) Assistant
 		ID: p.ID, Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, Model: p.Model,
 		KeyConfigured: len(p.KeyEnc) > 0, Enabled: p.Enabled, IsDefault: p.IsDefault,
 		Local: assistantAddressIsLocal(p.BaseURL), FleetAccess: p.FleetAccess,
-		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		Subscription: assistant.Subscription(assistant.Kind(p.Kind)),
+		Usable:       p.OwnerID == "",
+		CreatedAt:    p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
 	if len(p.LastCheck) > 0 {
 		var check AssistantProviderCheck
@@ -2117,4 +2128,18 @@ func (c *Controller) AssistantProviderView(p *store.AssistantProvider) Assistant
 // not called local, because a name is not an address.
 func assistantAddressIsLocal(raw string) bool {
 	return config.CheckProviderURL(raw, false) != nil
+}
+
+// AssistantProviderViewFor renders one row for a person: the same view, and whose
+// it is and whether it is theirs to use.
+func (c *Controller) AssistantProviderViewFor(ctx context.Context, p *store.AssistantProvider, userID string) AssistantProviderView {
+	v := c.AssistantProviderView(p)
+	v.Usable = UsableBy(p, userID)
+	if p.OwnerID != "" {
+		v.OwnedByYou = p.OwnerID == userID
+		if u, err := c.st.GetUser(ctx, p.OwnerID); err == nil {
+			v.Owner = u.Username
+		}
+	}
+	return v
 }

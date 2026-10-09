@@ -40,6 +40,7 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 	// controller, per provider.
 	if id := Identity(r.Context()); id != nil {
 		req.Tools = s.assistantToolbox(r, id)
+		req.UserID = id.UserID
 	}
 	for _, m := range in.Messages {
 		req.Messages = append(req.Messages, controller.AssistantChatMessage{Role: m.Role, Content: m.Content})
@@ -49,6 +50,9 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.As(err, &invalid):
 		unprocessable(w, invalid.Message, []fieldError{{invalid.Field, invalid.Message}})
+		return
+	case errors.Is(err, controller.ErrAssistantNotYours):
+		writeError(w, http.StatusForbidden, errorEnvelope{Error: errorBody{Code: codeAssistantNotYours, Message: err.Error()}})
 		return
 	case errors.Is(err, controller.ErrAssistantNoModel):
 		conflict(w, "no assistant model is set up; add a provider, test it and make it the default under Settings, Assistant")

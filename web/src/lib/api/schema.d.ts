@@ -4878,7 +4878,7 @@ export interface components {
         ErrorEnvelope: {
             error: {
                 /** @enum {string} */
-                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "too_large" | "rate_limited" | "limit_reached" | "update.mode_off" | "update.check_disabled" | "update.helper_missing" | "update.in_progress" | "update.not_a_release" | "update.nothing_newer" | "update.host_cannot_update" | "update.rollout_halted" | "update.check_failed" | "assistant.provider_failed" | "internal";
+                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "too_large" | "rate_limited" | "limit_reached" | "update.mode_off" | "update.check_disabled" | "update.helper_missing" | "update.in_progress" | "update.not_a_release" | "update.nothing_newer" | "update.host_cannot_update" | "update.rollout_halted" | "update.check_failed" | "assistant.provider_failed" | "assistant.provider_not_yours" | "internal";
                 /** @description Written for a person to read */
                 message: string;
                 /** @description The form field at fault, or on a `limit_reached` refusal the `limits.*` setting that refused. */
@@ -8955,10 +8955,10 @@ export interface components {
             warnings: components["schemas"]["Problem"][];
         };
         /**
-         * @description Which protocol the provider speaks. `openai_compatible` covers Ollama, LM Studio, vLLM, llama.cpp, OpenRouter and the gateways; `fake` is the demo's built-in model and cannot be created elsewhere.
+         * @description Which protocol the provider speaks. `openai_compatible` covers Ollama, LM Studio, vLLM, llama.cpp, OpenRouter and the gateways; `fake` is the demo's built-in model and cannot be created elsewhere. `claude_code` is somebody's own Claude subscription, used by running their signed-in Claude Code on the controller's machine with every tool off: it has no address and no key, and only the person who added it may use it.
          * @enum {string}
          */
-        AssistantProviderKind: "fake" | "openai_compatible" | "anthropic" | "openai";
+        AssistantProviderKind: "fake" | "openai_compatible" | "anthropic" | "openai" | "claude_code";
         AssistantProviderCheck: {
             ok: boolean;
             /** @description The model that answered. */
@@ -8997,6 +8997,14 @@ export interface components {
             local: boolean;
             /** @description The assistant may read this fleet through the provider. An administrator's decision per provider, off until made: what the tools return is sent to the provider, which for a hosted one leaves this network. */
             fleet_access: boolean;
+            /** @description Somebody's own subscription, used through the vendor's own tool on the controller's machine. Such a provider belongs to the person who added it. */
+            subscription: boolean;
+            /** @description The username it belongs to */
+            owner?: string;
+            /** @description The person asking is the owner of this subscription. */
+            owned_by_you: boolean;
+            /** @description The person asking may use this provider: it is shared, or it is their own subscription. Anyone else's gets a 403 `assistant.provider_not_yours` where it is used, changed or tested. */
+            usable: boolean;
             last_check?: components["schemas"]["AssistantProviderCheck"];
             /** Format: date-time */
             created_at: string;
