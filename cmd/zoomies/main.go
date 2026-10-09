@@ -123,6 +123,7 @@ func commands() []*command {
 		{"logs", groupSetup, "Show the installed container deployment's latest logs", runLogs},
 		{"deployment", groupSetup, "Manage installed containers; use upgrade for updates", runDeployment},
 		{"uninstall", groupSetup, "Remove Zoomies from this host", runUninstall},
+		{"transfer", groupSetup, "Move a complete instance between operators", runTransfer},
 		{"backup", groupSetup, "Copy this host's database, with a manifest saying what it needs", runBackup},
 		{"restore", groupSetup, "Put a backup's database back, and fence the fleet while you check it", runRestore},
 		{"config", groupSetup, "Check a configuration file, or print the effective one", runConfig},

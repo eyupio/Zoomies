@@ -156,7 +156,11 @@ func Unpack(ctx context.Context, root string, r io.Reader, opts UnpackOptions) (
 	if err != nil {
 		return nil, fmt.Errorf("backup: this is not a gzipped archive: %w", err)
 	}
-	tr := tar.NewReader(gz)
+	var inflated io.Reader = gz
+	if opts.MaxBytes > 0 {
+		inflated = &transferLimitReader{r: gz, left: opts.MaxBytes + (3 << 20)}
+	}
+	tr := tar.NewReader(inflated)
 	seen := map[string]bool{}
 	for {
 		hdr, err := tr.Next()
@@ -185,6 +189,9 @@ func Unpack(ctx context.Context, root string, r io.Reader, opts UnpackOptions) (
 		if opts.MaxBytes > 0 && hdr.Size > opts.MaxBytes {
 			return nil, fmt.Errorf("backup: %s is %d bytes, over the %d byte limit", name, hdr.Size, opts.MaxBytes)
 		}
+		if name != DBName && hdr.Size > 1<<20 {
+			return nil, fmt.Errorf("backup: metadata member %s exceeds 1 MiB", name)
+		}
 		dest := filepath.Join(staging, name)
 		f, err := os.OpenFile(dest, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 		if err != nil {
@@ -202,6 +209,9 @@ func Unpack(ctx context.Context, root string, r io.Reader, opts UnpackOptions) (
 		if n != hdr.Size {
 			return nil, fmt.Errorf("backup: %s is truncated: the archive promised %d bytes and held %d", name, hdr.Size, n)
 		}
+	}
+	if _, err := io.Copy(io.Discard, inflated); err != nil {
+		return nil, fmt.Errorf("backup: finishing the archive: %w", err)
 	}
 	if !seen[DBName] {
 		return nil, errors.New("backup: the archive holds no database; a Zoomies backup is " + DBName + " and its manifest")
@@ -487,6 +497,14 @@ func (d *decReader) next() error {
 		d.counter++
 		d.plain.Reset(plain)
 		d.done = final
+		if final {
+			if _, err := d.r.Peek(1); !errors.Is(err, io.EOF) {
+				if err != nil {
+					return err
+				}
+				return errors.New("backup: bytes follow the encrypted final chunk")
+			}
+		}
 		return nil
 	}
 	return ErrWrongPassphrase
