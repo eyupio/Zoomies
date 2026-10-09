@@ -58,6 +58,10 @@
   /** A refresh failed after a good load: the page keeps what it had and says so. */
   let stale = $state(false);
   let reload = $state(0);
+  // How many summaries the stream has delivered. A read is answered for the moment
+  // it was made, so one already out when a summary arrives is the older of the two
+  // and must not replace it: nothing would ever put the newer one back.
+  let summaries = 0;
 
   const canAdmin = $derived(session.can('admin'));
   const enabled = $derived(overview?.enabled === true);
@@ -67,10 +71,12 @@
     // Turned on or off from the rail, here or in another tab: ask again, so the
     // page does not wait for a frame that a stream which is down cannot send.
     void kennelClub.epoch;
+    const asked = summaries;
     const controller = new AbortController();
     loading = true;
     void getKennelOverview(controller.signal)
       .then((next) => {
+        if (summaries !== asked) return;
         overview = next;
         error = null;
         stale = false;
@@ -102,6 +108,7 @@
   // when an evaluation grows older. A frame replaces the document whole.
   $effect(() =>
     events.subscribe('kennel.summary', (next) => {
+      summaries += 1;
       overview = next;
       error = null;
       stale = false;
