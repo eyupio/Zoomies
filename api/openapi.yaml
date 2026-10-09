@@ -11386,7 +11386,8 @@ components:
         name: { type: string }
         endpoint: { type: string }
         templates: { type: array, items: { $ref: "#/components/schemas/ProxmoxSetupTemplate" }, description: QEMU templates detected by the setup command. }
-        command: { type: string, description: Returned only at creation; contains the short-lived setup capability. }
+        command: { type: string, description: Returned only at creation; the whole setup script, contains the short-lived setup capability. }
+        short_command: { type: string, description: Returned only at creation; the same setup as two lines that fetch the hosted connect-proxmox.sh. Contains the short-lived setup capability. }
 
     ProviderInput:
       type: object

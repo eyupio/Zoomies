@@ -142,7 +142,7 @@ jobs:
               # exercised by the upgrade test. No Go test reads it, and no
               # binary or image carries it: the site serves it, and the site's
               # own workflow rebuilds when it changes.
-              install.sh|test/install/*|test/upgrade/*) installer=true ;;
+              install.sh|connect-proxmox.sh|test/install/*|test/upgrade/*) installer=true ;;
               # Prose, and the workflows. internal/docs tests the problem-code
               # table, the README, the workflows and the roadmap against the
               # code, and internal/naming the image table; those two packages
@@ -1020,6 +1020,8 @@ jobs:
 
           dash -n install.sh
           shellcheck -s sh install.sh
+          dash -n connect-proxmox.sh
+          shellcheck -s sh connect-proxmox.sh
           dash -n test/install/install-check.sh
           shellcheck -s sh test/install/install-check.sh
           shellcheck deploy/runner-entrypoint.sh

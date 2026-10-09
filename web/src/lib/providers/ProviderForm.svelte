@@ -150,6 +150,7 @@
   const automaticProxmox = $derived(!editing && draft.kind === 'proxmox' && !manualConnection);
   let setupID = $state('');
   let setupCommand = $state('');
+  let setupShortCommand = $state('');
   let setupError = $state('');
   let creatingSetup = $state(false);
   let setupReady = $state(false);
@@ -161,11 +162,13 @@
     setupReady = false;
     setupID = '';
     setupCommand = '';
+    setupShortCommand = '';
     delete draft.setup_id;
     try {
       const setup = await createProviderSetup();
       setupID = setup.id;
       setupCommand = setup.command ?? '';
+      setupShortCommand = setup.short_command ?? '';
     } catch (cause: unknown) {
       setupError =
         cause instanceof Error ? cause.message : 'The setup command could not be generated.';
@@ -966,10 +969,31 @@
             </Button>
             {#if setupCommand}
               <div class="command small">
-                <pre class="mono"><code>{setupCommand}</code></pre>
+                <pre class="mono"><code>{setupShortCommand || setupCommand}</code></pre>
                 <div class="command-actions">
-                  <CopyButton value={setupCommand} label="Copy Proxmox setup command" showLabel />
+                  <CopyButton
+                    value={setupShortCommand || setupCommand}
+                    label="Copy Proxmox setup command"
+                    showLabel
+                  />
                 </div>
+                {#if setupShortCommand && setupCommand}
+                  <details class="full-command">
+                    <summary>Show the full command</summary>
+                    <p class="note">
+                      The same setup written out step by step, for a host that cannot reach
+                      zoomies.sh or for reading before you run it.
+                    </p>
+                    <pre class="mono"><code>{setupCommand}</code></pre>
+                    <div class="command-actions">
+                      <CopyButton
+                        value={setupCommand}
+                        label="Copy the full Proxmox setup command"
+                        showLabel
+                      />
+                    </div>
+                  </details>
+                {/if}
               </div>
               <p class="note" role="status">
                 Waiting for your Proxmox host… This command expires in one hour. Return here after
@@ -1453,6 +1477,16 @@
     line-height: var(--z-leading-xs);
     white-space: pre-wrap;
     overflow-wrap: anywhere;
+  }
+  .full-command summary {
+    cursor: pointer;
+    font-size: var(--z-text-sm);
+  }
+  .full-command[open] summary {
+    margin-bottom: var(--z-space-3);
+  }
+  .full-command pre {
+    margin-bottom: var(--z-space-3);
   }
   .command-actions {
     display: flex;
