@@ -270,3 +270,28 @@ jobs:
 		t.Fatalf("label unserved = %v, want job 1 at line 9", got)
 	}
 }
+
+// An opt-in switch turns off every check that reads the source it gates,
+// whatever area the check is in: with workflow checks off, a check in the
+// exposure area that reads workflow files is off and not a gap, or no
+// repository could ever be best in show without the switch.
+func TestASwitchTurnsOffEveryCheckThatReadsItsSource(t *testing.T) {
+	off := kennelDisabled(config.Kennel{})
+	for _, code := range []kennel.Code{kennel.CodeTargetCheckoutPRHead, kennel.CodePinsWithoutUpdater, kennel.CodeNoTimeout} {
+		if !off[string(code)] && !off[string(code.Area())] {
+			t.Errorf("%s reads a gated source and is not off with the switches: %v", code, off)
+		}
+	}
+	if off[string(kennel.CodeForkCodeRan)] || off[string(kennel.AreaExposure)] {
+		t.Errorf("a check that reads no gated source was turned off: %v", off)
+	}
+	if on := kennelDisabled(config.Kennel{RepositorySetup: true, WorkflowChecks: true}); len(on) != 0 {
+		t.Errorf("with both switches on nothing is off: %v", on)
+	}
+	// With only the setup switch off, the updater check, which reads the
+	// setup source once it applies, is off with it.
+	setupOff := kennelDisabled(config.Kennel{WorkflowChecks: true})
+	if !setupOff[string(kennel.CodePinsWithoutUpdater)] || setupOff[string(kennel.CodeTargetCheckoutPRHead)] {
+		t.Errorf("setup off: %v", setupOff)
+	}
+}

@@ -254,6 +254,18 @@ func kennelDisabled(k config.Kennel) map[string]bool {
 		out[string(kennel.AreaCI)] = true
 		out[string(kennel.AreaToken)] = true
 	}
+	// A switch is about a source, not an area: a check in another area that
+	// reads the gated source is off with the switch too, and not a gap. Left
+	// on, it would be skipped for a source nobody chose to read, and no
+	// repository could be best in show without the switch.
+	for _, c := range kennel.Checks() {
+		reads := func(src kennel.Source) bool {
+			return slices.Contains(c.Needs, src) || slices.Contains(c.Conditional, src)
+		}
+		if (!k.WorkflowChecks && reads(kennel.SourceWorkflows)) || (!k.RepositorySetup && reads(kennel.SourceSetup)) {
+			out[string(c.Code)] = true
+		}
+	}
 	for _, name := range k.DisabledChecks {
 		out[name] = true
 	}

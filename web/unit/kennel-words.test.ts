@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   alreadyStoppedSentence,
+  fileEvidenceText,
   countsAreAFloor,
   coverageStatesText,
   floorSentence,
@@ -326,4 +327,15 @@ test('the outcome of stopping several is one sentence, and says what to do when 
   ]);
   assert.equal(none.title, 'None of the 2 could be stopped');
   assert.doesNotMatch(none.detail, /were stopped/);
+});
+
+test('file evidence reads as the path, the line and the job, and an ungated path as unusual', () => {
+  assert.equal(
+    fileEvidenceText('.github/workflows/ci.yml', 0, 12),
+    '.github/workflows/ci.yml:12 (job 1)',
+  );
+  assert.equal(fileEvidenceText('.github/workflows/ci.yml', -1, 2), '.github/workflows/ci.yml:2');
+  assert.equal(fileEvidenceText('.github/workflows/big.yml', -1, 0), '.github/workflows/big.yml');
+  assert.equal(fileEvidenceText('', -1, 0), 'a workflow with an unusual name');
+  assert.equal(fileEvidenceText('', 2, 7), 'a workflow with an unusual name, line 7 (job 3)');
 });

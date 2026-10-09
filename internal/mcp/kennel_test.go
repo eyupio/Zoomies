@@ -357,3 +357,49 @@ func TestEvidenceNamesTheFindingItBelongsToIncludingItsSubject(t *testing.T) {
 		t.Errorf("the finding lost its subject, which is what a waiver is about: %s", out[0].Text)
 	}
 }
+
+// A workflow finding points into a file by blob SHA, and the repository lists
+// its files by SHA with the path a person reads. The path is a stranger's
+// text, so it travels in the untrusted block with the evidence and never in
+// the repository block, in the one-repository tool and in the list alike.
+func TestTheWorkflowInventoryTravelsInTheUntrustedBlock(t *testing.T) {
+	const sha = "a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1"
+	const oddPath = ".github/workflows/" + hostile + ".yml"
+	doc := `{
+	  "id": "kcr_1", "name": "acme/exposed", "state": "attention",
+	  "findings": [
+	    {"code": "ci.no_timeout", "severity": "warning", "subject": "a1a1a1a1a1a1", "title": "Jobs have no explicit timeout",
+	     "detail": "d", "fix": "f", "evidence": [{"kind": "file", "ref": "` + sha + `", "job_index": 0, "line": 4}]}
+	  ],
+	  "waived": [],
+	  "files": [{"sha": "` + sha + `", "path": "` + oddPath + `"}],
+	  "coverage": [{"source": "workflows", "state": "ok"}]
+	}`
+	api := &kennelAPI{body: doc}
+	out, err := kennelCall(t, kennelRepository, api, `{"id":"kcr_1"}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) != 3 {
+		t.Fatalf("want the repository, a notice and the untrusted block, got %d: %+v", len(out), out)
+	}
+	repo, notice, block := out[0].Text, out[1].Text, out[2].Text
+	if strings.Contains(repo, hostile) || strings.Contains(repo, `"files"`) {
+		t.Errorf("the inventory's paths are in the repository block: %s", repo)
+	}
+	if !strings.Contains(notice, "workflow files") {
+		t.Errorf("the notice does not say the block carries the files: %q", notice)
+	}
+	if !strings.Contains(block, oddPath) || !strings.Contains(block, `"line":4`) {
+		t.Errorf("the untrusted block does not carry the files and the file evidence: %s", block)
+	}
+
+	list := &kennelAPI{body: `{"items": [` + doc + `], "total": 1, "limit": 20, "offset": 0}`}
+	out, err = kennelCall(t, kennelFindings, list, `{}`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(out[0].Text, hostile) {
+		t.Errorf("the list carries a path somebody chose: %s", out[0].Text)
+	}
+}

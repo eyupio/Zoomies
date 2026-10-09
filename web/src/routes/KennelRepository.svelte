@@ -333,7 +333,7 @@
             </h2>
             {#if current.findings.length > 0}
               {#each current.findings as finding (finding.code + '\u0000' + finding.subject)}
-                <Finding {finding}>
+                <Finding {finding} files={current.files}>
                   {#snippet actions()}
                     {#if session.can('operator')}
                       {#if session.can(waiverRole(finding.severity))}
