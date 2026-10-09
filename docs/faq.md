@@ -184,6 +184,35 @@ Yes -- every scaling decision carries a reason string written for a person
 to. Scheduling is a pure function of a snapshot, which is what makes those
 reasons reliable enough to print.
 
+## Why did my job fail, and how do I find out?
+
+Ask the fleet before you read a log. `zoomies why <job>` in a terminal, the
+**Why** section of the job's drawer, and `get_job` over MCP give one answer
+from the controller's own explanation: a **class** from a closed set (out of
+memory, a timeout, a runner that never started, a host that was lost, a
+workflow that failed on its own, and the rest), how sure the fleet is, the
+evidence that decides it, the catalogue code whose entry says what to change
+and how to see that it worked, and the next steps in order. A class that the
+fleet caused is named as such, so "the fleet broke it" and "the fleet could
+not say" are told apart by the exit code of `zoomies why` as much as by the
+words. See [A job stuck in the queue](queued-job.md#6-ask-the-fleet-why) and
+[`zoomies why`](cli.md#zoomies-why).
+
+## Can a coding agent check my workflow files without sending them anywhere?
+
+Yes. `zoomies kennel check` runs [Kennel Club](kennel-club.md)'s workflow
+checks over `.github/workflows` of a checkout on the machine it runs on, with
+the same parser and the same checks the controller runs, and sends nothing
+anywhere: timeouts, pins, token permissions, a `pull_request_target` workflow
+that checks out a stranger's code, a secret on a command line. What a laptop
+cannot know, which is what the fleet observed, the run history and the
+repository's tree as GitHub lists it, is listed as *not checked here* rather
+than left silently absent, so "nothing found" means what it says. The
+[`zoomies-kennel` skill](cli.md#the-zoomies-kennel-skill) wraps it for an
+agent: it summarises the findings with security first, asks which to act on,
+and edits nothing without a selection. A controller joins in only when
+`--controller owner/name` names a repository to read from it.
+
 ## What does it cost?
 
 Nothing. Zoomies is free and open source under the GNU Affero General Public

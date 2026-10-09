@@ -1,5 +1,5 @@
 {
-  "version": 5,
+  "version": 6,
   "root": "clean",
   "visibility": "private",
   "files": [
@@ -14,6 +14,22 @@
     {
       "code": "ci.label_unserved",
       "reason": "the pools are known only to a controller"
+    },
+    {
+      "code": "guidance.missing",
+      "reason": "agent guidance files are outside this workflow-only check"
+    },
+    {
+      "code": "guidance.broken_reference",
+      "reason": "agent guidance files are outside this workflow-only check"
+    },
+    {
+      "code": "guidance.duplicated",
+      "reason": "agent guidance files are outside this workflow-only check"
+    },
+    {
+      "code": "guidance.unreadable",
+      "reason": "agent guidance files are outside this workflow-only check"
     },
     {
       "code": "exposure.public_repo_on_fleet",

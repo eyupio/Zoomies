@@ -110,9 +110,11 @@ zoomies problems apply host.slots_below_capacity --dry-run
 zoomies problems apply pool.daemon_share_suggested --target pool_k3f9qz2m
 ```
 
-A proposed change is a *remedy*: the pool's or host's own update, priced against the
-fleet before it was proposed, with what it keeps and gains in the `cost` column. `apply`
-names the problem and never the change, so only something the controller is proposing
+`problems list` is everything wrong now, each with its code, and `--proposals`
+keeps only the problems that carry a proposed change. A proposed change is a
+*remedy*: the pool's or host's own update, priced against the
+fleet before it was proposed, with what it keeps and gains in the `cost` column.
+`problems apply <code>` names the problem and never the change, so only something the controller is proposing
 *now* is made. It runs as you, through the same update as `pools edit` and `hosts edit`,
 so it needs the `operator` role, it is refused when it would leave a pool with nowhere to
 run, and it is on the audit trail. `--dry-run` says what it would change and changes
@@ -289,20 +291,21 @@ this fleet serves measure up against what affects CI and the fleet. Five verbs
 are thin readers of the routes the page uses, and one runs on a checkout with
 no controller at all.
 
-`overview` is the Overview: how many repositories are in each standing, what is
-open by severity, which repositories to open first, and what is turned off.
-`repositories` is the list, narrowed by the list's own filters (`--state`,
-`--severity`, `--code`, `--q`, `--installation`, `--incomplete`, `--waived`,
-`--active`, `--tracked`, `--limit`, `--offset`). `repository <id>` is one
-repository: its standing, what could be read, and each finding with what to
-change and where it was seen; `--prompts` prints each finding's prompt for a
-coding agent, the same text the page's **Copy prompt** button copies. `checks`
-is the catalogue, with what is turned off. `recheck <id>` asks for the
-repository to be read again when the budget allows, and a second ask inside the
-cooldown is told how long to wait. `--output json` on any of them is the
-route's document as the controller sent it.
+`kennel overview` is the Overview: how many repositories are in each standing,
+what is open by severity, which repositories to open first, and what is turned
+off. `kennel repositories` is the list, narrowed by the list's own filters
+(`--state`, `--severity`, `--code`, `--q`, `--installation`, `--incomplete`,
+`--waived`, `--active`, `--tracked`, `--limit`, `--offset`).
+`kennel repository <id>` is one repository: its standing, what could be read,
+and each finding with what to change and where it was seen; `--prompts` prints
+each finding's prompt for a coding agent, the same text the page's **Copy
+prompt** button copies. `kennel checks` is the catalogue, with what is turned
+off. `kennel recheck <id>` asks for the repository to be read again when the
+budget allows, and a second ask inside the cooldown is told how long to wait.
+`--output json` on any of them is the route's document as the controller sent
+it.
 
-`check [path]` runs the workflow checks over `.github/workflows` of a checkout
+`kennel check [path]` runs the workflow checks over `.github/workflows` of a checkout
 on this machine (the checkout, or the workflows directory itself; the current
 directory by default), with the same parser and the same evaluator the
 controller runs, and **sends nothing anywhere**: there is no controller in the
@@ -435,6 +438,7 @@ helper; only the host's owner does.
 | `providers pause <name\|id>` | Stop buying new machines. `--reason` is kept for the card and the audit row. Machines that exist keep running, and drains, deletes and recovery carry on. Pressing it twice is not an error. |
 | `providers resume <name\|id>` | Let it buy machines again. If something else is still holding it (the fence a restore sets, the configuration, a ceiling) the answer says so rather than claiming the fleet is buying. |
 | `providers machines` | The machines that exist right now, filtered by `--provider` and `--state`, with `--include-deleted` for the ones whose resource is confirmed gone. A stuck machine prints the provider's own words and the task handle to paste into its console. |
+| `providers connect-proxmox` | The one line the provider wizard generates for a Proxmox host behind NAT: run on that host with the `--controller` address, `--setup-id` and `--token` the wizard printed, it connects the host to the controller through the gateway, so the controller never needs a route in. See [Proxmox VE](proxmox.md#the-provider). |
 | `providers orphans <name\|id>` | The three ways a row and a real resource can disagree: resources with no row, rows holding no resource, and machines nobody can vouch for. It deletes nothing; every line is for a person to decide. |
 
 There is no `providers machines delete`. Destroying a machine destroys a VM
@@ -690,7 +694,7 @@ repository's `skills/` folder, which installs both.
 | `zoomies update [--check] [--yes \| --non-interactive] [--update-helper]` | Compatibility alias for `zoomies upgrade`; accepts the same flags. |
 | `zoomies upgrade [--check] [--yes \| --non-interactive] [--update-helper] [--version <tag>] [--no-download]` | Download the newest release binary, verify it against the release's `checksums.txt`, and apply it with matching images to an existing native, Compose or Docker deployment. Never downgrades; `--no-download` applies the binary already installed. Keeps configuration and credentials; `--check` changes nothing. What this release expects and the deployment lacks (the shared folder, its mount, a deleted Compose file) is added at a terminal once you agree, with `--yes` without asking, and never with `--non-interactive`. On a systemd host that has no [update helper](security.md#what-the-agent-owns-on-a-host) it also asks, as a question of its own that defaults to no, whether to add one. On the controller's host the platform role can then update the controller from Settings → Updates; the web UI cannot update other hosts yet, so on an agent host installing it now only makes the host ready for a later release. `--yes` never answers it, `--update-helper` does without asking, and `--non-interactive` skips it and prints `sudo zoomies updates helper install`. `install.sh --upgrade` does the same download first and takes `--update-helper` too. See [Upgrading](upgrading.md#what-a-release-adds-to-the-host). |
 | `zoomies logs` | Show the latest 100 controller log lines for the recorded Compose or Docker deployment. Alias for `zoomies deployment logs`. |
-| `zoomies deployment <action>` | Operate the container deployment recorded by `zoomies init`: `status`, `logs`, `start`, `stop`, `restart`, `update`, or `down`. `update` is a compatibility alias for the complete `zoomies upgrade` flow, including the binary download. `down` keeps the database volume. |
+| `zoomies deployment <action>` | Operate the container deployment recorded by `zoomies init`, from the saved record so container names and Compose files are never guessed: `deployment status`, `deployment logs`, `deployment start`, `deployment stop`, `deployment restart`, `deployment update`, or `deployment down`. `deployment update` is a compatibility alias for the complete `zoomies upgrade` flow, including the binary download. `deployment down` keeps the database volume. `--config-dir` names the directory holding `deployment.json` when it is not `/etc/zoomies`. |
 | `zoomies uninstall` | Remove the service or container, the database, the encryption key and the configuration. A container deployment's data volume is kept unless you pass `--volumes` or answer yes, and so is the environment file that holds the key sealing it, the report names it, because a later install can only read the volume with that key. `--volumes` removes both. |
 | `zoomies backup [--dir path] [--keep N] [--include-key] [--no-offsite]` | Take a consistent copy of this host's database into a timestamped directory, with a manifest recording the build, the migration ledger, the encryption key's fingerprint, what that key is needed for, and the blanked configuration. Reads the database file directly, so it works when the controller will not start. The copy is then sent to every destination this fleet has (those `backup.remotes` describes and those stored from the Backups page, which this command reads out of the database it has just copied) with `--remote <name>` for one and `--no-offsite` for none. A destination that refuses is reported without failing the backup, which is on the disk either way. See [Backup and restore](backup-and-restore.md). |
 | `zoomies restore <backup-directory> [--replace]` | Put a backup's database back at `database.path`, after checking that the copy is sound, that this build can read its schema, and that this host's encryption key is the one that sealed it. Ends every session, removes unredeemed join tokens, and fences the fleet; `--revoke-api-tokens` and `--reset-agent-tokens` go further. `--replace` is required to overwrite an existing database, and moves it aside rather than deleting it. See [Backup and restore](backup-and-restore.md). |

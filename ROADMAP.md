@@ -1528,6 +1528,12 @@ Depends on ZF-230, ZF-229c. Size S.
 FAQ entries, and the CLI, API, AI Context and Connect Claude updates.
 Foldable into each package's pull requests.
 
+**Done, 9 October:** most of section 8 landed with the packages it documents;
+the remainder, *Ask the fleet why* on the queued-job page, two FAQ entries,
+and every subcommand on the CLI page held there by a test, is in its own pull
+request. Gate row 16 is met by the strict site build and the two tests that
+hold the CLI page to the binary.
+
 Depends on ZF-230 to ZF-233. Size S.
 
 ### ZF-235: an assistant in the UI, on the operator's own model
