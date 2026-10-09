@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -20,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/controller"
@@ -1060,5 +1062,537 @@ func TestACheckSendsTheNewStatusToEveryOpenPage(t *testing.T) {
 	decodeFrame(t, frame, &status)
 	if status.Latest == nil || status.Latest.Tag != "v1.3.5" || status.CheckedAt == nil {
 		t.Errorf("the frame holds %+v, want the release the check has just read", status)
+	}
+}
+
+// failedHostUpdate is a host whose update the helper refused with a sentence that
+// names a path on the host, and that path.
+func (h *harness) failedHostUpdate() (*store.Host, string) {
+	h.t.Helper()
+	useVersion(h.t, "1.3.5")
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Updates.Mode = "manual" })
+	host := h.host("vm-update")
+	host.Version, host.Features = "1.3.4", []string{agent.FeatureSelfUpdate}
+	if err := h.st.SetHostReported(h.ctx, host); err != nil {
+		h.t.Fatal(err)
+	}
+	if _, err := h.ctrl.RequestHostUpdate(h.ctx, controller.UpdateActor{ID: "usr_x", Name: "x"}, host.ID); err != nil {
+		h.t.Fatalf("RequestHostUpdate: %v", err)
+	}
+	latest, err := h.st.ListUpdateAttempts(h.ctx, store.UpdateScopeHost, host.ID, 1)
+	if err != nil || len(latest) != 1 {
+		h.t.Fatalf("no attempt (%v)", err)
+	}
+	const path = "/usr/local/bin/zoomies"
+	if _, err := h.ctrl.Heartbeat(h.ctx, host.ID, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion, Version: "1.3.4", Features: host.Features,
+		Update: &agent.UpdateReport{ID: latest[0].ID, Error: "could not replace " + path, FinishedAt: time.Now().UTC()},
+	}); err != nil {
+		h.t.Fatalf("Heartbeat: %v", err)
+	}
+	return host, path
+}
+
+// assertHostReasonFor checks one host body: told the update failed, and given the
+// helper's text only when the reader holds the platform role.
+func assertHostReasonFor(t *testing.T, what, body, path string, platform bool) {
+	t.Helper()
+	if got := strings.Contains(body, path); got != platform {
+		t.Errorf("%s: the helper's text is there = %v, want %v: %s", what, got, platform, body)
+	}
+	if !strings.Contains(body, `"state":"failed"`) {
+		t.Errorf("%s was not told the update failed: %s", what, body)
+	}
+}
+
+// A host's failed update can carry the helper's own sentence, which can name a
+// path on that host. The host's card is read by every role; only the platform
+// is given the text, from every route that answers with a host.
+func TestAHostsUpdateReasonIsWithheldBelowPlatform(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	host, path := h.failedHostUpdate()
+
+	for _, tc := range []struct {
+		role     string
+		cookie   string
+		platform bool
+	}{
+		{"viewer", as.viewer, false},
+		{"operator", as.operator, false},
+		{"admin", as.admin, false},
+		{"platform", as.platform, true},
+	} {
+		for _, p := range []string{"/api/v1/hosts", "/api/v1/hosts/" + host.ID} {
+			resp := h.do(request{method: http.MethodGet, path: p, cookie: tc.cookie})
+			resp.mustStatus(t, http.StatusOK, "reading the host")
+			assertHostReasonFor(t, tc.role+" reading "+p, string(resp.body), path, tc.platform)
+		}
+		resp := h.do(request{method: http.MethodPost, path: "/api/v1/hosts/" + host.ID + "/cordon", cookie: tc.cookie,
+			body: map[string]any{"cordoned": false}})
+		if resp.status == http.StatusOK {
+			assertHostReasonFor(t, tc.role+" cordoning", string(resp.body), path, tc.platform)
+		}
+	}
+	for _, tc := range []struct {
+		role     string
+		cookie   string
+		platform bool
+	}{
+		{"admin", as.admin, false},
+		{"platform", as.platform, true},
+	} {
+		resp := h.do(request{method: http.MethodPatch, path: "/api/v1/hosts/" + host.ID, cookie: tc.cookie,
+			body: map[string]any{"capacity": 4}})
+		resp.mustStatus(t, http.StatusOK, "editing the host")
+		assertHostReasonFor(t, tc.role+" editing the host", string(resp.body), path, tc.platform)
+		resp = h.do(request{method: http.MethodPost, path: "/api/v1/hosts/" + host.ID + "/throttle/clear", cookie: tc.cookie})
+		resp.mustStatus(t, http.StatusOK, "clearing the throttle")
+		assertHostReasonFor(t, tc.role+" clearing the throttle", string(resp.body), path, tc.platform)
+	}
+}
+
+// The stream carries the host in the platform's form and narrows it per
+// subscriber, live and on a replay, so that a platform account's card is what
+// its GET says and nobody else's carries the helper's text.
+func TestAHostFrameIsTheGETShapeForEachRole(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	callers := []struct {
+		role     string
+		cookie   string
+		platform bool
+	}{
+		{"viewer", as.viewer, false},
+		{"operator", as.operator, false},
+		{"admin", as.admin, false},
+		{"platform", as.platform, true},
+	}
+	type watcher struct {
+		role     string
+		cookie   string
+		platform bool
+		frames   <-chan sseFrame
+	}
+	var watchers []watcher
+	for _, tc := range callers {
+		frames, _ := h.openStream(t, ctx, "/api/v1/events?kinds=host.updated", tc.cookie, nil)
+		await(t, frames, "the opening comment", func(f sseFrame) bool { return f.comment != "" })
+		watchers = append(watchers, watcher{tc.role, tc.cookie, tc.platform, frames})
+	}
+	bus := h.ctrl.Events()
+	// A Last-Event-ID of zero asks for no replay, so the stream is given an event
+	// to resume after.
+	bus.Publish(events.KindPoolUpdated, "pool:marker", map[string]any{"id": "marker"})
+	before := bus.LastID()
+	host, path := h.failedHostUpdate()
+
+	failed := func(f sseFrame) bool {
+		return f.event == string(events.KindHostUpdated) && strings.Contains(f.data, `"state":"failed"`)
+	}
+	for _, w := range watchers {
+		frame := await(t, w.frames, "the "+w.role+"'s host frame", failed)
+		assertHostReasonFor(t, w.role+"'s live frame", frame.data, path, w.platform)
+		if w.platform {
+			resp := h.do(request{method: http.MethodGet, path: "/api/v1/hosts/" + host.ID, cookie: w.cookie})
+			resp.mustStatus(t, http.StatusOK, "reading the host")
+			var fromFrame, fromGET map[string]any
+			decodeFrame(t, frame, &fromFrame)
+			resp.into(t, &fromGET)
+			if !reflect.DeepEqual(fromFrame["update"], fromGET["update"]) {
+				t.Errorf("the platform's frame has update %v and its GET %v", fromFrame["update"], fromGET["update"])
+			}
+		}
+
+		replayed, _ := h.openStream(t, ctx, "/api/v1/events?kinds=host.updated", w.cookie, map[string]string{
+			"Last-Event-ID": bus.WireID(before),
+		})
+		frame = await(t, replayed, "the "+w.role+"'s replayed host frame", failed)
+		assertHostReasonFor(t, w.role+"'s replayed frame", frame.data, path, w.platform)
+	}
+}
+
+// A host frame that names no ended update is passed on as it came, and one the
+// filter cannot read goes only to the platform.
+func TestAHostFrameTheFilterCannotReadIsOnlyPassedToThePlatform(t *testing.T) {
+	plain := []byte(`{"id":"hst_1","update":{"state":"requested","reason":"asked for"}}`)
+	if out, ok := hostsFor(plain, false); !ok || string(out) != string(plain) {
+		t.Errorf("hostsFor(a frame with nothing to withhold) = %q, %v, want it untouched", out, ok)
+	}
+	garbled := []byte(`{"id":"hst_1","update":{"state":"failed","reason":"cannot write /var/lib/zoomies-update"`)
+	if out, ok := hostsFor(garbled, true); !ok || string(out) != string(garbled) {
+		t.Errorf("hostsFor(platform) = %q, %v, want the frame untouched", out, ok)
+	}
+	if out, ok := hostsFor(garbled, false); ok {
+		t.Errorf("hostsFor(below platform) = %q, true, want it refused", out)
+	}
+}
+
+// On the stream, a host frame the filter cannot read is dropped for everybody
+// below the platform rather than passed on unread: it could carry exactly what
+// is withheld. The platform is sent it as it came.
+func TestAnUnreadableHostFrameIsDroppedBelowPlatform(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	viewer, _ := h.openStream(t, ctx, "/api/v1/events?kinds=host.updated", as.viewer, nil)
+	await(t, viewer, "the viewer's opening comment", func(f sseFrame) bool { return f.comment != "" })
+	platform, _ := h.openStream(t, ctx, "/api/v1/events?kinds=host.updated", as.platform, nil)
+	await(t, platform, "the platform's opening comment", func(f sseFrame) bool { return f.comment != "" })
+
+	bus := h.ctrl.Events()
+	unreadable := `["failed","/var/lib/zoomies-update"]`
+	bus.Publish(events.KindHostUpdated, "host:hst_odd", json.RawMessage(unreadable))
+	bus.Publish(events.KindHostUpdated, "host:hst_marker", json.RawMessage(`{"id":"hst_marker"}`))
+
+	got := await(t, viewer, "the viewer's marker frame", func(f sseFrame) bool { return f.event == string(events.KindHostUpdated) })
+	if strings.Contains(got.data, "zoomies-update") || !strings.Contains(got.data, "hst_marker") {
+		t.Errorf("the viewer's first host frame is %s, want the unreadable one dropped and the marker next", got.data)
+	}
+	got = await(t, platform, "the platform's first host frame", func(f sseFrame) bool { return f.event == string(events.KindHostUpdated) })
+	if got.data != unreadable {
+		t.Errorf("the platform's first host frame is %s, want the unreadable one as it came", got.data)
+	}
+}
+
+// hostUpdatePath is the route that updates one host.
+func hostUpdatePath(hostID string) string { return "/api/v1/hosts/" + hostID + "/update" }
+
+// updatableHost is a host that is behind a controller on a release and whose agent
+// offers to update itself: everything a press of its button needs but the mode.
+func (h *harness) updatableHost(name string) *store.Host {
+	h.t.Helper()
+	host := h.host(name)
+	host.Version, host.Features = "1.3.4", []string{agent.FeatureSelfUpdate}
+	if err := h.st.SetHostReported(h.ctx, host); err != nil {
+		h.t.Fatalf("SetHostReported: %v", err)
+	}
+	return host
+}
+
+// readyToUpdateAHost is a controller on 1.3.5 in manual mode. The host route reads
+// no list of releases and needs no helper beside the controller: the release a host
+// is taken to is the one the controller runs, and the helper that matters is the
+// host's own.
+func (h *harness) readyToUpdateAHost() {
+	h.t.Helper()
+	useVersion(h.t, "1.3.5")
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Updates.Mode = "manual" })
+}
+
+// A host's update replaces software that runs as root on a machine the controller
+// does not own, so it is an administrator's: an operator, who may cordon and drain
+// the host, may not, and the refusal names the role they are missing.
+func TestOnlyAnAdministratorMayUpdateAHost(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdateAHost()
+
+	row := routeRow(t, http.MethodPost, hostUpdatePath(""))
+	if row.role != store.RoleAdmin || row.action != auth.ActionHostsUpdate {
+		t.Errorf("the route table says %s needs %s and %s; want admin and %s", row.path, row.role, row.action, auth.ActionHostsUpdate)
+	}
+
+	for _, tc := range []struct {
+		role   store.Role
+		cookie string
+		want   int
+	}{
+		{store.RoleViewer, as.viewer, http.StatusForbidden},
+		{store.RoleOperator, as.operator, http.StatusForbidden},
+		{store.RoleAdmin, as.admin, http.StatusAccepted},
+		{store.RolePlatform, as.platform, http.StatusAccepted},
+	} {
+		t.Run(string(tc.role), func(t *testing.T) {
+			host := h.updatableHost("vm-" + string(tc.role))
+			got := h.do(request{method: http.MethodPost, path: hostUpdatePath(host.ID), cookie: tc.cookie})
+			got.mustStatus(t, tc.want, "updating a host as "+string(tc.role))
+			if tc.want == http.StatusForbidden && !strings.Contains(got.errorMessage(t), "admin") {
+				t.Errorf("the refusal does not name the admin role: %q", got.errorMessage(t))
+			}
+		})
+	}
+	if open := h.openUpdateAttempts(); len(open) != 2 {
+		t.Errorf("%d attempts open after four callers pressed the button, want the administrator's and the platform's", len(open))
+	}
+}
+
+// A token is held to the scope as well as the role, and the scope is the host
+// update's own: one minted to cordon hosts cannot replace an agent's binary.
+func TestAScopedTokenNeedsTheHostsUpdateScope(t *testing.T) {
+	h := newHarness(t)
+	h.readyToUpdateAHost()
+	host := h.updatableHost("vm-scoped")
+
+	refused := h.do(request{method: http.MethodPost, path: hostUpdatePath(host.ID),
+		token: h.token("cordon only", store.RoleAdmin, "hosts:cordon")})
+	refused.mustStatus(t, http.StatusForbidden, "a token scoped to cordoning")
+	if !strings.Contains(refused.errorMessage(t), "hosts:update") {
+		t.Errorf("the refusal does not name the hosts:update scope: %q", refused.errorMessage(t))
+	}
+	h.do(request{method: http.MethodPost, path: hostUpdatePath(host.ID),
+		token: h.token("update only", store.RoleAdmin, "hosts:update")}).
+		mustStatus(t, http.StatusAccepted, "a token scoped to hosts:update")
+}
+
+func TestAnUnknownHostIs404(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdateAHost()
+
+	resp := h.do(request{method: http.MethodPost, path: hostUpdatePath("hst_nobody"), cookie: as.admin})
+	resp.mustStatus(t, http.StatusNotFound, "updating a host nobody enrolled")
+	if got := resp.errorCode(t); got != "not_found" {
+		t.Errorf("code = %q, want not_found", got)
+	}
+	if open := h.openUpdateAttempts(); len(open) != 0 {
+		t.Errorf("%d attempts open after a press on a host that is not there, want none", len(open))
+	}
+	if rows := h.updateAudit("update.host_requested"); len(rows) != 0 {
+		t.Errorf("%d audit rows for a press that did nothing, want none", len(rows))
+	}
+}
+
+// The agent inside the controller is updated with the controller, and the refusal
+// says so in the sentence its card shows, under a code a client can switch on.
+func TestAnEmbeddedHostIs409WithItsCode(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdateAHost()
+	host := &store.Host{
+		Name: "controller", Capacity: 4, Embedded: true, Backends: store.StringSlice{"docker"}, Labels: store.StringMap{},
+		Version: "1.3.4", Features: store.StringSlice{agent.FeatureSelfUpdate}, OS: "linux", Arch: "amd64", LastHeartbeat: time.Now(),
+	}
+	if err := h.st.CreateHost(h.ctx, host); err != nil {
+		t.Fatalf("CreateHost: %v", err)
+	}
+	if err := h.st.SetHostReported(h.ctx, host); err != nil {
+		t.Fatalf("SetHostReported: %v", err)
+	}
+
+	resp := h.do(request{method: http.MethodPost, path: hostUpdatePath(host.ID), cookie: as.admin})
+	resp.mustStatus(t, http.StatusConflict, "updating the controller's own agent")
+	if got := resp.errorCode(t); got != "update.host_cannot_update" {
+		t.Errorf("code = %q, want update.host_cannot_update (message %q)", got, resp.errorMessage(t))
+	}
+	if !strings.Contains(resp.errorMessage(t), "updated with the controller") {
+		t.Errorf("message = %q, want the card's own sentence", resp.errorMessage(t))
+	}
+	if open := h.openUpdateAttempts(); len(open) != 0 {
+		t.Errorf("%d attempts open after a refused press, want none", len(open))
+	}
+}
+
+// Each refusal the controller makes keeps its code through the host route, with
+// nothing opened and nothing in the audit trail, because nothing was done.
+func TestTheHostRouteRefusesWithTheCodesOfTheStateThatCausesThem(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		setup func(h *harness, host *store.Host)
+		code  string
+	}{
+		{"updates are off", func(h *harness, _ *store.Host) {
+			h.ctrl.UpdateConfig(func(c *config.Config) { c.Updates.Mode = "off" })
+		}, "update.mode_off"},
+		{"the build is not a release", func(h *harness, _ *store.Host) { useVersion(h.t, "main-sha-abc1234") }, "update.not_a_release"},
+		{"the host is already on the release", func(h *harness, host *store.Host) {
+			host.Version = "1.3.5"
+			if err := h.st.SetHostReported(h.ctx, host); err != nil {
+				h.t.Fatal(err)
+			}
+		}, "update.host_cannot_update"},
+		{"the host's agent does not offer to update itself", func(h *harness, host *store.Host) {
+			host.Features = nil
+			if err := h.st.SetHostReported(h.ctx, host); err != nil {
+				h.t.Fatal(err)
+			}
+		}, "update.host_cannot_update"},
+		{"an update is already open for the host", func(h *harness, host *store.Host) {
+			if _, err := h.ctrl.RequestHostUpdate(h.ctx, controller.UpdateActor{ID: "usr_x", Name: "x"}, host.ID); err != nil {
+				h.t.Fatal(err)
+			}
+		}, "update.in_progress"},
+		{"the controller may not act", func(h *harness, _ *store.Host) {
+			if err := h.st.SetRecoveryFence(h.ctx, true, "restored from a copy"); err != nil {
+				h.t.Fatalf("fencing: %v", err)
+			}
+			if err := h.ctrl.LoadFence(h.ctx); err != nil {
+				h.t.Fatalf("loading the fence: %v", err)
+			}
+		}, "conflict"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			as := h.updateCallers()
+			h.readyToUpdateAHost()
+			host := h.updatableHost("vm-refused")
+			tc.setup(h, host)
+			openBefore := len(h.openUpdateAttempts())
+
+			resp := h.do(request{method: http.MethodPost, path: hostUpdatePath(host.ID), cookie: as.admin})
+			resp.mustStatus(t, http.StatusConflict, tc.name)
+			if got := resp.errorCode(t); got != tc.code {
+				t.Errorf("code = %q, want %q (message %q)", got, tc.code, resp.errorMessage(t))
+			}
+			if open := len(h.openUpdateAttempts()); open != openBefore {
+				t.Errorf("%d attempts open after a refusal, was %d", open, openBefore)
+			}
+			if rows := h.updateAudit("update.host_requested"); len(rows) != 0 {
+				t.Errorf("a refused press wrote %d audit rows, want none: nothing was done", len(rows))
+			}
+		})
+	}
+}
+
+// The page repaints from the answer, so the answer is the host as a GET gives it,
+// with the update block holding the attempt just opened.
+func TestTheBodyIsTheHostViewWithItsUpdateBlock(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdateAHost()
+	host := h.updatableHost("vm-view")
+	doc := loadSpec(t)
+
+	resp := h.do(request{method: http.MethodPost, path: hostUpdatePath(host.ID), cookie: as.admin})
+	resp.mustStatus(t, http.StatusAccepted, "updating a host")
+	assertShape(t, doc, "Host", resp.body)
+	var view struct {
+		ID     string `json:"id"`
+		Update struct {
+			State     string `json:"state"`
+			CanUpdate bool   `json:"can_update"`
+			AttemptID string `json:"attempt_id"`
+			Reason    string `json:"reason"`
+		} `json:"update"`
+	}
+	resp.into(t, &view)
+	open := h.openUpdateAttempts()
+	if len(open) != 1 {
+		t.Fatalf("open attempts = %+v, want the one the answer names", open)
+	}
+	if view.ID != host.ID || view.Update.State != "requested" || view.Update.CanUpdate || view.Update.AttemptID != open[0].ID {
+		t.Errorf("the answer's host = %+v, want %s, requested, not updatable again, naming attempt %s", view, host.ID, open[0].ID)
+	}
+	if !strings.Contains(view.Update.Reason, "v1.3.5") {
+		t.Errorf("reason = %q, want the card's sentence about the release asked for", view.Update.Reason)
+	}
+
+	var got struct {
+		Update struct {
+			AttemptID string `json:"attempt_id"`
+		} `json:"update"`
+	}
+	h.do(request{method: http.MethodGet, path: "/api/v1/hosts/" + host.ID, cookie: as.admin}).into(t, &got)
+	if got.Update.AttemptID != view.Update.AttemptID {
+		t.Errorf("GET names attempt %q, the answer %q: the page would repaint to something else", got.Update.AttemptID, view.Update.AttemptID)
+	}
+}
+
+// The audit trail names the person who pressed the button, and the attempt records
+// the same name. Neither holds a path: the row says which host and what it went
+// from and to, and the attempt it opened is the target.
+func TestTheHostRouteRecordsAnAuditRowForTheCaller(t *testing.T) {
+	h := newHarness(t)
+	h.readyToUpdateAHost()
+	host := h.updatableHost("vm-audited")
+	lead, _ := h.user("fleet-lead", store.RoleAdmin)
+
+	resp := h.do(request{method: http.MethodPost, path: hostUpdatePath(host.ID), cookie: h.session(lead)})
+	resp.mustStatus(t, http.StatusAccepted, "updating a host")
+
+	attempts, err := h.st.ListUpdateAttempts(h.ctx, store.UpdateScopeHost, host.ID, 5)
+	if err != nil || len(attempts) != 1 {
+		t.Fatalf("attempts = %v, %v", attempts, err)
+	}
+	if attempts[0].RequestedBy != "fleet-lead" {
+		t.Errorf("the attempt says %q asked, want fleet-lead", attempts[0].RequestedBy)
+	}
+	rows := h.updateAudit("update.host_requested")
+	if len(rows) != 1 {
+		t.Fatalf("%d audit rows, want 1", len(rows))
+	}
+	row := rows[0]
+	if row.ActorID != lead.ID || row.ActorName != "fleet-lead" || row.TargetKind != "update" || row.TargetID != attempts[0].ID {
+		t.Errorf("audit row = %+v, want fleet-lead's, about the attempt %s", row, attempts[0].ID)
+	}
+	var detail map[string]any
+	if err := json.Unmarshal([]byte(row.After), &detail); err != nil {
+		t.Fatalf("audit detail %q is not JSON: %v", row.After, err)
+	}
+	want := map[string]any{"host_id": host.ID, "from": "1.3.4", "to": "v1.3.5"}
+	if !reflect.DeepEqual(detail, want) {
+		t.Errorf("audit detail = %v, want only %v", detail, want)
+	}
+}
+
+// The route takes no body, and is told so when it is sent one. A body that edited
+// the host the way PATCH does would otherwise be a 202 that dropped what its sender
+// asked for.
+func TestTheHostRouteTakesNoBody(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdateAHost()
+	host := h.updatableHost("vm-bodies")
+
+	for _, tc := range []struct {
+		name  string
+		body  any
+		field string
+	}{
+		{"a PATCH body", map[string]any{"capacity": 8}, "capacity"},
+		{"a tag, which only the controller route takes", map[string]any{"tag": "v1.3.5"}, "tag"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			resp := h.do(request{method: http.MethodPost, path: hostUpdatePath(host.ID), cookie: as.admin, body: tc.body})
+			resp.mustStatus(t, http.StatusUnprocessableEntity, tc.name)
+			var env errorEnvelope
+			resp.into(t, &env)
+			if env.Error.Code != "unprocessable" || env.Error.Field != tc.field {
+				t.Errorf("error = %+v, want unprocessable naming %q", env.Error, tc.field)
+			}
+		})
+	}
+	t.Run("a body that is not an object", func(t *testing.T) {
+		resp := h.do(request{method: http.MethodPost, path: hostUpdatePath(host.ID), cookie: as.admin, body: []string{"v1.3.5"}})
+		resp.mustStatus(t, http.StatusUnprocessableEntity, "an array")
+	})
+	if open := h.openUpdateAttempts(); len(open) != 0 {
+		t.Errorf("%d attempts open after refused bodies, want none", len(open))
+	}
+	if rows := h.updateAudit("update.host_requested"); len(rows) != 0 {
+		t.Errorf("%d audit rows after refused bodies, want none", len(rows))
+	}
+
+	// And nothing, an empty object and null are all the same request.
+	for i, body := range []any{nil, map[string]any{}} {
+		other := h.updatableHost(fmt.Sprintf("vm-empty-%d", i))
+		h.do(request{method: http.MethodPost, path: hostUpdatePath(other.ID), cookie: as.admin, body: body}).
+			mustStatus(t, http.StatusAccepted, "a request with nothing to say")
+	}
+}
+
+// Asking for a host's update is seen by every open page as the host's own frame,
+// in the GET shape, and not as a store row.
+func TestAskingForAHostsUpdateSendsTheHostToEveryOpenPage(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	h.readyToUpdateAHost()
+	host := h.updatableHost("vm-frame")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	frames, _ := h.openStream(t, ctx, "/api/v1/events?kinds=host.updated", as.viewer, nil)
+	await(t, frames, "the opening comment", func(f sseFrame) bool { return f.comment != "" })
+
+	h.do(request{method: http.MethodPost, path: hostUpdatePath(host.ID), cookie: as.admin}).
+		mustStatus(t, http.StatusAccepted, "updating a host")
+
+	frame := await(t, frames, "the host once asked", func(f sseFrame) bool {
+		return f.event == string(events.KindHostUpdated) && strings.Contains(f.data, `"state":"requested"`)
+	})
+	if !strings.Contains(frame.data, host.ID) || !strings.Contains(frame.data, `"healthy"`) {
+		t.Errorf("the frame is %s, want the host as a GET renders it", frame.data)
 	}
 }

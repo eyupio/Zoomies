@@ -97,6 +97,7 @@ function waiting(): UpdatesStatus {
       state: 'missing',
       reason: "No update helper is installed on this controller's host.",
       install_command: 'sudo zoomies updates helper install',
+      upgrade_command: '',
     },
     controller: null,
   };
@@ -109,9 +110,7 @@ test('the page says what the seeded release list would take, for a build on 1.3.
 
   await expect(controller(page).getByText('1.3.0', { exact: true })).toBeVisible();
   await expect(take(page)).toContainText('Available');
-  await expect(take(page)).toContainText(
-    'Manual would offer v1.3.2 and wait for a person to take it.',
-  );
+  await expect(take(page)).toContainText('Manual offers v1.3.2 and waits for a person to take it.');
   // The controller's sentence is shown as it was given, not as this page would
   // have put it.
   await expect(take(page).getByText(SEEDED_REASON)).toBeVisible();
@@ -126,7 +125,7 @@ test('the mode is read as text, with what it would do beside it, and is not a co
 
   await expect(mode(page)).toContainText('Manual');
   await expect(mode(page)).toContainText(
-    'Zoomies would offer the newest release that can be installed on this system and wait for a person to take it.',
+    'Zoomies offers the newest release that can be installed on this system, with an Update button for this controller and for each host whose update helper is installed.',
   );
   await expect(mode(page)).toContainText('24 hours');
   // Where the controls are is a link, for the roles that can open that page.
@@ -325,7 +324,7 @@ test('a status that cannot be read says so, and asking again shows the page', as
   await expect(page.locator('.connection')).toHaveAttribute('data-state', 'live');
   failing = false;
   await alert.getByRole('button', { name: 'Try again' }).click();
-  await expect(take(page)).toContainText('Manual would offer v1.3.2');
+  await expect(take(page)).toContainText('Manual offers v1.3.2');
 });
 
 test('a refresh that does not get through keeps what the page had and says so', async ({
@@ -345,7 +344,7 @@ test('a refresh that does not get through keeps what the page had and says so', 
     .getByRole('status')
     .filter({ hasText: 'The last refresh did not get through' });
   await expect(notice).toBeVisible();
-  await expect(take(page)).toContainText('Manual would offer v1.3.2');
+  await expect(take(page)).toContainText('Manual offers v1.3.2');
 
   await page.unroute('**/api/v1/updates');
   await notice.getByRole('button', { name: 'Try again' }).click();
@@ -612,6 +611,7 @@ function updatable(controller: UpdatesStatus['controller'] = null): UpdatesStatu
       reason:
         "The update helper is installed on this controller's host, so the controller can update itself.",
       install_command: '',
+      upgrade_command: '',
     },
     controller,
   };
@@ -904,6 +904,34 @@ test('with no helper there is no button, and the page says how to install one', 
   await expect(
     update(page).getByRole('button', { name: 'Copy the install command' }),
   ).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Update to/ })).toHaveCount(0);
+});
+
+test('where the helper can never be installed the page says why, with the upgrade command and nothing to install', async ({
+  page,
+}) => {
+  const reason =
+    'The update helper cannot be installed here: this controller runs in a container that runs no runners, so the container does not mount the shared folder the update helper would read a request from. Update this controller on its host with the command below.';
+  await serve(page, () => ({
+    ...updatable(),
+    helper: {
+      state: 'unsupported',
+      reason,
+      install_command: '',
+      upgrade_command: 'sudo zoomies upgrade',
+    },
+  }));
+  await goto(page, PAGE, 'Updates');
+
+  await expect(update(page)).toContainText(reason);
+  await expect(update(page).getByText('sudo zoomies upgrade', { exact: true })).toBeVisible();
+  await expect(
+    update(page).getByRole('button', { name: 'Copy the upgrade command' }),
+  ).toBeVisible();
+  await expect(update(page).getByText('sudo zoomies updates helper install')).toHaveCount(0);
+  await expect(update(page).getByRole('button', { name: 'Copy the install command' })).toHaveCount(
+    0,
+  );
   await expect(page.getByRole('button', { name: /^Update to/ })).toHaveCount(0);
 });
 

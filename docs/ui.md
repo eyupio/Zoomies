@@ -690,13 +690,15 @@ in [Backup and restore](backup-and-restore.md).
 
 ### Updates
 
-Which release the update mode would take, and when. It reads and nothing more:
-no part of the page installs anything.
+Which release the update mode would take, and when, and for the platform role
+the one thing on the page that installs anything: the **Update** button for this
+controller. A host is updated from its own card on **Hosts**.
 
-At the top is one line saying what the mode would do about the newest release
-that can be installed on this system (*Manual would offer v1.3.2 and wait for
-a person to take it*, or *Auto would take v1.3.2 in 18 hours*) and under it the
-controller's own sentence for why, exactly as the API gives it. Then the release
+At the top is one line saying what the mode does about the newest release
+that can be installed on this system (*Manual offers v1.3.2 and waits for a
+person to take it*, or *Auto would take v1.3.2 in 18 hours*; auto takes no
+release by itself yet) and under it the controller's own sentence for why,
+exactly as the API gives it. Then the release
 itself, linked to its notes when the address GitHub gave for it is an `https`
 one, with how long ago it was published and when the list was last read.
 

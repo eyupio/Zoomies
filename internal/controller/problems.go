@@ -188,6 +188,8 @@ var problemAudience = map[string]Audience{
 	"host.health_stale":                 AudienceFleet,
 	"host.reboot_pending":               AudienceFleet,
 	"host.version_behind":               AudienceFleet,
+	"host.update_failed":                AudienceFleet,
+	"host.update_unavailable":           AudienceFleet,
 	"installation.unhealthy":            AudienceFleet,
 	"jobs.oom_killed":                   AudienceFleet,
 	"jobs.runner_lost":                  AudienceFleet,
@@ -450,6 +452,7 @@ func (c *Controller) Problems(ctx context.Context) ([]Problem, error) {
 	gather("label advice", c.labelAdviceProblems)
 	gather("host incidents", c.hostIncidentProblems)
 	gather("host OS health", c.hostHealthProblems)
+	gather("host updates", c.hostUpdateProblems)
 	out = append(out, c.fenceProblems()...)
 	out = append(out, c.ssoProblems()...)
 	out = append(out, c.bootstrapProblems()...)
@@ -2638,9 +2641,9 @@ func (c *Controller) newerReleaseProblems() []Problem {
 		fix = "upgrade with the same method you installed by."
 	}
 	// Only when the button would work: the mode allows it and the helper has been
-	// seen. A page that says to press something that refuses is worse than the
-	// general advice.
-	if sight := c.updateSightNow(); c.updateMode() != updates.ModeOff && sight.looked && !sight.helperMissing {
+	// seen ready. A page that says to press something that refuses is worse than
+	// the general advice.
+	if sight := c.updateSightNow(); c.updateMode() != updates.ModeOff && sight.looked && sight.helper == HelperReady {
 		fix = "update from Settings → Updates; the release notes are at " + latest.URL
 		if latest.URL == "" {
 			fix = "update from Settings → Updates."
@@ -2672,34 +2675,24 @@ func (c *Controller) controllerUpdateProblems() []Problem {
 	// Only a release build can be updated by the button, and RequestControllerUpdate
 	// refuses any other before it looks for the helper, so for a build from main a
 	// missing helper changes nothing and the warning would name a fix that does
-	// nothing.
+	// nothing. Nor is one that can never be installed a warning: nothing is to be
+	// done about it, and Settings → Updates says why and how to upgrade instead.
 	_, fromRelease := version.Release(version.Version)
-	if mode := c.updateMode(); mode != updates.ModeOff && fromRelease && sight.helperMissing {
+	if mode := c.updateMode(); mode != updates.ModeOff && fromRelease && sight.helper == HelperMissing {
 		out = append(out, Problem{
 			Code:     "controller.update_helper_missing",
 			Severity: config.SeverityWarning,
 			Title:    "this controller has no update helper, so it cannot update itself",
 			Detail: fmt.Sprintf("updates.mode is %s, so this release build of Zoomies may be asked to update itself, but the update helper that would replace its binary "+
 				"is not installed on its host. Nothing else is affected: runners, pools and jobs carry on.", mode),
-			Fix: missingHelperFix(),
+			Fix: "have somebody with root on the controller's host run `" + helperInstallCommand + "`, " +
+				"or set updates.mode to off if this controller is to be upgraded by hand with `zoomies upgrade`.",
 		})
 	}
 	if p, ok := failedUpdateProblem(sight.last); ok {
 		out = append(out, p)
 	}
 	return out
-}
-
-// missingHelperFix is what to do about a missing helper. Where the helper cannot
-// be installed the command would only refuse, so the fix is the upgrade by hand
-// that works there.
-func missingHelperFix() string {
-	if !helperInstallable() {
-		return "the update helper is a pair of systemd units, which this controller's host (" + helperPlatform + ") cannot run, " +
-			"so upgrade it by hand with `zoomies upgrade` and set updates.mode to off."
-	}
-	return "have somebody with root on the controller's host run `" + helperInstallCommand + "`, " +
-		"or set updates.mode to off if this controller is to be upgraded by hand with `zoomies upgrade`."
 }
 
 // failedUpdateProblem is the problem for the controller's latest attempt, when
@@ -2763,4 +2756,97 @@ func problemSentence(s string) string {
 		return line
 	}
 	return strings.TrimSpace(cutAt(line, maxProblemSentence)) + "..."
+}
+
+// hostUpdateProblems reports what updating the hosts from here has to say: a
+// host whose latest update did not happen, and, while updating is on, a host
+// that is behind this controller and cannot be updated from here.
+//
+// The attempts are what the update loop last saw, so this reads the hosts and
+// nothing else. Neither problem carries a Remedy: the autopilot applies every
+// remedy it finds, and an update must never be one it applies.
+func (c *Controller) hostUpdateProblems(ctx context.Context, out *[]Problem) error {
+	hosts, err := c.st.ListHosts(ctx)
+	if err != nil {
+		return fmt.Errorf("listing hosts: %w", err)
+	}
+	target := hostTarget()
+	on := c.updateMode() != updates.ModeOff
+	for _, h := range hosts {
+		label := naming.ForSentence(h.Name)
+		if a, ok := c.hostAttempt(h.ID); ok {
+			if p, ok := failedHostUpdateProblem(h, a); ok {
+				*out = append(*out, p)
+			}
+		}
+		// Only where the button could be pressed at all: with updating off, or a
+		// controller that is not a release, host.version_behind says everything.
+		// An incompatible host has a louder problem of its own.
+		if !on || target == "" || h.Embedded || h.Incompatible || h.Supports(agent.FeatureSelfUpdate) {
+			continue
+		}
+		if version.CompareBuilds(h.Version, target) != version.SkewBehind {
+			continue
+		}
+		if cause := c.hostHelperUnsupported(h); cause != "" {
+			*out = append(*out, Problem{
+				Code:     "host.update_unavailable",
+				Severity: config.SeverityInfo,
+				Title:    fmt.Sprintf("host %s is behind this controller and cannot be updated from here", label),
+				Detail: fmt.Sprintf("its agent runs %s and this controller runs %s, but the update helper cannot be installed on it: %s. "+
+					"Nothing is wrong meanwhile: it places work as normal.", reportedVersion(h.Version), target, helperUnsupportedWhy(cause, "its agent")),
+				Fix:        fmt.Sprintf("update %s by hand with the command on its card.", label),
+				TargetKind: "host", TargetID: h.ID,
+			})
+			continue
+		}
+		*out = append(*out, Problem{
+			Code:     "host.update_unavailable",
+			Severity: config.SeverityInfo,
+			Title:    fmt.Sprintf("host %s is behind this controller and cannot be updated from here", label),
+			Detail: fmt.Sprintf("its agent runs %s and this controller runs %s, but the agent does not offer to update itself, "+
+				"which it does only once the update helper is installed on the host. Nothing is wrong meanwhile: it places work as normal.",
+				reportedVersion(h.Version), target),
+			Fix: fmt.Sprintf("have somebody with root on %s run `%s`, so that it can be updated from the Hosts page, "+
+				"or update it by hand with the command on its card.", label, helperInstallCommand),
+			TargetKind: "host", TargetID: h.ID,
+		})
+	}
+	return nil
+}
+
+// failedHostUpdateProblem is the problem for a host's latest attempt, when that
+// attempt ended without the update happening. A new attempt supersedes it, and
+// so does the host reaching the release some other way.
+//
+// It never carries the attempt's own reason. The fleet's list is read by roles
+// that are not shown the helper's sentence, which can name a path on the host;
+// the host card gives it to the platform role.
+func failedHostUpdateProblem(h *store.Host, a store.UpdateAttempt) (Problem, bool) {
+	if a.State != store.UpdateFailed && a.State != store.UpdateTimedOut {
+		return Problem{}, false
+	}
+	if runsAtLeast(h.Version, a.ToVersion) {
+		return Problem{}, false
+	}
+	how := "failed"
+	if a.State == store.UpdateTimedOut {
+		how = "timed out"
+	}
+	label := naming.ForSentence(h.Name)
+	p := Problem{
+		Code:     "host.update_failed",
+		Severity: config.SeverityError,
+		Title:    fmt.Sprintf("the update of host %s to %s %s", label, a.ToVersion, how),
+		Detail: fmt.Sprintf("the host's agent still runs %s. The reason recorded for the attempt is on the host's card for whoever holds the platform role. "+
+			"The host places work as normal on the release it has.", reportedVersion(h.Version)),
+		Fix: fmt.Sprintf("look at `journalctl -u zoomies-update` on %s, where `sudo zoomies updates helper status` says what the helper did last. "+
+			"Once the cause is dealt with, update it again from the Hosts page, or by hand with the command on its card.", label),
+		TargetKind: "host", TargetID: h.ID,
+	}
+	if a.FinishedAt != nil {
+		since := *a.FinishedAt
+		p.Since = &since
+	}
+	return p, true
 }

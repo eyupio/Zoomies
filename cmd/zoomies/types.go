@@ -943,6 +943,7 @@ type updatesStatus struct {
 		State          string `json:"state"`
 		Reason         string `json:"reason"`
 		InstallCommand string `json:"install_command"`
+		UpgradeCommand string `json:"upgrade_command"`
 	} `json:"helper"`
 	Controller *updatesAttempt `json:"controller"`
 }

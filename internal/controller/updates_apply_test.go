@@ -245,48 +245,26 @@ func TestAControllerUpdateIsRefusedWithoutAHelper(t *testing.T) {
 	}
 }
 
-// The suite runs on Windows and macOS runners too, where a controller would
-// rightly say it cannot have a helper; every other test here is about one that
-// can, so the platform is pinned unless a test names another.
-func init() { helperPlatform = "linux" }
+// helperHostForTests is the machine every harness's controller believes it runs
+// on. The suite runs on Windows and macOS runners, in containers and on hosts
+// without systemd, where a controller would rightly say it cannot have a helper;
+// every other test here is about one that can, so the machine is pinned unless a
+// test names another, and nothing here ever looks at the real one.
+var helperHostForTests = updates.HelperHost{GOOS: "linux", Systemd: true}
 
-// withHelperPlatform makes the controller believe it runs on goos, so the
-// answer for a host that cannot have a helper is tested wherever the suite runs.
-func withHelperPlatform(t *testing.T, goos string) {
+// withHelperHost makes the controller believe its machine is facts, so the answer
+// for one that cannot have a helper is tested wherever the suite runs.
+func withHelperHost(t *testing.T, facts updates.HelperHost) {
 	t.Helper()
-	prev := helperPlatform
-	helperPlatform = goos
-	t.Cleanup(func() { helperPlatform = prev })
+	prev := helperHostForTests
+	helperHostForTests = facts
+	t.Cleanup(func() { helperHostForTests = prev })
 }
 
-// The helper is a pair of systemd units, so on any other platform the command
-// that installs it refuses, and a status or a refusal that told the person to
-// run it would send them to a dead end. They are told what does work.
-func TestAHostThatCannotHaveTheHelperIsNotToldToInstallIt(t *testing.T) {
-	for _, goos := range []string{"darwin", "windows"} {
-		t.Run(goos, func(t *testing.T) {
-			withHelperPlatform(t, goos)
-			h := newHarness(t)
-			h.readyToUpdate()
-			if err := os.Remove(filepath.Join(h.updateDir, channel.MarkerFile)); err != nil {
-				t.Fatal(err)
-			}
-
-			helper := h.status().Helper
-			if helper.State != HelperMissing || helper.InstallCommand != "" {
-				t.Errorf("the status says %+v, want missing with no command to run", helper)
-			}
-			if !strings.Contains(helper.Reason, "systemd") || !strings.Contains(helper.Reason, "zoomies upgrade") {
-				t.Errorf("the reason = %q, want it to say why and to name zoomies upgrade", helper.Reason)
-			}
-
-			_, err := h.c.RequestControllerUpdate(h.ctx, alice, "")
-			assertRefusedWithNothingWritten(t, h, err, ErrUpdateHelperMissing)
-			if strings.Contains(err.Error(), helperInstallCommand) || !strings.Contains(err.Error(), "zoomies upgrade") {
-				t.Errorf("the refusal = %v, want it to leave out the install command and name zoomies upgrade", err)
-			}
-		})
-	}
+// withHelperPlatform makes the controller believe it runs on goos.
+func withHelperPlatform(t *testing.T, goos string) {
+	t.Helper()
+	withHelperHost(t, updates.HelperHost{GOOS: goos, Systemd: true})
 }
 
 func TestAControllerUpdateIsRefusedOnABuildThatIsNotARelease(t *testing.T) {

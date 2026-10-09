@@ -67,8 +67,8 @@ type JoinOptions struct {
 	// credentials this host already has. It does not answer the update helper
 	// question, which is a grant of root and has its own flag.
 	AssumeYes bool
-	// UpdateHelper adds the update helper without asking, so that this host is
-	// ready for the web UI to update it (UpdateHelperAgentHostNotUsedYet).
+	// UpdateHelper adds the update helper without asking, so that the web UI can
+	// update this host (UpdateHelperExplained).
 	UpdateHelper bool
 	// Interactive is whether a person is at a terminal to answer a question that
 	// defaults to no. NonInteractive alone cannot say it: a join run with neither

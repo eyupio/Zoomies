@@ -19,6 +19,7 @@ import (
 	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/machine"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/updates"
 	"github.com/eyupio/zoomies/internal/version"
 )
 
@@ -178,6 +179,17 @@ type Options struct {
 	// memory valve takes before it lends anything, for the same reason. Nil
 	// reads the host's procfs.
 	ReadMemory func(totalMB int64) (machine.Memory, bool)
+	// UpdateDir finds the update folder the helper on this host reads, or says
+	// there is none. It is asked on every beat rather than once, so that a helper
+	// installed while the agent runs is noticed without a restart. Nil for the
+	// embedded agent, which is updated with its controller and never as a host.
+	UpdateDir func() (string, bool)
+	// HelperHost says what this machine is, as far as whether the update helper
+	// could be installed on it, so that a host where it never can be is shown so
+	// rather than offered a command that would refuse. Nil says nothing, which
+	// the controller shows as a helper not yet installed: the embedded agent,
+	// which is updated with its controller, and a test that is not about it.
+	HelperHost func() updates.HelperHost
 }
 
 // Agent is the half of Zoomies that runs on a host with a container runtime. It
@@ -213,6 +225,8 @@ type Agent struct {
 	// fill runs tool cache fills one at a time: two pools' fills at once are
 	// twice the bandwidth for the same finishing time.
 	fill sync.Mutex
+	// update hands the helper one request at a time.
+	update sync.Mutex
 
 	// Runtime failures hold the next admission briefly without stopping jobs.
 	runtimeFailures int
@@ -287,6 +301,16 @@ type Agent struct {
 	// leased.
 	memory            memoryRules
 	memoryUnsupported map[store.BackendKind]string
+	// updateDelivered holds the helper results a heartbeat has carried to the
+	// controller, each by the id the helper wrote and when it finished (see
+	// updateKey). It lives only as long as the process, on purpose: the process
+	// after an update cannot know what the one before it delivered, so it sends
+	// what it finds once more and the controller ignores a repeat.
+	updateDelivered map[string]bool
+	// updateWritten holds the attempt ids this process has written a request
+	// for, so that a redelivered task is answered as written and not refused by
+	// its own request. Guarded by update, not mu.
+	updateWritten map[string]bool
 
 	// polled records that at least one task poll has completed since start.
 	// The reconciler will not delete anything until it has, so a controller
@@ -839,24 +863,31 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 	m := a.machine()
 	cpus, memoryMB := hostSize(infos, m)
 	total, free := a.workDirSpace()
+	update, delivery := a.updateReport()
+	features := a.features()
 	resp, err := a.tr.Heartbeat(hctx, HeartbeatRequest{
-		Doctor:          a.latestDoctor(ctx),
-		Usage:           a.hostUsage(infos, cpus, memoryMB),
-		ProtocolVersion: ProtocolVersion,
-		Features:        a.features(),
-		Capacity:        a.opts.Capacity,
-		Version:         version.Version,
-		CPUs:            cpus,
-		MemoryMB:        memoryMB,
-		DiskTotalMB:     total,
-		DiskFreeMB:      free,
-		Backends:        infos,
-		Runners:         runners,
-		Runtime:         a.runtimeReport(),
+		Doctor:            a.latestDoctor(ctx),
+		Usage:             a.hostUsage(infos, cpus, memoryMB),
+		ProtocolVersion:   ProtocolVersion,
+		Features:          features,
+		Capacity:          a.opts.Capacity,
+		Version:           version.Version,
+		CPUs:              cpus,
+		MemoryMB:          memoryMB,
+		DiskTotalMB:       total,
+		DiskFreeMB:        free,
+		Backends:          infos,
+		Runners:           runners,
+		Runtime:           a.runtimeReport(),
+		Update:            update,
+		UpdateUnsupported: string(a.updateUnsupported(features, infos)),
 	})
 	if err != nil {
 		a.expireBoosts(ctx)
 		return err
+	}
+	if update != nil {
+		a.markUpdateDelivered(delivery)
 	}
 	a.mu.Lock()
 	a.missedBeats = 0
@@ -1204,6 +1235,17 @@ func (a *Agent) dispatch(ctx context.Context, task Task) {
 			a.handleToolFill(ctx, task)
 		}()
 		return
+	case TaskUpdateAgent:
+		// An update names no runner and holds no slot, and it is not refused to
+		// a cordoned or incompatible host: an incompatible host is exactly the
+		// one that needs it. Without this case it would reach runTask, match
+		// nothing and never be answered.
+		a.tasks.Add(1)
+		go func() {
+			defer a.tasks.Done()
+			a.handleUpdate(ctx, task)
+		}()
+		return
 	}
 
 	// The claim serialises work on one runner, so it says something only about
@@ -1386,6 +1428,17 @@ func validateTask(task Task) error {
 		}
 	case TaskCheckHost:
 		// Nothing to check beyond the ID: it names no runner and carries no spec.
+	case TaskUpdateAgent:
+		// The controller never sends a malformed one; these appear in the agent's
+		// log only if something else is speaking for it. An update with no ID has
+		// no attempt to report against, and the tag is checked here because it is
+		// the one instruction the agent will act on.
+		if task.UpdateID == "" {
+			return errors.New("update_agent task has no update ID, so its outcome cannot be matched to an attempt; the controller must set one")
+		}
+		if !updates.ValidTag(task.UpdateTag) {
+			return fmt.Errorf("update_agent task names %q, which is not a release tag; it must look like vMAJOR.MINOR.PATCH, for example v1.3.5", task.UpdateTag)
+		}
 	default:
 		return fmt.Errorf("unknown task kind %q; this agent speaks protocol version %d, so upgrade it to match the controller", task.Kind, ProtocolVersion)
 	}

@@ -137,23 +137,10 @@ func (s *Server) failUpdate(w http.ResponseWriter, r *http.Request, err error) {
 // A field the endpoint does not define is a 422 naming it, not a 400: the body is
 // valid JSON and was understood, and the field is what to go back and fix. A typo
 // that was ignored would be a 202 for a request that did not say what its sender
-// meant. A body that is not an object at all is told what to send, in words
-// that name no type of the server's.
+// meant.
 func decodeUpdateRequest(w http.ResponseWriter, r *http.Request, into *updateControllerRequest) bool {
-	if r.ContentLength == 0 {
-		return true
-	}
-	var body json.RawMessage
-	if !decodeLenient(w, r, &body) {
-		return false
-	}
-	body = bytes.TrimSpace(body)
-	if string(body) == "null" {
-		return true
-	}
-	var fields map[string]json.RawMessage
-	if len(body) == 0 || body[0] != '{' || json.Unmarshal(body, &fields) != nil {
-		unprocessable(w, `send a JSON object such as {"tag": "v1.3.5"}, or no body to take the newest release`, nil)
+	fields, ok := readUpdateFields(w, r, `send a JSON object such as {"tag": "v1.3.5"}, or no body to take the newest release`)
+	if !ok {
 		return false
 	}
 	// In name order, so that a body with two mistakes is always told about the
@@ -171,4 +158,47 @@ func decodeUpdateRequest(w http.ResponseWriter, r *http.Request, into *updateCon
 		}
 	}
 	return true
+}
+
+// decodeNoUpdateBody reads the body of POST /hosts/{id}/update, which has none to
+// give: a host is taken to the release the controller runs, and which host is in
+// the path. A body that would have edited the host the way PATCH does, or named a
+// release the way the controller's route does, is refused with the field named and
+// not ignored, because a 202 would tell its sender the host was changed as asked.
+func decodeNoUpdateBody(w http.ResponseWriter, r *http.Request) bool {
+	fields, ok := readUpdateFields(w, r, "send no body, or an empty JSON object")
+	if !ok {
+		return false
+	}
+	if len(fields) > 0 {
+		// The first in name order, so that a body with two mistakes is always told
+		// about the same one.
+		name := slices.Sorted(maps.Keys(fields))[0]
+		unprocessable(w, "", []fieldError{{name, "this endpoint takes no body; remove " + name}})
+		return false
+	}
+	return true
+}
+
+// readUpdateFields reads the JSON object a body holds as its fields, none for no
+// body or a null one. A body that is not an object at all is told what to send
+// (usage), in words that name no type of the server's.
+func readUpdateFields(w http.ResponseWriter, r *http.Request, usage string) (map[string]json.RawMessage, bool) {
+	if r.ContentLength == 0 {
+		return nil, true
+	}
+	var body json.RawMessage
+	if !decodeLenient(w, r, &body) {
+		return nil, false
+	}
+	body = bytes.TrimSpace(body)
+	if string(body) == "null" {
+		return nil, true
+	}
+	var fields map[string]json.RawMessage
+	if len(body) == 0 || body[0] != '{' || json.Unmarshal(body, &fields) != nil {
+		unprocessable(w, usage, nil)
+		return nil, false
+	}
+	return fields, true
 }

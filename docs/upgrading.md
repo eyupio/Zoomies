@@ -62,13 +62,17 @@ curl -fsSL https://zoomies.sh/install.sh | sh -s -- --upgrade
 ```
 
 The first controller start applies schema migrations. Upgrade does not run
-setup again or require a new join token. Each remote host is upgraded locally;
-without the update helper, a controller upgrade does not remotely replace
-binaries across the fleet. With the helper installed on the controller's host and
-`updates.mode` set to `manual` or `auto`, the controller can hand the helper a
-request to replace its own binary, with `zoomies updates apply` or the Update
-button on Settings → Updates (the platform role), and nothing else: it never
-replaces the binary of another host.
+setup again or require a new join token. A remote host is upgraded locally, with
+the command on its card, unless its agent offers to update itself: that is so only
+once the update helper is installed on the host (`sudo zoomies updates helper
+install`), and then an administrator can update it with the **Update** button on
+its card on **Hosts** (or `POST /api/v1/hosts/{id}/update`) when `updates.mode`
+is `manual` or `auto`. The
+controller only asks: the helper on that host does the work, and the controller does
+not replace the binary of any host itself. Without the helper, a controller upgrade does
+not remotely replace binaries across the fleet. On the controller's own host the
+same helper can replace the controller's binary, with `zoomies updates apply` or the
+Update button on Settings → Updates (the platform role).
 
 For a **remote agent**, copy the upgrade command from its card on **Hosts**.
 That command targets the controller's published version instead of blindly
@@ -198,14 +202,12 @@ second question, on its own:
 Add the update helper? [y/N]
 ```
 
-The [update helper](security.md#what-the-agent-owns-on-a-host) is what will let
-the web UI update the host. On the controller's host the platform role can then update the controller from Settings → Updates; the web UI cannot update other hosts yet, so on an agent host installing it now only makes the host ready for a later release.
+The [update helper](security.md#what-the-agent-owns-on-a-host) is what lets
+the web UI update the host. The update helper runs `zoomies upgrade` as root for a validated request, so that the web UI can update this host (and on the controller's host, `zoomies updates apply` can too). Only the host's owner installs it, and `sudo zoomies updates helper remove` takes it away.
 
-It is a pair of systemd units that run `zoomies upgrade` as root for a
-validated request; a request names a release and nothing else. The account Zoomies runs as can trigger an
-upgrade by writing a request, which is why it is a question of its own and
-never part of the batch above. `sudo zoomies updates helper remove` takes it
-away.
+It is a pair of systemd units, and a request names a release and nothing else.
+The account Zoomies runs as can trigger an upgrade by writing a request, which
+is why it is a question of its own and never part of the batch above.
 
 * **`--yes` does not answer it.** `zoomies upgrade --yes` still adds the layout
   additions and moves the settings, and still leaves this question at its
@@ -241,6 +243,17 @@ path is under `/home`, Docker remaps user namespaces) the upgrade does not
 fail: it prints the helper's own sentence, says the helper was not added, and
 finishes. Put the refusal right and run `sudo zoomies updates helper install`.
 `--check` asks nothing and adds nothing.
+
+Where the helper can never be installed, the web UI does not suggest it. A
+controller on macOS or Windows, on a Linux host that systemd does not run, in a
+container that runs no runners (and so does not mount the shared folder), or in
+a container under a rootless runtime shows its helper as **unsupported** on
+Settings → Updates, with the reason and `sudo zoomies upgrade` to copy instead
+of the install command, and raises no `controller.update_helper_missing`. A host
+behind the controller for one of the same reasons (its agent says which on its
+heartbeat; an agent too old to say is known only by an operating system other
+than Linux) shows **Update by command** on its card with the reason and no
+button, and the upgrade command beneath it is the way.
 
 The same question is asked once more, in the same words, at the end of a fresh
 `zoomies init` and of `zoomies agent join`, once the service is installed (for a

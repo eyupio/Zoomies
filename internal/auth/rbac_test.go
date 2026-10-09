@@ -49,7 +49,7 @@ func TestEveryActionHasARole(t *testing.T) {
 		ActionRunnersRead, ActionRunnersDrain, ActionRunnersDelete,
 		ActionJobsRead,
 		ActionJobsCancel, ActionProvisioningWrite,
-		ActionHostsRead, ActionHostsCordon, ActionHostsDelete, ActionHostsAccept, ActionHostsCheck,
+		ActionHostsRead, ActionHostsCordon, ActionHostsDelete, ActionHostsAccept, ActionHostsCheck, ActionHostsUpdate,
 		ActionInstallationsRead, ActionInstallationsWrite, ActionInstallationsDelete,
 		ActionAuditRead,
 		ActionUsersRead, ActionUsersWrite,
@@ -171,6 +171,44 @@ func TestCheckingForAReleaseIsAnAdministratorsAndUpdatingTheControllerThePlatfor
 	if !admin.Can(ActionUpdatesCheck) || admin.Can(ActionUpdatesApply) {
 		t.Errorf("an administrator may check: %v, may update the controller: %v; want true, false",
 			admin.Can(ActionUpdatesCheck), admin.Can(ActionUpdatesApply))
+	}
+}
+
+// Updating a host replaces the binary of an agent that runs as root on a machine
+// the controller does not own, and a failed one leaves that host with no agent,
+// so an operator, who may cordon and drain it, may not; an administrator may, as
+// they may delete one. The scope is its own, so that a token can be given the
+// one without the other.
+func TestUpdatingAHostIsAnAdministratorsAndHasAScopeOfItsOwn(t *testing.T) {
+	if got := ActionHostsUpdate.MinRole(); got != store.RoleAdmin {
+		t.Errorf("%s needs %s; want admin", ActionHostsUpdate, got)
+	}
+	if got := ActionHostsUpdate.Scope(); got != "hosts:update" {
+		t.Errorf("the scope is %q, want hosts:update", got)
+	}
+	for _, tc := range []struct {
+		role store.Role
+		want bool
+	}{
+		{store.RoleViewer, false}, {store.RoleOperator, false}, {store.RoleAdmin, true}, {store.RolePlatform, true},
+	} {
+		id := &Identity{Kind: KindUser, ID: "usr_1", Name: "test", Role: tc.role}
+		if got := id.Can(ActionHostsUpdate); got != tc.want {
+			t.Errorf("a %s may update a host = %v, want %v", tc.role, got, tc.want)
+		}
+	}
+	if msg := Explain(&Identity{Kind: KindUser, Role: store.RoleOperator}, ActionHostsUpdate); !strings.Contains(msg, "admin") {
+		t.Errorf("refusing an operator says %q, which does not name the role they are missing", msg)
+	}
+
+	cordons := &Identity{Kind: KindToken, Name: "ci", Role: store.RolePlatform, Scopes: []string{"hosts:cordon"}}
+	if cordons.Can(ActionHostsUpdate) {
+		t.Error("a token scoped to hosts:cordon may update a host")
+	}
+	updates := &Identity{Kind: KindToken, Name: "rollout", Role: store.RoleAdmin, Scopes: []string{"hosts:update"}}
+	if !updates.Can(ActionHostsUpdate) || updates.Can(ActionHostsCordon) {
+		t.Errorf("a token scoped to hosts:update may update = %v, may cordon = %v; want true, false",
+			updates.Can(ActionHostsUpdate), updates.Can(ActionHostsCordon))
 	}
 }
 

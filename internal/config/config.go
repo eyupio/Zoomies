@@ -212,13 +212,14 @@ type Updates struct {
 // cannot be offered by the page and then refused at the next start.
 var updateModes = []string{"off", "manual", "auto"}
 
-// updatesControllerOnlyYet is said wherever the modes are described, because this
-// release can install only on the controller, and only on a click: an operator
-// who picks auto on the strength of a description that says every host follows
-// a release unasked would wait for an update that nothing makes. The docs quote
+// updatesAutoNotYet is said wherever the modes are described, because this
+// release installs only on a click: an operator who picks auto on the strength of
+// a description that says every host follows a release unasked would wait for an
+// update that nothing makes. The controller is updated from Settings → Updates,
+// and a host from its card once its update helper is installed. The docs quote
 // it word for word. Changing it is one grep for this sentence, in the release
-// that updates hosts and lets auto take a release by itself.
-const updatesControllerOnlyYet = "In this release only the controller can be updated from here, with the Update button on Settings → Updates, in manual and in auto alike; hosts are still upgraded by hand with the command on their card, and auto takes no release by itself yet."
+// that lets auto take a release by itself.
+const updatesAutoNotYet = "In this release you press Update yourself, on Settings → Updates for the controller and on a host's card for a host whose update helper is installed; auto takes no release by itself yet."
 
 // Backup is the controller's own copies of its database: where they go, how
 // often one is taken, how many are kept, and which object stores each one is

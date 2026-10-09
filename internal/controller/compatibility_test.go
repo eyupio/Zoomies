@@ -144,6 +144,7 @@ func TestAFailureOnAnUnknownTaskKindLeavesTheRunnerAlone(t *testing.T) {
 		{agent.TaskCancelLogs, false},
 		{agent.TaskPrewarmImage, false},
 		{agent.TaskCheckHost, false},
+		{agent.TaskUpdateAgent, false},
 		{agent.TaskKind("something_a_later_release_added"), false},
 	} {
 		if got := lifecycleTask(tc.kind); got != tc.want {

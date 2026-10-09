@@ -60,6 +60,13 @@ const FeatureTmpfs = "tmpfs"
 // and the daemon it asked for is given 50%.
 const FeatureDaemonShare = "daemon-share"
 
+// FeatureSelfUpdate is advertised by an agent that understands TaskUpdateAgent
+// and can carry it out on this host. An older agent does not ignore the kind, it
+// reports the task failed with "unknown task kind", so the controller asks for
+// the flag before it queues one and an older agent is never sent a task it would
+// refuse.
+const FeatureSelfUpdate = "self-update"
+
 // JoinRequest redeems a short-lived join token and enrols a new host.
 type JoinRequest struct {
 	Connection      string `json:"-"`
@@ -163,6 +170,43 @@ type HeartbeatRequest struct {
 	// controller reads the same way as a healthy runtime -- the only thing it
 	// ever knew about such a host -- and an older controller ignores it.
 	Runtime *RuntimeReport `json:"runtime,omitempty"`
+	// Update is the outcome of the last TaskUpdateAgent this agent ran, repeated
+	// on every beat until the controller has recorded it. An update restarts the
+	// agent, so the task's own result can never be sent by the process that took
+	// it; the new process reports the outcome here instead. Absent when there is
+	// nothing to report, and from an agent too old to update at all.
+	Update *UpdateReport `json:"update,omitempty"`
+	// UpdateUnsupported is why the update helper cannot be installed on this
+	// host, as one of updates.HelperUnsupported's words, so that its card says so
+	// instead of offering a command that would refuse. Absent where it could be,
+	// where it is installed, where the agent cannot tell, and from an agent too
+	// old to say, all of which the controller reads alike: as a helper not yet
+	// installed. A word, never a sentence, because every role reads the card.
+	UpdateUnsupported string `json:"update_unsupported,omitempty"`
+}
+
+// UpdateReport is what an agent says about an update it attempted. It is
+// answered by the attempt's ID, not by a task, because the agent that took the
+// task has been replaced by the time there is anything to say.
+type UpdateReport struct {
+	// ID is the UpdateID of the task this answers.
+	ID string `json:"id"`
+	// OK says the host now runs Tag. A failure with the old build still running
+	// and a failure that left the host with no agent look the same from here,
+	// which is why Error carries the sentence.
+	OK  bool   `json:"ok"`
+	Tag string `json:"tag"`
+	// From and To are the build versions before and after, as the binaries
+	// report them (without the leading v). To is empty when the attempt never
+	// reached a new binary.
+	From string `json:"from,omitempty"`
+	To   string `json:"to,omitempty"`
+	// Error is the reason for a failure, written for the operator who reads it
+	// on the host's page.
+	Error string `json:"error,omitempty"`
+	// FinishedAt is in UTC, taken from the agent's clock. The controller records
+	// it as the agent's word and does not compare it with its own.
+	FinishedAt time.Time `json:"finished_at"`
 }
 
 // RuntimeReport is the agent's runtime cooldown as it stands at this beat.
@@ -354,6 +398,11 @@ const (
 	// send the report back in the result. It names no runner and carries no
 	// spec, and nothing on the host is changed.
 	TaskCheckHost TaskKind = "check_host"
+	// TaskUpdateAgent asks the agent to replace its own binary with the release
+	// UpdateTag names and restart. It names no runner, and the outcome comes back
+	// as HeartbeatRequest.Update rather than as a result. The controller queues
+	// it only for a host that advertises FeatureSelfUpdate.
+	TaskUpdateAgent TaskKind = "update_agent"
 )
 
 // Task is one unit of work handed to an agent. Tasks are idempotent: the
@@ -390,6 +439,12 @@ type Task struct {
 	// mid-job and only silence is safe. Zero is a controller from before the
 	// field, which is treated like a redelivery.
 	Attempt int `json:"attempt,omitempty"`
+	// UpdateID and UpdateTag are what a TaskUpdateAgent carries: the attempt the
+	// controller recorded, which the agent echoes in its UpdateReport, and the
+	// release to move to. The tag is the whole of the instruction; there is no
+	// URL, path or flag for a compromised controller to make an agent fetch.
+	UpdateID  string `json:"update_id,omitempty"`
+	UpdateTag string `json:"update_tag,omitempty"`
 }
 
 // TaskResult reports the outcome of a task back to the controller.

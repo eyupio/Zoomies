@@ -167,6 +167,44 @@ The controller itself counts as a host. On a single-VM install the controller
 runs an agent inside its own process, which is why the fleet works before you
 have added anything.
 
+### Updating a host's agent
+
+A remote host's card has an **Update** button for an administrator, and so does
+the host's own page. It is offered when all of these are true:
+
+* The **update helper** is installed on that host (`sudo zoomies updates helper
+  install` there), so its agent reports that it can update itself.
+* The host is **behind** the controller's release, and the controller was built
+  from a release.
+* `updates.mode` is `manual` or `auto`. With `off` every request is refused and
+  says so.
+
+Pressing it asks you to confirm, naming the host and the release it will be
+taken to. The controller then asks the agent on its next poll (it never dials a
+host), and the helper on the host runs the same upgrade the card's command runs.
+The agent restarts, and the jobs that are running keep running: their runners
+stay in place and the new agent takes them over. The restart does not wait for
+them to finish.
+
+The card says **Updating** until the host reports the controller's release, and
+says **Updated** only then, never because the request was accepted. It is read
+from the controller on every load, so an update in flight is still shown after a
+reload. An update that fails, or that nothing answers within 90 minutes, says so
+on the card, shows the helper's sentence to the `platform` role (every other
+role reads a fixed sentence), and can be tried again; it raises
+`host.update_failed` in the problems list, which opens the host.
+
+When the button is not offered, the card says why in a sentence: the agent does
+not offer to update itself, or the build cannot be ordered against a release.
+Where the update helper can never be installed on the host (it is not Linux,
+systemd does not run it, or its agent runs in a container under a rootless
+runtime), the card says **Update by command** and which of those it is, draws no
+button and suggests no install: the command beneath it is the way.
+A host that matches the controller has no row at all. The agent inside the controller is updated with the
+controller, from **Settings → Updates**. The copyable command stays beneath the
+button on every card, for an operator to run on the host, whatever the button
+does.
+
 ## Living with more than one host
 
 ```sh

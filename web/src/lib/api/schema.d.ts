@@ -2477,6 +2477,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/hosts/{id}/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update a host to this controller's release
+         * @description Asks the host's agent to have its update helper replace the agent's binary with the release this controller runs. It answers 202 with the host, whose `update` block holds the attempt as `requested`: the task goes out on the agent's own poll, because the controller never dials an agent, and the host is updated once its agent reports that release, which the page learns from the host's `host.updated` events. Everything that can refuse does so before anything is written, so a refusal leaves nothing in flight. A host can be asked when its `update.can_update` is true: its agent offers to update itself (it does only once the update helper is installed on the host), it is behind the controller's release, and no attempt for it is open. The agent inside the controller is updated with the controller, and is refused with `update.host_cannot_update`, as is a host that is not behind. A host that is not there is a 404. Takes no body; a field sent is a 422 naming it. Audited as `update.host_requested` once it is accepted, and not before. Below the `platform` role the text of a failed attempt in the answer is a fixed sentence for its state.
+         */
+        post: operations["requestHostUpdate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hosts/{id}/check-acceptances": {
         parameters: {
             query?: never;
@@ -8365,6 +8388,26 @@ export interface components {
              */
             next_at?: string;
         };
+        /** @description The host's part in updating Zoomies from the web UI: whether it can be updated from here, why in a sentence, and its latest attempt while that attempt still says something about the host. Nothing in it moves with the clock or with a heartbeat. */
+        HostUpdate: {
+            /**
+             * @description The latest attempt's state: `requested` until the host reports the release or 90 minutes pass, then `succeeded`, `failed`, `timed_out`, or `cancelled` when the host was removed. `none` when there is no attempt to show, including one that failed before the host reached its release some other way. `unsupported` in place of `none` for a host behind the controller that the update helper can never be installed on (not Linux, no systemd, or a container under a rootless runtime): `reason` says which, and the host is updated with `upgrade_command`.
+             * @enum {string}
+             */
+            state: "none" | "unsupported" | "requested" | "succeeded" | "failed" | "timed_out" | "cancelled";
+            /**
+             * @description The card's sentence: why the host can or cannot be updated, or how its attempt stands. For a failed, timed-out or cancelled attempt only the `platform` role is given the reason recorded for it, which can be the update helper's own and name a path on the host; every other role is given a fixed sentence for the state, in every response and on the event stream alike.
+             * @example This host's agent does not offer to update itself, which it does only once the update helper is installed on the host. Run sudo zoomies updates helper install there, or update it with the command below.
+             */
+            reason: string;
+            /** @description Whether asking for an update now would be taken: the host's agent offers it, the host is behind the controller's release, the controller runs a release, it is not the agent inside the controller, and no attempt is open. `updates.mode` is not part of it; with the mode `off` every request is refused with `update.mode_off`. */
+            can_update: boolean;
+            /**
+             * @description The attempt `state` describes
+             * @example upd_k3fqz2mx7abcd
+             */
+            attempt_id: string;
+        };
         Host: {
             health_check?: components["schemas"]["HostHealthCheck"];
             doctor?: components["schemas"]["HostDoctorView"];
@@ -8503,12 +8546,13 @@ export interface components {
              * @enum {string}
              */
             version_skew?: "behind" | "ahead" | "differs";
-            /** @description Copyable `sudo zoomies upgrade --mode agent --version <tag>` command for an older or different remote agent, targeting the controller's published release or dev channel. An operator runs it on the host; the controller never does. Absent for embedded, matching or newer agents, and for unpublished controller builds. Contains no credentials. */
+            /** @description Copyable `sudo zoomies upgrade --mode agent --version <tag>` command for an older or different remote agent, targeting the controller's published release or dev channel. An operator runs it on the host. The controller asks the host's agent to update itself instead, with `POST /hosts/{id}/update`, only when `update.can_update` is true; for every other host this command is how it is upgraded. Absent for embedded, matching or newer agents, and for unpublished controller builds. Contains no credentials. */
             upgrade_command?: string;
             /** @description Controller build the upgrade is intended to match. */
             upgrade_version?: string;
             /** @description What the command does, or why no safe published command can be offered. */
             upgrade_note?: string;
+            update?: components["schemas"]["HostUpdate"];
             healthy?: boolean;
             /** Format: date-time */
             last_heartbeat?: string;
@@ -9342,17 +9386,22 @@ export interface components {
         };
         UpdatesHelper: {
             /**
-             * @description Whether the update helper is installed on the controller's host. Only a helper, installed by somebody with root there, can replace the controller's binary, so without one the controller cannot update itself.
+             * @description Whether the update helper is installed on the controller's host. Only a helper, installed by somebody with root there, can replace the controller's binary, so without one the controller cannot update itself. `unsupported` is a host it can never be installed on: not Linux, no systemd, a container that runs no runners and so has no shared folder, or a container under a rootless runtime.
              * @enum {string}
              */
-            state: "ready" | "missing";
-            /** @description A sentence that says what the state means. It names no path. */
+            state: "ready" | "missing" | "unsupported";
+            /** @description A sentence that says what the state means, and for `unsupported` which cause it is. It names no path. */
             reason: string;
             /**
-             * @description The command that installs the helper, for a person with root on the host to run. Empty when it is ready, and empty where it cannot be installed at all because the helper is a pair of systemd units and the controller's host is not Linux.
+             * @description The command that installs the helper, for a person with root on the host to run. Empty when it is ready, and when it is `unsupported`.
              * @example sudo zoomies updates helper install
              */
             install_command: string;
+            /**
+             * @description The command that updates the controller by hand on its host, for a person to copy. Set only when the state is `unsupported`, where it is the way.
+             * @example sudo zoomies upgrade
+             */
+            upgrade_command: string;
         };
         UpdatesAttempt: {
             /** @example upd_k3fqz2mx7abcd */
@@ -9455,6 +9504,32 @@ export interface components {
             features?: string[];
             backends?: components["schemas"]["BackendInfo"][];
             runners?: components["schemas"]["RunnerReport"][];
+            update?: components["schemas"]["AgentUpdateReport"];
+            /**
+             * @description Why the update helper can never be installed on this host: not Linux, no systemd, a container under a rootless runtime, or a container without the shared folder. Absent where it could be, where it is installed, where the agent cannot tell, and from an older agent, all of which the controller reads as a helper not yet installed. A word the controller does not know is read the same way.
+             * @enum {string}
+             */
+            update_unsupported?: "os" | "no-systemd" | "rootless" | "no-shared-folder";
+        };
+        /** @description The outcome of an `update_agent` task, sent on the heartbeat of the agent that replaced the one that took it, because the task's own result cannot be sent by a process that restarted. Repeated until the controller has recorded it. Absent when there is nothing to report, and from an agent that cannot update itself (one that does not advertise `self-update`). */
+        AgentUpdateReport: {
+            /** @description The `update_id` of the task this answers. */
+            id: string;
+            /** @description True when the host now runs `tag`. */
+            ok: boolean;
+            /** @description The release the attempt was for */
+            tag: string;
+            /** @description The agent's build version before the attempt */
+            from?: string;
+            /** @description The build version after it. Absent when the attempt never reached a new binary. */
+            to?: string;
+            /** @description Why the attempt failed */
+            error?: string;
+            /**
+             * Format: date-time
+             * @description When the attempt ended
+             */
+            finished_at: string;
         };
         AgentHeartbeatResponse: {
             /** @description Preserve workloads and quotas while controller authority is paused. */
@@ -9630,8 +9705,11 @@ export interface components {
              */
             memory_limit?: number;
         };
-        /** @enum {string} */
-        AgentTaskKind: "create_runner" | "stop_runner" | "remove_runner" | "stream_logs" | "cancel_logs" | "prewarm_image" | "fill_tool_cache";
+        /**
+         * @description `update_agent` is queued only for a host whose agent advertises the `self-update` feature; an older agent would report it failed as an unknown kind.
+         * @enum {string}
+         */
+        AgentTaskKind: "create_runner" | "stop_runner" | "remove_runner" | "stream_logs" | "cancel_logs" | "prewarm_image" | "fill_tool_cache" | "update_agent";
         /** @description One unit of work for an agent. Tasks are idempotent; the controller may redeliver one after a restart. */
         AgentTask: {
             id: string;
@@ -9656,6 +9734,10 @@ export interface components {
                 version: string;
                 distribution?: string;
             }[];
+            /** @description For an update_agent task: the update attempt the controller recorded, which the agent echoes in its heartbeat's `update` report. */
+            update_id?: string;
+            /** @description For an update_agent task: the release to move to, exactly vMAJOR.MINOR.PATCH. It is the whole instruction; no URL, path or flag travels with it. */
+            update_tag?: string;
             /** Format: date-time */
             issued_at: string;
             /** @description Deliveries of this task so far, from 1. A create that cannot tell whether its runner already exists fails a first delivery promptly and leaves a redelivery for the lease. Absent from older controllers. */
@@ -13808,6 +13890,38 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             429: components["responses"]["RateLimited"];
+        };
+    };
+    requestHostUpdate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Asked for. The host's `update` is `requested`. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Host"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["UpdateRefused"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     acceptHostCheck: {

@@ -347,6 +347,41 @@ func TestReadMarkerSaysWhetherTheHelperIsInstalled(t *testing.T) {
 	}
 }
 
+// A helper is ready only in a folder WriteRequest would write into. A folder
+// that is a link reads its target's marker, and an agent that offered to update
+// itself from one would answer every update with a refusal.
+func TestReadyReadsTheMarkerOnlyFromAFolderARequestCanBeWrittenTo(t *testing.T) {
+	marker := `{"v":1,"version":"1.3.4","binary":"/usr/local/bin/zoomies","installed_at":"2026-10-01T08:00:00Z"}`
+
+	_, dir := updateFolder(t)
+	if _, ok, err := Ready(dir); ok || err != nil {
+		t.Errorf("Ready without a marker = ok %v, err %v, want absent", ok, err)
+	}
+	write(t, filepath.Join(dir, MarkerFile), marker)
+	if got, ok, err := Ready(dir); !ok || err != nil || got.Version != "1.3.4" {
+		t.Errorf("Ready with a marker = %+v, ok %v, err %v, want the marker", got, ok, err)
+	}
+
+	parent := t.TempDir()
+	if _, ok, err := Ready(filepath.Join(parent, "update")); ok || err != nil {
+		t.Errorf("Ready without a folder = ok %v, err %v, want absent", ok, err)
+	}
+
+	file := filepath.Join(parent, "file")
+	write(t, file, marker)
+	if _, ok, err := Ready(file); ok || err == nil {
+		t.Errorf("Ready on a file = ok %v, err %v, want an error", ok, err)
+	}
+
+	link := filepath.Join(parent, "link")
+	if err := os.Symlink(dir, link); err != nil {
+		t.Skipf("cannot make a symbolic link here: %v", err)
+	}
+	if _, ok, err := Ready(link); ok || err == nil || !strings.Contains(err.Error(), "link") {
+		t.Errorf("Ready on a link to a ready folder = ok %v, err %v, want an error that says it is a link", ok, err)
+	}
+}
+
 func TestReadMarkerRefusesWhatItCannotTrust(t *testing.T) {
 	for name, body := range map[string]string{
 		"invalid json":      "{",
@@ -601,5 +636,58 @@ func TestWithdrawRequestRefusesAFolderThatIsALink(t *testing.T) {
 	}
 	if got := names(t, dir); !slices.Equal(got, []string{RequestFile}) {
 		t.Errorf("the folder holds %v, want the request still there", got)
+	}
+}
+
+// An agent asked again for an update finds a request waiting, and has to tell
+// its own (the same attempt, the same release) from anybody else's before it
+// answers. So the waiting request is read as WithdrawRequest reads it: never
+// through a link, within the helper's bound, and only as a document the helper
+// would accept.
+func TestPendingRequestReadsOnlyARequestTheHelperWouldRead(t *testing.T) {
+	_, dir := updateFolder(t)
+	if _, found, err := PendingRequest(dir); found || err != nil {
+		t.Fatalf("an empty folder: found %v, err %v; want nothing found", found, err)
+	}
+	if _, found, err := PendingRequest(filepath.Join(dir, "gone")); found || err != nil {
+		t.Fatalf("no folder: found %v, err %v; want nothing found", found, err)
+	}
+	if err := WriteRequest(dir, testRequest("upd_mine")); err != nil {
+		t.Fatal(err)
+	}
+	req, found, err := PendingRequest(dir)
+	if err != nil || !found || req.ID != "upd_mine" || req.Tag != testRequest("upd_mine").Tag {
+		t.Fatalf("PendingRequest = %+v, %v, %v; want the request written", req, found, err)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		plant func(t *testing.T, dir string) bool
+	}{
+		{"a file that is not a request", func(t *testing.T, dir string) bool { writeRaw(t, dir, []byte(`{"id":"upd_mine"`)); return true }},
+		{"a request over the size limit", func(t *testing.T, dir string) bool {
+			writeRaw(t, dir, append([]byte(`{"id":"upd_mine","pad":"`), make([]byte, updates.MaxRequestBytes)...))
+			return true
+		}},
+		{"a link to a request", func(t *testing.T, dir string) bool {
+			mine, err := json.Marshal(testRequest("upd_mine"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(dir, "elsewhere.json"), mine, 0o640); err != nil {
+				t.Fatal(err)
+			}
+			return os.Symlink("elsewhere.json", filepath.Join(dir, RequestFile)) == nil
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_, dir := updateFolder(t)
+			if !tc.plant(t, dir) {
+				t.Skip("cannot make a symbolic link here")
+			}
+			if req, _, err := PendingRequest(dir); err == nil {
+				t.Errorf("PendingRequest read %+v from what is not a request", req)
+			}
+		})
 	}
 }

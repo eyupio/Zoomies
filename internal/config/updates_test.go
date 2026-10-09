@@ -297,11 +297,11 @@ func TestTheSoakHasNoFloorAndZeroIsAnAnswer(t *testing.T) {
 	}
 }
 
-// Updating hosts, and auto taking a release by itself, have not shipped, so every
-// place that describes the modes says so in the same words. The sentence is one
-// constant so that changing it, when they arrive, is one search; the
-// docs quote it and are held to the same text here.
-func TestEveryPlaceThatPromisesAnUpdateSaysOnlyTheControllerCanBeUpdatedYet(t *testing.T) {
+// Auto taking a release by itself has not shipped, so every place that
+// describes the modes says so in the same words, and says where a person presses
+// Update instead. The sentence is one constant so that changing it, when auto
+// arrives, is one search; the docs quote it and are held to the same text here.
+func TestEveryPlaceThatPromisesAnUpdateSaysAutoTakesNoReleaseYet(t *testing.T) {
 	mode, ok := LookupSetting("updates.mode")
 	if !ok {
 		t.Fatal("updates.mode is not a setting")
@@ -317,8 +317,8 @@ func TestEveryPlaceThatPromisesAnUpdateSaysOnlyTheControllerCanBeUpdatedYet(t *t
 		{"the updates.auto detail", auto.Detail},
 		{"the updates.mode fix", invalid.Fix},
 	} {
-		if !strings.Contains(tc.text, updatesControllerOnlyYet) {
-			t.Errorf("%s = %q, want it to say %q", tc.where, tc.text, updatesControllerOnlyYet)
+		if !strings.Contains(tc.text, updatesAutoNotYet) {
+			t.Errorf("%s = %q, want it to say %q", tc.where, tc.text, updatesAutoNotYet)
 		}
 	}
 	// The title is printed at start-up on its own, so it must not promise what
@@ -326,7 +326,7 @@ func TestEveryPlaceThatPromisesAnUpdateSaysOnlyTheControllerCanBeUpdatedYet(t *t
 	if auto.Title != "the update mode is auto" || strings.Contains(strings.ToLower(auto.Title), "install") {
 		t.Errorf("the updates.auto title = %q, want it to state the mode and promise no installing", auto.Title)
 	}
-	if strings.Contains(auto.Title, updatesControllerOnlyYet) {
+	if strings.Contains(auto.Title, updatesAutoNotYet) {
 		t.Errorf("the updates.auto title carries the clause; a title is short, so it belongs in the detail")
 	}
 
@@ -343,8 +343,8 @@ func TestEveryPlaceThatPromisesAnUpdateSaysOnlyTheControllerCanBeUpdatedYet(t *t
 		{"the updates.mode row of docs/problem-codes.md", lineStarting(t, problems, "| `updates.mode` |")},
 		{"the updates.auto row of docs/problem-codes.md", lineStarting(t, problems, "| `updates.auto` |")},
 	} {
-		if !strings.Contains(tc.line, updatesControllerOnlyYet) {
-			t.Errorf("%s never says %q: %s", tc.where, updatesControllerOnlyYet, tc.line)
+		if !strings.Contains(tc.line, updatesAutoNotYet) {
+			t.Errorf("%s never says %q: %s", tc.where, updatesAutoNotYet, tc.line)
 		}
 	}
 }

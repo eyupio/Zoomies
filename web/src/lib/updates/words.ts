@@ -1,8 +1,9 @@
 /**
  * What the Updates page says, as functions of what the API answered.
  *
- * What the mode would take is in the conditional, because nothing moves a
- * release on its own yet. An update a person has asked for is in the present,
+ * What auto would take is in the conditional, because auto takes no release on
+ * its own yet; manual, which offers the Update buttons, is described as it is.
+ * An update a person has asked for is in the present,
  * and only as far as the controller has said so: a sentence that an update
  * worked is written from an attempt the controller closed as succeeded, or from
  * a build it reports running the release, and never from a request having been
@@ -31,11 +32,12 @@ export function modeLabel(mode: UpdateMode): string {
 const MODE_SENTENCES: Record<UpdateMode, string> = {
   off: 'Zoomies tells you when a newer release exists and does nothing about it. Updating stays a command you run yourself.',
   manual:
-    'Zoomies would offer the newest release that can be installed on this system and wait for a person to take it. Nothing would move until someone asks.',
+    'Zoomies offers the newest release that can be installed on this system, with an Update button for this controller and for each host whose update helper is installed. Nothing moves until someone presses one.',
   // The cost is part of the choice: a release replaced inside the soak is never
   // taken, so a project that publishes faster than the soak is never updated by
-  // auto, and an operator is told so before they depend on it.
-  auto: 'Zoomies would take the newest release that can be installed on this system once it has been public for the soak. A newer release restarts the wait, so if releases are published faster than the soak, auto never takes one.',
+  // auto, and an operator is told so before they depend on it. And it does not
+  // act yet, which an operator choosing it has to know before waiting on it.
+  auto: 'Zoomies would take the newest release that can be installed on this system once it has been public for the soak. A newer release restarts the wait, so if releases are published faster than the soak, auto never takes one. In this release auto takes no release by itself yet, and the Update buttons work as they do in manual.',
 };
 
 /** What the mode would do, and what it costs, in the words the choice is made by. */
@@ -70,8 +72,7 @@ export function targetLine(
 ): string {
   const { mode, target } = status;
   if (mode === 'off' || !target?.newer) return '';
-  if (mode === 'manual')
-    return `Manual would offer ${target.tag} and wait for a person to take it.`;
+  if (mode === 'manual') return `Manual offers ${target.tag} and waits for a person to take it.`;
   // A due time that cannot be read leaves the line without one rather than
   // with a date that is not a date.
   const due = toMillis(target.due_at);
@@ -262,8 +263,12 @@ export type UpdateOffer =
   | { kind: 'offer'; tag: string }
   /** An attempt is open, so the progress is shown in place of the button. */
   | { kind: 'in-flight' }
-  /** No button, and the sentence says why. */
-  | { kind: 'none'; sentence: string; installCommand: string };
+  /**
+   * No button, and the sentence says why. At most one command comes with it: the
+   * install where the helper is missing, or the upgrade by hand where it can
+   * never be installed.
+   */
+  | { kind: 'none'; sentence: string; installCommand: string; upgradeCommand: string };
 
 /**
  * Whether the controller can be updated from this page, by this reader, and if
@@ -271,20 +276,25 @@ export type UpdateOffer =
  *
  * The order is the order an operator would fix them in: who you are, whether
  * updating is on, whether this build is one that updates, whether the helper is
- * there, and last whether there is anything to take.
+ * there (or can never be), and last whether there is anything to take.
  */
 export function controllerOffer(status: UpdatesStatus, canPlatform: boolean): UpdateOffer {
   if (attemptIsOpen(status.controller, status.running.version)) return { kind: 'in-flight' };
-  const none = (sentence: string, installCommand = ''): UpdateOffer => ({
+  const none = (sentence: string, installCommand = '', upgradeCommand = ''): UpdateOffer => ({
     kind: 'none',
     sentence,
     installCommand,
+    upgradeCommand,
   });
   if (!canPlatform) return none('Updating the controller needs the platform role.');
   if (status.mode === 'off')
     return none('Updating is off. Set updates.mode to manual or auto to update from here.');
   if (!status.running.release)
     return none('This build is not from a release, so there is nothing to update it to from here.');
+  // A helper that can never be installed is never offered the command that
+  // installs one, whatever arrived beside it: that command would only refuse.
+  if (status.helper.state === 'unsupported')
+    return none(status.helper.reason, '', status.helper.upgrade_command);
   if (status.helper.state !== 'ready')
     return none(status.helper.reason, status.helper.install_command);
   const target = status.target;

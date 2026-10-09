@@ -206,6 +206,24 @@ func TestUpdatesStatusSaysHowToInstallAMissingHelper(t *testing.T) {
 	}
 }
 
+// Where the helper can never be installed, the status says why and gives the
+// upgrade by hand that works there, and nothing to install.
+func TestUpdatesStatusGivesTheUpgradeCommandWhereTheHelperCannotBeInstalled(t *testing.T) {
+	srv := jsonRoutes(t, map[string]string{"/api/v1/updates": `{"mode":"manual","soak":"24h","running":{"version":"1.3.4","release":true},
+		"latest":null,"target":null,"reason":"Nothing newer.","checked_at":null,
+		"helper":{"state":"unsupported","reason":"The update helper cannot be installed here.","install_command":"","upgrade_command":"sudo zoomies upgrade"},
+		"controller":null}`})
+	out, _ := runCLI(t, "updates", "status", "--url", srv.URL)
+	for _, want := range []string{"unsupported", "Upgrade", "sudo zoomies upgrade"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("status does not say %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "Install") {
+		t.Errorf("status offers an install where there is none:\n%s", out)
+	}
+}
+
 func TestUpdatesStatusAsJSONEmitsTheServersBodyWhole(t *testing.T) {
 	srv := jsonRoutes(t, map[string]string{"/api/v1/updates": updatesStatusBody})
 	out, _ := runCLI(t, "updates", "status", "--output", "json", "--url", srv.URL)

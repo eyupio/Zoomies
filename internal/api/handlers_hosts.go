@@ -32,8 +32,9 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := make([]hostResponse, 0, len(hosts))
+	platform := isPlatform(r)
 	for _, h := range hosts {
-		out = append(out, s.ctrl.HostView(h))
+		out = append(out, s.ctrl.HostView(h).For(platform))
 	}
 	writeJSON(w, http.StatusOK, newList(out))
 }
@@ -71,7 +72,7 @@ func (s *Server) handleGetHost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "reading the host", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
+	writeJSON(w, http.StatusOK, s.ctrl.HostView(h).For(isPlatform(r)))
 }
 
 type hostUpdateRequest struct {
@@ -284,7 +285,7 @@ func (s *Server) applyHostUpdate(w http.ResponseWriter, r *http.Request, id stri
 	s.ctrl.PublishHost(h)
 	// Capacity, labels and the reserve all decide where runners may be placed.
 	s.ctrl.Nudge()
-	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
+	writeJSON(w, http.StatusOK, s.ctrl.HostView(h).For(isPlatform(r)))
 }
 
 // auditHostUpdate writes the PATCH's audit row: the fields that differ, as
@@ -335,7 +336,7 @@ func (s *Server) handleClearHostThrottle(w http.ResponseWriter, r *http.Request)
 			"effective_capacity": effective, "capacity": h.Capacity,
 		})
 	}
-	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
+	writeJSON(w, http.StatusOK, s.ctrl.HostView(h).For(isPlatform(r)))
 }
 
 type cordonRequest struct {
@@ -375,7 +376,7 @@ func (s *Server) handleCordonHost(w http.ResponseWriter, r *http.Request) {
 		s.ctrl.PublishHost(h)
 		s.ctrl.Nudge()
 	}
-	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
+	writeJSON(w, http.StatusOK, s.ctrl.HostView(h).For(isPlatform(r)))
 }
 
 // handleCheckHost answers POST /api/v1/hosts/{id}/health-check.
@@ -404,7 +405,42 @@ func (s *Server) handleCheckHost(w http.ResponseWriter, r *http.Request) {
 	if queued {
 		s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "host.check_requested", "host", id, map[string]any{"name": h.Name})
 	}
-	writeJSON(w, http.StatusAccepted, s.ctrl.HostView(&h))
+	writeJSON(w, http.StatusAccepted, s.ctrl.HostView(&h).For(isPlatform(r)))
+}
+
+// handleRequestHostUpdate answers POST /api/v1/hosts/{id}/update: ask the host's
+// agent to have its update helper take it to this controller's release.
+//
+// It answers 202 with the host, whose update block holds the attempt, because the
+// request is made and nothing is done: the task goes out on the agent's own poll
+// and the page learns how it went from the host's frames. The audit row is written
+// once the controller has said yes, so a refused press, which changed nothing,
+// leaves none. The row names the host and the two releases and nothing the helper
+// wrote, which can be a path on the host, because an administrator reads the audit
+// log and only the platform reads that.
+func (s *Server) handleRequestHostUpdate(w http.ResponseWriter, r *http.Request) {
+	if !decodeNoUpdateBody(w, r) {
+		return
+	}
+	id := chiURLParam(r, "id")
+	ident := Identity(r.Context())
+	view, err := s.ctrl.RequestHostUpdate(r.Context(), controller.UpdateActor{ID: ident.ID, Name: ident.Name}, id)
+	if err != nil {
+		s.failUpdate(w, r, err)
+		return
+	}
+	// Detached from the request: the task may already be queued, and a browser that
+	// gave up waiting must not leave it with no record of who asked.
+	ctx := context.WithoutCancel(r.Context())
+	attemptID, detail := "", map[string]any{"host_id": id}
+	if view.Update != nil && view.Update.AttemptID != "" {
+		attemptID = view.Update.AttemptID
+		if latest, err := s.ctrl.Store().ListUpdateAttempts(ctx, store.UpdateScopeHost, id, 1); err == nil && len(latest) == 1 && latest[0].ID == attemptID {
+			detail["from"], detail["to"] = latest[0].FromVersion, latest[0].ToVersion
+		}
+	}
+	s.auth.Auditor().Act(ctx, ident, "update.host_requested", "update", attemptID, detail)
+	writeJSON(w, http.StatusAccepted, view.For(isPlatform(r)))
 }
 
 // handleDeleteHost removes a host.
@@ -888,7 +924,7 @@ func (s *Server) handleAcceptHostCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.auth.Auditor().Record(r.Context(), ident, "host.check_accepted", "host", id, nil, acceptanceAudit(a))
-	writeJSON(w, http.StatusOK, v)
+	writeJSON(w, http.StatusOK, v.For(isPlatform(r)))
 }
 
 // handleRevokeHostCheck answers DELETE /api/v1/hosts/{id}/check-acceptances/{check_id}.
@@ -906,5 +942,5 @@ func (s *Server) handleRevokeHostCheck(w http.ResponseWriter, r *http.Request) {
 	if ended != nil {
 		_ = s.auth.Auditor().Record(r.Context(), Identity(r.Context()), "host.check_revoked", "host", id, acceptanceAudit(ended), nil)
 	}
-	writeJSON(w, http.StatusOK, v)
+	writeJSON(w, http.StatusOK, v.For(isPlatform(r)))
 }

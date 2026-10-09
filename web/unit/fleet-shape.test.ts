@@ -86,3 +86,35 @@ test('a report that only moved its own time does not move the fleet', () => {
   assert.equal(shapeDiffers(before, worse), true);
   assert.equal(shapeDiffers(host, before), true, 'a first report is news');
 });
+
+test('a host’s update block is the same fleet from one heartbeat to the next, and a new state is not', () => {
+  // The controller's block holds nothing that moves with the clock or with a
+  // heartbeat, so a frame that repeats it is the fleet unchanged. Were any part
+  // of it to move on every beat, every Runners and Pools grid would fetch its
+  // page again once per host per heartbeat to learn nothing.
+  const update = {
+    state: 'requested',
+    reason: 'The update to v1.3.0 has been asked for.',
+    can_update: false,
+    attempt_id: 'upd_1',
+  };
+  const open = { ...host, version: '1.2.0', version_skew: 'behind', update };
+  const nextBeat = {
+    ...open,
+    cpu_percent: 40,
+    last_heartbeat: '2026-01-01T00:00:30Z',
+    usage: { cpu_percent: 40 },
+    memory_pool: { total_mb: 32768, lent_mb: 512, free_mb: 19000 },
+    update: { ...update },
+  };
+  assert.equal(shapeDiffers(open, nextBeat), false);
+  // The attempt closing is news: the host's card, and its version, changed.
+  const closed = {
+    ...open,
+    version: '1.3.0',
+    version_skew: undefined,
+    update: { ...update, state: 'succeeded' },
+  };
+  assert.equal(shapeDiffers(open, closed), true);
+  assert.equal(shapeDiffers(open, { ...open, update: { ...update, state: 'failed' } }), true);
+});

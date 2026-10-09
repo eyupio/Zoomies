@@ -41,6 +41,10 @@ test('a behind or different agent may be too old, and an operator gets the contr
     assert.equal(r.kind, 'release');
     assert.match(r.description, /may be too old to send OS reports/);
     assert.equal(r.command, UPGRADE);
+    // Zoomies can now update a host, so the line under the command says when it
+    // does and no longer says it never will.
+    assert.match(r.after ?? '', /only when an administrator presses Update/);
+    assert.doesNotMatch(r.after ?? '', /never runs it for you/);
     assert.equal(r.copyLabel, 'Copy the upgrade command');
     assert.equal(r.note, 'Updates it.');
   }
@@ -58,7 +62,11 @@ test('the upgrade command is never built from a host field and never reaches a v
   const viewer = run(evil, false);
   assert.equal(viewer.kind, 'release');
   assert.equal(viewer.command, null);
-  assert.match(viewer.detail, /needs the operator role/);
+  // Both ways of updating are named, because a viewer can ask either person, and
+  // neither is claimed to be something Zoomies does by itself.
+  assert.match(viewer.detail, /needs an administrator, who can press Update/);
+  assert.match(viewer.detail, /or an operator, who can run its upgrade command/);
+  assert.doesNotMatch(viewer.detail, /never updates a host itself/);
   // No command to offer: say so rather than invent one.
   const none = run(host({ version_skew: 'differs' }));
   assert.equal(none.command, null);

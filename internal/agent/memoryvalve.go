@@ -182,17 +182,25 @@ func (a *Agent) features() []string {
 		out = append(out, FeatureHostCheck)
 	}
 	if a.opts.ReadMemory != nil {
-		return append(out, FeatureElasticMemory)
-	}
-	// A daemon on another machine cannot be checked against this one's procfs,
-	// so every decision here would be "unmeasured": offering the valve there
-	// would have the controller send rules that can never be carried out and
-	// say nothing about it.
-	a.mu.Lock()
-	remote := remoteDaemon(a.backendInfo)
-	a.mu.Unlock()
-	if machine.MemoryReadable() && !remote {
 		out = append(out, FeatureElasticMemory)
+	} else {
+		// A daemon on another machine cannot be checked against this one's procfs,
+		// so every decision here would be "unmeasured": offering the valve there
+		// would have the controller send rules that can never be carried out and
+		// say nothing about it.
+		a.mu.Lock()
+		remote := remoteDaemon(a.backendInfo)
+		a.mu.Unlock()
+		if machine.MemoryReadable() && !remote {
+			out = append(out, FeatureElasticMemory)
+		}
+	}
+	// An older agent answers an update task with a failure, so the controller
+	// sends one only where this is offered, and it is offered only while the
+	// helper's marker is in a folder a request can be written to: a request
+	// nobody reads would sit until the attempt timed out.
+	if a.selfUpdateReady() {
+		out = append(out, FeatureSelfUpdate)
 	}
 	return out
 }

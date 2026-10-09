@@ -45,6 +45,8 @@ type fakeBackend struct {
 	// the agent has asked.
 	unavailable bool
 	probes      int
+	// rootless makes Probe answer as a daemon that runs without root.
+	rootless bool
 	// cpus and memoryMB are the machine the daemon says it is running on,
 	// which on a containerised agent is larger than the agent's own share.
 	cpus     int
@@ -103,7 +105,7 @@ func (f *fakeBackend) Probe(context.Context) backend.Info {
 		}
 	}
 	return backend.Info{Kind: f.kind, Available: true, Version: "fake", Endpoint: "memory",
-		CPUs: f.cpus, MemoryMB: f.memoryMB}
+		CPUs: f.cpus, MemoryMB: f.memoryMB, Rootless: f.rootless}
 }
 
 // setUnavailable flips what the next probe will find.

@@ -60,6 +60,10 @@ func TestEveryTaskLeaseOutlastsTheWorkItCovers(t *testing.T) {
 		{agent.TaskRemoveRunner, removeLease, agent.RemoveTimeout},
 		// A check is bounded by the monitor's own run timeout on the agent.
 		{agent.TaskCheckHost, hostCheckLease, hosttune.MonitorRunTimeout},
+		// An update task is one small file written before the answer; the
+		// update it asks for restarts the agent and reports on a heartbeat, so it
+		// is not the task's work. A minute is far beyond the write.
+		{agent.TaskUpdateAgent, updateLease, time.Minute},
 	}
 	for _, c := range cases {
 		if got := requeueAfter(c.kind); got != c.lease {

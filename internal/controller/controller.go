@@ -106,6 +106,11 @@ type Options struct {
 	// --config file, or <shared>/update in a container. A test names one, so that
 	// what it sees is never the real host's.
 	UpdateDir string
+	// HelperHost says what this controller's machine is, as far as whether the
+	// update helper could be installed beside it. Nil reads the machine itself
+	// (agent.LocalHelperHost); a test names one, so that the status it sees never
+	// depends on whether the suite runs in a container or under systemd.
+	HelperHost func() updates.HelperHost
 }
 
 // Controller owns the control plane's moving parts and their lifecycles.
@@ -191,6 +196,8 @@ type Controller struct {
 	// Options.UpdateDir; see updates_loop.go.
 	updates      updatesState
 	updateFolder string
+	// helperHost is Options.HelperHost.
+	helperHost func() updates.HelperHost
 	// startedAt is when this process began listening to its hosts, which is what
 	// a host's silence is counted from if it is later than the host's last
 	// heartbeat: see scheduler.AutoPoolInput.Since.
@@ -495,6 +502,7 @@ func New(opts Options) (*Controller, error) {
 		autoPools:               newAutoPoolState(),
 		updates:                 newUpdatesState(),
 		updateFolder:            opts.UpdateDir,
+		helperHost:              opts.HelperHost,
 		startedAt:               clock().UTC(),
 		pollSettingsChanged:     make(chan struct{}, 1),
 		recoverySettingsChanged: make(chan struct{}, 1),
@@ -987,13 +995,16 @@ func (c *Controller) publishHost(h *store.Host) {
 	if h == nil || c.bus == nil {
 		return
 	}
-	raw, err := json.Marshal(c.HostView(h))
+	// The platform's form, which is what the platform's GET answers; the stream
+	// narrows it for every other subscriber, as it does the update status.
+	view := c.HostView(h).For(true)
+	raw, err := json.Marshal(view)
 	if err != nil {
 		// Not reachable with a HostView, and not worth dropping the frame
 		// over if it ever were: the operator needs the event more than the
 		// pass needs its record.
 		c.log.Error("could not marshal a host for the event stream", "host", h.ID, "error", err)
-		c.publish(events.KindHostUpdated, "host:"+h.ID, c.HostView(h))
+		c.publish(events.KindHostUpdated, "host:"+h.ID, view)
 		return
 	}
 	c.rememberHost(h.ID, raw)
@@ -1149,6 +1160,7 @@ func (c *Controller) DeleteHostForgettingMachine(ctx context.Context, id, machin
 	}
 	c.queues.forget(id)
 	c.hostChecks.forget(id)
+	c.forgetHostUpdates(id)
 	c.dropMemoryState(id)
 	c.publishRunnersDeleted(runners)
 	if machineID != "" {

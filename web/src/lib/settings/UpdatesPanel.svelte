@@ -286,6 +286,13 @@
                 showValue
                 showLabel
               />
+            {:else if offer.upgradeCommand}
+              <CopyButton
+                value={offer.upgradeCommand}
+                label="Copy the upgrade command"
+                showValue
+                showLabel
+              />
             {/if}
           </div>
         {/if}

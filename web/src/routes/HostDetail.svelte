@@ -41,6 +41,9 @@
   import Button from '$lib/components/Button.svelte';
   import CopyButton from '$lib/components/CopyButton.svelte';
   import HostDoctorCommand from '$lib/hosts/HostDoctorCommand.svelte';
+  import HostUpdateDialog from '$lib/hosts/HostUpdateDialog.svelte';
+  import HostUpdateRow from '$lib/hosts/HostUpdateRow.svelte';
+  import { hostUpdateWords } from '$lib/hosts/update';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Panel from '$lib/components/Panel.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
@@ -68,6 +71,10 @@
   // Who may cordon. A viewer is told what to do in the report instead, and
   // never offered a button the controller would refuse.
   const canOperate = $derived(session.can('operator'));
+  // Updating an agent from here is an administrator's, as removing a host is.
+  const canAdmin = $derived(session.can('admin'));
+  const showUpdate = $derived(canAdmin && host ? hostUpdateWords(host) !== null : false);
+  let updateOpen = $state(false);
   let cordoning = $state(false);
   let cordonedBefore = $state(false);
   // While a request is in flight the cache already shows the optimistic value,
@@ -492,6 +499,7 @@
 {:else if !report}
   <div class="health-content">
     {@render nextPanel()}
+    {@render updatePanel()}
     {#if missing}
       <Panel title="No health report yet" description={missing.description}>
         <p>
@@ -526,6 +534,7 @@
     <output class="sr-only" aria-live="polite">{liveText}</output>
     <!-- First, so that a phone meets the action before a long list of findings. -->
     {@render nextPanel()}
+    {@render updatePanel()}
     <Panel title="Latest host report" description={summary.hint}>
       <p>{reportOrigin(report)} · Checked <RelativeTime value={report.checked_at} /></p>
       {#if changeLog.length}
@@ -620,6 +629,7 @@
   check={acceptTarget}
   onaccepted={accepted}
 />
+<HostUpdateDialog bind:open={updateOpen} host={host ?? null} />
 <ConfirmDialog
   bind:open={revokeOpen}
   title="Revoke acceptance"
@@ -629,6 +639,17 @@
   tone="default"
   onconfirm={revoke}
 />
+
+{#snippet updatePanel()}
+  {#if showUpdate && host}
+    <Panel
+      title="Agent update"
+      description="Ask this host's agent to update itself to the release the controller runs."
+    >
+      <HostUpdateRow {host} onupdate={() => (updateOpen = true)} />
+    </Panel>
+  {/if}
+{/snippet}
 
 {#snippet nextPanel()}
   {#if showStep && step && host}

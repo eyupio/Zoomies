@@ -155,7 +155,7 @@ func (c *Controller) publishHostChanges(ctx context.Context) {
 	for _, h := range hosts {
 		live[h.ID] = struct{}{}
 		last := c.lastHosts[h.ID]
-		raw, changed := c.derivedChanged(&last, c.HostView(h))
+		raw, changed := c.derivedChanged(&last, c.HostView(h).For(true))
 		if !changed {
 			continue
 		}

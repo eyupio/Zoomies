@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -256,6 +257,22 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 					// subscriber is not entitled to, so it is dropped. The page
 					// keeps what it had until the next change, and GET /updates
 					// repairs it on any reload.
+					continue
+				}
+				data = filtered
+			}
+			if ev.Kind == events.KindHostUpdated {
+				// The same host GET /hosts serves this caller: the bus carries the
+				// platform's form, and the reason an ended update recorded, which
+				// can name a path on the host, is withheld from everybody else.
+				// Resolved per frame, replay included, like the update status.
+				id, err := s.resolveIdentity(r)
+				platform := err == nil && id != nil && id.Role.AtLeast(store.RolePlatform)
+				filtered, ok := hostsFor(data, platform)
+				if !ok && !platform {
+					// Unfilterable, so possibly carrying exactly what is withheld.
+					// The card keeps what it had until the next change, and
+					// GET /hosts repairs it on any reload.
 					continue
 				}
 				data = filtered
@@ -594,6 +611,48 @@ func updatesFor(data []byte, platform bool) ([]byte, bool) {
 		return data, false
 	}
 	out, err := json.Marshal(view.For(false))
+	if err != nil {
+		return data, false
+	}
+	return out, true
+}
+
+// hostsFor narrows an already-rendered host frame to one audience, and reports
+// whether it could, as updatesFor does for the update status. Only the update
+// block can differ between audiences, and only for an attempt that ended, so a
+// frame that names no ended state is passed on untouched without being decoded:
+// a host frame goes out on every heartbeat that moves anything, to every tab.
+//
+// The frame is re-encoded as a map of its raw fields, so that only the update
+// block is rewritten and every other field reaches the browser as the
+// controller wrote it.
+func hostsFor(data []byte, platform bool) ([]byte, bool) {
+	if platform {
+		return data, true
+	}
+	if !bytes.Contains(data, []byte(`"`+store.UpdateFailed+`"`)) &&
+		!bytes.Contains(data, []byte(`"`+store.UpdateTimedOut+`"`)) &&
+		!bytes.Contains(data, []byte(`"`+store.UpdateCancelled+`"`)) {
+		return data, true
+	}
+	var frame map[string]json.RawMessage
+	if err := json.Unmarshal(data, &frame); err != nil {
+		return data, false
+	}
+	raw, ok := frame["update"]
+	if !ok || string(raw) == "null" {
+		return data, true
+	}
+	var update controller.HostUpdateView
+	if err := json.Unmarshal(raw, &update); err != nil {
+		return data, false
+	}
+	narrowed, err := json.Marshal(update.For(false))
+	if err != nil {
+		return data, false
+	}
+	frame["update"] = narrowed
+	out, err := json.Marshal(frame)
 	if err != nil {
 		return data, false
 	}

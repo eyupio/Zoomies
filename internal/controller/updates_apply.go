@@ -33,22 +33,13 @@ const (
 	maxRequestedBy = 128
 )
 
-// helperPlatform is the operating system this controller runs on, as far as the
-// update helper is concerned. It is a variable so that the answer for a platform
-// the suite is not running on can be tested.
-var helperPlatform = runtime.GOOS
-
-// helperInstallable is whether the update helper can exist on this platform at
-// all: it is a pair of systemd units, and `zoomies updates helper install`
-// refuses anywhere else. What it cannot see is a Linux host without systemd, or a
-// container that runs no runners and so has no shared folder; the installer says
-// so itself when it is run there.
-func helperInstallable() bool { return helperPlatform == "linux" }
-
 // The helper's states as the status names them.
 const (
 	HelperReady   = "ready"
 	HelperMissing = "missing"
+	// HelperUnsupported is a controller the helper can never be installed
+	// beside, where the install command would only refuse.
+	HelperUnsupported = "unsupported"
 )
 
 // UpdateActor is who asked for an update, as the request and the attempt record
@@ -86,39 +77,55 @@ type helperProbe struct {
 // the installer's last step, so a folder without one is a helper that was never
 // finished, and is treated as none.
 //
+// Where the helper is not there and can never be (see updates.HelperSupport),
+// the status says why, and offers the upgrade by hand in place of an install
+// that would refuse. A marker found is a better witness than that reasoning,
+// except about an operating system that cannot run the units at all.
+//
 // The status is shown to every role, so its sentence names no path; the refusal
 // goes only to the person who pressed the button, and names the folder so that
 // they can find it.
 func (c *Controller) probeUpdateHelper() helperProbe {
-	missing := UpdatesHelper{
+	cause := c.helperUnsupported()
+	missing := func(p helperProbe) helperProbe {
+		if cause == "" {
+			return p
+		}
+		why := helperUnsupportedWhy(cause, "this controller")
+		return helperProbe{dir: p.dir, view: UpdatesHelper{
+			State:          HelperUnsupported,
+			Reason:         "The update helper cannot be installed here: " + why + ". Update this controller on its host with the command below.",
+			UpgradeCommand: controllerUpgradeCommand,
+		}, refusal: "the update helper cannot be installed here: " + why + "; update this controller on its host with zoomies upgrade"}
+	}
+	view := UpdatesHelper{
 		State: HelperMissing,
 		Reason: "No update helper is installed on this controller's host, so the controller cannot update itself. " +
 			"Somebody with root on the host can install it with the command below; until then, update it with zoomies upgrade.",
 		InstallCommand: helperInstallCommand,
 	}
-	if !helperInstallable() {
-		missing.Reason = "The update helper is a pair of systemd units, and this controller's host (" + helperPlatform + ") cannot run them, " +
-			"so the controller cannot update itself. Update it on its host with zoomies upgrade."
-		missing.InstallCommand = ""
-		return helperProbe{view: missing, refusal: "the update helper is a pair of systemd units, which " + helperPlatform +
-			" cannot run, so this controller cannot update itself; update it on its host with zoomies upgrade"}
+	if cause == updates.HelperUnsupportedOS {
+		return missing(helperProbe{})
 	}
 	dir, ok := c.updateDir()
 	if !ok {
-		return helperProbe{view: missing, refusal: "this controller has no update folder, which installing the helper records; run \"" +
-			helperInstallCommand + "\" on the controller's host"}
+		return missing(helperProbe{view: view, refusal: "this controller has no update folder, which installing the helper records; run \"" +
+			helperInstallCommand + "\" on the controller's host"})
 	}
-	_, found, err := channel.ReadMarker(dir)
+	// Ready and not the marker alone: a folder that is a link reads its target's
+	// marker, and WriteRequest refuses to write through one, so the status would
+	// offer an update that every press then refuses.
+	_, found, err := channel.Ready(dir)
 	switch {
 	case err != nil:
-		c.log.Debug("could not read the update helper's marker", "error", err)
-		missing.Reason = "The update helper's marker on this controller's host cannot be read, so the helper is treated as missing. " +
+		c.log.Debug("the update folder is not as the installer leaves it", "error", err)
+		view.Reason = "The update folder on this controller's host, or the helper's marker in it, is not as the installer leaves it, so the helper is treated as missing. " +
 			"Install it again with the command below."
-		return helperProbe{dir: dir, view: missing, refusal: fmt.Sprintf("its marker in the update folder %s cannot be read (%v); run \"%s\" on the controller's host to install it again",
-			dir, err, helperInstallCommand)}
+		return missing(helperProbe{dir: dir, view: view, refusal: fmt.Sprintf("the update folder %s, or its marker, is not as the installer leaves it (%v); run \"%s\" on the controller's host to install it again",
+			dir, err, helperInstallCommand)})
 	case !found:
-		return helperProbe{dir: dir, view: missing, refusal: fmt.Sprintf("there is no %s in the update folder %s, so the helper is not installed; run \"%s\" on the controller's host",
-			channel.MarkerFile, dir, helperInstallCommand)}
+		return missing(helperProbe{dir: dir, view: view, refusal: fmt.Sprintf("there is no %s in the update folder %s, so the helper is not installed; run \"%s\" on the controller's host",
+			channel.MarkerFile, dir, helperInstallCommand)})
 	}
 	return helperProbe{dir: dir, ready: true, view: UpdatesHelper{
 		State:  HelperReady,

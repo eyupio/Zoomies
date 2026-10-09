@@ -18,6 +18,7 @@ import (
 	"time"
 	"unicode"
 
+	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/updates"
 	"github.com/eyupio/zoomies/internal/updates/channel"
 	"github.com/eyupio/zoomies/internal/version"
@@ -166,7 +167,10 @@ func (o InstallHelperOptions) withDefaults() InstallHelperOptions {
 // account, whose WorkingDirectory= is the state directory and whose ExecStart=
 // is the binary.
 func ResolveHelperInstall(configDir string) (InstallHelperOptions, error) {
-	if _, err := os.Stat("/run/systemd/system"); err != nil {
+	// The same look the controller and the agent take before they show a host as
+	// one the helper can never be installed on (agent.LocalHelperHost), so that
+	// the status and this refusal cannot disagree about which hosts those are.
+	if !backend.HasSystemd() {
 		return InstallHelperOptions{}, errors.New(noSystemdForHelper)
 	}
 	executable, err := os.Executable()

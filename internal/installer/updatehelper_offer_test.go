@@ -120,9 +120,8 @@ func TestAnUpgradeAsksAboutTheHelperAsItsOwnQuestionThatDefaultsToNo(t *testing.
 			if tc.says != "" && !strings.Contains(out, tc.says) {
 				t.Errorf("output does not say %q:\n%s", tc.says, out)
 			}
-			// Nothing in the controller writes a request yet, so the question and the
-			// hint that follows a no each say so, once, and a later release removes
-			// the sentence from both.
+			// The question and the hint that follows a no each say what the helper is
+			// for, once: a person declining is told what they declined.
 			wantSaid := 0
 			if tc.asks {
 				wantSaid++
@@ -130,11 +129,8 @@ func TestAnUpgradeAsksAboutTheHelperAsItsOwnQuestionThatDefaultsToNo(t *testing.
 			if tc.says == addLater {
 				wantSaid++
 			}
-			if got := strings.Count(out, UpdateHelperControllerOnlyYet); got != wantSaid {
-				t.Errorf("%q is said %d times, want %d:\n%s", UpdateHelperControllerOnlyYet, got, wantSaid, out)
-			}
-			if strings.Contains(out, UpdateHelperAgentHostNotUsedYet) {
-				t.Errorf("an upgrade, which may be the controller's, says what only an agent host's join says:\n%s", out)
+			if got := strings.Count(out, UpdateHelperExplained); got != wantSaid {
+				t.Errorf("%q is said %d times, want %d:\n%s", UpdateHelperExplained, got, wantSaid, out)
 			}
 			if tc.asks {
 				for _, want := range []string{"sudo zoomies updates helper remove", "as root", "validated request", "by writing a request"} {

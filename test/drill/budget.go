@@ -31,8 +31,22 @@ const (
 	// after something is killed. It is the longest wait here because a
 	// restarted controller has to re-derive its task queue from the rows.
 	waitRecovery = 90 * time.Second
+	// waitBuild bounds building one release-stamped binary for an update drill.
+	// Every package is already in the build cache from the binary make built, so
+	// this is a link of a few seconds, or a recompile of what changed since; a
+	// build that needs a minute is fetching modules, which a drill should fail on
+	// by name rather than wait out.
+	waitBuild = time.Minute
+	// waitUpdate is how long an update drill gives each step that crosses the
+	// agent's task poll or its first heartbeat: the request reaching the update
+	// folder, and the host reporting the release it was taken to. Both happen at
+	// once on a healthy fleet, because the poll is held open and an agent beats as
+	// it starts. Thirty seconds is one heartbeat interval, so a step that had to
+	// wait for the next beat still fits.
+	waitUpdate = 30 * time.Second
 )
 
 // drillBudget is the longest one drill may legitimately take.
 const drillBudget = waitProcessUp + waitRunnerCreated + waitWorkloadUp +
-	waitJobDone + waitRunnerGone + waitPromptCleanup + waitRecovery + waitStaysUp
+	waitJobDone + waitRunnerGone + waitPromptCleanup + waitRecovery + waitStaysUp +
+	waitBuild + waitUpdate

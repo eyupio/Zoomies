@@ -48,7 +48,7 @@ func TestAnUnattendedControllerIsUsableWithNoHumanStep(t *testing.T) {
 		t.Fatalf("writing the token file: %v", err)
 	}
 
-	f.controller = f.spawn("controller", []string{"controller"}, append(baseEnv(f.stateDir),
+	f.controller = f.spawn(builtBinary(), "controller", []string{"controller"}, append(baseEnv(f.stateDir),
 		fmt.Sprintf("ZOOMIES_BIND=127.0.0.1:%d", f.port),
 		"ZOOMIES_DB_PATH="+filepath.Join(f.stateDir, "zoomies.db"),
 		"ZOOMIES_GITHUB_API_BASE_URL="+gh.URL(),
@@ -110,7 +110,7 @@ func TestAnUnattendedControllerIsUsableWithNoHumanStep(t *testing.T) {
 	if err := os.MkdirAll(work, 0o750); err != nil {
 		t.Fatalf("creating the agent work directory: %v", err)
 	}
-	f.agent = f.spawn("agent", []string{"agent"}, append(baseEnv(agentDir),
+	f.agent = f.spawn(builtBinary(), "agent", []string{"agent"}, append(baseEnv(agentDir),
 		"ZOOMIES_CONTROLLER_URL="+f.baseURL,
 		"ZOOMIES_JOIN_TOKEN="+join.Token,
 		"ZOOMIES_AGENT_BACKEND=process",

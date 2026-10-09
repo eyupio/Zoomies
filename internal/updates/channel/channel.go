@@ -178,6 +178,27 @@ func ReadMarker(dir string) (Marker, bool, error) {
 	return m, true, nil
 }
 
+// Ready says whether the helper is installed in a folder a request can be
+// written to. It is ReadMarker behind the look WriteRequest takes at the folder
+// itself: a folder that is a link reads its target's marker, and WriteRequest
+// refuses to write through one, so a caller that offered updates on the marker
+// alone would offer what every request then refuses.
+//
+// An absent folder is an answer, like an absent marker; a name that is there and
+// is not a folder is an error that says what it is.
+func Ready(dir string) (Marker, bool, error) {
+	info, err := os.Lstat(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return Marker{}, false, nil
+	case err != nil:
+		return Marker{}, false, fmt.Errorf("cannot look at the update folder %s: %w", dir, err)
+	case !info.IsDir():
+		return Marker{}, false, fmt.Errorf("the update folder %s is not a folder (it is a %s)", dir, kind(info.Mode()))
+	}
+	return ReadMarker(dir)
+}
+
 // syncRequest flushes the temporary file before it is renamed into place. It is
 // a variable so that a test can make the flush fail, which is how a full disk
 // shows itself when the write was only buffered.
@@ -313,51 +334,84 @@ const (
 // and rename are: a request put there in between would be removed unseen, which
 // the one-open-attempt rule is what prevents.
 func WithdrawRequest(dir, id string) (Withdrawal, error) {
-	info, err := os.Lstat(dir)
+	req, found, err := PendingRequest(dir)
 	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return RequestAbsent, nil
+	case errors.Is(err, errNotARequest):
+		return RequestNotOurs, nil
 	case err != nil:
-		return RequestAbsent, fmt.Errorf("cannot look at the update folder %s: %w", dir, err)
-	case !info.IsDir():
-		return RequestAbsent, fmt.Errorf("the update folder %s is not a folder (it is a %s); %s", dir, kind(info.Mode()), installHint)
+		return RequestAbsent, err
+	case !found:
+		return RequestAbsent, nil
+	case req.ID != id:
+		return RequestNotOurs, nil
 	}
 	root, err := os.OpenRoot(dir)
 	if err != nil {
 		return RequestAbsent, fmt.Errorf("cannot open the update folder %s: %w", dir, err)
 	}
 	defer root.Close()
-
-	before, err := root.Lstat(RequestFile)
-	switch {
-	case errors.Is(err, fs.ErrNotExist):
-		return RequestAbsent, nil
-	case err != nil:
-		return RequestAbsent, fmt.Errorf("cannot look for the request in %s: %w", dir, err)
-	case !before.Mode().IsRegular():
-		return RequestNotOurs, nil
-	}
-	f, err := root.Open(RequestFile)
-	if errors.Is(err, fs.ErrNotExist) {
-		return RequestAbsent, nil
-	} else if err != nil {
-		return RequestAbsent, fmt.Errorf("cannot open the request in %s: %w", dir, err)
-	}
-	body, err := readOpened(f, before, updates.MaxRequestBytes)
-	_ = f.Close()
-	if err != nil {
-		return RequestNotOurs, nil
-	}
-	req, err := updates.ParseRequest(body)
-	if err != nil || req.ID != id {
-		return RequestNotOurs, nil
-	}
 	if err := root.Remove(RequestFile); errors.Is(err, fs.ErrNotExist) {
 		return RequestAbsent, nil
 	} else if err != nil {
 		return RequestAbsent, fmt.Errorf("cannot remove the request from %s: %w", dir, err)
 	}
 	return RequestWithdrawn, nil
+}
+
+// errNotARequest is what PendingRequest says of a request.json that is there and
+// is not a request it can read: not a plain file, too large, or not a document
+// the helper would accept.
+var errNotARequest = errors.New("request.json is not a request the helper would read")
+
+// PendingRequest reads the request waiting in the folder, if there is one: what
+// WriteRequest refused to replace, so that a caller can tell its own request
+// from somebody else's. found is false when nothing is there; something there
+// that is not a readable request is an error.
+//
+// The name is looked at without following a link, through a handle on the
+// folder, and the file read is checked to be the one looked at, with the same
+// bound the helper puts on a request.
+func PendingRequest(dir string) (updates.Request, bool, error) {
+	info, err := os.Lstat(dir)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return updates.Request{}, false, nil
+	case err != nil:
+		return updates.Request{}, false, fmt.Errorf("cannot look at the update folder %s: %w", dir, err)
+	case !info.IsDir():
+		return updates.Request{}, false, fmt.Errorf("the update folder %s is not a folder (it is a %s); %s", dir, kind(info.Mode()), installHint)
+	}
+	root, err := os.OpenRoot(dir)
+	if err != nil {
+		return updates.Request{}, false, fmt.Errorf("cannot open the update folder %s: %w", dir, err)
+	}
+	defer root.Close()
+
+	before, err := root.Lstat(RequestFile)
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return updates.Request{}, false, nil
+	case err != nil:
+		return updates.Request{}, false, fmt.Errorf("cannot look for the request in %s: %w", dir, err)
+	case !before.Mode().IsRegular():
+		return updates.Request{}, true, fmt.Errorf("%w: it is a %s", errNotARequest, kind(before.Mode()))
+	}
+	f, err := root.Open(RequestFile)
+	if errors.Is(err, fs.ErrNotExist) {
+		return updates.Request{}, false, nil
+	} else if err != nil {
+		return updates.Request{}, false, fmt.Errorf("cannot open the request in %s: %w", dir, err)
+	}
+	body, err := readOpened(f, before, updates.MaxRequestBytes)
+	_ = f.Close()
+	if err != nil {
+		return updates.Request{}, true, fmt.Errorf("%w: %w", errNotARequest, err)
+	}
+	req, err := updates.ParseRequest(body)
+	if err != nil {
+		return updates.Request{}, true, fmt.Errorf("%w: %w", errNotARequest, err)
+	}
+	return req, true, nil
 }
 
 // readOpened reads at most limit bytes of a file already opened, and refuses it

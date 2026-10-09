@@ -88,7 +88,7 @@ func (s *Server) handleGetRunner(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if host, herr := s.ctrl.Store().GetHost(r.Context(), run.HostID); herr == nil {
-		h := s.ctrl.HostView(host)
+		h := s.ctrl.HostView(host).For(isPlatform(r))
 		detail.Host = &h
 		// Logs come from the runner's own agent, so a host that is not
 		// checking in cannot produce them and a removed runner no longer has a

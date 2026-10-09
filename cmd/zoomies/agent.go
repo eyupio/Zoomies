@@ -6,13 +6,16 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/hosttune"
 	"github.com/eyupio/zoomies/internal/installer"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/updates/channel"
 )
 
 // runAgent is `zoomies agent`: either the daemon, or its `join` subcommand.
@@ -151,6 +154,8 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 		PrewarmTimeout:     cfg.Agent.PrewarmTimeout,
 		DockerBuildCacheMB: cfg.Agent.DockerBuildCacheMB,
 		Logger:             log,
+		UpdateDir:          agentUpdateDir(cfg.Path()),
+		HelperHost:         agent.LocalHelperHost,
 	})
 	if err != nil {
 		return err
@@ -167,6 +172,23 @@ func runAgentDaemon(ctx context.Context, e *env, args []string) error {
 
 	fmt.Fprintf(e.out, "zoomies agent %q -> %s\n", cfg.Agent.Name, transport.Describe())
 	return a.Run(ctx)
+}
+
+// agentUpdateDir finds the update folder the helper beside this agent reads, the
+// way the installer recorded it: through the pointer beside the configuration
+// file on a native install, and in the shared folder in a container. The helper
+// is a pair of systemd units, so anywhere else there is none to find.
+func agentUpdateDir(configPath string) func() (string, bool) {
+	return func() (string, bool) {
+		if runtime.GOOS != "linux" {
+			return "", false
+		}
+		return channel.Locate(channel.Locator{
+			ConfigPath:  configPath,
+			SharedDir:   config.SharedDir(),
+			InContainer: backend.InContainer(),
+		})
+	}
 }
 
 // runAgentJoin is `zoomies agent join`: enrol this host with a controller and,
@@ -192,7 +214,7 @@ func runAgentJoin(ctx context.Context, e *env, args []string) error {
 	stateDir := fs.String("state-dir", "", "where the agent keeps its credentials and scratch space (default: "+config.StateDir()+")")
 	nonInteractive := fs.Bool("non-interactive", false, "never prompt; a missing answer is an error naming it")
 	assumeYes := fs.Bool("yes", false, "answer yes to the one question a re-join asks; it does not answer the update helper's")
-	updateHelper := fs.Bool("update-helper", false, "add the update helper without asking, so this host is ready for web UI updates, which a later release adds")
+	updateHelper := fs.Bool("update-helper", false, "add the update helper without asking, so that the web UI can update this host")
 	fs.example(
 		"zoomies agent join https://zoomies.example.com --token zoojoin_...",
 		"zoomies agent join https://zoomies.example.com --token zoojoin_... --capacity 8 --labels arch=arm64",

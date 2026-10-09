@@ -25,6 +25,7 @@ import (
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/provider"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/updates"
 	"github.com/go-chi/chi/v5"
 )
 
@@ -201,6 +202,9 @@ func newHarnessWithProviders(t *testing.T, factories []provider.Factory, opts ..
 		Clock:      time.Now,
 		HTTPClient: &http.Client{Transport: feed},
 		UpdateDir:  updateDir,
+		// A Linux host under systemd, whatever the suite runs on, so that whether
+		// the helper can be installed never depends on the machine.
+		HelperHost: func() updates.HelperHost { return updates.HelperHost{GOOS: "linux", Systemd: true} },
 	})
 	if err != nil {
 		t.Fatalf("controller.New: %v", err)
@@ -891,6 +895,7 @@ func routeTable(ids fixtureIDs) []route {
 		{method: "POST", path: "/api/v1/hosts/" + ids.host + "/cordon", role: store.RoleOperator, action: auth.ActionHostsCordon,
 			body: map[string]any{"cordoned": false}},
 		{method: "POST", path: "/api/v1/hosts/" + ids.host + "/health-check", role: store.RoleOperator, action: auth.ActionHostsCheck},
+		{method: "POST", path: "/api/v1/hosts/" + ids.host + "/update", role: store.RoleAdmin, action: auth.ActionHostsUpdate},
 		{method: "POST", path: "/api/v1/hosts/" + ids.host + "/throttle/clear", role: store.RoleOperator, action: auth.ActionHostsWrite},
 		{method: "PUT", path: "/api/v1/hosts/" + ids.host + "/check-acceptances", role: store.RoleOperator, body: map[string]any{}, action: auth.ActionHostsAccept},
 		{method: "DELETE", path: "/api/v1/hosts/" + ids.host + "/check-acceptances/files.service", role: store.RoleOperator, action: auth.ActionHostsAccept},

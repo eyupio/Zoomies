@@ -131,9 +131,9 @@ type Options struct {
 	// AssumeYes accepts confirmations that are not destructive. Anything that
 	// would overwrite an encryption key or a database still asks.
 	AssumeYes bool
-	// UpdateHelper adds the update helper without asking, so that this host is
-	// ready for the web UI to update it (UpdateHelperControllerOnlyYet). AssumeYes never does: it is a grant of root, not one of
-	// the install's confirmations.
+	// UpdateHelper adds the update helper without asking, so that the web UI can
+	// update this host (UpdateHelperExplained). AssumeYes never does: it is a
+	// grant of root, not one of the install's confirmations.
 	UpdateHelper bool
 
 	// ConfigDir and StateDir override the platform defaults. Tests set them;
