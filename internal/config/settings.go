@@ -295,7 +295,7 @@ var registry = buildRegistry([]Setting{
 	},
 	{
 		Key: "assistant.allow_private_provider", Label: "Allow a private provider address", Env: "ZOOMIES_ASSISTANT_ALLOW_PRIVATE_PROVIDER", Kind: KindBool, Scope: ScopePlatform, Live: true,
-		Summary: "Let an assistant provider's address name this machine or a private network, which is where a local model lives. Off, saving one is refused as egress.private_target. It opens only the assistant's providers; security.allow_private_egress is not consulted for them and stays as it is.",
+		Summary: "Let an assistant provider's address name this machine or a private network, which is where a local model lives. Off, saving one is refused, and the refusal names this switch. It opens only the assistant's providers; security.allow_private_egress is not consulted for them and stays as it is.",
 	},
 	{
 		Key: "assistant.local_only", Label: "Local models only", Env: "ZOOMIES_ASSISTANT_LOCAL_ONLY", Kind: KindBool, Scope: ScopePlatform, Live: true,

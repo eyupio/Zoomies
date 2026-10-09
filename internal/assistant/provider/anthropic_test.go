@@ -102,3 +102,28 @@ func TestAnthropicPassesTheContract(t *testing.T) {
 		return NewAnthropic(Config{BaseURL: assistanttest.NewAnthropic(t).URL, APIKey: "k", Model: "m"})
 	})
 }
+
+// Review Focus 1 on the second adapter: a gateway in front of the API
+// usually publishes its address ending in /v1, and the Messages path must
+// not double it.
+func TestAnthropicAppendsTheMessagesPathOnceWhateverThePathGiven(t *testing.T) {
+	srv := assistanttest.NewAnthropic(t)
+	for given, wantPath := range map[string]string{
+		"":       "/v1/messages",
+		"/":      "/v1/messages",
+		"/v1":    "/v1/messages",
+		"/v1/":   "/v1/messages",
+		"/gw":    "/gw/v1/messages",
+		"/gw/v1": "/gw/v1/messages",
+	} {
+		before := len(srv.Requests())
+		p := NewAnthropic(Config{BaseURL: srv.URL + given, APIKey: "k", Model: "m"})
+		if s, err := p.Chat(context.Background(), hello()); err == nil {
+			s.Close()
+		}
+		reqs := srv.Requests()
+		if len(reqs) != before+1 || reqs[before].Path != wantPath {
+			t.Errorf("base %q: requested %q, want %q", given, reqs[len(reqs)-1].Path, wantPath)
+		}
+	}
+}

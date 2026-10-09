@@ -176,3 +176,38 @@ func TestDeletingAProviderNeedsItsNameInTheBody(t *testing.T) {
 		t.Errorf("%d rows after delete", len(rows))
 	}
 }
+
+// Review: Test in the Edit dialog ran as a draft with no key, so a working
+// hosted provider reported "the provider refused the key". A draft check
+// that names the saved row borrows its sealed key when the box is blank.
+func TestCheckingADraftOfASavedProviderBorrowsItsSealedKey(t *testing.T) {
+	h, cookie := assistantAdmin(t, func(c *config.Config) { c.Assistant.AllowPrivateProvider = true })
+	srv := assistanttest.NewOpenAI(t)
+	id := h.do(request{method: http.MethodPost, path: assistantProviders, cookie: cookie, body: providerBody(srv, "Ollama")}).json(t)["id"].(string)
+	body := providerBody(srv, "Ollama")
+	body["api_key"] = ""
+	body["id"] = id
+	body["model"] = "m2"
+	resp := h.do(request{method: http.MethodPost, path: assistantProviders + "/check", cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusOK, "checking a draft of a saved row")
+	reqs := srv.Requests()
+	last := reqs[len(reqs)-1]
+	if last.Header.Get("Authorization") != "Bearer sk-test" {
+		t.Errorf("the saved key was not borrowed: %v", last.Header.Get("Authorization"))
+	}
+	if last.Body["model"] != "m2" {
+		t.Errorf("the draft's own fields were not used: %v", last.Body["model"])
+	}
+}
+
+// Review: a PATCH that does not name base_url re-ran the egress check on the
+// stored one, so Disable failed on a loopback provider once the switch was
+// turned off. The check is about saving an address, not about a row holding one.
+func TestPatchingWithoutABaseURLDoesNotRecheckTheStoredOne(t *testing.T) {
+	h, cookie := assistantAdmin(t, func(c *config.Config) { c.Assistant.AllowPrivateProvider = true })
+	srv := assistanttest.NewOpenAI(t)
+	id := h.do(request{method: http.MethodPost, path: assistantProviders, cookie: cookie, body: providerBody(srv, "Ollama")}).json(t)["id"].(string)
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Assistant.AllowPrivateProvider = false })
+	h.do(request{method: http.MethodPatch, path: assistantProviders + "/" + id, cookie: cookie, body: map[string]any{"enabled": false}}).mustStatus(t, http.StatusOK, "disabling with the switch off")
+	h.do(request{method: http.MethodPatch, path: assistantProviders + "/" + id, cookie: cookie, body: map[string]any{"base_url": srv.URL + "/v1"}}).mustStatus(t, http.StatusUnprocessableEntity, "re-saving the address with the switch off")
+}

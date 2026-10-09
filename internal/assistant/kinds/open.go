@@ -29,7 +29,14 @@ func Open(kind assistant.Kind, cfg Config) (assistant.Provider, error) {
 	if base == "" {
 		base = assistant.DefaultBaseURL(kind)
 	}
-	client := &http.Client{Transport: newTransport(cfg.LocalOnly)}
+	// A model API never needs a redirect, and Go's client would carry a
+	// custom header such as x-api-key across hosts, so none is followed.
+	client := &http.Client{
+		Transport: newTransport(cfg.LocalOnly),
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return fmt.Errorf("the provider answered with a redirect to %s, which is not followed: give the address the API answers at", req.URL.Host)
+		},
+	}
 	pc := provider.Config{BaseURL: base, APIKey: cfg.APIKey, Model: cfg.Model, Client: client}
 	switch kind {
 	case assistant.KindFake:

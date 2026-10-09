@@ -85,6 +85,8 @@
     };
     // Absent leaves the sealed key alone; a new provider sends what it has.
     if (apiKey !== '' || !editing) body.api_key = apiKey;
+    // A draft check of a saved row borrows its sealed key when the box is blank.
+    if (editing) body.id = editing.id;
     return body;
   }
 

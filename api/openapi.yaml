@@ -11476,6 +11476,11 @@ components:
         Creating, editing and checking a provider take the same body. On a PATCH every
         field is optional; what is not named is left alone.
       properties:
+        id:
+          type: string
+          description: >-
+            On a draft check only: the saved provider this draft is an edit of, so a blank
+            `api_key` borrows the sealed key that row holds. Ignored elsewhere.
         name: { type: string }
         kind: { $ref: "#/components/schemas/AssistantProviderKind" }
         base_url: { type: string, description: Required for openai_compatible; optional for the hosted kinds, whose own address is used when it is empty. }

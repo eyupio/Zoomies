@@ -821,8 +821,9 @@ The assistant's providers have a switch of their own, because a model on this
 machine (Ollama at `http://localhost:11434`) is the ordinary case there and
 the blanket `security.allow_private_egress` would open every other URL with
 it. Off, saving a provider whose address names this machine or a private
-network is refused with `egress.private_target`, and the refusal names this
-switch. On, that address is accepted, and the switch is named at startup and
+network is refused with a 422 that names this switch in the `base_url` field
+error; the same address in a provider row an upgrade brought along is left
+alone until it is re-saved. On, that address is accepted, and the switch is named at startup and
 in the problems drawer as `egress.private_provider_allowed`, a warning, for
 the reason the blanket switch is: an administrator who can add a provider can
 aim the assistant's requests at the cloud metadata service or an admin port on

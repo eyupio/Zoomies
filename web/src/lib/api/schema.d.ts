@@ -8797,6 +8797,8 @@ export interface components {
         };
         /** @description Creating, editing and checking a provider take the same body. On a PATCH every field is optional; what is not named is left alone. */
         AssistantProviderInput: {
+            /** @description On a draft check only: the saved provider this draft is an edit of, so a blank `api_key` borrows the sealed key that row holds. Ignored elsewhere. */
+            id?: string;
             name?: string;
             kind?: components["schemas"]["AssistantProviderKind"];
             /** @description Required for openai_compatible; optional for the hosted kinds */

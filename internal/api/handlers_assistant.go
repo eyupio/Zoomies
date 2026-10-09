@@ -16,6 +16,9 @@ import (
 // On a patch every field is optional; APIKey empty leaves the sealed key
 // alone, so a form with a blank key box does not erase one.
 type assistantProviderInput struct {
+	// ID names the saved provider a draft check is about, so a blank key box
+	// borrows the sealed key the row holds rather than testing with none.
+	ID      *string `json:"id"`
 	Name    *string `json:"name"`
 	Kind    *string `json:"kind"`
 	BaseURL *string `json:"base_url"`
@@ -46,7 +49,12 @@ func (in assistantProviderInput) apply(p *store.AssistantProvider) {
 // saved. The fake kind is admitted only where the demo seeded one, because
 // a person creating "a model that answers without a network" on a real
 // fleet has misunderstood what it is for.
-func (s *Server) validateAssistantProvider(p *store.AssistantProvider) []fieldError {
+//
+// The egress check runs only when the address is being saved (checkAddress):
+// a row that holds a private address with the switch since turned off can
+// still be disabled, renamed or re-keyed, and only re-saving the address is
+// refused, which is what the switch's own text says.
+func (s *Server) validateAssistantProvider(p *store.AssistantProvider, checkAddress bool) []fieldError {
 	var errs []fieldError
 	if p.Name == "" || len(p.Name) > 80 {
 		errs = append(errs, fieldError{"name", "give the provider a name of 1 to 80 characters; it is how the cards tell two apart"})
@@ -71,7 +79,7 @@ func (s *Server) validateAssistantProvider(p *store.AssistantProvider) []fieldEr
 		u, err := url.Parse(p.BaseURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			errs = append(errs, fieldError{"base_url", "that is not an HTTP URL; the scheme is what decides whether the connection is encrypted, so it has to be there"})
-		} else if f := config.CheckProviderURL(p.BaseURL, s.cfg().Assistant.AllowPrivateProvider); f != nil {
+		} else if f := config.CheckProviderURL(p.BaseURL, s.cfg().Assistant.AllowPrivateProvider); checkAddress && f != nil {
 			errs = append(errs, fieldError{"base_url", f.Title + ". " + f.Fix})
 		}
 	}
@@ -115,7 +123,7 @@ func (s *Server) handleCreateAssistantProvider(w http.ResponseWriter, r *http.Re
 	}
 	p := &store.AssistantProvider{Enabled: true}
 	in.apply(p)
-	if errs := s.validateAssistantProvider(p); len(errs) > 0 {
+	if errs := s.validateAssistantProvider(p, true); len(errs) > 0 {
 		unprocessable(w, "this provider cannot be created as described", errs)
 		return
 	}
@@ -150,7 +158,7 @@ func (s *Server) handleUpdateAssistantProvider(w http.ResponseWriter, r *http.Re
 	}
 	before := s.ctrl.AssistantProviderView(row)
 	in.apply(row)
-	if errs := s.validateAssistantProvider(row); len(errs) > 0 {
+	if errs := s.validateAssistantProvider(row, in.BaseURL != nil); len(errs) > 0 {
 		unprocessable(w, "this provider cannot be changed as described", errs)
 		return
 	}
@@ -243,11 +251,21 @@ func (s *Server) handleCheckAssistantDraft(w http.ResponseWriter, r *http.Reques
 		return
 	}
 	draft := &store.AssistantProvider{Enabled: true}
+	if in.ID != nil && *in.ID != "" {
+		// The Edit dialog's Test: the draft is the saved row with the form's
+		// fields over it, so a blank key box means the key the row holds.
+		row, err := s.ctrl.Store().GetAssistantProvider(r.Context(), *in.ID)
+		if err != nil {
+			s.fail(w, r, "reading the assistant provider", err)
+			return
+		}
+		draft = row
+	}
 	in.apply(draft)
 	if draft.Name == "" {
 		draft.Name = "draft"
 	}
-	if errs := s.validateAssistantProvider(draft); len(errs) > 0 {
+	if errs := s.validateAssistantProvider(draft, in.BaseURL != nil); len(errs) > 0 {
 		unprocessable(w, "this provider cannot be checked as described", errs)
 		return
 	}

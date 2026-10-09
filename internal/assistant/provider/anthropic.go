@@ -27,8 +27,14 @@ type Anthropic struct {
 }
 
 // NewAnthropic returns an adapter for the API at cfg.BaseURL.
+//
+// A gateway in front of the API usually publishes its address ending in /v1,
+// and the Messages path begins with it, so a trailing /v1 is taken off once
+// rather than doubled.
 func NewAnthropic(cfg Config) *Anthropic {
-	return &Anthropic{cfg: cfg, base: strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")}
+	base := strings.TrimRight(strings.TrimSpace(cfg.BaseURL), "/")
+	base = strings.TrimSuffix(base, "/v1")
+	return &Anthropic{cfg: cfg, base: base}
 }
 
 func (p *Anthropic) body(req assistant.Request, maxTokens int) ([]byte, error) {
