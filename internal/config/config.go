@@ -368,6 +368,9 @@ type Kennel struct {
 	WorkflowChecks bool `yaml:"workflow_checks"`
 	// AgentGuidance opts into bounded reads of assistant instruction files.
 	AgentGuidance bool `yaml:"agent_guidance"`
+	// SettingsChecks opts into reading each repository's Actions settings, which
+	// needs the App's Administration read permission and no other.
+	SettingsChecks bool `yaml:"settings_checks"`
 	// Scope says which repositories are looked at: those the fleet has served
 	// (the default), or every one the GitHub App can see. The second multiplies
 	// the requests Kennel Club spends, so it is a choice and not a default.

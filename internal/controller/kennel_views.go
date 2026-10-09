@@ -20,7 +20,7 @@ import (
 // words, would repaint a repository wrong.
 
 // KennelSources is the order a repository's sources are listed in.
-var KennelSources = []kennel.Source{kennel.SourceFleet, kennel.SourceMetadata, kennel.SourceRuns, kennel.SourceSetup, kennel.SourceWorkflows, kennel.SourceGuidance}
+var KennelSources = []kennel.Source{kennel.SourceFleet, kennel.SourceMetadata, kennel.SourceRuns, kennel.SourceSetup, kennel.SourceWorkflows, kennel.SourceGuidance, kennel.SourceSettings, kennel.SourceProtection}
 
 // KennelCoverageView is how far one source could be read, with the sentence that
 // says why when it could not, and the permission that would fix it.
@@ -274,8 +274,10 @@ func kennelDisabled(k config.Kennel) map[string]bool {
 		out[string(kennel.AreaSetup)] = true
 	}
 	if !k.WorkflowChecks {
+		// The ci area reads workflow files throughout. The token area does not:
+		// token.default_write reads the repository's settings, so it is turned off
+		// by its own source below and not by this switch.
 		out[string(kennel.AreaCI)] = true
-		out[string(kennel.AreaToken)] = true
 	}
 	// A switch is about a source, not an area: a check in another area that
 	// reads the gated source is off with the switch too, and not a gap. Left
@@ -288,12 +290,14 @@ func kennelDisabled(k config.Kennel) map[string]bool {
 		if (!k.WorkflowChecks && reads(kennel.SourceWorkflows)) || (!k.RepositorySetup && reads(kennel.SourceSetup)) || (!k.AgentGuidance && reads(kennel.SourceGuidance)) {
 			out[string(c.Code)] = true
 		}
-		// Nothing reads a repository's settings or its protection yet: the
-		// readers exist and the loop does not call them. A check that needs a
-		// source nobody reads would be skipped everywhere and cost every
-		// repository its best-in-show, so these are off until the setting that
-		// turns the reads on arrives with them.
-		if reads(kennel.SourceSettings) || reads(kennel.SourceProtection) {
+		if !k.SettingsChecks && reads(kennel.SourceSettings) {
+			out[string(c.Code)] = true
+		}
+		// Nothing reads a branch's required checks yet: the reader exists and the
+		// loop does not call it. A check that needs a source nobody reads would be
+		// skipped everywhere and cost every repository its best-in-show, so it is
+		// off until the read arrives with it.
+		if reads(kennel.SourceProtection) {
 			out[string(c.Code)] = true
 		}
 	}

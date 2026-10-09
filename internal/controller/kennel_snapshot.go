@@ -79,6 +79,10 @@ type kennelWatermark struct {
 	Guidance       *kennel.GuidanceFacts `json:"guidance,omitempty"`
 	GuidanceState  kennel.CoverageState  `json:"guidance_state,omitempty"`
 	GuidanceFiles  []kennelWorkflowRef   `json:"guidance_files,omitempty"`
+	// Settings are the repository's Actions settings as flags and one enumerated
+	// word. They are never a name or a line of text a repository wrote.
+	Settings      *kennel.SettingsFacts `json:"settings,omitempty"`
+	SettingsState kennel.CoverageState  `json:"settings_state,omitempty"`
 	// Runs are the fork pull requests and stranger-triggered runs found, newest
 	// first.
 	Runs []kennelSeenRun `json:"runs"`

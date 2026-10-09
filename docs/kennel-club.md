@@ -675,6 +675,7 @@ off** on the Overview, and nothing is read for them.
 | `guidance` | 4: missing instructions, broken references, exact duplication and unreadable files | `kennel.agent_guidance` (**Check agent guidance**) | Bounded instruction files and their local references. | Informational for absence and duplication; warnings for broken or unreadable guidance. |
 | `ci` | 7: `ci.no_timeout`, `ci.no_concurrency`, `ci.action_not_pinned` | `kennel.workflow_checks` (**Check workflow best practices**) | The default branch's workflow files. | A warning, except `ci.no_concurrency`, which is a note, as is `ci.action_not_pinned` when only GitHub's own actions are affected. |
 | `token` | 1: `token.permissions_unset` | the same switch | The same files. | A warning for a public repository, a note for a private one. |
+| `token`, `exposure` | 3: `token.default_write`, `exposure.fork_approval_weak`, `exposure.private_fork_secrets` | `kennel.settings_checks` (**Check repository settings**) | The repository's Actions settings, with the App's Administration read permission. | Warnings. A weak approval policy is an error once a fork's code has run here. |
 
 A setup finding says **repository-local**, because an account's default guidance
 may stand in for a file the repository does not have, and a missing file is
@@ -689,12 +690,16 @@ and what its absence makes harder, and
 each detects and what is excluded.
 
 Four more checks read a repository's settings and the status checks its default
-branch requires: `token.default_write`, `exposure.fork_approval_weak`,
-`exposure.private_fork_secrets` and `protection.required_check_never_reports`.
-They need the App's **Administration** read permission, which GitHub offers no
-narrower form of, so they are asked for separately from the rest. Nothing reads
-those settings yet, so these four stay turned off and have no switch; the switch
-and the permission arrive with the read, and this page will say how to grant it.
+branch requires. Three of them, `token.default_write`,
+`exposure.fork_approval_weak` and `exposure.private_fork_secrets`, are turned on
+by `kennel.settings_checks` (**Check repository settings**) and read the
+repository's Actions settings: the default workflow token and the policy for
+fork pull requests. They need the App's **Administration** read permission,
+which GitHub offers no narrower form of, so it is asked for separately from the
+rest and only if you turn the setting on; the read changes no setting. The
+fourth, `protection.required_check_never_reports`, reads the status checks a
+branch requires and cannot be turned on yet. See
+[Repository settings checks](configuration.md#repository-settings-checks).
 
 ## Agent guidance
 
@@ -799,6 +804,7 @@ Every check names the facts it needs, and a check whose facts cannot be read is
 | **Repository details** | The repository's own record, above all whether it is public. | *Repository permissions: Metadata: Read-only* |
 | **Workflow runs** | What triggered the runs this fleet ran, and which repository they came from. Read for **public repositories only**. | *Repository permissions: Actions: Read-only* |
 | **Repository setup files** | The default branch's file names. Read only when `kennel.repository_setup` is on. | *Repository permissions: Contents: Read-only*, needed for private repositories |
+| **Repository settings** | The repository's default workflow token, and its policy for fork pull requests: the approval policy for a public repository, the rules for a private one. Read only when `kennel.settings_checks` is on. | *Repository permissions: Administration: Read-only*, needed for every repository. GitHub offers no narrower permission for these settings. |
 | **Workflow best practices** | The default branch's workflow files, read for timeouts, concurrency, action pins, token permissions, a `pull_request_target` workflow that checks out the pull request's head, a secret interpolated into a command line, a `runs-on` label no pool of this fleet serves, pins that no updater moves, and a file that could not be read at all. A finding from here names the file, the job and the line. Read only when `kennel.workflow_checks` is on. | *Repository permissions: Contents: Read-only*, needed for private repositories |
 
 `zoomies kennel check [path]` reads none of this. It reads `.github/workflows`
@@ -835,7 +841,7 @@ tree is read too, which is why they ask for *Contents*.
 
 The reader is held to a list, and a test runs it against a fake GitHub and fails
 on any request that is not on the list, so a new call is a visible change in
-review and not something found in a log. All background reads are `GET`s, and the last two
+review and not something found in a log. All background reads are `GET`s, and the last five
 are made only when one of the opt-in switches is on.
 
 | Request | What for |
@@ -846,6 +852,9 @@ are made only when one of the opt-in switches is on.
 | `GET /orgs/{org}/actions/runner-groups` | Whether the organisation runner group a pool joins allows public repositories, so a finding can say so. |
 | `GET /rate_limit` | The limit the installation reports, which the budget is a share of. GitHub does not count this request against the limit. |
 | `GET /repos/{owner}/{repo}/git/trees/{tree}` | The default branch's file names, one conditional request for each repository on each refresh, for the setup checks and to find workflow and instruction files. Inspection stops at 10,000 entries, and a truncated tree produces no "missing" findings. |
+| `GET /repos/{owner}/{repo}/actions/permissions/workflow` | Whether the repository's default workflow token can write. One request for each repository on each refresh, only when `kennel.settings_checks` is on. |
+| `GET /repos/{owner}/{repo}/actions/permissions/fork-pr-contributor-approval` | The approval policy for fork pull requests, for a public repository only. The policy's name is held to a short list before anything sees it. |
+| `GET /repos/{owner}/{repo}/actions/permissions/fork-pr-workflows-private-repos` | Whether a private repository's fork pull requests run workflows, and are sent its secrets or a token that can write. Three yes-or-no answers; nothing a repository wrote. |
 | `GET /repos/{owner}/{repo}/git/blobs/{blob}` | One workflow or instruction file, pinned to the immutable blob the tree named. At most 50 files a refresh, each at most 256 KiB. Agent guidance reads at most 32 files, each at most 64 KiB. The file is parsed and never executed, and what is kept is where each finding is, as the blob's SHA, a job's index and a line number, together with the file's path where it is one of the usual shape: no job name, expression or text. |
 
 ## What it never does

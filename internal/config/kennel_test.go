@@ -21,6 +21,9 @@ func TestKennelClubIsOffByDefaultAndSpendsAFifthOfTheRequestLimit(t *testing.T) 
 	if k.RepositorySetup {
 		t.Error("repository setup reads are on without opting in")
 	}
+	if k.SettingsChecks {
+		t.Error("repository settings reads are on without opting in")
+	}
 	if k.Enabled {
 		t.Error("Kennel Club is on in a configuration nobody has touched")
 	}
@@ -50,7 +53,7 @@ func TestKennelClubIsOffByDefaultAndSpendsAFifthOfTheRequestLimit(t *testing.T) 
 func TestEveryKennelSettingIsLiveAndTheFleetsToChange(t *testing.T) {
 	want := []string{
 		"kennel.agent_guidance", "kennel.api_budget_percent", "kennel.disabled_checks", "kennel.enabled",
-		"kennel.refresh_interval", "kennel.repository_setup", "kennel.scope", "kennel.workflow_checks",
+		"kennel.refresh_interval", "kennel.repository_setup", "kennel.scope", "kennel.settings_checks", "kennel.workflow_checks",
 	}
 	var got []string
 	for _, s := range Settings() {

@@ -289,20 +289,21 @@ func TestASwitchTurnsOffEveryCheckThatReadsItsSource(t *testing.T) {
 	if off[string(kennel.CodeForkCodeRan)] || off[string(kennel.AreaExposure)] {
 		t.Errorf("a check that reads no gated source was turned off: %v", off)
 	}
-	// With every switch there is on, only the checks that read the repository's
-	// settings or its required checks are off: nothing reads those yet, and a
-	// check that needs an unread source would cost every repository its
-	// best-in-show. This changes when the setting that reads them arrives.
-	on := kennelDisabled(config.Kennel{RepositorySetup: true, WorkflowChecks: true, AgentGuidance: true})
-	for _, c := range kennel.Checks() {
-		reads := slices.Contains(c.Needs, kennel.SourceSettings) || slices.Contains(c.Needs, kennel.SourceProtection) ||
-			slices.Contains(c.Conditional, kennel.SourceSettings) || slices.Contains(c.Conditional, kennel.SourceProtection)
-		if on[string(c.Code)] != reads {
-			t.Errorf("with every switch on, %s off = %v, want %v", c.Code, on[string(c.Code)], reads)
-		}
+	// With every switch there is on, only the check that reads a branch's required
+	// checks is off: nothing reads those yet, and a check that needs an unread
+	// source would cost every repository its best-in-show. This changes when the
+	// read arrives.
+	on := kennelDisabled(config.Kennel{RepositorySetup: true, WorkflowChecks: true, AgentGuidance: true, SettingsChecks: true})
+	if len(on) != 1 || !on[string(kennel.CodeRequiredCheckNeverReports)] {
+		t.Errorf("with every switch on, off = %v, want only %s", on, kennel.CodeRequiredCheckNeverReports)
 	}
-	if len(on) != 4 {
-		t.Errorf("with every switch on, %d checks are off, want the 4 that read settings: %v", len(on), on)
+	// Without the settings switch the three checks that read settings are off too.
+	noSettings := kennelDisabled(config.Kennel{RepositorySetup: true, WorkflowChecks: true, AgentGuidance: true})
+	for _, c := range kennel.Checks() {
+		readsSettings := slices.Contains(c.Needs, kennel.SourceSettings) || slices.Contains(c.Conditional, kennel.SourceSettings)
+		if readsSettings && !noSettings[string(c.Code)] {
+			t.Errorf("%s reads settings and is on with that switch off", c.Code)
+		}
 	}
 	// With only the setup switch off, the updater check, which reads the
 	// setup source once it applies, is off with it.
