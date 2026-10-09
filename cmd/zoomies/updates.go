@@ -5,12 +5,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
+
+	"golang.org/x/term"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/installer"
@@ -24,6 +27,22 @@ var updatesEUID = os.Geteuid
 // updateHelperStateDir is root's directory for the helper, replaceable so that
 // a test can stand one up of its own.
 var updateHelperStateDir = installer.UpdateHelperStateDir
+
+// stdTerminal says whether a file is a terminal; a variable so that a test can
+// stand a pipe in for one.
+var stdTerminal = func(f *os.File) bool { return term.IsTerminal(int(f.Fd())) }
+
+// canAskAt is whether somebody is at a terminal to be asked a question that is
+// written to prompt: the input and the writer that shows the prompt are both
+// terminals. It deliberately does not use canAsk, which also requires stdout to
+// be a terminal that wants colour: NO_COLOR, or a redirected stdout, says
+// nothing about whether anyone can see this prompt, and a redirected stderr
+// would leave the command waiting on a question nobody can read.
+func canAskAt(in io.Reader, prompt io.Writer) bool {
+	i, ok := in.(*os.File)
+	p, ok2 := prompt.(*os.File)
+	return ok && ok2 && stdTerminal(i) && stdTerminal(p)
+}
 
 // helperStatusTailLines is how much of the last run's log tail status prints:
 // the end, where the reason is, and not the whole run.
@@ -191,7 +210,7 @@ func updatesApply(ctx context.Context, e *env, args []string) error {
 	}
 
 	if !*yes {
-		if !canAsk(e, false) {
+		if !canAskAt(e.in, e.err) {
 			return usagef("updates apply", "this asks the controller to update itself and restart, and there is no terminal to ask you at; run it again with --yes to say yes")
 		}
 		what := "the newest release the controller can install"

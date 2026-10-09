@@ -279,8 +279,8 @@
               </ul>
               <h3>What it never does</h3>
               <ul>
-                <li>Read a repository's files or a workflow's contents.</li>
-                <li>Change a repository, a setting or a workflow.</li>
+                <li>Read file contents unless their checks are explicitly enabled.</li>
+                <li>Change repository files without a reviewed pull request.</li>
                 <li>
                   Spend more than its share of GitHub's request limit, or read at all while an
                   installation is held for a rate limit.

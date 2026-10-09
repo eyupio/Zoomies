@@ -342,6 +342,8 @@ func (s *Server) apiRoutes() chi.Router {
 				r.With(s.require(auth.ActionKennelRead)).Get("/", s.handleListKennelRepositories)
 				r.With(s.require(auth.ActionKennelRead)).Get("/{id}", s.handleGetKennelRepository)
 				r.With(s.require(auth.ActionKennelRecheck)).Post("/{id}/recheck", s.handleRecheckKennelRepository)
+				r.With(s.require(auth.ActionKennelGuidancePreview)).Get("/{id}/agent-guidance", s.handlePreviewKennelGuidance)
+				r.With(s.require(auth.ActionKennelGuidancePR)).Post("/{id}/agent-guidance", s.handleCreateKennelGuidancePR)
 				// The route's own action is kennel.waive; the handler asks for
 				// kennel.waive_error as well when the finding is an error.
 				r.With(s.require(auth.ActionKennelWaive)).Put("/{id}/waivers", s.handleWaiveKennelFinding)
@@ -366,6 +368,7 @@ func (s *Server) apiRoutes() chi.Router {
 			// can hold a draft: creating the provider is admin's.
 			r.With(s.require(auth.ActionProvidersWrite)).Post("/discover", s.handleDiscoverDraft)
 			r.With(s.require(auth.ActionProvidersRead)).Get("/kinds", s.handleProviderKinds)
+			r.With(s.require(auth.ActionProvidersRead)).Get("/pairings", s.handleProviderPairings)
 			r.With(s.require(auth.ActionProvidersRead)).Get("/{id}", s.handleGetProvider)
 			r.With(s.require(auth.ActionProvidersWrite)).Patch("/{id}", s.handleUpdateProvider)
 			r.With(s.require(auth.ActionProvidersDelete)).Delete("/{id}", s.handleDeleteProvider)

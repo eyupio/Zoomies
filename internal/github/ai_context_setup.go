@@ -9,6 +9,7 @@ import (
 	"path"
 	"strings"
 
+	"github.com/eyupio/zoomies/internal/agentguidance"
 	"github.com/eyupio/zoomies/internal/aicontext"
 	gh "github.com/google/go-github/v88/github"
 )
@@ -24,6 +25,7 @@ type ContextSetupClient interface {
 type ContextSetupSource struct {
 	Repository Repository
 	Commit     string
+	Inventory  []string
 	Files      []aicontext.SetupFile
 }
 
@@ -37,7 +39,22 @@ type ContextSetupRequest struct {
 	Files      []aicontext.SetupChange
 }
 
+// AgentGuidanceClient reads evidence for a guidance proposal independently of
+// AI Context registration and never needs Workflows write permission.
+type AgentGuidanceClient interface {
+	ReadAgentGuidance(context.Context, string, string) (*ContextSetupSource, error)
+	OpenContextSetup(context.Context, ContextSetupRequest) (*PullRequest, error)
+}
+
 func (c *appClient) ReadContextSetup(ctx context.Context, repo, branch string) (*ContextSetupSource, error) {
+	return c.readSetupSource(ctx, repo, branch, false)
+}
+
+func (c *appClient) ReadAgentGuidance(ctx context.Context, repo, branch string) (*ContextSetupSource, error) {
+	return c.readSetupSource(ctx, repo, branch, true)
+}
+
+func (c *appClient) readSetupSource(ctx context.Context, repo, branch string, guidance bool) (*ContextSetupSource, error) {
 	owner, name, err := splitRepo(repo)
 	if err != nil {
 		return nil, err
@@ -45,6 +62,12 @@ func (c *appClient) ReadContextSetup(ctx context.Context, repo, branch string) (
 	r, resp, err := c.asInstallation.Repositories.Get(ctx, owner, name)
 	if err != nil {
 		return nil, c.fail("verify context repository", resp, err)
+	}
+	if guidance && branch == "" {
+		branch = r.GetDefaultBranch()
+	}
+	if branch == "" {
+		return nil, fmt.Errorf("%w: repository has no default branch", ErrSetupConflict)
 	}
 	ref, resp, err := c.asInstallation.Git.GetRef(ctx, owner, name, "heads/"+branch)
 	if err != nil {
@@ -116,16 +139,34 @@ func (c *appClient) ReadContextSetup(ctx context.Context, repo, branch string) (
 			return fmt.Errorf("%w: %s has unsupported content", ErrSetupConflict, p)
 		}
 		content, err := base64.StdEncoding.DecodeString(strings.ReplaceAll(blob.GetContent(), "\n", ""))
-		if err != nil {
-			return err
+		if err != nil || len(content) != entry.GetSize() || contextGitBlobSHA(string(content)) != entry.GetSHA() {
+			return fmt.Errorf("%w: setup file failed integrity validation", ErrSetupConflict)
 		}
 		out.Files = append(out.Files, aicontext.SetupFile{Mode: entry.GetMode(), Path: p, SHA: entry.GetSHA(), Content: string(content)})
 		return nil
 	}
-	for _, p := range []string{aicontext.ConfigPath, "CLAUDE.md", "AGENTS.md", aicontext.WorkflowPath, aicontext.GeneratorPackagePath, aicontext.GeneratorLockPath} {
+	paths := []string{aicontext.ConfigPath, aicontext.ContextGuidePath, "CLAUDE.md", ".claude/CLAUDE.md", "AGENTS.md", aicontext.WorkflowPath, aicontext.GeneratorPackagePath, aicontext.GeneratorLockPath}
+	if guidance {
+		inventory, err := c.KennelGuidanceInventory(ctx, repo, gitCommit.GetTree().GetSHA())
+		if err != nil {
+			return nil, err
+		}
+		if inventory.Partial {
+			return nil, fmt.Errorf("%w: guidance inventory is incomplete; bring the files within the inspection limits before proposing changes", ErrSetupConflict)
+		}
+		out.Inventory = inventory.Paths
+		paths = []string{"Makefile", "package.json"}
+		for _, f := range inventory.Files {
+			paths = append(paths, f.Path)
+		}
+	}
+	for _, p := range paths {
 		if err := read(p); err != nil {
 			return nil, err
 		}
+	}
+	if guidance {
+		return out, nil
 	}
 	readme, resp, err := c.asInstallation.Repositories.GetReadme(ctx, owner, name, &gh.RepositoryContentGetOptions{Ref: commit})
 	if err != nil && !errors.Is(classify(resp, err), ErrNotFound) {
@@ -164,6 +205,16 @@ func (c *appClient) OpenContextSetup(ctx context.Context, req ContextSetupReques
 	if err != nil {
 		return nil, c.fail("read setup base", resp, err)
 	}
+	if req.Action == "agent-guidance" {
+		if len(req.Files) > agentguidance.MaxFiles+2 {
+			return nil, ErrSetupConflict
+		}
+		for _, f := range req.Files {
+			if !agentguidance.SafePath(f.Path) || !agentguidance.EntryPoint(f.Path) || f.Delete || len(f.Content) > agentguidance.MaxBytes {
+				return nil, ErrSetupConflict
+			}
+		}
+	}
 	entries := make([]*gh.TreeEntry, 0, len(req.Files))
 	for _, f := range req.Files {
 		if f.Delete {
@@ -181,6 +232,8 @@ func (c *appClient) OpenContextSetup(ctx context.Context, req ContextSetupReques
 	}
 	title := "Enable Zoomies AI Context"
 	switch req.Action {
+	case "agent-guidance":
+		title = "Improve agent guidance with Zoomies"
 	case "reinstall":
 		title = "Reinstall Zoomies AI Context"
 	case "amend":
@@ -199,7 +252,7 @@ func (c *appClient) OpenContextSetup(ctx context.Context, req ContextSetupReques
 			return nil, c.fail("verify existing setup branch", resp, err)
 		}
 		if previous.GetTree().GetSHA() != tree.GetSHA() || previous.GetMessage() != message || len(previous.Parents) != 1 || previous.Parents[0].GetSHA() != req.BaseCommit {
-			return nil, fmt.Errorf("%w: existing setup branch was edited; it has been preserved", ErrSetupConflict)
+			return nil, fmt.Errorf("%w: existing proposal differs from this preview or its base; its branch has been preserved", ErrSetupConflict)
 		}
 	} else {
 		commit, resp, err := c.asInstallation.Git.CreateCommit(ctx, owner, name, gh.Commit{Message: gh.Ptr(message), Tree: tree, Parents: []*gh.Commit{{SHA: gh.Ptr(req.BaseCommit)}}}, nil)
@@ -219,6 +272,9 @@ func (c *appClient) OpenContextSetup(ctx context.Context, req ContextSetupReques
 		}
 	}
 	body := "Prepare this repository for AI coding assistants with Zoomies-managed Repomix context.\n\nReview the workflow, exclusions, generated source copy and instruction/badge sections. Merge runs generation; it does not grant assistant connections source access. The workflow uses a read-only generation job and a separate write-only publication job.\n\n<!-- zoomies-ai-context:setup " + req.PlanHash + " -->"
+	if req.Action == "agent-guidance" {
+		body = "Review the proposed agent instruction files and commands declared in repository files. Existing guidance is preserved except for exact duplicate Claude adapters or unambiguous broken imports. This proposal does not install AI Context, change workflows or grant assistant access. Merge it, then press Recheck in Kennel Club.\n\n<!-- zoomies-agent-guidance:proposal " + req.PlanHash + " -->"
+	}
 	if req.Action == "remove" {
 		body = "Remove the Zoomies AI Context workflow and managed files/sections. Other repository text and the historical generated context branch are preserved. Zoomies access, cached snapshots, readers and connection consent have been revoked; reinstall requires explicit access selection again.\n\n<!-- zoomies-ai-context:setup " + req.PlanHash + " -->"
 	}
@@ -241,7 +297,7 @@ func (c *appClient) OpenContextSetup(ctx context.Context, req ContextSetupReques
 		}
 		return &PullRequest{Number: pr.GetNumber(), HTMLURL: pr.GetHTMLURL(), Branch: req.Head}, nil
 	}
-	pr, resp, err := c.asInstallation.PullRequests.Create(ctx, owner, name, &gh.NewPullRequest{Title: gh.Ptr(title), Body: gh.Ptr(body), Head: gh.Ptr(req.Head), Base: gh.Ptr(req.Base)})
+	pr, resp, err := c.asInstallation.PullRequests.Create(ctx, owner, name, &gh.NewPullRequest{Title: gh.Ptr(title), Body: gh.Ptr(body), Head: gh.Ptr(req.Head), Base: gh.Ptr(req.Base), Draft: gh.Ptr(req.Action == "agent-guidance")})
 	if err != nil {
 		// Keep the complete branch even on a timeout: the request may have opened
 		// a PR. The same durable head is reconciled on the next explicit retry.

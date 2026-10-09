@@ -115,6 +115,53 @@ test('a provider whose last check failed says on the card what the check found',
   await expect(providerCard(page)).toContainText(complaint);
 });
 
+/*
+ * The sentence on the card is a finding's title. What says what to do about it
+ * is the detail, and it used to exist only in the tab that pressed Check, so
+ * "no bridge called vmbr0" was all anybody had after a reload. The controller
+ * now keeps the whole result, and the card opens onto it.
+ */
+test('a failed check opens on the detail and the fix, not only the title', async ({ page }) => {
+  const title = 'node pve-1 has no bridge called "vmbr0"';
+  await page.route(/\/api\/v1\/providers(?:\?.*)?$/, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.items = body.items.map((provider: { name: string }) =>
+      provider.name === FIXTURE.provider
+        ? {
+            ...provider,
+            last_check_error: title,
+            last_check: {
+              provider_id: 'prov_x',
+              ok: false,
+              reachable: true,
+              checked_at: new Date().toISOString(),
+              findings: [
+                {
+                  code: 'proxmox.bridge_missing',
+                  severity: 'error',
+                  audience: 'fleet',
+                  setting: 'bridge',
+                  title,
+                  detail: 'It offers vmbr1.',
+                  fix: 'use a bridge that exists on every node this provider places on.',
+                },
+              ],
+            },
+          }
+        : provider,
+    );
+    await route.fulfill({ json: body });
+  });
+
+  await goto(page, '/providers', 'Providers');
+  const card = providerCard(page);
+  await expect(card).toContainText(title);
+  await card.locator('summary').click();
+  await expect(card).toContainText('It offers vmbr1.');
+  await expect(card).toContainText('use a bridge that exists on every node');
+});
+
 test("the wizard is rendered from the driver's schema, with the driver's own defaults filled in", async ({
   page,
 }) => {
@@ -668,7 +715,10 @@ test('Proxmox onboarding waits for one command and fills the connection without 
           ? {
               name: 'proxmox-pve-1',
               endpoint: 'https://pve.example:8006',
-              templates: [{ vmid: 9000, name: 'Runner template', node: 'pve-1' }],
+              templates: [
+                { vmid: 200, name: 'Other template', node: 'pve-2' },
+                { vmid: 9100, name: 'zoomies-template', node: 'pve-1' },
+              ],
             }
           : {}),
       },
@@ -705,8 +755,9 @@ test('Proxmox onboarding waits for one command and fills the connection without 
   await expect.poll(() => discoveryBody?.setup_id).toBe('pvs_test');
   expect(discoveryBody).not.toHaveProperty('credential');
   expect(discoveryBody).not.toHaveProperty('tailcat_address');
-  expect(discoveryBody?.settings).toMatchObject({ template_id: '9000', template_node: 'pve-1' });
-  await expect(page.getByRole('option', { name: 'Runner template (9000)' })).toBeAttached();
+  expect(discoveryBody?.settings).toMatchObject({ template_id: '9100', template_node: 'pve-1' });
+  await expect(page.getByRole('option', { name: 'zoomies-template (9100)' })).toBeAttached();
+  await expect(page.getByLabel('Template VMID')).toHaveValue('9100');
   await expect(next(page)).toBeEnabled();
   await next(page).click();
   await expect(page.getByRole('heading', { level: 2, name: 'Capacity' })).toBeVisible();
@@ -735,4 +786,45 @@ test('Proxmox offers an existing Tailcat gateway without hiding it behind manual
   await page.getByRole('radio', { name: /^Automatic setup · Tailcat/ }).check();
   await expect(page.getByLabel('Credential', { exact: true })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Generate setup command' })).toBeVisible();
+});
+
+/*
+ * A provider is not attached to a pool, so a new provider's owner has to be told
+ * what it takes for one to be used. The card says whether any pool can use it,
+ * and the provider's Pools tab says which, and whose setting says no for the
+ * rest.
+ */
+test('a provider says which pools it would rent for, and the card says whether any can use it', async ({
+  page,
+}) => {
+  await goto(page, '/providers', 'Providers');
+  const card = providerCard(page);
+  await expect(card).toContainText(/Rents for \d+ pools? of \d+|No pool can use this yet/);
+
+  await card.getByRole('link', { name: /Which|See why/ }).click();
+  await expect(page.getByTestId('provider-serves')).toBeVisible();
+  await expect(page.getByText(/A pool does not pick a provider/)).toBeVisible();
+  // Every pool is listed with an answer, rented for or not.
+  await expect(page.getByText(/Would (not )?rent/).first()).toBeVisible();
+});
+
+test("a provider's own pool selector is edited beside its ceiling, and says which pools it lets through", async ({
+  page,
+}) => {
+  await goto(page, '/providers', 'Providers');
+  await providerCard(page).getByRole('link', { name: FIXTURE.provider }).click();
+  await page.getByRole('tab', { name: 'Settings' }).click();
+  await page.getByRole('button', { name: 'Edit these settings' }).click();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await page.getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByRole('heading', { level: 2, name: 'Limits' })).toBeVisible();
+  await expect(page.getByLabel('Pool selector')).toBeVisible();
+  await expect(page.getByTestId('provider-served-pools')).toContainText(/Every pool is allowed/);
+
+  await page.getByRole('button', { name: 'Add a rule' }).click();
+  await page.getByLabel('Rule 1 key').fill('no-such-label');
+  await expect(page.getByTestId('provider-served-pools')).toContainText(
+    'No pool matches this selector',
+  );
 });

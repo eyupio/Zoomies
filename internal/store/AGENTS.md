@@ -1,0 +1,30 @@
+# AGENTS.md
+
+Scoped guidance for the store, read in addition to the root [AGENTS.md](../../AGENTS.md). It appends to that file and never overrides it.
+
+## Invariants
+
+* **One writer.** `store.Store` funnels writes through a single connection
+  behind a mutex, with a separate pooled reader in WAL mode. Do not add a second
+  writer; `database is locked` is designed out of this codebase.
+* **The runner state machine is enforced in the store**, not the caller.
+  `provisioning → registering → idle ⇄ busy → draining → removed`, plus
+  `failed`. Go through `store.TransitionRunner`; an agent must not be able to
+  report a nonsensical state and corrupt fleet accounting.
+* **Sentinel errors** from the store: `ErrNotFound`, `ErrConflict`,
+  `ErrInvalidTransition`, `ErrInvalidArtifact` for an assistant-written note
+  that breaks a note's rules, `ErrInvalidKennelEvaluation` for a Kennel Club
+  document or waiver the store will not keep, `ErrKennelUntracked` for an
+  evaluation that arrives after its repository was told not to be tracked, and
+  `ErrJoinTokenUsed` / `ErrJoinTokenExpired` for the two ways a join token that
+  exists is still refused. Match with `errors.Is`. Refusals the auth service makes for a reason the caller can
+  act on are `auth.ErrInvalidInput`; the API answers those with a 422 and
+  everything else with a 500 and a request ID.
+* **IDs are prefixed** (`pool_`, `run_`, `job_`, `usr_`…) via `store.NewID`, so a
+  pasted ID is self-describing in a log line or bug report. Add new prefixes to
+  `internal/store/ids.go`.
+* **A host's report body is written when it changes.** Its freshness rides the
+  heartbeat's own UPDATE (`HeartbeatWithReport`, `doctor_checked_at`), because any
+  `UPDATE hosts` rewrites the whole record, report included. `scanHost` overlays
+  the newer time, so every reader sees it; `Host.DoctorBodyAt` is when the body
+  itself was written.

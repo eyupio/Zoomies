@@ -121,6 +121,147 @@ test('a repository facet narrows the rows and is shareable', async ({ page }) =>
   await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
 });
 
+test('a host facet narrows the jobs to the ones that ran there, and agrees with the API', async ({
+  page,
+}) => {
+  await goto(page, '/jobs', 'Jobs');
+  await expect(dataRows(jobs(page)).first()).toBeVisible();
+  await everyStatus(page);
+
+  // The host is chosen by what the API says it ran, not by a name written into
+  // this test: what matters is that the page and the API count the same jobs.
+  const { items: hosts } = (await page.request.get('/api/v1/hosts').then((r) => r.json())) as {
+    items: { id: string; name: string }[];
+  };
+  let chosen: { id: string; name: string; jobs: number } | undefined;
+  for (const host of hosts) {
+    const { total } = (await page.request
+      .get(`/api/v1/jobs?managed=true&limit=1&host_id=${encodeURIComponent(host.id)}`)
+      .then((r) => r.json())) as { total: number };
+    if (total > 0 && total < FIXTURE.managedJobs) {
+      chosen = { ...host, jobs: total };
+      break;
+    }
+  }
+  expect(chosen, 'the demo fleet has a host that ran some of its jobs, but not all').toBeTruthy();
+  const host = chosen!;
+
+  await facetTrigger(page, 'Host').click();
+  await page
+    .getByRole('group', { name: 'Filter by host' })
+    .getByRole('checkbox', { name: host.name })
+    .check();
+  await page.keyboard.press('Escape');
+
+  await expect(rowCount(page)).toContainText(`of ${host.jobs} jobs`);
+  await expect(page).toHaveURL(new RegExp(`[?&]host_id=${host.id}`));
+  await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText(host.name);
+
+  await page.getByRole('button', { name: `Remove the Host filter ${host.name}` }).click();
+  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
+
+  // A link that carries only a host has asked the page something, so it must
+  // not fall back to the bare visit's "what is running" and hide the rest.
+  await goto(page, `/jobs?host_id=${encodeURIComponent(host.id)}`, 'Jobs');
+  await expect(rowCount(page)).toContainText(`of ${host.jobs} jobs`);
+
+  // A queued job has not run anywhere, so the Queue offers no host to filter by.
+  await goto(page, '/queue');
+  await expect(facetTrigger(page, 'Pool')).toBeVisible();
+  await expect(facetTrigger(page, 'Host')).toHaveCount(0);
+});
+
+test('leaving out hosted runners counts what the API counts, and a link can ask for it', async ({
+  page,
+}) => {
+  // The Overview counts the jobs that did not run on somebody else's hosted
+  // runners, so a link from it has to list exactly those. The totals come from
+  // the API's own filter, not from the page.
+  const total = async (query: string) =>
+    (
+      (await page.request.get(`/api/v1/jobs?limit=1&${query}`).then((r) => r.json())) as {
+        total: number;
+      }
+    ).total;
+  const everything = await total('');
+  const notHosted = await total('hosted=false');
+  expect(notHosted, 'the seed has jobs on a hosted-runner vendor').toBeLessThan(everything);
+  expect(notHosted).toBeGreaterThan(0);
+
+  // Every runner, so the page's own "ours only" default cannot narrow it further.
+  await goto(page, '/jobs?all=true&hosted=false', 'Jobs');
+  await expect(rowCount(page)).toContainText(`of ${notHosted} jobs`);
+  await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText(
+    'jobs on hosted runners',
+  );
+
+  await page
+    .getByRole('button', { name: 'Remove the Leaving out filter jobs on hosted runners' })
+    .click();
+  await expect(rowCount(page)).toContainText(`of ${everything} jobs`);
+
+  // A link that carries only this has asked the page something, so it shows every
+  // status rather than falling back to what is running.
+  const ours = await total('hosted=false&managed=true');
+  await goto(page, '/jobs?hosted=false', 'Jobs');
+  await expect(rowCount(page)).toContainText(`of ${ours} jobs`);
+
+  // Anything but `false` is no filter, where the API would answer 400.
+  await goto(page, '/jobs?all=true&hosted=maybe', 'Jobs');
+  await expect(rowCount(page)).toContainText(`of ${everything} jobs`);
+});
+
+test('a start with a time of day keeps the jobs from that minute and shows it', async ({
+  page,
+}) => {
+  // Every job the page can list, from the API, so the expected count is worked
+  // out here and not by the helper under test.
+  const { items } = (await page.request
+    .get('/api/v1/jobs?managed=true&limit=500&sort=queued_at&order=asc')
+    .then((r) => r.json())) as { items: { queued_at: string }[] };
+  expect(items.length).toBe(FIXTURE.managedJobs);
+
+  // The middle job's own minute, so the cut falls inside the seed's span and not
+  // at a day boundary: a page that rounded to the day would keep every job.
+  const middle = new Date(items[Math.floor(items.length / 2)]!.queued_at);
+  middle.setSeconds(0, 0);
+  const kept = items.filter((job) => Date.parse(job.queued_at) >= middle.getTime()).length;
+  expect(kept, 'the cut has to fall inside the seed').toBeGreaterThan(0);
+  expect(kept).toBeLessThan(items.length);
+
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const local = `${middle.getFullYear()}-${pad(middle.getMonth() + 1)}-${pad(middle.getDate())}T${pad(middle.getHours())}:${pad(middle.getMinutes())}`;
+  await goto(page, `/jobs?since=${encodeURIComponent(local)}`, 'Jobs');
+  await expect(rowCount(page)).toContainText(`of ${kept} jobs`);
+
+  // The bound is shown where it can be read and changed: a date input given a
+  // time shows nothing, and the chip would then name a filter the field hides.
+  const range = page.getByRole('group', { name: 'Queued between' });
+  await expect(range.getByLabel('From')).toHaveValue(local);
+  await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText(
+    local.replace('T', ' '),
+  );
+
+  // An end at a minute takes the whole of that minute, as an end on a day takes
+  // the whole of that day, so a job queued at 17:00:40 is inside "to 17:00".
+  const keptByEnd = items.filter((job) => Date.parse(job.queued_at) < middle.getTime() + 60_000);
+  await goto(page, `/jobs?until=${encodeURIComponent(local)}`, 'Jobs');
+  await expect(rowCount(page)).toContainText(`of ${keptByEnd.length} jobs`);
+  await expect(range.getByLabel('to', { exact: true })).toHaveValue(local);
+  await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText(
+    local.replace('T', ' '),
+  );
+
+  // Clearing it puts every job back, and a bare date still means the whole day.
+  await goto(page, `/jobs?since=${encodeURIComponent(local)}`, 'Jobs');
+  await page
+    .getByRole('button', { name: `Remove the From filter ${local.replace('T', ' ')}` })
+    .click();
+  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
+  await goto(page, `/jobs?since=${local.slice(0, 10)}`, 'Jobs');
+  await expect(range.getByLabel('From')).toHaveValue(local.slice(0, 10));
+});
+
 test('the unmatched filter finds the job no pool claims and explains it', async ({ page }) => {
   await goto(page, '/jobs', 'Jobs');
   await expect(dataRows(jobs(page)).first()).toBeVisible();

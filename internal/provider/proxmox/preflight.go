@@ -455,6 +455,16 @@ func (pf *preflight) checkTemplate(ctx context.Context, usable []string) {
 		})
 		return
 	}
+	if !cfg.HasDisk() {
+		pf.add(config.Finding{
+			Code: "proxmox.template_no_disk", Severity: config.SeverityError, Setting: SettingTemplateID,
+			Title: fmt.Sprintf("template %d on %s has no operating-system disk", pf.prereqs.TemplateID, node),
+			Detail: "nothing is attached as scsi0, virtio0, sata0 or ide0, so a clone has nothing to boot from. " +
+				"It will start, try to boot from the network, and never enrol, while being billed as a machine.",
+			Fix: "attach the cloud image as the first disk (qm set <vmid> --scsi0 <storage>:0,import-from=<image> --boot order=scsi0), " +
+				"using a storage that holds disk images, then convert it to a template again.",
+		})
+	}
 	if pf.prereqs.GuestAgent && !cfg.AgentEnabled() {
 		pf.add(config.Finding{
 			Code: "proxmox.template_no_agent", Severity: config.SeverityWarning, Setting: SettingTemplateID,

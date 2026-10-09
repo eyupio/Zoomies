@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "cf9170cf",
+  "generated_from": "0722c406",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -2935,6 +2935,20 @@
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#a-providers-preflight"
     },
     {
+      "id": "proxmox.template_no_disk",
+      "kind": "problem",
+      "title": "proxmox.template_no_disk",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "The template has no operating-system disk on `scsi0`, `virtio0`, `sata0` or `ide0`. A machine cloned from it starts, tries to boot from the network and never joins, while being billed.",
+      "fix": "Attach the cloud image as the first disk from a storage that holds disk images, then convert it to a template again.",
+      "verify": null,
+      "status_sentence": "The template new machines are made from has no disk to start from.",
+      "docs_html": "https://zoomies.sh/problem-codes/#a-providers-preflight",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#a-providers-preflight"
+    },
+    {
       "id": "proxmox.template_not_a_template",
       "kind": "problem",
       "title": "proxmox.template_not_a_template",
@@ -3828,6 +3842,20 @@
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#capacity-job_hit_default_limit"
     },
     {
+      "id": "capacity.matrix_exceeds_pool",
+      "kind": "check",
+      "title": "A matrix's jobs waited together on a pool with fewer runners than the matrix has jobs, so the matrix ran in waves.",
+      "category": "capacity",
+      "severity": "info",
+      "detection": "runtime",
+      "detects": "A matrix's jobs waited together on a pool with fewer runners than the matrix has jobs, so the matrix ran in waves.",
+      "fix": "Raise the pool's max_runners to the matrix's width, spread the matrix over more than one pool with runs-on, or cap it with max-parallel so the wait is chosen and not suffered.",
+      "verify": "Press Recheck after the pool or the matrix changes; the finding closes when no matrix in the window is wider than the pool it ran on.",
+      "area": "capacity",
+      "docs_html": "https://zoomies.sh/kennel-club/#capacity-matrix_exceeds_pool",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#capacity-matrix_exceeds_pool"
+    },
+    {
       "id": "capacity.unserved_label",
       "kind": "check",
       "title": "Jobs waited more than ten minutes for a label no pool serves.",
@@ -3854,6 +3882,20 @@
       "area": "ci",
       "docs_html": "https://zoomies.sh/kennel-club/#ci-action_not_pinned",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#ci-action_not_pinned"
+    },
+    {
+      "id": "ci.label_unserved",
+      "kind": "check",
+      "title": "A job's runs-on names labels no pool here serves, so the job will wait until a pool matches it.",
+      "category": "cost",
+      "severity": "info",
+      "detection": "static",
+      "detects": "A job's runs-on names labels no pool here serves, so the job will wait until a pool matches it.",
+      "fix": "Change the job's runs-on to labels a pool serves, or add the label to a pool that can run the job.",
+      "verify": "Press Recheck after the pool or the workflow changes; the finding closes when every job's runs-on is served.",
+      "area": "ci",
+      "docs_html": "https://zoomies.sh/kennel-club/#ci-label_unserved",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#ci-label_unserved"
     },
     {
       "id": "ci.no_concurrency",
@@ -3884,6 +3926,62 @@
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#ci-no_timeout"
     },
     {
+      "id": "ci.pins_without_updater",
+      "kind": "check",
+      "title": "Actions are pinned to commits but no updater configuration moves the pins, so they age until somebody remembers.",
+      "category": "cost",
+      "severity": "info",
+      "detection": "static",
+      "detects": "Actions are pinned to commits but no updater configuration moves the pins, so they age until somebody remembers.",
+      "fix": "Configure Dependabot or Renovate for GitHub Actions so the pinned commits are moved by pull request, or confirm that an external service moves them.",
+      "verify": "Press Recheck once the configuration is on the default branch; the finding closes when the next tree read finds it.",
+      "area": "ci",
+      "docs_html": "https://zoomies.sh/kennel-club/#ci-pins_without_updater",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#ci-pins_without_updater"
+    },
+    {
+      "id": "ci.secret_on_command_line",
+      "kind": "check",
+      "title": "A secret is interpolated into a run line or a command-line argument, where it reaches the process list and the log.",
+      "category": "cost",
+      "severity": "warning",
+      "detection": "static",
+      "detects": "A secret is interpolated into a run line or a command-line argument, where it reaches the process list and the log.",
+      "fix": "Pass the secret through the step's env block and read it from the environment in the command; never interpolate it into run or args.",
+      "verify": "Press Recheck after the change reaches the default branch; the finding closes when no run line or args interpolates a secret.",
+      "area": "ci",
+      "docs_html": "https://zoomies.sh/kennel-club/#ci-secret_on_command_line",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#ci-secret_on_command_line"
+    },
+    {
+      "id": "ci.workflow_unreadable",
+      "kind": "check",
+      "title": "A workflow file could not be read within Kennel Club's limits, so nothing in it was judged.",
+      "category": "cost",
+      "severity": "warning",
+      "detection": "static",
+      "detects": "A workflow file could not be read within Kennel Club's limits, so nothing in it was judged.",
+      "fix": "Bring the file within the limits: under 256 KiB, no YAML anchors, aliases or merge keys, no duplicate keys, one document, valid UTF-8 and a jobs mapping; or split it into smaller workflows.",
+      "verify": "Press Recheck after the change reaches the default branch; the finding closes when the file is read and judged.",
+      "area": "ci",
+      "docs_html": "https://zoomies.sh/kennel-club/#ci-workflow_unreadable",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#ci-workflow_unreadable"
+    },
+    {
+      "id": "exposure.fork_approval_weak",
+      "kind": "check",
+      "title": "A public repository this fleet serves asks for approval of fork pull requests only from contributors new to GitHub, so most outside contributors can start a job here.",
+      "category": "security",
+      "severity": "warning",
+      "detection": "static",
+      "detects": "A public repository this fleet serves asks for approval of fork pull requests only from contributors new to GitHub, so most outside contributors can start a job here.",
+      "fix": "Require approval for workflows from all outside contributors in the repository's Actions settings, so a maintainer reads a fork's pull request before it runs here.",
+      "verify": "Press Recheck after the setting changes; the finding closes when the approval policy covers every outside contributor.",
+      "area": "exposure",
+      "docs_html": "https://zoomies.sh/kennel-club/#exposure-fork_approval_weak",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#exposure-fork_approval_weak"
+    },
+    {
       "id": "exposure.fork_code_ran",
       "kind": "check",
       "title": "A run from a fork's pull request executed on this fleet.",
@@ -3896,6 +3994,20 @@
       "area": "exposure",
       "docs_html": "https://zoomies.sh/kennel-club/#exposure-fork_code_ran",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#exposure-fork_code_ran"
+    },
+    {
+      "id": "exposure.private_fork_secrets",
+      "kind": "check",
+      "title": "A private repository lets fork pull requests run workflows and sends them secrets or a token that can write.",
+      "category": "security",
+      "severity": "warning",
+      "detection": "static",
+      "detects": "A private repository lets fork pull requests run workflows and sends them secrets or a token that can write.",
+      "fix": "In the repository's Actions settings, stop sending secrets and write tokens to fork pull request workflows, or stop fork pull requests running workflows.",
+      "verify": "Press Recheck after the setting changes; the finding closes when fork pull requests are sent neither secrets nor a token that can write.",
+      "area": "exposure",
+      "docs_html": "https://zoomies.sh/kennel-club/#exposure-private_fork_secrets",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#exposure-private_fork_secrets"
     },
     {
       "id": "exposure.public_repo_on_fleet",
@@ -3926,6 +4038,20 @@
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#exposure-public_repo_weak_pool"
     },
     {
+      "id": "exposure.target_checkout_pr_head",
+      "kind": "check",
+      "title": "A workflow that strangers can trigger (pull_request_target) checks out the pull request's own code, which then runs with the repository's token and secrets.",
+      "category": "security",
+      "severity": "error",
+      "detection": "runtime",
+      "detects": "A workflow that strangers can trigger (pull_request_target) checks out the pull request's own code, which then runs with the repository's token and secrets.",
+      "fix": "Do not check out the pull request's head under pull_request_target; read what the event carries, or run the code under pull_request, where it gets the fork's lesser token and no secrets.",
+      "verify": "Press Recheck after the change reaches the default branch; the finding closes when no pull_request_target workflow checks out the pull request's head.",
+      "area": "exposure",
+      "docs_html": "https://zoomies.sh/kennel-club/#exposure-target_checkout_pr_head",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#exposure-target_checkout_pr_head"
+    },
+    {
       "id": "exposure.target_event_ran",
       "kind": "check",
       "title": "A workflow that strangers can trigger (pull_request_target, workflow_run, issue_comment, issues) ran on this fleet in a public repository.",
@@ -3938,6 +4064,76 @@
       "area": "exposure",
       "docs_html": "https://zoomies.sh/kennel-club/#exposure-target_event_ran",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#exposure-target_event_ran"
+    },
+    {
+      "id": "guidance.broken_reference",
+      "kind": "check",
+      "title": "An instruction file imports or links to a missing repository path, or its Claude imports form a cycle.",
+      "category": "configuration",
+      "severity": "warning",
+      "detection": "runtime",
+      "detects": "An instruction file imports or links to a missing repository path, or its Claude imports form a cycle.",
+      "fix": "Preview agent guidance for unambiguous import repairs; review other broken links or import cycles and correct them manually. Use AI Context repair for damaged Zoomies-managed sections.",
+      "verify": "Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.",
+      "area": "guidance",
+      "docs_html": "https://zoomies.sh/kennel-club/#guidance-broken_reference",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#guidance-broken_reference"
+    },
+    {
+      "id": "guidance.duplicated",
+      "kind": "check",
+      "title": "A root or nested Claude instruction file repeats the root AGENTS.md in full.",
+      "category": "configuration",
+      "severity": "info",
+      "detection": "runtime",
+      "detects": "A root or nested Claude instruction file repeats the root AGENTS.md in full.",
+      "fix": "Preview agent guidance to replace the duplicate Claude file with an import of the shared AGENTS.md.",
+      "verify": "Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.",
+      "area": "guidance",
+      "docs_html": "https://zoomies.sh/kennel-club/#guidance-duplicated",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#guidance-duplicated"
+    },
+    {
+      "id": "guidance.missing",
+      "kind": "check",
+      "title": "No recognised agent instruction file was found on the default branch.",
+      "category": "configuration",
+      "severity": "info",
+      "detection": "runtime",
+      "detects": "No recognised agent instruction file was found on the default branch.",
+      "fix": "Preview agent guidance to propose an AGENTS.md and a Claude import, using commands declared in repository files.",
+      "verify": "Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.",
+      "area": "guidance",
+      "docs_html": "https://zoomies.sh/kennel-club/#guidance-missing",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#guidance-missing"
+    },
+    {
+      "id": "guidance.unreadable",
+      "kind": "check",
+      "title": "An instruction file is empty, is not regular UTF-8 text or exceeds the file or byte limits.",
+      "category": "configuration",
+      "severity": "warning",
+      "detection": "runtime",
+      "detects": "An instruction file is empty, is not regular UTF-8 text or exceeds the file or byte limits.",
+      "fix": "Keep instruction files as non-empty regular UTF-8 text under 64 KiB each, with at most 32 files inspected; split or shorten them and recheck.",
+      "verify": "Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.",
+      "area": "guidance",
+      "docs_html": "https://zoomies.sh/kennel-club/#guidance-unreadable",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#guidance-unreadable"
+    },
+    {
+      "id": "protection.required_check_never_reports",
+      "kind": "check",
+      "title": "A status check that GitHub Actions should post is required to merge, but no job this fleet saw in the window produced it.",
+      "category": "configuration",
+      "severity": "warning",
+      "detection": "runtime",
+      "detects": "A status check that GitHub Actions should post is required to merge, but no job this fleet saw in the window produced it.",
+      "fix": "Rename the required check to the name of the job that posts it, or remove it from the branch protection or ruleset if no job posts it any more.",
+      "verify": "Press Recheck after the required checks change; the finding closes when every required check pinned to GitHub Actions has a job of that name in the window.",
+      "area": "protection",
+      "docs_html": "https://zoomies.sh/kennel-club/#protection-required_check_never_reports",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#protection-required_check_never_reports"
     },
     {
       "id": "setup.code_of_conduct",
@@ -4078,6 +4274,20 @@
       "area": "setup",
       "docs_html": "https://zoomies.sh/kennel-club/#setup-workflows",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#setup-workflows"
+    },
+    {
+      "id": "token.default_write",
+      "kind": "check",
+      "title": "The repository's default workflow token can write, so every workflow that sets no permissions runs with write access.",
+      "category": "security",
+      "severity": "warning",
+      "detection": "static",
+      "detects": "The repository's default workflow token can write, so every workflow that sets no permissions runs with write access.",
+      "fix": "Set the default workflow permissions to read-only in the repository's Actions settings, then declare write permissions only on the workflows or jobs that need them.",
+      "verify": "Press Recheck after the setting changes; the finding closes when the default workflow token is read-only.",
+      "area": "token",
+      "docs_html": "https://zoomies.sh/kennel-club/#token-default_write",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/kennel-club.md#token-default_write"
     },
     {
       "id": "token.permissions_unset",

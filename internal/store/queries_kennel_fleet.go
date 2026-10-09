@@ -67,12 +67,24 @@ type KennelLongJob struct {
 	Conclusion string
 }
 
+// KennelMatrix is one matrix the fleet ran: the jobs of one run attempt, in one
+// pool, whose names share the text before GitHub's " (". The jobs table has no
+// matrix flag, and the name is the one thing a matrix's jobs are given in common.
+type KennelMatrix struct {
+	PoolID string
+	Jobs   int
+	// Waited is the longest any job of the matrix waited between queueing and
+	// starting.
+	Waited time.Duration
+}
+
 // Caps on what a fleet-facts query returns, so a repository with a great many
 // stuck jobs cannot make a snapshot large. They are well above what a finding
 // needs: a count and the longest.
 const (
 	kennelMaxUnserved = 200
 	kennelMaxLong     = 500
+	kennelMaxMatrices = 200
 )
 
 // KennelFleetFacts is what the fleet observed about one repository.
@@ -89,6 +101,9 @@ type KennelFleetFacts struct {
 	// itself" is not this fleet's fault -- the rule JobFilter.UnmatchedOnly keeps.
 	Unserved []time.Duration
 	Long     []KennelLongJob
+	// Matrices are the matrices of two or more jobs inside the window, widest
+	// first.
+	Matrices []KennelMatrix
 }
 
 // KennelFleetFacts answers the five questions the exposure and capacity checks
@@ -171,7 +186,33 @@ func (s *Store) KennelFleetFacts(ctx context.Context, q KennelFleetQuery) (*Kenn
 		j.Duration = time.Duration(d) * time.Millisecond
 		out.Long = append(out.Long, j)
 	}
-	return out, long.Err()
+	if err := long.Err(); err != nil {
+		return nil, err
+	}
+
+	// A matrix job's name is "<job> (<values>)", so the text before " (" is what
+	// its jobs share; a job with no such suffix is not in a matrix. A job of a
+	// later attempt belongs to that attempt's matrix, not the first's.
+	matrices, err := s.read.QueryContext(ctx, `SELECT pool_id, COUNT(*), MAX(started_at - queued_at) FROM jobs
+		WHERE repo = ? AND queued_at >= ? AND runner_id <> '' AND pool_id <> '' AND started_at IS NOT NULL
+		  AND instr(job_name, ' (') > 0
+		GROUP BY github_run_id, run_attempt, pool_id, substr(job_name, 1, instr(job_name, ' (') - 1)
+		HAVING COUNT(*) >= 2
+		ORDER BY COUNT(*) DESC, pool_id LIMIT ?`, q.Repo, since, kennelMaxMatrices)
+	if err != nil {
+		return nil, err
+	}
+	defer matrices.Close()
+	for matrices.Next() {
+		var m KennelMatrix
+		var waited int64
+		if err := matrices.Scan(&m.PoolID, &m.Jobs, &waited); err != nil {
+			return nil, err
+		}
+		m.Waited = time.Duration(max(waited, 0)) * time.Millisecond
+		out.Matrices = append(out.Matrices, m)
+	}
+	return out, matrices.Err()
 }
 
 // KennelRun is a workflow run the fleet ran jobs of, as the jobs table knows

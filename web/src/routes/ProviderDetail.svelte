@@ -16,15 +16,22 @@
     getProvider,
     getProviderOrphans,
     listMachines,
+    listProviderPairings,
     pauseProvider,
     releaseMachine,
     resumeProvider,
   } from '$lib/api/client';
   import { events } from '$lib/api/sse';
-  import type { Machine, Provider, ProviderCheck, ProviderOrphans } from '$lib/api/types';
+  import type {
+    Machine,
+    Provider,
+    ProviderCheck,
+    ProviderOrphans,
+    ProviderPairing,
+  } from '$lib/api/types';
   import { pluralise } from '$lib/format';
   import { router } from '$lib/router';
-  import { machineStatus, severityStatus } from '$lib/status';
+  import { machineStatus } from '$lib/status';
   import { session } from '$lib/state/session.svelte';
   import { toasts } from '$lib/state/toasts.svelte';
   import Badge from '$lib/components/Badge.svelte';
@@ -40,6 +47,8 @@
   import Tabs from '$lib/components/Tabs.svelte';
   import MachineBand from '$lib/providers/MachineBand.svelte';
   import OrphanReview from '$lib/providers/OrphanReview.svelte';
+  import PoolsTab from '$lib/providers/PoolsTab.svelte';
+  import CheckFindings from '$lib/providers/CheckFindings.svelte';
   import ProviderForm from '$lib/providers/ProviderForm.svelte';
 
   const id = $derived(router.params.id ?? '');
@@ -65,8 +74,17 @@
   let orphansError = $state<unknown>(null);
   let orphansReload = $state(0);
 
+  /** The result just fetched, or else the one the controller kept from last time. */
+  const shownCheck = $derived(verdict ?? provider?.last_check ?? null);
+  const changedSinceCheck = $derived(
+    provider?.updated_at && provider.last_check_at
+      ? new Date(provider.updated_at) > new Date(provider.last_check_at)
+      : false,
+  );
+
   const TABS = [
     { id: 'machines', label: 'Machines' },
+    { id: 'pools', label: 'Pools' },
     { id: 'settings', label: 'Settings' },
     { id: 'orphans', label: 'Orphan review' },
   ];
@@ -97,6 +115,25 @@
         error = cause;
       })
       .finally(() => (loading = false));
+    return () => controller.abort();
+  });
+
+  // Every pool against this provider: which it would rent for, and whose
+  // setting says no for the rest. Cheap, so fetched with the page.
+  let pairings = $state<ProviderPairing[] | null>(null);
+  $effect(() => {
+    const providerId = id;
+    if (providerId === '') return;
+    void reload;
+    const controller = new AbortController();
+    void listProviderPairings(controller.signal)
+      .then((page) => {
+        pairings = (page.items ?? []).filter((entry) => entry.provider_id === providerId);
+      })
+      .catch((cause: unknown) => {
+        if (cause instanceof DOMException && cause.name === 'AbortError') return;
+        pairings = [];
+      });
     return () => controller.abort();
   });
 
@@ -271,37 +308,31 @@
       <p class="held"><RemedyText text={p.held} /></p>
     {/if}
 
-    {#if verdict}
+    {#if shownCheck}
       <Panel
         title="What the provider said"
-        description="Read-only. Nothing was created or changed."
+        description={verdict
+          ? 'Read-only. Nothing was created or changed.'
+          : 'The last check, kept so it is still here after a reload. Read-only.'}
       >
         <p class="verdict">
-          {#if verdict.reachable}
-            It answered{#if verdict.version}, running {verdict.version}{/if}.
+          {#if shownCheck.reachable}
+            It answered{#if shownCheck.version}, running {shownCheck.version}{/if}.
           {:else}
             Nothing answered at that address.
           {/if}
-          {verdict.ok
+          {shownCheck.ok
             ? 'Nothing found stops it being used.'
             : 'Some of what it said needs attention.'}
+          Checked <RelativeTime value={shownCheck.checked_at} plain />.
         </p>
-        {#if (verdict.findings?.length ?? 0) > 0}
-          <ul class="findings">
-            {#each verdict.findings ?? [] as finding (finding.code)}
-              <li>
-                <Badge status={severityStatus(finding.severity)} size="sm" />
-                <div>
-                  <p class="title">{finding.title}</p>
-                  {#if finding.detail}<p class="detail">
-                      <RemedyText text={finding.detail} />
-                    </p>{/if}
-                  {#if finding.fix}<p class="detail"><RemedyText text={finding.fix} /></p>{/if}
-                </div>
-              </li>
-            {/each}
-          </ul>
+        {#if !verdict && changedSinceCheck}
+          <p class="stale">
+            The settings were changed after this check, so it may no longer be true. Run Check
+            again.
+          </p>
         {/if}
+        <CheckFindings findings={shownCheck.findings} />
       </Panel>
     {/if}
 
@@ -340,6 +371,8 @@
               </ul>
             {/if}
           </div>
+        {:else if active === 'pools'}
+          <PoolsTab provider={p} {pairings} />
         {:else if active === 'settings'}
           <div class="tab">
             {#if editing && canAdmin}
@@ -392,6 +425,21 @@
                   <dd>
                     {pluralise(p.machine_capacity ?? 0, 'runner slot')} ·
                     {p.machine_backend}
+                  </dd>
+                </div>
+                <div>
+                  <dt>Pools</dt>
+                  <dd>
+                    {#if Object.keys(p.pool_selector ?? {}).length === 0}
+                      Any pool it suits.
+                    {:else}
+                      Only pools matching
+                      <span class="mono"
+                        >{Object.entries(p.pool_selector ?? {})
+                          .map(([k, v]) => (v === '' ? k : `${k}=${v}`))
+                          .join(', ')}</span
+                      >.
+                    {/if}
                   </dd>
                 </div>
                 <div>
@@ -484,7 +532,6 @@
     line-height: var(--z-leading-sm);
     color: var(--z-text-muted);
   }
-  .findings,
   .machines {
     display: flex;
     flex-direction: column;
@@ -492,13 +539,10 @@
     padding: 0;
     list-style: none;
   }
-  .findings {
-    gap: var(--z-space-3);
-  }
-  .findings li {
-    display: flex;
-    align-items: flex-start;
-    gap: var(--z-space-2);
+  .stale {
+    margin: 0 0 var(--z-space-3);
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
   }
   .machines {
     border: var(--z-border-width) solid var(--z-border);
@@ -557,17 +601,6 @@
   }
   .edit {
     display: flex;
-  }
-  .title {
-    margin: 0;
-    font-size: var(--z-text-sm);
-    color: var(--z-text);
-  }
-  .detail {
-    margin: var(--z-nudge-1) 0 0;
-    font-size: var(--z-text-xs);
-    line-height: var(--z-leading-xs);
-    color: var(--z-text-muted);
   }
   @media (max-width: 768px) {
     .settings div {

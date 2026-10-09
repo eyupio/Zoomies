@@ -3,26 +3,93 @@ package controller
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/kennel"
+	"github.com/eyupio/zoomies/internal/kennel/offline"
+	"github.com/eyupio/zoomies/internal/kennel/workflow"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
+// kennelWorkflowsEnabled is whether any check still on reads the workflow
+// files. It follows the checks, not an area: a check outside ci and token
+// reads them too, and with those two areas off by name it would otherwise be
+// skipped on every pass for a source nobody read.
 func kennelWorkflowsEnabled(p kennel.Policy) bool {
+	return kennelSourceWanted(p, kennel.SourceWorkflows)
+}
+
+func kennelSourceWanted(p kennel.Policy, src kennel.Source) bool {
 	for _, ck := range kennel.Checks() {
-		if (ck.Area == kennel.AreaCI || ck.Area == kennel.AreaToken) && !p.Disabled[string(ck.Area)] && !p.Disabled[string(ck.Code)] {
+		reads := slices.Contains(ck.Needs, src) || slices.Contains(ck.Conditional, src)
+		if reads && !p.Disabled[string(ck.Area)] && !p.Disabled[string(ck.Code)] {
 			return true
 		}
 	}
 	return false
 }
+
+// kennelWorkflowsDue is whether the workflow files are to be read on this
+// pass: when nothing has read them, and once after an upgrade whose watermark
+// holds counts the evaluator can no longer judge.
 func kennelWorkflowsDue(row *store.KennelRepository, in kennelPassInput) bool {
-	return kennelWorkflowsEnabled(in.policy) && parseKennelWatermark(row.Watermark).WorkflowState == ""
+	wm := parseKennelWatermark(row.Watermark)
+	return kennelWorkflowsEnabled(in.policy) && (wm.WorkflowState == "" || wm.WorkflowFormat < kennelWorkflowFormat)
 }
+
+// kennelServedLabels is every label a pool of the installation serves, with
+// the ones every runner carries and the brand label, so a job's runs-on can
+// be tested here and its labels never leave the controller.
+func kennelServedLabels(installationID string, pools map[string]*store.Pool) map[string]bool {
+	served := map[string]bool{store.BrandLabel: true}
+	for l := range store.ImplicitLabels {
+		served[l] = true
+	}
+	for _, p := range pools {
+		if p.InstallationID != installationID || !p.Enabled {
+			continue
+		}
+		for _, l := range store.NormalizeLabels(p.Labels) {
+			served[l] = true
+		}
+	}
+	return served
+}
+
+// kennelUnservedLabels is each job whose literal runs-on names a label no pool
+// serves. A job whose every label is served is covered.
+func kennelUnservedLabels(runsOn []workflow.RunsOn, served map[string]bool) []kennel.Location {
+	var out []kennel.Location
+	for _, job := range runsOn {
+		covered := true
+		for _, l := range store.NormalizeLabels(job.Labels) {
+			if !served[l] {
+				covered = false
+			}
+		}
+		if !covered {
+			out = append(out, kennel.Location{JobIndex: job.JobIndex, Line: job.Line})
+		}
+	}
+	return out
+}
+
+// kennelWorkflowFile is the parser's facts as the evaluator reads them, with
+// the label check the controller alone can make, since it knows the pools.
+func kennelWorkflowFile(sha string, f workflow.Facts, served map[string]bool) kennel.WorkflowFile {
+	file := offline.Convert(sha, f)
+	file.LabelUnserved = kennelUnservedLabels(f.RunsOn, served)
+	return file
+}
+
+func gatedPath(p string) string { return offline.GatePath(p) }
+
 func (c *Controller) kennelReadWorkflows(ctx context.Context, inst *store.Installation, row *store.KennelRepository, wm *kennelWatermark, l *kennelListing, in kennelPassInput) kennel.CoverageState {
 	wm.Workflows = nil
+	wm.WorkflowFiles = nil
+	wm.WorkflowFormat = kennelWorkflowFormat
 	wm.WorkflowState = kennel.CoverageNotRead
 	if l == nil {
 		return wm.WorkflowState
@@ -67,11 +134,20 @@ func (c *Controller) kennelReadWorkflows(ctx context.Context, inst *store.Instal
 		wm.WorkflowState = kennel.CoverageError
 		return wm.WorkflowState
 	}
-	facts := &kennel.WorkflowFacts{}
+	served := kennelServedLabels(inst.ID, in.pools)
+	facts := &kennel.WorkflowFacts{Files: []kennel.WorkflowFile{}, Unreadable: []string{}}
+	var files []kennelWorkflowRef
 	state := kennel.CoverageOK
 	if inventory.Partial {
 		state = kennel.CoveragePartial
 	}
+	// A file over the limits was never read, and the finding it may hold is
+	// not an all-clear: it is named as unreadable, with its path for the page.
+	for _, ref := range inventory.Skipped {
+		facts.Unreadable = append(facts.Unreadable, ref.SHA)
+		files = append(files, kennelWorkflowRef{SHA: ref.SHA, Path: gatedPath(ref.Path)})
+	}
+	read := 0
 	for _, ref := range inventory.Files {
 		if !take() {
 			state = kennel.CoverageHeld
@@ -83,25 +159,28 @@ func (c *Controller) kennelReadWorkflows(ctx context.Context, inst *store.Instal
 			break
 		}
 		c.observeKennel(inst.ID, nil)
-		inspection, err := github.InspectKennelWorkflow(data)
+		files = append(files, kennelWorkflowRef{SHA: ref.SHA, Path: gatedPath(ref.Path)})
+		read++
+		parsed, err := workflow.Inspect(data)
 		if err != nil {
+			// The parser refused a shape it will not judge in part. The file is
+			// named, the source stays partial, and nothing in it is an all-clear.
+			facts.Unreadable = append(facts.Unreadable, ref.SHA)
 			state = kennel.CoveragePartial
 			continue
 		}
-		facts.Files++
-		facts.NoTimeout += inspection.NoTimeout
-		facts.NoConcurrency += inspection.NoConcurrency
-		facts.FirstPartyUnpinned += inspection.FirstPartyUnpinned
-		facts.OtherUnpinned += inspection.OtherUnpinned
-		facts.PermissionsUnset += inspection.PermissionsUnset
+		facts.Files = append(facts.Files, kennelWorkflowFile(ref.SHA, parsed, served))
 	}
-	// Positive evidence from successfully read files remains useful. Missing
-	// evidence is incomplete, so it can never earn an all-clear.
-	if facts.Files > 0 || state == kennel.CoverageOK {
+	// Positive evidence from successfully read files remains useful, and so
+	// is the name of a file that could not be read, which may be the only
+	// thing there is to say. Missing evidence is incomplete, so it can never
+	// earn an all-clear.
+	if read > 0 || len(facts.Unreadable) > 0 || state == kennel.CoverageOK {
 		wm.Workflows = facts
+		wm.WorkflowFiles = files
 	}
 	outcome := state
-	if facts.Files > 0 && state != kennel.CoverageOK {
+	if read > 0 && state != kennel.CoverageOK {
 		state = kennel.CoveragePartial
 	}
 	wm.WorkflowState = state

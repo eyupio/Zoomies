@@ -66,8 +66,23 @@ type kennelWatermark struct {
 	After         int64                 `json:"after"`
 	Workflows     *kennel.WorkflowFacts `json:"workflows,omitempty"`
 	WorkflowState kennel.CoverageState  `json:"workflow_state,omitempty"`
-	Setup         *kennel.SetupFacts    `json:"setup,omitempty"`
-	SetupState    kennel.CoverageState  `json:"setup_state,omitempty"`
+	// WorkflowFiles is the inventory the workflows were read from, by SHA, with
+	// each path as the gate let it through or "" where it did not. It is what
+	// the page resolves a finding's file to; it is never in the snapshot.
+	WorkflowFiles []kennelWorkflowRef `json:"workflow_files,omitempty"`
+	// WorkflowFormat says which shape Workflows holds. A watermark from before
+	// the files were kept by SHA holds counts the evaluator can no longer read,
+	// so one below kennelWorkflowFormat is read again once.
+	WorkflowFormat int                   `json:"workflow_format,omitempty"`
+	Setup          *kennel.SetupFacts    `json:"setup,omitempty"`
+	SetupState     kennel.CoverageState  `json:"setup_state,omitempty"`
+	Guidance       *kennel.GuidanceFacts `json:"guidance,omitempty"`
+	GuidanceState  kennel.CoverageState  `json:"guidance_state,omitempty"`
+	GuidanceFiles  []kennelWorkflowRef   `json:"guidance_files,omitempty"`
+	// Settings are the repository's Actions settings as flags and one enumerated
+	// word. They are never a name or a line of text a repository wrote.
+	Settings      *kennel.SettingsFacts `json:"settings,omitempty"`
+	SettingsState kennel.CoverageState  `json:"settings_state,omitempty"`
 	// Runs are the fork pull requests and stranger-triggered runs found, newest
 	// first.
 	Runs []kennelSeenRun `json:"runs"`
@@ -82,6 +97,16 @@ type kennelWatermark struct {
 	// State is how the last attempt to read the runs ended, when it did not end
 	// well. Empty means it did.
 	State kennel.CoverageState `json:"state,omitempty"`
+}
+
+// kennelWorkflowFormat is the shape of Workflows this release writes.
+const kennelWorkflowFormat = 2
+
+// kennelWorkflowRef is one workflow file in the inventory: its blob SHA and
+// its path after the gate.
+type kennelWorkflowRef struct {
+	SHA  string `json:"sha"`
+	Path string `json:"path,omitempty"`
 }
 
 // kennelSeenRun is one run worth remembering.

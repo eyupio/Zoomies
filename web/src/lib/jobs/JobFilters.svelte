@@ -7,6 +7,8 @@
     repo: string[];
     workflow: string[];
     pool_id: string[];
+    /** The hosts the jobs ran on, as stamped when a runner took them: a queued job has none. */
+    host_id: string[];
     label: string[];
     conclusion: string[];
     state: JobState[];
@@ -18,10 +20,22 @@
      * has to leave it out.
      */
     provisioning: ProvisioningStatus[];
-    /** Calendar dates, `YYYY-MM-DD`. Converted to instants when the API is called. */
+    /**
+     * Calendar dates, `YYYY-MM-DD`, or with a time of day, `YYYY-MM-DDTHH:MM` on the
+     * operator's clock, which is how a link from a figure that counts a moving window
+     * (the last 7 days, to the minute) asks for the same jobs. Converted to instants
+     * when the API is called.
+     */
     since: string;
     until: string;
     unmatched: boolean;
+    /**
+     * `'false'` leaves out the jobs that ran on somebody else's hosted runners, GitHub's
+     * own or a vendor's, and nothing else: the scope the Overview's figures count in, so
+     * a link from one lists the jobs it counted. A string so the address reads
+     * `hosted=false`, which is what the API calls it.
+     */
+    hosted: '' | 'false';
     /**
      * Only jobs that went wrong, on either side: a failing conclusion, or a
      * runner of this fleet that stopped under the job.
@@ -46,6 +60,7 @@
     repo: [],
     workflow: [],
     pool_id: [],
+    host_id: [],
     label: [],
     conclusion: [],
     state: [],
@@ -53,6 +68,7 @@
     since: '',
     until: '',
     unmatched: false,
+    hosted: '',
     failed: false,
     faulted: false,
     all: false,
@@ -73,7 +89,7 @@
   import { Search } from '@lucide/svelte';
   import { registerSearch } from '$lib/keys';
   import { JOB_STATES, PROVISIONING_STATUSES } from '$lib/api/types';
-  import type { Pool } from '$lib/api/types';
+  import type { Host, Pool } from '$lib/api/types';
   import { jobStatus, QUEUE_STATUS_LABELS } from '$lib/status';
   import FilterBar from '$lib/components/FilterBar.svelte';
   import type { FilterChip } from '$lib/components/FilterBar.svelte';
@@ -99,6 +115,8 @@
     /** Distinct values from GET /jobs/facets. */
     facets: { repos?: string[]; workflows?: string[]; conclusions?: string[] };
     pools: readonly Pool[];
+    /** The fleet's hosts, to offer by name. Omitted where a job cannot have run on one yet. */
+    hosts?: readonly Host[];
     /** Labels worth offering: those the pools answer to, plus those on this page. */
     labelOptions: readonly string[];
     onchange: (patch: Partial<JobFilterState>) => void;
@@ -111,6 +129,7 @@
     value,
     facets,
     pools,
+    hosts = [],
     labelOptions,
     onchange,
     onclear,
@@ -134,6 +153,9 @@
       hint: (p.labels ?? []).join(', '),
     })),
   );
+  const hostOptions = $derived<FacetOption[]>(
+    hosts.map((h) => ({ value: h.id ?? '', label: h.name ?? h.id ?? '' })),
+  );
   const labelChoices = $derived<FacetOption[]>(labelOptions.map((l) => ({ value: l, label: l })));
   const conclusionOptions = $derived<FacetOption[]>(
     (facets.conclusions ?? []).map((c) => ({
@@ -145,10 +167,18 @@
     JOB_STATES.map((s) => ({ value: s, label: jobStatus(s).label, hint: jobStatus(s).hint })),
   );
 
+  // A bound with a time of day needs the control that can show it: a date input handed
+  // `2026-10-02T05:12` shows nothing, and the chip beside it would say a filter was in
+  // force that the field does not.
+  const withTime = $derived(value.since.includes('T') || value.until.includes('T'));
+  const moment = (v: string) => v.replace('T', ' ');
+
   const poolName = $derived(new Map(pools.map((p) => [p.id ?? '', p.name ?? p.id ?? ''])));
+  // A host the fleet no longer has still filters, so its chip says the id rather than nothing.
+  const hostName = $derived(new Map(hosts.map((h) => [h.id ?? '', h.name ?? h.id ?? ''])));
 
   function listChip(
-    key: 'repo' | 'workflow' | 'pool_id' | 'label' | 'conclusion' | 'state',
+    key: 'repo' | 'workflow' | 'pool_id' | 'host_id' | 'label' | 'conclusion' | 'state',
     label: string,
     display: (v: string) => string = (v) => v,
   ): FilterChip[] {
@@ -168,6 +198,7 @@
     ...listChip('repo', 'Repository'),
     ...listChip('workflow', 'Workflow'),
     ...listChip('pool_id', 'Pool', (v) => poolName.get(v) ?? v),
+    ...listChip('host_id', 'Host', (v) => hostName.get(v) ?? v),
     ...listChip('label', 'Label'),
     ...listChip('conclusion', 'Outcome', (v) => jobStatus('completed', v).label),
     ...(statusChips ? listChip('state', 'State', (v) => jobStatus(v as JobState).label) : []),
@@ -199,13 +230,20 @@
           {
             id: 'since',
             label: 'From',
-            value: value.since,
+            value: moment(value.since),
             onremove: () => onchange({ since: '' }),
           },
         ]
       : []),
     ...(value.until
-      ? [{ id: 'until', label: 'To', value: value.until, onremove: () => onchange({ until: '' }) }]
+      ? [
+          {
+            id: 'until',
+            label: 'To',
+            value: moment(value.until),
+            onremove: () => onchange({ until: '' }),
+          },
+        ]
       : []),
     ...(value.unmatched
       ? [
@@ -214,6 +252,16 @@
             label: 'Only',
             value: 'unmatched jobs',
             onremove: () => onchange({ unmatched: false }),
+          },
+        ]
+      : []),
+    ...(value.hosted === 'false'
+      ? [
+          {
+            id: 'hosted',
+            label: 'Leaving out',
+            value: 'jobs on hosted runners',
+            onremove: () => onchange({ hosted: '' }),
           },
         ]
       : []),
@@ -275,6 +323,15 @@
     emptyHint="There are no pools yet."
     onchange={(next) => onchange({ pool_id: next })}
   />
+  {#if !queue}
+    <FacetMenu
+      label="Host"
+      options={hostOptions}
+      selected={value.host_id}
+      emptyHint="There are no hosts yet."
+      onchange={(next) => onchange({ host_id: next })}
+    />
+  {/if}
   <FacetMenu
     label="Label"
     options={labelChoices}
@@ -301,6 +358,7 @@
   <DateRange
     since={value.since}
     until={value.until}
+    {withTime}
     label="Queued between"
     onchange={(next) => onchange(next)}
   />

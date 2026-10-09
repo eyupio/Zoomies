@@ -216,6 +216,7 @@ Flags:
   --output=table             table, json or yaml
   --pids-limit=0             the container's pids cgroup limit (0 is no limit)
   --priority=0               scheduling priority; higher-priority pools receive create slots first
+  --provider-selector        only let providers that match rent machines for this pool, e.g. site=garage or kind=proxmox; name and kind need no label; empty means any provider
   --provision-timeout        override scheduler.provision_timeout for this pool, e.g. 30m (empty follows the fleet; 0 never gives up)
   --pull-policy=if-not-present if-not-present, always, or pinned-only
   --run-as-root              run job steps as root inside the runner
@@ -297,6 +298,7 @@ Flags:
   --output=table             table, json or yaml
   --pids-limit=0             the container's pids cgroup limit (0 is no limit)
   --priority=0               scheduling priority; higher-priority pools receive create slots first
+  --provider-selector        only let providers that match rent machines for this pool, e.g. site=garage or kind=proxmox; name and kind need no label; empty means any provider
   --provision-timeout        override scheduler.provision_timeout for this pool, e.g. 30m (empty follows the fleet; 0 never gives up)
   --pull-policy=if-not-present if-not-present, always, or pinned-only
   --run-as-root              run job steps as root inside the runner
@@ -903,6 +905,170 @@ Examples:
   zoomies why https://github.com/acme/widgets/actions/runs/1234/job/5678
   zoomies why --latest-failed --repo acme/widgets
   zoomies why job_01abc --output json
+```
+
+### zoomies kennel
+
+Kennel Club: how the repositories this fleet serves measure up, and a check that runs on a checkout without a controller
+
+```text
+Kennel Club: how the repositories this fleet serves measure up against what affects CI and the fleet.
+
+Usage:
+  zoomies kennel <subcommand> [flags]
+
+Subcommands:
+  overview                           The Overview: standings, counts and the repositories to open first
+  repositories [--state s] [--severity s] [--code c] [--q text] [--limit n] [--offset n]  The repositories, narrowed by the list's own filters
+  repository <id> [--prompts]        One repository: its standing, what could be read, and each finding
+  checks                             What is checked, and what is turned off
+  recheck <id>                       Ask for a repository to be read again when the budget allows
+  check [path] [--controller owner/name]  Run the workflow checks over a checkout on this machine; nothing leaves it unless a controller is named
+
+Run "zoomies kennel <subcommand> --help" for the flags each one takes.
+```
+
+#### zoomies kennel overview
+
+The Overview: standings, counts and the repositories to open first
+
+```text
+The Kennel Club Overview, in a terminal.
+
+Usage:
+  zoomies kennel overview
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --output=table             table, json or yaml
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+```
+
+#### zoomies kennel repositories
+
+The repositories, narrowed by the list's own filters
+
+```text
+The repositories Kennel Club looks at, narrowed by the list's own filters.
+
+Usage:
+  zoomies kennel repositories [flags]
+
+Flags:
+  --active                   all, or only the repositories the fleet is serving
+  --ca-file                  PEM file holding the controller's certificate
+  --code                     only repositories with an open finding of this check
+  --incomplete               true keeps the repositories only partly checked
+  --insecure                 do not verify the controller's certificate
+  --installation             only this installation's repositories
+  --limit=50                 how many to list
+  --offset=0                 how many to skip
+  --output=table             table, json or yaml
+  --q                        only repositories whose name contains this
+  --severity                 only repositories with an open finding of this severity
+  --state                    only this standing: pending, partial, attention or best_in_show
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --tracked                  true keeps the repositories being tracked, false the ones that are not
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+  --waived                   true keeps the repositories with a waived finding, false the ones with none
+
+Examples:
+  zoomies kennel repositories --state attention
+  zoomies kennel repositories --code ci.no_timeout --output json
+```
+
+#### zoomies kennel repository
+
+One repository: its standing, what could be read, and each finding
+
+```text
+One repository: its standing, what could be read, and each finding.
+
+Usage:
+  zoomies kennel repository <id>
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --output=table             table, json or yaml
+  --prompts                  print each finding's prompt for a coding agent
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+
+Examples:
+  zoomies kennel repository kcr_k3f9qz2m
+  zoomies kennel repository kcr_k3f9qz2m --prompts
+```
+
+#### zoomies kennel checks
+
+What is checked, and what is turned off
+
+```text
+What Kennel Club checks, and what is turned off.
+
+Usage:
+  zoomies kennel checks
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --output=table             table, json or yaml
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+```
+
+#### zoomies kennel recheck
+
+Ask for a repository to be read again when the budget allows
+
+```text
+Ask for a repository to be read again when the budget allows.
+
+Usage:
+  zoomies kennel recheck <id>
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --insecure                 do not verify the controller's certificate
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+```
+
+#### zoomies kennel check
+
+Run the workflow checks over a checkout on this machine; nothing leaves it unless a controller is named
+
+```text
+Run Kennel Club's workflow checks over a checkout, with nothing sent anywhere.
+
+Usage:
+  zoomies kennel check [path]
+
+Flags:
+  --ca-file                  PEM file holding the controller's certificate
+  --code                     only these checks, comma-separated codes
+  --controller               owner/name: also ask the controller for this repository's fleet-dependent findings
+  --insecure                 do not verify the controller's certificate
+  --output=table             table or json
+  --prompts                  render a prompt for a coding agent on each finding
+  --public                   the repository is public, which makes some findings worse; private is assumed otherwise
+  --severity=info            report findings at this severity or worse: error, warning or info
+  --timeout=30s              how long to wait for one request
+  --token                    an API token (or ZOOMIES_TOKEN)
+  --url                      the controller, e.g. https://zoomies.example.com (or ZOOMIES_URL)
+
+Examples:
+  zoomies kennel check
+  zoomies kennel check --output json --prompts ~/src/widgets
+  zoomies kennel check --severity warning --code ci.no_timeout,ci.action_not_pinned
 ```
 
 ### zoomies size-pins

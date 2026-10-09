@@ -866,8 +866,17 @@ func TestWhatTheFleetDidWaitsTenMinutesAndWhatTheOperatorDecidedDoesNot(t *testi
 	if !row.EvaluatedAt.After(second) {
 		t.Error("an area was turned off and the repository was not evaluated at once")
 	}
-	if v := newKennelRepositoryView(row); len(v.Findings) != 0 || len(v.Disabled) != len(kennel.Checks())-2 {
-		t.Errorf("findings %v, disabled %v: turning exposure off should remove its four checks", findingCodes(v), v.Disabled)
+	// What stays on is the capacity area, the one area no switch or name here
+	// turns off; counting it from the registry keeps a new capacity check from
+	// turning this into a test of the registry's size.
+	capacity := 0
+	for _, ck := range kennel.Checks() {
+		if ck.Area == kennel.AreaCapacity {
+			capacity++
+		}
+	}
+	if v := newKennelRepositoryView(row); len(v.Findings) != 0 || len(v.Disabled) != len(kennel.Checks())-capacity {
+		t.Errorf("findings %v, disabled %v: turning exposure off should leave only the capacity checks on", findingCodes(v), v.Disabled)
 	}
 	// With one area off the rest still run, and the badge is about those: what is
 	// turned off is listed beside it, so nobody reads it as more than it is. Only
@@ -1087,31 +1096,90 @@ func TestEveryRequestKennelClubMakesIsOneItDocuments(t *testing.T) {
 	f.dueAgain()
 	f.pass()
 
+	assertOnlyDocumentedGets(t, f)
+}
+
+// normaliseKennelRequest turns a recorded request into the form
+// github.KennelEndpoints lists it in. It works by what a path is and not by where
+// a segment falls, because the fake records the decoded path, in which a branch
+// named release/1.0 is two segments.
+func normaliseKennelRequest(req string) string {
+	method, path, _ := strings.Cut(req, " ")
+	path, _, _ = strings.Cut(path, "?")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	switch {
+	case len(parts) >= 3 && parts[0] == "repos":
+		rest := parts[3:]
+		switch {
+		case len(rest) >= 3 && rest[0] == "actions" && rest[1] == "runs":
+			rest = []string{"actions", "runs", "{run}"}
+		case len(rest) >= 3 && rest[0] == "git" && (rest[1] == "trees" || rest[1] == "blobs"):
+			rest = []string{"git", rest[1], "{" + strings.TrimSuffix(rest[1], "s") + "}"}
+		case len(rest) >= 3 && rest[0] == "branches" && rest[len(rest)-1] == "protection":
+			rest = []string{"branches", "{branch}", "protection"}
+		case len(rest) >= 3 && rest[0] == "rules" && rest[1] == "branches":
+			rest = []string{"rules", "branches", "{branch}"}
+		}
+		parts = append([]string{"repos", "{owner}", "{repo}"}, rest...)
+	case len(parts) >= 2 && parts[0] == "orgs":
+		parts[1] = "{org}"
+	}
+	return method + " /" + strings.Join(parts, "/")
+}
+
+// assertOnlyDocumentedGets fails on a recorded request that is not a GET or not
+// one the documentation lists, and returns the set of documented requests seen.
+func assertOnlyDocumentedGets(t *testing.T, f *kennelFixture) map[string]bool {
+	t.Helper()
 	allowed := map[string]bool{}
 	for _, e := range github.KennelEndpoints {
 		allowed[e] = true
 	}
-	seen := 0
+	seen := map[string]bool{}
 	for _, req := range f.gh.Requests() {
-		method, path, _ := strings.Cut(req, " ")
-		path, _, _ = strings.Cut(path, "?")
-		parts := strings.Split(strings.Trim(path, "/"), "/")
-		switch {
-		case len(parts) >= 3 && parts[0] == "repos":
-			parts[1], parts[2] = "{owner}", "{repo}"
-			if len(parts) > 4 && parts[3] == "actions" && parts[4] == "runs" && len(parts) > 5 {
-				parts[5] = "{run}"
-			}
-		case len(parts) >= 2 && parts[0] == "orgs":
-			parts[1] = "{org}"
-		}
-		if norm := method + " /" + strings.Join(parts, "/"); !allowed[norm] {
+		norm := normaliseKennelRequest(req)
+		if !allowed[norm] {
 			t.Errorf("Kennel Club made a request it does not document: %s (as %s)", req, norm)
 		}
-		seen++
+		seen[norm] = true
 	}
-	if seen == 0 {
+	if len(seen) == 0 {
 		t.Fatal("no requests were recorded; the test proves nothing")
+	}
+	return seen
+}
+
+// The same, with every opt-in switch on. The test above turns on none, so it
+// never reached the tree, the blobs or the settings, and a documented list that
+// no test exercised was a list that could drift from the code.
+func TestEveryRequestWithEveryOptInSwitchOnIsOneItDocuments(t *testing.T) {
+	f := newKennelFixture(t)
+	f.persistent()
+	f.c.UpdateConfig(func(c *config.Config) {
+		c.Kennel.RepositorySetup, c.Kennel.WorkflowChecks, c.Kennel.AgentGuidance, c.Kennel.SettingsChecks = true, true, true, true
+	})
+	f.repo("acme/widgets", "public")
+	f.repo("acme/secret", "private")
+	f.gh.AddWorkflow("acme/widgets", ".github/workflows/ci.yml", timeoutless)
+	f.gh.AddWorkflow("acme/secret", ".github/workflows/ci.yml", timeoutless)
+	f.ran("acme/widgets", 11, f.pool)
+	f.trigger("acme/widgets", 11, "pull_request", true)
+	f.ran("acme/secret", 12, f.pool)
+	f.pass()
+	f.dueAgain()
+	f.pass()
+
+	seen := assertOnlyDocumentedGets(t, f)
+	for _, want := range []string{
+		"GET /repos/{owner}/{repo}/git/trees/{tree}",
+		"GET /repos/{owner}/{repo}/git/blobs/{blob}",
+		"GET /repos/{owner}/{repo}/actions/permissions/workflow",
+		"GET /repos/{owner}/{repo}/actions/permissions/fork-pr-contributor-approval",
+		"GET /repos/{owner}/{repo}/actions/permissions/fork-pr-workflows-private-repos",
+	} {
+		if !seen[want] {
+			t.Errorf("the documented request %s was never made, so no test holds it", want)
+		}
 	}
 }
 
@@ -1660,5 +1728,44 @@ func TestPartlyCheckedListsPartialAndPendingRepositoriesAndNoOthers(t *testing.T
 	var invalid *KennelInvalidError
 	if !errors.As(err, &invalid) || invalid.Fields[0].Field != "incomplete" {
 		t.Errorf("incomplete with a state = %v, want a refusal naming incomplete", err)
+	}
+}
+
+// ranMatrix records one job of a matrix: a job of a run attempt whose name
+// carries GitHub's " (values)" suffix, which waited for a runner.
+func (f *kennelFixture) ranMatrix(repo string, run int64, pool *store.Pool, name string, waited time.Duration) {
+	f.t.Helper()
+	f.next++
+	now := f.c.Now()
+	if _, err := f.st.UpsertJob(f.ctx, &store.Job{
+		GitHubJobID: f.next, GitHubRunID: run, RunAttempt: 1, JobName: name, Repo: repo, InstallationID: f.inst.ID, PoolID: pool.ID,
+		RunnerID: "run_" + pool.ID, State: store.JobCompleted, Conclusion: "success", Matched: true,
+		Labels:   store.NormalizeLabels([]string{"self-hosted", "linux"}),
+		QueuedAt: now.Add(-time.Hour), StartedAt: ptr(now.Add(-time.Hour + waited)), CompletedAt: ptr(now.Add(-30 * time.Minute)),
+	}); err != nil {
+		f.t.Fatalf("UpsertJob: %v", err)
+	}
+}
+
+// The evaluator decides whether a matrix was too wide; the controller's part is
+// to hand it each matrix and each pool's ceiling, and to point at the pool.
+func TestTheSnapshotCarriesEachMatrixAndEachPoolsCeiling(t *testing.T) {
+	f := newKennelFixture(t)
+	f.repo("acme/api", "private")
+	f.pool.MaxRunners = 2
+	if err := f.st.UpdatePool(f.ctx, f.pool); err != nil {
+		t.Fatal(err)
+	}
+	for i, waited := range []time.Duration{0, 0, 3 * time.Minute, 3 * time.Minute, 6 * time.Minute, 6 * time.Minute} {
+		f.ranMatrix("acme/api", 7, f.pool, fmt.Sprintf("build (%d)", i), waited)
+	}
+	f.pass()
+	v := f.view("acme/api")
+	fd := findingOf(v, kennel.CodeMatrixExceedsPool)
+	if fd == nil {
+		t.Fatalf("findings = %v, want the matrix finding", findingCodes(v))
+	}
+	if len(fd.Evidence) != 1 || fd.Evidence[0].Ref != f.pool.ID {
+		t.Errorf("evidence = %+v, want the pool", fd.Evidence)
 	}
 }

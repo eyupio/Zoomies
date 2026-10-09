@@ -12,13 +12,18 @@ import (
 // this list is what a pull request that adds one has to edit.
 func TestTheRegistryIsTheClosedSetOfCodes(t *testing.T) {
 	want := []Code{
+		"guidance.missing", "guidance.broken_reference", "guidance.duplicated", "guidance.unreadable",
 
 		"exposure.public_repo_on_fleet",
 		"exposure.public_repo_weak_pool",
 		"exposure.fork_code_ran",
 		"exposure.target_event_ran",
+		"exposure.target_checkout_pr_head",
+		"exposure.fork_approval_weak",
+		"exposure.private_fork_secrets",
 		"capacity.unserved_label",
 		"capacity.job_hit_default_limit",
+		"capacity.matrix_exceeds_pool",
 		"setup.readme",
 		"setup.licence",
 		"setup.security",
@@ -33,6 +38,12 @@ func TestTheRegistryIsTheClosedSetOfCodes(t *testing.T) {
 		"ci.no_concurrency",
 		"ci.action_not_pinned",
 		"token.permissions_unset",
+		"token.default_write",
+		"ci.workflow_unreadable",
+		"ci.pins_without_updater",
+		"ci.label_unserved",
+		"ci.secret_on_command_line",
+		"protection.required_check_never_reports",
 	}
 	var got []Code
 	seen := map[Code]bool{}
@@ -175,7 +186,7 @@ func TestTheNamesOfferedForDisabledChecksAreExactlyTheOnesAccepted(t *testing.T)
 			}
 		}
 	}
-	if len(names) < 2 || names[0] != string(AreaExposure) {
+	if len(names) < 2 || names[0] != string(Checks()[0].Area) {
 		t.Errorf("Names should start with the areas in registry order, got %v", names)
 	}
 }

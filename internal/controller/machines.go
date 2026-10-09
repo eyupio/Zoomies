@@ -558,6 +558,7 @@ func (c *Controller) stepTimeout(pr *machineProvider) time.Duration {
 // applyMachinePlan writes this pass's reservations and starts this pass's
 // drains. A failure on one provider never abandons the rest.
 func (c *Controller) applyMachinePlan(ctx context.Context, env *machineEnv, plan MachinePlan) {
+	c.noteUnserved(plan.Unserved)
 	for _, pp := range plan.Providers {
 		row := env.provider(pp.ProviderID)
 		if row == nil {
@@ -1718,4 +1719,33 @@ func machineLabelsFor(labels store.StringMap) string {
 		parts = append(parts, k+"="+labels[k])
 	}
 	return strings.Join(parts, ",")
+}
+
+// noteUnserved logs a pool that has work and a provider that could have built
+// for it, when a selector said no, and the moment that stops being true. Once
+// per change, for noteBlocked's reason: the machine loop runs every few seconds.
+func (c *Controller) noteUnserved(now []UnservedPool) {
+	c.mu.Lock()
+	if c.unserved == nil {
+		c.unserved = map[string]string{}
+	}
+	was := c.unserved
+	next := make(map[string]string, len(now))
+	for _, u := range now {
+		next[u.Pool] = u.Why
+	}
+	c.unserved = next
+	c.mu.Unlock()
+
+	for _, u := range now {
+		if was[u.Pool] != u.Why {
+			c.log.Warn("no provider will rent a machine for a pool with work waiting",
+				"pool", u.Pool, "reason", u.Why, "fix", u.Fix)
+		}
+	}
+	for pool := range was {
+		if _, still := next[pool]; !still {
+			c.log.Info("a provider will rent for a pool again", "pool", pool)
+		}
+	}
 }

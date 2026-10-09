@@ -1416,17 +1416,23 @@ and the UI (#661, #669, #670); per-repository tracking (#699, #701); the
 first of Stage 3 (ZF-229c) in #714, `ci.no_timeout`, `ci.no_concurrency`,
 `ci.action_not_pinned` and `token.permissions_unset` behind
 `kennel.workflow_checks`, as per-repository counts, and ten `setup.*`
-presence checks behind `kennel.repository_setup`.
+presence checks behind `kennel.repository_setup`; part one of the rest of
+ZF-229c as [agent-readiness.md](roadmap/agent-readiness.md) section 6
+re-cuts it: the parser moved to `internal/kennel/workflow` with a fuzz
+target and a dogfooding test over this repository's own workflows, location
+evidence on every workflow finding (a blob SHA, a job index and a line, with
+the path shown only where it passes a grammar), waivers that lapse when the
+file changes, and the owed checks `exposure.target_checkout_pr_head`,
+`ci.workflow_unreadable`, `ci.pins_without_updater`, `ci.label_unserved` and
+`ci.secret_on_command_line` (#761); part two, which finishes ZF-229c:
+`capacity.matrix_exceeds_pool`, a prompt on every open finding with the
+page's Copy button, `zoomies kennel` with its five readers, and
+`zoomies kennel check [path]`, the same checks over a checkout with nothing
+sent anywhere, held by golden JSON (#767).
 
-**Open:** the rest of ZF-229c as
-[agent-readiness.md](roadmap/agent-readiness.md) section 6 re-cuts it,
-location evidence for a finding (a blob SHA, a job index and a line, never a
-path), the checks the record still owes (`ci.target_checkout_pr_head`,
-`ci.pins_without_updater`, `ci.workflow_unreadable`, `ci.label_unserved`,
-`ci.secret_on_command_line`, `capacity.matrix_exceeds_pool`), the parser's
-move to `internal/kennel/workflow`, and `zoomies kennel`, including
-`zoomies kennel check [path]` offline; Stage 4 (ZF-229d, repository
-settings); Stage 5 (ZF-229e, fix by pull request); the documentation page.
+**Open:** Stage 4 (ZF-229d, repository settings), planned in
+[roadmap/plans/2026-10-09-zf-229d-settings.md](roadmap/plans/2026-10-09-zf-229d-settings.md);
+Stage 5 (ZF-229e, fix by pull request); the documentation page.
 
 Depends on ZF-227. Size L.
 
@@ -1503,10 +1509,16 @@ Depends on ZF-207 and ZF-404. Size L.
 
 ### ZF-233: skills for a coding agent
 
-**Classification: new; S; proposed 8 October.** `skills/zoomies/` and
-`skills/zoomies-kennel/`, with the generated command reference from ZF-230
-pinned and tested, a lint test in `internal/docs`, and install docs.
+**Classification: new; S; proposed 8 October; implemented 9 October.**
+`skills/zoomies/` (#768) and `skills/zoomies-kennel/`, with the generated
+command reference from ZF-230 pinned and tested, lint tests in `internal/docs`
+and `cmd/zoomies` that hold every skill to what an installer needs, every
+command it names to the binary, and the zoomies skill's three lists to every
+command there is, and install docs in the README and `docs/cli.md`.
 [agent-readiness.md](roadmap/agent-readiness.md) section 7 is the design.
+
+**Open:** gate row 15's second agent for the kennel skill: one agent's smoke
+test is recorded in its pull request; the owner runs the second.
 
 Depends on ZF-230, ZF-229c. Size S.
 
@@ -1516,6 +1528,12 @@ Depends on ZF-230, ZF-229c. Size S.
 (owed by the Kennel Club record), the *why* section, the skills page, the
 FAQ entries, and the CLI, API, AI Context and Connect Claude updates.
 Foldable into each package's pull requests.
+
+**Done, 9 October:** most of section 8 landed with the packages it documents;
+the remainder, *Ask the fleet why* on the queued-job page, two FAQ entries,
+and every subcommand on the CLI page held there by a test, is in its own pull
+request. Gate row 16 is met by the strict site build and the two tests that
+hold the CLI page to the binary.
 
 Depends on ZF-230 to ZF-233. Size S.
 

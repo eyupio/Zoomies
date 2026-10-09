@@ -329,6 +329,12 @@ cannot be built on the counts alone. The remainder of Phase 4 is therefore:
    as the record always intended, so the offline command can use it without a
    GitHub client, and so the fuzz target lives beside the evaluator.
 
+All three landed in #760 and #761 (9 October), with `ci.target_checkout_pr_head`
+placed in the exposure area as `exposure.target_checkout_pr_head`; 6.1's
+`capacity.matrix_exceeds_pool`, 6.3 and 6.4 landed in #767, with the
+conversion from parser facts to evaluator facts and the path gate shared by the
+controller and the offline check in `internal/kennel/offline`.
+
 ### 6.1 The rule set, reconciled
 
 The Kennel Club record's Stage 3 and 4 rows cover most of the plan's list. Each
@@ -367,8 +373,8 @@ designed.
 
 The plan's "nothing is sent anywhere" story, which Kennel Club on a controller
 cannot tell because it reads through GitHub. The same parser (today
-`InspectKennelWorkflow` in `internal/github`, moved to `internal/kennel/workflow`
-by 6.0) and the same `ci.*` and `token.*` evaluators run over a local
+`workflow.Inspect` in `internal/kennel/workflow`, moved there from
+`internal/github` by 6.0) and the same `ci.*` and `token.*` evaluators run over a local
 `.github/workflows`, with the fleet-dependent and `setup.*` checks reported as
 *not checked here* rather than silently absent. `--output json`, `--code a,b`, `--severity`,
 `--prompts`. Exit codes: 0 no findings at the asked severity, 1 error, 4

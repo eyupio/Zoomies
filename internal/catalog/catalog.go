@@ -12,6 +12,7 @@ package catalog
 
 import (
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 
@@ -120,6 +121,13 @@ func checkEntry(k kennel.Check) Entry {
 	detection := DetectionRuntime
 	switch k.Area {
 	case kennel.AreaSetup, kennel.AreaCI, kennel.AreaToken:
+		detection = DetectionStatic
+	}
+	// A check that reads a repository's settings is found by reading
+	// configuration whatever area it is in: the two fork policies are exposure
+	// findings and are not found by watching the fleet run. The required-check
+	// finding compares configuration with what the fleet saw, so it stays runtime.
+	if slices.Contains(k.Needs, kennel.SourceSettings) || slices.Contains(k.Conditional, kennel.SourceSettings) {
 		detection = DetectionStatic
 	}
 	return Entry{

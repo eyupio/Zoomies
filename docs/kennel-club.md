@@ -18,10 +18,11 @@ So it is not a linter, and it has no opinion about your code. It says that a
 public repository's jobs run on a pool a stranger's pull request could damage,
 and that jobs have been waiting ten minutes for a label no pool serves.
 
-One optional area bends that rule, and says so: the **setup** checks report what
+Optional repository guidance checks bend that rule, and say so: the **setup** checks report what
 a repository lacks that makes it harder to maintain, such as a README or a
 security policy. They are off until you turn them on, and informational when they
-are on. See [the optional checks](#the-optional-checks).
+are on. The **guidance** checks inspect agent instruction files when separately
+enabled. See [the optional checks](#the-optional-checks).
 
 It is **off by default**, and off means off: nothing is read from GitHub,
 nothing is stored, and [AI Context](ai-context.md) carries on exactly as it was.
@@ -34,8 +35,8 @@ UI under **Kennel Club**. This is its Overview for the demo fleet:
 
 ## What it checks
 
-There are twenty checks, in five areas. Six of them, in **exposure** and
-**capacity**, run whenever Kennel Club is on; the other fourteen are opt-in,
+There are thirty-four checks, in seven areas. Seven of them, in **exposure** and
+**capacity**, run whenever Kennel Club is on; the other twenty-seven are opt-in,
 and [the switches that turn them on](#the-optional-checks) are described after
 them. Each has a stable code, so a waiver, a metric or a `disabled_checks`
 entry keeps meaning the same thing from one release to the next, and the same
@@ -49,6 +50,74 @@ The list below is generated from the registry the evaluator runs by
 and a test fails the build when a check is added without it being run.
 
 <!-- zoomies:catalogue-begin -->
+
+### `guidance.missing` { #guidance-missing }
+
+Area
+:   guidance
+
+Severity
+:   info
+
+Detects
+:   No recognised agent instruction file was found on the default branch.
+
+Fix
+:   Preview agent guidance to propose an AGENTS.md and a Claude import, using commands declared in repository files.
+
+Verify
+:   Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.
+
+### `guidance.broken_reference` { #guidance-broken_reference }
+
+Area
+:   guidance
+
+Severity
+:   warning
+
+Detects
+:   An instruction file imports or links to a missing repository path, or its Claude imports form a cycle.
+
+Fix
+:   Preview agent guidance for unambiguous import repairs; review other broken links or import cycles and correct them manually. Use AI Context repair for damaged Zoomies-managed sections.
+
+Verify
+:   Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.
+
+### `guidance.duplicated` { #guidance-duplicated }
+
+Area
+:   guidance
+
+Severity
+:   info
+
+Detects
+:   A root or nested Claude instruction file repeats the root AGENTS.md in full.
+
+Fix
+:   Preview agent guidance to replace the duplicate Claude file with an import of the shared AGENTS.md.
+
+Verify
+:   Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.
+
+### `guidance.unreadable` { #guidance-unreadable }
+
+Area
+:   guidance
+
+Severity
+:   warning
+
+Detects
+:   An instruction file is empty, is not regular UTF-8 text or exceeds the file or byte limits.
+
+Fix
+:   Keep instruction files as non-empty regular UTF-8 text under 64 KiB each, with at most 32 files inspected; split or shorten them and recheck.
+
+Verify
+:   Press Recheck after the change reaches the default branch; the finding closes when the guidance is read without this problem.
 
 ### `exposure.public_repo_on_fleet` { #exposure-public_repo_on_fleet }
 
@@ -118,6 +187,57 @@ Fix
 Verify
 :   Press Recheck once the workflow has been reviewed or moved; the finding closes when no run for those events has executed here in the window.
 
+### `exposure.target_checkout_pr_head` { #exposure-target_checkout_pr_head }
+
+Area
+:   exposure
+
+Severity
+:   error
+
+Detects
+:   A workflow that strangers can trigger (pull_request_target) checks out the pull request's own code, which then runs with the repository's token and secrets.
+
+Fix
+:   Do not check out the pull request's head under pull_request_target; read what the event carries, or run the code under pull_request, where it gets the fork's lesser token and no secrets.
+
+Verify
+:   Press Recheck after the change reaches the default branch; the finding closes when no pull_request_target workflow checks out the pull request's head.
+
+### `exposure.fork_approval_weak` { #exposure-fork_approval_weak }
+
+Area
+:   exposure
+
+Severity
+:   warning
+
+Detects
+:   A public repository this fleet serves asks for approval of fork pull requests only from contributors new to GitHub, so most outside contributors can start a job here.
+
+Fix
+:   Require approval for workflows from all outside contributors in the repository's Actions settings, so a maintainer reads a fork's pull request before it runs here.
+
+Verify
+:   Press Recheck after the setting changes; the finding closes when the approval policy covers every outside contributor.
+
+### `exposure.private_fork_secrets` { #exposure-private_fork_secrets }
+
+Area
+:   exposure
+
+Severity
+:   warning
+
+Detects
+:   A private repository lets fork pull requests run workflows and sends them secrets or a token that can write.
+
+Fix
+:   In the repository's Actions settings, stop sending secrets and write tokens to fork pull request workflows, or stop fork pull requests running workflows.
+
+Verify
+:   Press Recheck after the setting changes; the finding closes when fork pull requests are sent neither secrets nor a token that can write.
+
 ### `capacity.unserved_label` { #capacity-unserved_label }
 
 Area
@@ -151,6 +271,23 @@ Fix
 
 Verify
 :   Press Recheck after the next run of the job; the finding closes once no run in the window was cancelled at the six-hour limit.
+
+### `capacity.matrix_exceeds_pool` { #capacity-matrix_exceeds_pool }
+
+Area
+:   capacity
+
+Severity
+:   info
+
+Detects
+:   A matrix's jobs waited together on a pool with fewer runners than the matrix has jobs, so the matrix ran in waves.
+
+Fix
+:   Raise the pool's max_runners to the matrix's width, spread the matrix over more than one pool with runs-on, or cap it with max-parallel so the wait is chosen and not suffered.
+
+Verify
+:   Press Recheck after the pool or the matrix changes; the finding closes when no matrix in the window is wider than the pool it ran on.
 
 ### `setup.readme` { #setup-readme }
 
@@ -390,6 +527,108 @@ Fix
 Verify
 :   Press Recheck after the change reaches the default branch; the finding closes when every job has a permissions block of its own or its workflow's.
 
+### `token.default_write` { #token-default_write }
+
+Area
+:   token
+
+Severity
+:   warning
+
+Detects
+:   The repository's default workflow token can write, so every workflow that sets no permissions runs with write access.
+
+Fix
+:   Set the default workflow permissions to read-only in the repository's Actions settings, then declare write permissions only on the workflows or jobs that need them.
+
+Verify
+:   Press Recheck after the setting changes; the finding closes when the default workflow token is read-only.
+
+### `ci.workflow_unreadable` { #ci-workflow_unreadable }
+
+Area
+:   ci
+
+Severity
+:   warning
+
+Detects
+:   A workflow file could not be read within Kennel Club's limits, so nothing in it was judged.
+
+Fix
+:   Bring the file within the limits: under 256 KiB, no YAML anchors, aliases or merge keys, no duplicate keys, one document, valid UTF-8 and a jobs mapping; or split it into smaller workflows.
+
+Verify
+:   Press Recheck after the change reaches the default branch; the finding closes when the file is read and judged.
+
+### `ci.pins_without_updater` { #ci-pins_without_updater }
+
+Area
+:   ci
+
+Severity
+:   info
+
+Detects
+:   Actions are pinned to commits but no updater configuration moves the pins, so they age until somebody remembers.
+
+Fix
+:   Configure Dependabot or Renovate for GitHub Actions so the pinned commits are moved by pull request, or confirm that an external service moves them.
+
+Verify
+:   Press Recheck once the configuration is on the default branch; the finding closes when the next tree read finds it.
+
+### `ci.label_unserved` { #ci-label_unserved }
+
+Area
+:   ci
+
+Severity
+:   info
+
+Detects
+:   A job's runs-on names labels no pool here serves, so the job will wait until a pool matches it.
+
+Fix
+:   Change the job's runs-on to labels a pool serves, or add the label to a pool that can run the job.
+
+Verify
+:   Press Recheck after the pool or the workflow changes; the finding closes when every job's runs-on is served.
+
+### `ci.secret_on_command_line` { #ci-secret_on_command_line }
+
+Area
+:   ci
+
+Severity
+:   warning
+
+Detects
+:   A secret is interpolated into a run line or a command-line argument, where it reaches the process list and the log.
+
+Fix
+:   Pass the secret through the step's env block and read it from the environment in the command; never interpolate it into run or args.
+
+Verify
+:   Press Recheck after the change reaches the default branch; the finding closes when no run line or args interpolates a secret.
+
+### `protection.required_check_never_reports` { #protection-required_check_never_reports }
+
+Area
+:   protection
+
+Severity
+:   warning
+
+Detects
+:   A status check that GitHub Actions should post is required to merge, but no job this fleet saw in the window produced it.
+
+Fix
+:   Rename the required check to the name of the job that posts it, or remove it from the branch protection or ruleset if no job posts it any more.
+
+Verify
+:   Press Recheck after the required checks change; the finding closes when every required check pinned to GitHub Actions has a job of that name in the window.
+
 <!-- zoomies:catalogue-end -->
 
 **Exposure** is about strangers. Code from outside your project should never
@@ -408,7 +647,7 @@ change, the pools and runs involved, and where to look. The sentences come from
 Kennel Club and never from the repository, so a pull request title or a branch
 name cannot put words into an operator's page.
 
-The whole registry, all twenty, is served by `GET /api/v1/kennel/checks`, so a
+The whole registry, all thirty-four, is served by `GET /api/v1/kennel/checks`, so a
 script can read what is checked without scraping this page.
 
 **One finding can be worse than its usual severity.** On its own,
@@ -426,15 +665,17 @@ what to change:
 
 ### The optional checks
 
-Fourteen checks read what is in a repository. Each group has a switch of its own
+Twenty-three checks read what is in a repository. Each group has a switch of its own
 and is **off by default**. Until a switch is on, its checks are shown as **Turned
 off** on the Overview, and nothing is read for them.
 
 | Area | Checks | Turned on by | What it reads | What a finding is |
 | --- | --- | --- | --- | --- |
 | `setup` | 10: a README, a licence, a security policy, a contribution guide, a code of conduct, issue and pull request templates, `CODEOWNERS`, dependency updates and a CI workflow | `kennel.repository_setup` (**Check repository setup**) | The default branch's file names, as one Git tree request for each repository. No file contents. | Informational. It never lowers a repository's standing. |
-| `ci` | 3: `ci.no_timeout`, `ci.no_concurrency`, `ci.action_not_pinned` | `kennel.workflow_checks` (**Check workflow best practices**) | The default branch's workflow files. | A warning, except `ci.no_concurrency`, which is a note, as is `ci.action_not_pinned` when only GitHub's own actions are affected. |
+| `guidance` | 4: missing instructions, broken references, exact duplication and unreadable files | `kennel.agent_guidance` (**Check agent guidance**) | Bounded instruction files and their local references. | Informational for absence and duplication; warnings for broken or unreadable guidance. |
+| `ci` | 7: `ci.no_timeout`, `ci.no_concurrency`, `ci.action_not_pinned` | `kennel.workflow_checks` (**Check workflow best practices**) | The default branch's workflow files. | A warning, except `ci.no_concurrency`, which is a note, as is `ci.action_not_pinned` when only GitHub's own actions are affected. |
 | `token` | 1: `token.permissions_unset` | the same switch | The same files. | A warning for a public repository, a note for a private one. |
+| `token`, `exposure` | 3: `token.default_write`, `exposure.fork_approval_weak`, `exposure.private_fork_secrets` | `kennel.settings_checks` (**Check repository settings**) | The repository's Actions settings, with the App's Administration read permission. | Warnings. A weak approval policy is an error once a fork's code has run here. |
 
 A setup finding says **repository-local**, because an account's default guidance
 may stand in for a file the repository does not have, and a missing file is
@@ -447,6 +688,58 @@ an all clear.
 and what its absence makes harder, and
 [the workflow checks](configuration.md#workflow-best-practice-checks) say what
 each detects and what is excluded.
+
+Four more checks read a repository's settings and the status checks its default
+branch requires. Three of them, `token.default_write`,
+`exposure.fork_approval_weak` and `exposure.private_fork_secrets`, are turned on
+by `kennel.settings_checks` (**Check repository settings**) and read the
+repository's Actions settings: the default workflow token and the policy for
+fork pull requests. They need the App's **Administration** read permission,
+which GitHub offers no narrower form of, so it is asked for separately from the
+rest and only if you turn the setting on; the read changes no setting. The
+fourth, `protection.required_check_never_reports`, reads the status checks a
+branch requires and cannot be turned on yet. See
+[Repository settings checks](configuration.md#repository-settings-checks).
+
+## Agent guidance
+
+The **Agent guidance** tab shows structural findings about a repository's
+instruction files. A healthy single-file setup is sufficient. These checks do
+not judge whether prose is correct or whether a declared command works.
+
+Enable **Check agent guidance** (`kennel.agent_guidance`) in Settings. Missing
+instructions and exact Claude duplication are informational; broken references,
+import cycles and files that cannot be inspected are warnings. Simple inline Markdown
+links and standalone Claude `@path` imports are checked against the same pinned
+tree. Links in fenced or inline examples, HTML comments, external links and
+fragment-only links are ignored. Reference-style Markdown links and heading anchors are not checked.
+
+An administrator presses **Preview guidance changes** to read the current default
+branch and see each file's current and proposed contents. The proposal can:
+
+* Create an initial `AGENTS.md` and a Claude import when guidance is absent.
+  Commands come only from explicit root Makefile targets or package.json scripts;
+  Zoomies never executes them or copies their script bodies into guidance.
+* Replace exact duplicates of the root `AGENTS.md` in `CLAUDE.md` or
+  `.claude/CLAUDE.md` with a relative import, preserving line endings and mode.
+* Correct a standalone Claude import when exactly one recognised guidance file
+  matches its name. Other prose stays as written.
+
+Ambiguous links, import cycles and differing instructions need manual review.
+For damaged Zoomies-owned context sections, use **Reinstall / repair** in
+[AI Context](ai-context.md). Guidance proposals do not install AI Context.
+
+**Open draft pull request** approves the exact preview. A changed default branch
+requires a fresh preview. The proposal branch is derived from the file changes;
+retries reconcile it, and an existing different proposal is preserved rather
+than overwritten or duplicated. Merge the draft in GitHub, then press
+**Recheck**. Turning checks off or stopping repository tracking prevents both
+reads and new proposals. No new assistant connection or source access is granted.
+
+The explicit preview and proposal use the source-setup GitHub API: repository
+metadata, default-branch refs, commits, trees and bounded blobs; publishing adds
+Git trees, a commit, a new branch ref and a draft pull request. These are separate
+from the background read-only endpoint list below.
 
 ## How to read a repository's standing
 
@@ -486,6 +779,20 @@ One more thing looks like a standing and is not one: **Not tracked** means
 somebody told Kennel Club not to look at the repository. See
 [Stopping Kennel Club looking at a repository](#stopping-kennel-club-looking-at-a-repository).
 
+### Where a workflow finding points
+
+A finding from a workflow file says which file, which job and which line, as
+`.github/workflows/ci.yml:41 (job 2)`, so the person who opens it knows where
+to look before they open the editor. The file is identified by the SHA of the
+blob that was read, not by its path: a path is text somebody chose and a blob
+SHA is not, so the page shows the path only where it has the shape a workflow
+path always has, and otherwise says the workflow has an unusual name. A waiver
+of such a finding is about that one file, named by the first twelve characters
+of its SHA, and ends by itself when the file changes, because the finding it
+excused is no longer the finding there is. A finding about the repository as a
+whole, such as pins that no updater moves, has no file and a waiver of it covers
+the repository.
+
 ## What it reads
 
 Every check names the facts it needs, and a check whose facts cannot be read is
@@ -497,7 +804,16 @@ Every check names the facts it needs, and a check whose facts cannot be read is
 | **Repository details** | The repository's own record, above all whether it is public. | *Repository permissions: Metadata: Read-only* |
 | **Workflow runs** | What triggered the runs this fleet ran, and which repository they came from. Read for **public repositories only**. | *Repository permissions: Actions: Read-only* |
 | **Repository setup files** | The default branch's file names. Read only when `kennel.repository_setup` is on. | *Repository permissions: Contents: Read-only*, needed for private repositories |
-| **Workflow best practices** | The default branch's workflow files, read for timeouts, concurrency, action pins and token permissions. Read only when `kennel.workflow_checks` is on. | *Repository permissions: Contents: Read-only*, needed for private repositories |
+| **Repository settings** | The repository's default workflow token, and its policy for fork pull requests: the approval policy for a public repository, the rules for a private one. Read only when `kennel.settings_checks` is on. | *Repository permissions: Administration: Read-only*, needed for every repository. GitHub offers no narrower permission for these settings. |
+| **Workflow best practices** | The default branch's workflow files, read for timeouts, concurrency, action pins, token permissions, a `pull_request_target` workflow that checks out the pull request's head, a secret interpolated into a command line, a `runs-on` label no pool of this fleet serves, pins that no updater moves, and a file that could not be read at all. A finding from here names the file, the job and the line. Read only when `kennel.workflow_checks` is on. | *Repository permissions: Contents: Read-only*, needed for private repositories |
+
+`zoomies kennel check [path]` reads none of this. It reads `.github/workflows`
+from the disk of the machine it runs on, with the same parser and the same
+evaluator, and sends nothing anywhere: the checks that need what the fleet
+observed, the run history or the tree as GitHub lists it are listed as *not
+checked here*, and `--controller owner/name` is the one way a controller joins
+in. A file is known by Git's blob SHA on both sides, so a waiver made on one is
+about the file on the other.
 
 A source can be in one of these states, and the Kennel Club page shows it beside
 the repository it affects:
@@ -518,14 +834,14 @@ the repository it affects:
 
 A private repository costs no read beyond the repository listing Zoomies already
 makes, because the checks that need run history are about public repositories.
-The two opt-in sources are the exception: with either on, a private repository's
+The opt-in sources are the exception: with any on, a private repository's
 tree is read too, which is why they ask for *Contents*.
 
 ### Every GitHub request it may make
 
 The reader is held to a list, and a test runs it against a fake GitHub and fails
 on any request that is not on the list, so a new call is a visible change in
-review and not something found in a log. All of them are `GET`s, and the last two
+review and not something found in a log. All background reads are `GET`s, and the last five
 are made only when one of the opt-in switches is on.
 
 | Request | What for |
@@ -535,17 +851,22 @@ are made only when one of the opt-in switches is on.
 | `GET /repos/{owner}/{repo}/actions/runs/{run}` | One workflow run the fleet ran in a public repository. **Four fields are read**: the event that triggered it (held to a short allow-list before anything sees it), the repository it ran in, and the repository its head commit is in, which differ for a pull request from a fork, and the run's ID. Who triggered it, its branch, its title and its workflow's path are written by whoever opened the pull request, and are never read. |
 | `GET /orgs/{org}/actions/runner-groups` | Whether the organisation runner group a pool joins allows public repositories, so a finding can say so. |
 | `GET /rate_limit` | The limit the installation reports, which the budget is a share of. GitHub does not count this request against the limit. |
-| `GET /repos/{owner}/{repo}/git/trees/{tree}` | The default branch's file names, one conditional request for each repository on each refresh, for the setup checks and to find the workflow files. Inspection stops at 10,000 entries, and a truncated tree produces no "missing" findings. |
-| `GET /repos/{owner}/{repo}/git/blobs/{blob}` | One workflow file, pinned to the immutable blob the tree named. At most 50 files a refresh, each at most 256 KiB. The file is parsed and never executed, and what is kept is counts: no path, job name, expression or text. |
+| `GET /repos/{owner}/{repo}/git/trees/{tree}` | The default branch's file names, one conditional request for each repository on each refresh, for the setup checks and to find workflow and instruction files. Inspection stops at 10,000 entries, and a truncated tree produces no "missing" findings. |
+| `GET /repos/{owner}/{repo}/actions/permissions/workflow` | Whether the repository's default workflow token can write. One request for each repository on each refresh, only when `kennel.settings_checks` is on. |
+| `GET /repos/{owner}/{repo}/actions/permissions/fork-pr-contributor-approval` | The approval policy for fork pull requests, for a public repository only. The policy's name is held to a short list before anything sees it. |
+| `GET /repos/{owner}/{repo}/actions/permissions/fork-pr-workflows-private-repos` | Whether a private repository's fork pull requests run workflows, and are sent its secrets or a token that can write. Three yes-or-no answers; nothing a repository wrote. |
+| `GET /repos/{owner}/{repo}/git/blobs/{blob}` | One workflow or instruction file, pinned to the immutable blob the tree named. At most 50 files a refresh, each at most 256 KiB. Agent guidance reads at most 32 files, each at most 64 KiB. The file is parsed and never executed, and what is kept is where each finding is, as the blob's SHA, a job's index and a line number, together with the file's path where it is one of the usual shape: no job name, expression or text. |
 
 ## What it never does
 
-* **It reads and does not write.** In this release Kennel Club makes no change
-  to GitHub, to a pool, to a runner or to a job. A finding is advice.
+* **Background checks only read.** Agent guidance changes are proposed only
+  when an administrator reviews a preview and asks for a draft pull request.
+  Kennel Club never merges it or changes a pool, runner or job.
 * **It reads no source code.** It looks at who ran what, where, and how long a
   job took. The only files it can read are the default branch's file names and
-  its workflow files, and only if you turned on `kennel.repository_setup` or
-  `kennel.workflow_checks`. AI Context is the part of Zoomies that reads source
+  its workflow and instruction files, and only if you turned on their respective
+  opt-in settings. A requested guidance preview also reads the root Makefile
+  and package.json for declared commands, capped at 512 KiB each. AI Context is the part of Zoomies that reads source
   for assistants, and Kennel Club does not touch it, which is also why turning
   one off leaves the other alone.
 * **It does not repeat a stranger's words.** The text of a finding is written by
@@ -692,6 +1013,20 @@ open it widened, so that a number and the rows behind it agree:
 ![The Kennel Club Repositories list: acme/site needs attention with two errors, acme/widgets and acme/api have no open findings, and the filters above it include Tracked and Active on Zoomies](screenshots/kennel-repositories-dark.webp#only-dark){ .zoomies-shot }
 ![The Kennel Club Repositories list: acme/site needs attention with two errors, acme/widgets and acme/api have no open findings, and the filters above it include Tracked and Active on Zoomies](screenshots/kennel-repositories-light.webp#only-light){ .zoomies-shot }
 
+* **A prompt for a coding agent.** Every open finding has a **Copy prompt for
+  your coding agent** button, and `zoomies kennel repository <id> --prompts`
+  prints the same text: the code, the sentences the page shows, the evidence
+  quoted in a fenced block headed as repository data, and how to go about the
+  change, which is to read the file's history first and make the smallest
+  change that resolves the finding. The page never composes a prompt of its
+  own: the controller renders it, so the button, the API and the terminal hand
+  an agent one text. Over MCP the prompt is left out with the evidence it
+  quotes, and the tool says where to get one. A waived finding has none,
+  because nobody is asked to fix it.
+* **The terminal.** `zoomies kennel` has the Overview, the list, one
+  repository, the catalogue and a recheck, and `zoomies kennel check [path]`
+  runs the workflow checks over a checkout with no controller at all. See
+  [the CLI page](cli.md#zoomies-kennel).
 * **The UI.** Under **Kennel Club** in the side menu: the **Overview** (how many
   repositories are in each standing, what is open by severity, and which to open
   first), **Repositories** (the list, narrowed by standing, severity, check and

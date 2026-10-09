@@ -516,11 +516,13 @@ if you set `keep: 0` and never expect the page to say what is there.
 
 | Key | Environment | Takes effect | What it is |
 | --- | --- | --- | --- |
+| `kennel.agent_guidance` | `ZOOMIES_KENNEL_AGENT_GUIDANCE` | at once | Check agent guidance: opt into bounded instruction-file reads and structural checks. Off by default. Needs Contents read; draft-PR repairs need Contents write and Pull requests write. |
 | `kennel.api_budget_percent` | `ZOOMIES_KENNEL_API_BUDGET_PERCENT` | at once | GitHub request budget: The share, from 5 to 50, of an installation's hourly GitHub request limit that Kennel Club may spend. Scaling, registration and polling come first, and Kennel Club stops altogether when less than half the limit is left. |
 | `kennel.disabled_checks` | `ZOOMIES_KENNEL_DISABLED_CHECKS` | at once | Checks turned off: Checks to turn off, by code (exposure.fork_code_ran) or by area (exposure, capacity, setup, ci, token). A check that is turned off is listed as turned off in Settings, not hidden, and a repository with none left to run is not given the badge. |
 | `kennel.enabled` | `ZOOMIES_KENNEL_ENABLED` | at once | Check repository standards: Whether Kennel Club runs. Off by default, and off means off: no request to GitHub, nothing stored, and AI Context carries on as it was. On, it reads facts about the repositories this fleet serves and keeps what it concludes. |
 | `kennel.refresh_interval` | `ZOOMIES_KENNEL_REFRESH_INTERVAL` | at once | Refresh interval: How stale what Kennel Club reads from GitHub may get before it is read again. What the fleet observed for itself is re-checked as the fleet changes, whatever this says. The smallest useful value is 1h. |
 | `kennel.repository_setup` | `ZOOMIES_KENNEL_REPOSITORY_SETUP` | at once | Check repository setup: Whether Kennel Club reads the default-branch file inventory for advisory setup checks. Off by default. Needs Contents read for private repositories; reads no file contents and changes no App permissions. |
+| `kennel.settings_checks` | `ZOOMIES_KENNEL_SETTINGS_CHECKS` | at once | Check repository settings: Whether Kennel Club reads each repository's Actions settings, the default workflow token and the policy for fork pull requests. Off by default. Needs the App's Administration read permission, which GitHub offers no narrower form of and which is asked for separately; reads no file contents and changes no setting. |
 | `kennel.workflow_checks` | `ZOOMIES_KENNEL_WORKFLOW_CHECKS` | at once | Check workflow best practices: Whether Kennel Club reads default-branch workflow contents for timeouts, concurrency, action pins and token permission declarations. Off by default. Needs Contents read for private repositories; changes no files or App permissions. |
 | `kennel.scope` | `ZOOMIES_KENNEL_SCOPE` | at once | Repositories to check, served checks the repositories this fleet has run a job for; installation checks every repository the GitHub App can see, up to 500. installation multiplies the requests Kennel Club makes, so it is a choice and not the default. |
 
@@ -2087,8 +2089,11 @@ Private repositories need **Contents: read**.
 These findings report counts across the files successfully inspected, not
 runtime or matrix-expanded job counts. They use fixed advice and retain no job
 names, file paths, expressions or workflow contents in the stored evaluation.
-Token advice does not claim the inherited default is writable, because that
-setting has not been read. A declaration also does not prove least privilege.
+Token advice does not claim the inherited default is writable unless the
+[repository settings checks](#repository-settings-checks) are on and have read
+it: with them on, a workflow that sets no permissions is not reported while the
+default token is read-only, and says so when it can write. A declaration also
+does not prove least privilege.
 
 Reads are pinned to immutable Git blobs selected from the default-branch tree.
 Every tree and blob request passes through the installation budget and holds.
@@ -2496,3 +2501,57 @@ Before background image preparation, each agent waits a random duration from zer
 to **30s**, without holding a lifecycle or startup slot. Set **0s** to disable or
 up to **5m** to spread a large fleet further. This applies to manual prewarming too.
 It does not change GitHub/provider retry deadlines or foreground image pull policies.
+
+
+### Repository settings checks
+
+Set `kennel.settings_checks: true` to read each tracked repository's Actions
+settings. It is a separate opt-in from the workflow files and the setup
+inventory, off by default, and it reads settings only: no request Kennel Club
+makes for it changes one.
+
+| Check | What it detects | Severity |
+| --- | --- | --- |
+| `token.default_write` | The repository's default workflow token can write, so every workflow that sets no permissions runs with write access. | Warning |
+| `exposure.fork_approval_weak` | A public repository this fleet serves asks for approval of fork pull requests only from contributors new to GitHub. | Warning; error once a fork's code has run here |
+| `exposure.private_fork_secrets` | A private repository lets fork pull requests run workflows and sends them secrets or a token that can write. | Warning |
+
+The settings are read with the App's **Administration: read** permission.
+GitHub offers no narrower permission for them, so it also lets an App read
+collaborators and repository configuration that Kennel Club has no use for.
+Kennel Club makes the requests listed under [what it may call](kennel-club.md#every-github-request-it-may-make)
+and no others, and a test holds it to that list. Without the permission the
+read is shown as **not granted** and names the permission; nothing else about
+Kennel Club changes.
+
+A repository's private fork rules and public approval policy are read once a
+refresh, with the other reads and through the same request budget and holds.
+A GitHub that lacks the fork-policy endpoints leaves the repository partly
+checked and still reads the default token. The three checks are also off, and
+shown as turned off, while this setting is.
+
+`protection.required_check_never_reports` reads the status checks a branch
+requires and is not turned on by this setting yet.
+
+### Agent guidance checks
+
+Set `kennel.agent_guidance: true` to inspect agent instruction files in tracked
+repositories. This is independent of repository setup, workflow checks and
+AI Context freshness. The default is off.
+
+Kennel Club reads a default-branch inventory of at most 10,000 entries and up to
+32 instruction files, each at most 64 KiB. It recognises root and scoped
+`AGENTS.md`, `CLAUDE.md` and `GEMINI.md`, `.github/copilot-instructions.md` and
+Zoomies' `.zoomies/AI_CONTEXT.md`. Contents read permission is enough for checks
+and preview. Background reads share Kennel Club's budget and rate-limit holds.
+
+Missing guidance and exact duplication are informational. Broken local references,
+Claude import cycles and unreadable files are warnings. Missing guidance or
+paths are never inferred from a truncated inventory. A single supported file
+passes; there is no requirement to split a small project's guidance into folders.
+
+Administrators can preview changes from the repository's **Agent guidance** tab
+and open a draft pull request. This needs Contents write and Pull requests write,
+without Workflows write. The preview shows current and proposed contents and
+rejects changes made after review. Merge the proposal, then press **Recheck**.
+See [Agent guidance](kennel-club.md#agent-guidance) for the repair limits.

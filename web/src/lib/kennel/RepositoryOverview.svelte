@@ -21,9 +21,11 @@
   import Panel from '$lib/components/Panel.svelte';
   import Segmented from '$lib/components/Segmented.svelte';
   import Skeleton from '$lib/components/Skeleton.svelte';
+  import { localMoment } from '$lib/jobs/DateRange.svelte';
   import { formatPercent, pluralise } from '$lib/format';
   import {
     DEFAULT_OVERVIEW_WINDOW,
+    jobsLink,
     OVERVIEW_WINDOWS,
     outcomeText,
     partialWindowNote,
@@ -54,6 +56,10 @@
   let windowId = $state<OverviewWindow>(DEFAULT_OVERVIEW_WINDOW);
   const days = $derived(OVERVIEW_WINDOWS.find((w) => w.id === windowId)?.days ?? 7);
 
+  // The instant the figures below were counted from. The links open the Jobs page
+  // at this same instant, not at one worked out again when they are drawn: a tile and
+  // the list behind it count the same jobs only if they share the start.
+  let countedFrom = $state('');
   let totals = $state<JobStats | null>(null);
   let pools = $state<JobStats | null>(null);
   let hosts = $state<JobStats | null>(null);
@@ -83,6 +89,7 @@
     const controller = new AbortController();
     loading = true;
     const base = { repo: [name], hosted: false, since: windowStart(span, new Date()) };
+    const counted = base.since;
     void Promise.all([
       getJobStats(base, controller.signal),
       getJobStats({ ...base, group_by: ['pool'] }, controller.signal),
@@ -90,6 +97,7 @@
       listJobs({ repo: [name], unmatched: true, limit: 1 }, controller.signal),
     ])
       .then(([all, byPool, byHost, queued]) => {
+        countedFrom = counted;
         totals = all;
         pools = byPool;
         hosts = byHost;
@@ -121,11 +129,29 @@
       : '',
   );
 
+  // The window's start as the Jobs page reads it, on the operator's own clock.
+  const since = $derived(countedFrom ? localMoment(new Date(countedFrom)) : '');
+  const jobs = (narrow: Record<string, string> = {}) => jobsLink(name, since, narrow);
+
   const tiles = $derived<Metric[]>([
     {
       label: 'Jobs finished',
       value: String(finished),
       detail: outcomeText(group),
+      href: jobs(),
+      links: [
+        ...(group && group.failed > 0
+          ? [{ text: `See the ${group.failed} that failed`, href: jobs({ failed: 'true' }) }]
+          : []),
+        ...(group && group.fleet_failed > 0
+          ? [
+              {
+                text: `See the ${group.fleet_failed} lost to this fleet`,
+                href: jobs({ faulted: 'true' }),
+              },
+            ]
+          : []),
+      ],
       tone: 'neutral',
     },
     {
@@ -138,12 +164,14 @@
       label: 'Time waiting for a runner',
       value: queueWait.value,
       detail: queueWait.detail,
+      href: jobs({ sort: 'queue_wait', order: 'desc' }),
       tone: 'neutral',
     },
     {
       label: 'Time running',
       value: duration.value,
       detail: durationLeaves ? `${duration.detail}; ${durationLeaves}` : duration.detail,
+      href: jobs({ sort: 'duration', order: 'desc' }),
       tone: 'neutral',
     },
   ]);
@@ -211,7 +239,9 @@
                       <span class="gone" title="The fleet no longer has this pool">{row.name}</span>
                     {/if}
                     <span class="count"
-                      >{pluralise(row.jobs, 'job')}, {formatPercent(row.share)}</span
+                      >{#if row.id}<a href={jobs({ pool_id: row.id })}
+                          >{pluralise(row.jobs, 'job')}</a
+                        >{:else}{pluralise(row.jobs, 'job')}{/if}, {formatPercent(row.share)}</span
                     >
                   </li>
                 {/each}
@@ -234,7 +264,9 @@
                       >
                     {/if}
                     <span class="count"
-                      >{pluralise(row.jobs, 'job')}, {formatPercent(row.share)}</span
+                      >{#if row.id}<a href={jobs({ host_id: row.id })}
+                          >{pluralise(row.jobs, 'job')}</a
+                        >{:else}{pluralise(row.jobs, 'job')}{/if}, {formatPercent(row.share)}</span
                     >
                   </li>
                 {/each}

@@ -13,12 +13,13 @@
   import {
     checkProvider,
     listMachines,
+    listProviderPairings,
     listProviders,
     pauseProvider,
     resumeProvider,
   } from '$lib/api/client';
   import { events } from '$lib/api/sse';
-  import type { Machine, Provider } from '$lib/api/types';
+  import type { Machine, Provider, ProviderPairing } from '$lib/api/types';
   import { pluralise } from '$lib/format';
   import { router } from '$lib/router';
   import { machineStatus } from '$lib/status';
@@ -43,6 +44,7 @@
 
   let providers = $state<Provider[]>([]);
   let machines = $state<Machine[]>([]);
+  let pairings = $state<ProviderPairing[]>([]);
   let loading = $state(true);
   let loaded = $state(false);
   let error = $state<unknown>(null);
@@ -65,10 +67,15 @@
       // month has hundreds of them. The orphan review is where a confirmed
       // deletion is still worth looking at.
       listMachines({ limit: 200 }, controller.signal),
+      // Which pools each provider would rent for. Without it a card cannot say
+      // that nothing will ever be rented from it, which is the question a new
+      // provider's owner opens this page to ask.
+      listProviderPairings(controller.signal).catch(() => ({ items: [] as ProviderPairing[] })),
     ])
-      .then(([providerPage, machinePage]) => {
+      .then(([providerPage, machinePage, pairingPage]) => {
         providers = providerPage.items ?? [];
         machines = machinePage.items ?? [];
+        pairings = pairingPage.items ?? [];
         error = null;
         loaded = true;
       })
@@ -121,7 +128,7 @@
       } else {
         toasts.info(
           `${provider.name} has ${pluralise(result.findings?.length ?? 0, 'finding')}`,
-          'Open the provider to read them.',
+          result.findings?.[0]?.title ?? 'Open the provider to read them.',
         );
       }
       reload += 1;
@@ -187,6 +194,7 @@
 
 <div class="content">
   <LoadingBoundary
+    class="stack"
     loading={loading && !loaded}
     error={loaded ? null : error}
     empty={loaded && providers.length === 0}
@@ -249,6 +257,7 @@
       {#each providers as provider (provider.id)}
         <ProviderCard
           {provider}
+          pairings={pairings.filter((entry) => entry.provider_id === provider.id)}
           {canOperate}
           checking={checking === provider.id}
           pausing={pausing === provider.id}
@@ -312,10 +321,16 @@
 </div>
 
 <style>
-  .content {
+  /* The gap has to sit on LoadingBoundary's own wrapper: `.content` only has
+     that one child, so a gap on it spaces nothing and the metrics, the band,
+     the cards and the Machines panel all touch. */
+  .content :global(.stack) {
     display: flex;
     flex-direction: column;
     gap: var(--z-space-5);
+  }
+  .content :global(.stack > .metrics) {
+    margin-bottom: 0;
   }
   .summary {
     margin: 0;

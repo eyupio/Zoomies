@@ -64,6 +64,8 @@
   import Textarea from '$lib/components/Textarea.svelte';
   import Wizard from '$lib/components/Wizard.svelte';
   import LabelMapEditor from '$lib/hosts/LabelMapEditor.svelte';
+  import { fleet } from '$lib/state/fleet.svelte';
+  import { poolMatchesSelector } from './pairing';
   import {
     applyDiscovery,
     applySettingDefaults,
@@ -192,8 +194,10 @@
             label: template.name || String(template.vmid),
             consequence: `VMID ${template.vmid} on ${template.node}`,
           }));
-          const template = result.templates?.[0];
-          if (template && result.templates?.length === 1) {
+          const template =
+            result.templates?.find((item) => item.name === 'zoomies-template') ??
+            (result.templates?.length === 1 ? result.templates[0] : undefined);
+          if (template) {
             draft.settings = {
               ...draft.settings,
               template_id: String(template.vmid),
@@ -625,6 +629,23 @@
     }
     draft.machine_labels = map;
   });
+
+  // The pools this provider rents for, edited the same way and for the same
+  // reason: a half-typed row is not yet an entry in the map.
+  let poolRows = $state(
+    untrack(() => Object.entries(draft.pool_selector).map(([key, value]) => ({ key, value }))),
+  );
+  $effect(() => {
+    const map: Record<string, string> = {};
+    for (const row of poolRows) {
+      if (row.key.trim() === '') continue;
+      map[row.key.trim()] = row.value;
+    }
+    draft.pool_selector = map;
+  });
+  const servedPools = $derived(
+    fleet.pools.filter((pool) => poolMatchesSelector(pool, draft.pool_selector)),
+  );
 </script>
 
 {#snippet setting(spec: ProviderSetting)}
@@ -922,8 +943,9 @@
         {#if automaticProxmox}
           <p class="prose">
             Run one command as root on your Proxmox host. Zoomies detects its name, creates an API
-            token, trusts its certificate and keeps a private Tailcat connection running. An
-            existing Zoomies runner host can stay connected while you add the provider.
+            token, trusts its certificate and keeps a private Tailcat connection running. It creates
+            a prepared Zoomies runner template if one is missing and fills in its VMID. An existing
+            Zoomies runner host can stay connected while you add the provider.
           </p>
           {#if !tailcatAvailable}
             <p class="note">
@@ -951,7 +973,8 @@
               </div>
               <p class="note" role="status">
                 Waiting for your Proxmox host… This command expires in one hour. Return here after
-                running it; the connection details appear automatically.
+                running it; the connection details and template VMID appear automatically. The first
+                template build can take several minutes.
               </p>
             {/if}
           {/if}
@@ -1223,6 +1246,34 @@
           label="Enabled"
           description="A disabled provider builds nothing. What it already owns is still drained and deleted."
         />
+
+        <Field
+          label="Pools it rents for"
+          hint="Leave empty to rent for any pool that suits the machine. A row asks for a pool label (a value left empty asks only that the label exists, or name and backend). A pool can narrow this from its own side too, and a machine is rented only where both agree."
+        >
+          {#snippet children({ describedBy })}
+            <LabelMapEditor
+              bind:rows={poolRows}
+              {describedBy}
+              label="Pool selector"
+              noun="rule"
+              empty="Every pool. Nothing here narrows which pools this provider rents machines for."
+            />
+          {/snippet}
+        </Field>
+        {#if fleet.loaded && fleet.pools.length > 0}
+          <p class="note" data-testid="provider-served-pools">
+            {#if Object.keys(draft.pool_selector).length === 0}
+              Every pool is allowed: {pluralise(fleet.pools.length, 'pool')}.
+            {:else if servedPools.length === 0}
+              No pool matches this selector, so this provider would rent for none.
+            {:else}
+              Allowed for {pluralise(servedPools.length, 'pool')} of {fleet.pools.length}: {servedPools
+                .map((pool) => pool.name)
+                .join(', ')}.
+            {/if}
+          </p>
+        {/if}
 
         {#if nothingRented}
           <p class="note">{nothingRented}</p>

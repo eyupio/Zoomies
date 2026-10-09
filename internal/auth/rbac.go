@@ -151,12 +151,14 @@ const (
 // it is an administrator's; telling it to start again can only make it stricter, so
 // it is an operator's.
 const (
-	ActionKennelRead       Action = "kennel.read"
-	ActionKennelRecheck    Action = "kennel.recheck"
-	ActionKennelWaive      Action = "kennel.waive"
-	ActionKennelWaiveError Action = "kennel.waive_error"
-	ActionKennelTrack      Action = "kennel.track"
-	ActionKennelUntrack    Action = "kennel.untrack"
+	ActionKennelGuidancePreview Action = "kennel.guidance_preview"
+	ActionKennelGuidancePR      Action = "kennel.guidance_pr"
+	ActionKennelRead            Action = "kennel.read"
+	ActionKennelRecheck         Action = "kennel.recheck"
+	ActionKennelWaive           Action = "kennel.waive"
+	ActionKennelWaiveError      Action = "kennel.waive_error"
+	ActionKennelTrack           Action = "kennel.track"
+	ActionKennelUntrack         Action = "kennel.untrack"
 )
 
 // Migrations move a repository's workflows onto this fleet, which means
@@ -246,12 +248,14 @@ const (
 // settings. Deleting a host is an admin action rather than an operator one
 // because it removes a machine's whole history, not just a runner.
 var actionRoles = map[Action]store.Role{
-	ActionKennelRead:       store.RoleViewer,
-	ActionKennelRecheck:    store.RoleOperator,
-	ActionKennelWaive:      store.RoleOperator,
-	ActionKennelWaiveError: store.RoleAdmin,
-	ActionKennelTrack:      store.RoleOperator,
-	ActionKennelUntrack:    store.RoleAdmin,
+	ActionKennelGuidancePreview: store.RoleAdmin,
+	ActionKennelGuidancePR:      store.RoleAdmin,
+	ActionKennelRead:            store.RoleViewer,
+	ActionKennelRecheck:         store.RoleOperator,
+	ActionKennelWaive:           store.RoleOperator,
+	ActionKennelWaiveError:      store.RoleAdmin,
+	ActionKennelTrack:           store.RoleOperator,
+	ActionKennelUntrack:         store.RoleAdmin,
 
 	ActionContextRead:      store.RoleViewer,
 	ActionContextConfigure: store.RoleAdmin,

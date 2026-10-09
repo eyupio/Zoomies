@@ -93,11 +93,11 @@ func (c *Controller) kennelExposureProblems(ctx context.Context, out *[]Problem)
 // in the exposure area, worst first as the evaluator ordered them. An error in
 // another area -- storage, a token default -- is Kennel Club's to show and is not
 // a stranger's code running on the fleet, so it does not raise this code.
-func exposureErrors(findings []kennel.Finding) []kennel.Finding {
+func exposureErrors(findings []KennelFindingView) []kennel.Finding {
 	var out []kennel.Finding
 	for _, f := range findings {
 		if f.Severity == kennel.SeverityError && f.Code.Area() == kennel.AreaExposure {
-			out = append(out, f)
+			out = append(out, f.Finding)
 		}
 	}
 	return out

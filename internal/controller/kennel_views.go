@@ -7,6 +7,7 @@ import (
 	"slices"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agentguidance"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/kennel"
 	"github.com/eyupio/zoomies/internal/store"
@@ -19,7 +20,7 @@ import (
 // words, would repaint a repository wrong.
 
 // KennelSources is the order a repository's sources are listed in.
-var KennelSources = []kennel.Source{kennel.SourceFleet, kennel.SourceMetadata, kennel.SourceRuns, kennel.SourceSetup, kennel.SourceWorkflows}
+var KennelSources = []kennel.Source{kennel.SourceFleet, kennel.SourceMetadata, kennel.SourceRuns, kennel.SourceSetup, kennel.SourceWorkflows, kennel.SourceGuidance, kennel.SourceSettings, kennel.SourceProtection}
 
 // KennelCoverageView is how far one source could be read, with the sentence that
 // says why when it could not, and the permission that would fix it.
@@ -37,6 +38,15 @@ type KennelSkippedView struct {
 	Source kennel.Source        `json:"source"`
 	State  kennel.CoverageState `json:"state"`
 	Reason string               `json:"reason"`
+}
+
+// KennelFindingView is an open finding with the prompt a coding agent is
+// handed for it, rendered here and nowhere else so the page's button, the API
+// and the CLI copy one text. A waived finding is the bare finding: nobody is
+// asked to fix it.
+type KennelFindingView struct {
+	kennel.Finding
+	Prompt string `json:"prompt"`
 }
 
 // KennelRepositoryView is one repository and what Kennel Club last concluded
@@ -59,18 +69,29 @@ type KennelRepositoryView struct {
 	// Complete is whether every enabled check ran against everything it needs.
 	Complete bool                   `json:"complete"`
 	Coverage []KennelCoverageView   `json:"coverage"`
-	Findings []kennel.Finding       `json:"findings"`
+	Findings []KennelFindingView    `json:"findings"`
 	Waived   []kennel.WaivedFinding `json:"waived"`
 	// Lapsed are waivers that match an open finding and no longer cover it,
 	// because they ended or the finding got worse.
 	Lapsed   []kennel.Waiver     `json:"lapsed"`
 	Skipped  []KennelSkippedView `json:"skipped"`
 	Disabled []kennel.Code       `json:"disabled"`
+	// Files is the workflow inventory the findings' file evidence points into,
+	// by blob SHA, with each path as the gate let it through or "" for one it
+	// did not, which the page says is a workflow with an unusual name.
+	Files []KennelFileView `json:"files"`
 	// Tracking says whether Kennel Club is looking at this repository, and for one
 	// it is not, who stopped it, when and why. An untracked repository has no
 	// findings, counts or coverage to read, and its state is pending: nothing is
 	// evaluated for it, so there is nothing to be in a state.
 	Tracking KennelTrackingView `json:"tracking"`
+}
+
+// KennelFileView is one workflow file of the inventory: the SHA a finding's
+// evidence names, and the path a person reads.
+type KennelFileView struct {
+	SHA  string `json:"sha"`
+	Path string `json:"path"`
 }
 
 // KennelTrackingView is whether Kennel Club is looking at a repository. Reason, By
@@ -112,13 +133,34 @@ func newKennelRepositoryView(r *store.KennelRepository) KennelRepositoryView {
 
 	v.Counts = kennel.Counts{Error: r.OpenErrors, Warning: r.OpenWarnings, Info: r.OpenInfos, Waived: r.Waived}
 	v.Complete = ev.Complete
-	v.Findings = nonNilSlice(ev.Findings)
 	v.Waived = nonNilSlice(ev.Waived)
 	v.Lapsed = nonNilSlice(ev.Lapsed)
 	v.Disabled = nonNilSlice(ev.Disabled)
 	v.Skipped = make([]KennelSkippedView, 0, len(ev.Skipped))
 	for _, s := range ev.Skipped {
 		v.Skipped = append(v.Skipped, KennelSkippedView{Code: s.Code, Source: s.Source, State: s.State, Reason: s.Reason()})
+	}
+	// The path was gated when it was kept, and is gated again here: a link or
+	// a line is built from text, so it is built only from text with the shape
+	// of what it names.
+	wm := parseKennelWatermark(r.Watermark)
+	v.Files = make([]KennelFileView, 0, len(wm.WorkflowFiles))
+	paths := make(map[string]string, len(wm.WorkflowFiles))
+	for _, f := range wm.WorkflowFiles {
+		v.Files = append(v.Files, KennelFileView{SHA: f.SHA, Path: gatedPath(f.Path)})
+		paths[f.SHA] = gatedPath(f.Path)
+	}
+	for _, f := range wm.GuidanceFiles {
+		p := ""
+		if agentguidance.SafePath(f.Path) {
+			p = f.Path
+		}
+		v.Files = append(v.Files, KennelFileView{SHA: f.SHA, Path: p})
+		paths[f.SHA] = p
+	}
+	v.Findings = make([]KennelFindingView, 0, len(ev.Findings))
+	for _, f := range ev.Findings {
+		v.Findings = append(v.Findings, KennelFindingView{Finding: f, Prompt: kennel.Prompt(f, paths)})
 	}
 	v.Coverage = make([]KennelCoverageView, 0, len(cov))
 	for _, src := range KennelSources {
@@ -224,16 +266,40 @@ const kennelAttentionLines = 10
 
 // kennelDisabled turns the setting into the set the evaluator is given.
 func kennelDisabled(k config.Kennel) map[string]bool {
-	if len(k.DisabledChecks) == 0 && k.RepositorySetup && k.WorkflowChecks {
-		return nil
-	}
 	out := make(map[string]bool, len(k.DisabledChecks)+1)
+	if !k.AgentGuidance {
+		out[string(kennel.AreaGuidance)] = true
+	}
 	if !k.RepositorySetup {
 		out[string(kennel.AreaSetup)] = true
 	}
 	if !k.WorkflowChecks {
+		// The ci area reads workflow files throughout. The token area does not:
+		// token.default_write reads the repository's settings, so it is turned off
+		// by its own source below and not by this switch.
 		out[string(kennel.AreaCI)] = true
-		out[string(kennel.AreaToken)] = true
+	}
+	// A switch is about a source, not an area: a check in another area that
+	// reads the gated source is off with the switch too, and not a gap. Left
+	// on, it would be skipped for a source nobody chose to read, and no
+	// repository could be best in show without the switch.
+	for _, c := range kennel.Checks() {
+		reads := func(src kennel.Source) bool {
+			return slices.Contains(c.Needs, src) || slices.Contains(c.Conditional, src)
+		}
+		if (!k.WorkflowChecks && reads(kennel.SourceWorkflows)) || (!k.RepositorySetup && reads(kennel.SourceSetup)) || (!k.AgentGuidance && reads(kennel.SourceGuidance)) {
+			out[string(c.Code)] = true
+		}
+		if !k.SettingsChecks && reads(kennel.SourceSettings) {
+			out[string(c.Code)] = true
+		}
+		// Nothing reads a branch's required checks yet: the reader exists and the
+		// loop does not call it. A check that needs a source nobody reads would be
+		// skipped everywhere and cost every repository its best-in-show, so it is
+		// off until the read arrives with it.
+		if reads(kennel.SourceProtection) {
+			out[string(c.Code)] = true
+		}
 	}
 	for _, name := range k.DisabledChecks {
 		out[name] = true

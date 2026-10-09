@@ -42,7 +42,7 @@ Zoomies created it, knows it did, and is the only thing allowed to delete it.
 | | |
 | --- | --- |
 | Proxmox VE | 8.0 or later; automatic setup uses Tailcat to reach the local HTTPS API on port 8006 |
-| A prepared template | a Linux VM template, described [below](#preparing-the-template) |
+| A prepared template | created by automatic setup, or a Linux VM template prepared [manually](#preparing-the-template) |
 | An API token | created automatically by the setup command, or [managed manually](#the-api-token) |
 | A VMID range | a block of VM identifiers Zoomies may use and nothing else may |
 | Storage and a bridge | the storage the clone's disk lands on, and the network bridge it attaches to |
@@ -110,7 +110,8 @@ API token in flight. It exists for a first ten minutes, not for a deployment.
 
 ## Preparing the template
 
-The template is the part you own. Zoomies clones it and installs nothing that
+For manual connections, prepare the template yourself. Automatic setup creates
+one as described [below](#the-provider). Zoomies clones it and installs nothing that
 is not already there, so what is in the image is what a runner gets.
 
 Proxmox ships no templates, and the standard answer is a distribution's cloud
@@ -144,6 +145,12 @@ qm set 9000 --scsi0 local-lvm:0,import-from=$PWD/noble-server-cloudimg-amd64.img
 qm set 9000 --ide2 local-lvm:cloudinit --ciuser ubuntu --sshkeys ~/.ssh/id_ed25519.pub --ipconfig0 ip=dhcp
 qm resize 9000 scsi0 32G && qm start 9000
 ```
+
+`local-lvm` is the storage name on a default install. If yours has another (the
+Datacenter tree lists them), use that name in both `qm set` lines, and make sure
+it holds **Disk image** content. If the `scsi0` step fails the VM is still
+created, with no disk, and it will boot to a network prompt and nothing else;
+the provider's **Check** reports that as `proxmox.template_no_disk`.
 
 Then, inside the guest over SSH:
 
@@ -209,14 +216,24 @@ step and enter its private address. **Configure a direct connection** remains
 available for an API address Zoomies can reach.
 
 The controller needs private connections enabled. The Proxmox host needs outbound
-internet access and systemd. The setup does not prepare a runner VM template:
-choose the prepared template, storage and network on the Placement step. Choices
+internet access and systemd. Automatic setup reuses `zoomies-template` if it exists.
+Otherwise it installs `libguestfs-tools` on the Proxmox host and prepares an Ubuntu
+24.04 cloud image with Docker, the QEMU guest agent and a disabled Zoomies agent
+service, using the setup binary. The image checksum is checked before preparation.
+It imports the image into active disk-image storage with at least 33 GiB free,
+chooses an active bridge (preferring `vmbr0`) and creates a 32 GiB template at a
+free VMID starting at 9100, outside the default runner block. The first build can
+take several minutes and needs access to `cloud-images.ubuntu.com` and Ubuntu
+package mirrors. Automatic image preparation requires an x86_64 host.
+
+Choose the storage and network for clones on the Placement step. Choices
 come from the cluster; anything with one answer is already selected. Review the
 machine shape and limits, then save. The initial maximum is zero, so connecting a
-provider does not create any VMs. The setup callback also reports existing QEMU
-templates, with their VMIDs and nodes. A sole template is preselected; with several,
-choose the runner template on Placement. The script prints these identifiers at
-completion. If none exists, prepare a runner template first; setup does not create one.
+provider does not create runner VMs. The setup callback reports QEMU templates,
+with their VMIDs and nodes. The Zoomies template's VMID and node are preselected
+even when the cluster has other templates. The script prints these identifiers at
+completion. Interrupted template imports can be retried; setup resumes only a VM
+marked as belonging to that setup and refuses to change an unrelated guest.
 
 For a direct network connection or credentials you manage yourself, choose
 **Configure connection manually**. The tables and terminal command below describe
@@ -271,6 +288,49 @@ A machine's shape is one shape per provider. If you want two sizes, make two
 providers: a pool asks for the machine it fits, and having one row mean two
 different machines makes the accounting ambiguous in exactly the place it has
 to be exact.
+
+## Which pools use a provider
+
+A pool never names a provider, and a provider is not attached to a pool. Renting
+is the answer to one situation: a pool has queued work and **no host can run
+it**. Then the controller asks the providers that may rent for that pool to
+build a machine, and the machine becomes an ordinary host.
+
+Spending money is the reason both sides get a say, the way a pool's
+`host_selector` and a host's labels both have to agree before a runner lands.
+A machine is rented for a pool only when all three of these hold:
+
+1. **The provider allows the pool.** Its **pool selector** (`--pool-selector`)
+   is matched against the pool: a key with no value asks that the pool carries
+   that label (`gpu`), `tier=large` asks for the label `tier=large`, and `name`
+   and `backend` match the pool's own. Empty means every pool.
+2. **The pool allows the provider.** Its **provider selector**
+   (`--provider-selector` on `zoomies pools`, or **Providers** in the pool
+   editor) is matched against the provider's `name`, its `kind` and its machine
+   labels. Empty means any provider.
+3. **The machine suits the pool.** The backend, operating system and
+   architecture, the pool's host selector against the provider's machine
+   labels, and the size are all checked against the machine the provider would
+   build, before anything is paid for.
+
+Both selectors are empty by default, which is what every pool and provider
+meant before they could say otherwise, so nothing changes until one is set.
+Every entry has to be satisfied, and case does not matter, as
+it does not for GitHub labels.
+
+The selectors decide **what is bought**, not where a runner goes afterwards:
+once the machine is a host, the pool's own `host_selector` is what keeps other
+pools off it.
+
+To see the answer for every pair, open a provider's **Pools** tab, or a pool's
+**Providers** section. Each says which provider would rent for which pool and,
+for the ones it would not, whose selector said so and what to change. The
+Providers page's cards say whether any pool can use a provider at all, which is
+the first thing to check when a new one rents nothing: a ceiling above zero is
+not enough if no pool allows it. The same answer is `GET
+/api/v1/providers/pairings`, and when a pool has work waiting and a selector is
+the only thing in the way, the controller logs it once, naming the pool, the
+setting and the fix.
 
 ## What happens when a pool runs out of hosts
 

@@ -349,8 +349,12 @@ change, in full:
   every action pinned to a commit and the [Repomix](https://repomix.com)
   generator pinned to an exact, integrity-locked version.
 * `zoomies-ai-context.config.json`: the settings you chose.
-* A marked section in `CLAUDE.md` and `AGENTS.md` telling assistants where the
-  context is and how to read it.
+* `.zoomies/AI_CONTEXT.md`: the shared guide to context access, revision checks
+  and selective retrieval.
+* Short marked entry points in `AGENTS.md` and `CLAUDE.md` (or an existing
+  `.claude/CLAUDE.md`). An exact Claude import wrapper pointing to `AGENTS.md`
+  keeps that single entry point. The guide stays on the source branch; generated
+  source packs continue to live on the separate context branch or in Zoomies.
 * The AI Context badge near the top of the README.
 
 Your own text in those files is kept as it is; only the marked sections are
@@ -422,8 +426,8 @@ branch. The pack is hosted in your own repository.
 
 1. On **AI Context**, choose **Copy AI instructions** for the repository.
 2. Paste them into your AI conversation or project instructions. The prompt
-   includes direct links to `manifest.json` and `snapshot.json` and tells the
-   assistant to use the prepared context before browsing individual source files.
+   includes direct links to `manifest.json` and `snapshot.json`, available MCP
+   tools, revision checks and fallback instructions. It works without a checkout.
 3. The assistant checks the manifest's `source_commit` against the revision
    you want investigated, pins its reads to one generated-branch commit, and
    uses the relevant `files` entries from the JSON snapshot.
@@ -431,14 +435,20 @@ branch. The pack is hosted in your own repository.
 For example, give an assistant with GitHub access this prompt, followed by
 the copied instructions:
 
-> Use this repository's Zoomies AI Context as your first source reference.
-> Check its source commit and use the relevant files in the generated pack
-> before browsing individual source files. Investigate runner registration
-> retries and explain the implementation you inspected.
+> Investigate runner registration retries and explain the implementation you
+> inspected. Use the relevant local checkout when available; otherwise use
+> connected Zoomies MCP or repository-hosted context. Check the source revision
+> before relying on generated context.
 
-The generated `AGENTS.md` and `CLAUDE.md` sections provide the same guidance
-to agents that load them automatically. Other assistants need the copied
+The managed entry points direct coding agents to `.zoomies/AI_CONTEXT.md`.
+Claude entry points also import the guide. Other assistants need the full copied
 prompt; access to GitHub does not automatically load project instructions.
+
+Use the local checkout first when it contains the requested revision, including
+any working changes. Generated snapshots cannot represent uncommitted edits.
+Without that checkout, prefer connected Zoomies MCP for bounded reads when
+available, then repository-hosted context. Missing, stale or incomplete context
+falls back to authorised direct reads of the requested source revision.
 
 ### What the assistant reads
 
@@ -481,8 +491,8 @@ are not automatic without MCP.
 
 **Zoomies only** publishes no repository pack. Use **Amend** to select an output
 that includes the repository, then merge the setup PR. For existing setups,
-**Reinstall / repair** proposes the updated managed prompt sections; the
-existing generated JSON format and workflow remain the same.
+**Reinstall / repair** proposes the shared guide and updated managed entry points.
+The existing generated JSON format and workflow remain the same.
 
 ## Use it
 
@@ -812,7 +822,9 @@ API returns carries its code, so an agent can read `fix` before proposing
 anything and check `verify` afterwards. The fleet itself is reachable over
 MCP ([Connect Claude](connect-claude.md)) and from the command line
 ([Command line](cli.md)); `zoomies commands` prints every command with its
-help, and the same text ships as a reference with the `zoomies` skill. For a
+help, and the same text ships as a reference with the `zoomies` skill; its
+sibling, `zoomies-kennel`, runs the workflow checks over a checkout with
+nothing sent anywhere (see [the CLI page](cli.md#the-zoomies-kennel-skill)). For a
 job that failed, stalled or is waiting, `zoomies why <job>`, the explanation
 route and `get_job` over MCP give the same answer: a `class` from a closed set,
 the evidence that decides it, the catalog code and the next steps in order, so

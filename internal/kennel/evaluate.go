@@ -186,22 +186,30 @@ func anyPartial(cov Coverage, need []Source) bool {
 }
 
 // escalate raises the public-exposure warning to an error when either of the
-// two findings that make it urgent is open beside it. It does so before
-// waivers, so a waiver made about the milder finding does not silently cover
-// the worse one.
+// two findings that make it urgent is open beside it, and raises a weak fork
+// approval to an error when a fork's code has already run here. It does so
+// before waivers, so a waiver made about the milder finding does not silently
+// cover the worse one.
 func escalate(open []Finding) {
-	var worse bool
+	var worse, forkRan bool
 	for _, f := range open {
 		if f.Code == CodeForkCodeRan || f.Code == CodePublicRepoWeakPool {
 			worse = true
 		}
-	}
-	if !worse {
-		return
+		if f.Code == CodeForkCodeRan {
+			forkRan = true
+		}
 	}
 	for i := range open {
-		if open[i].Code == CodePublicRepoOnFleet {
-			open[i].Severity = SeverityError
+		switch open[i].Code {
+		case CodePublicRepoOnFleet:
+			if worse {
+				open[i].Severity = SeverityError
+			}
+		case CodeForkApprovalWeak:
+			if forkRan {
+				open[i].Severity = SeverityError
+			}
 		}
 	}
 }

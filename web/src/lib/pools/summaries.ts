@@ -26,9 +26,19 @@ export interface SummaryContext {
   hostsTotal: number | null;
   /** How many of them this pool's host selector reaches, or null until known. */
   hostsMatching: number | null;
+  /** How many providers are configured, or null until they have been asked. */
+  providersTotal: number | null;
+  /** How many of them this pool's provider selector allows, or null until known. */
+  providersMatching: number | null;
 }
 
-const NONE: SummaryContext = { installation: '', hostsTotal: null, hostsMatching: null };
+const NONE: SummaryContext = {
+  installation: '',
+  hostsTotal: null,
+  hostsMatching: null,
+  providersTotal: null,
+  providersMatching: null,
+};
 
 function count(value: string): number {
   const n = Number(value.trim());
@@ -63,6 +73,20 @@ function hosts(draft: PoolDraft, ctx: SummaryContext): string {
   return join([
     `Only hosts where ${shown}`,
     ctx.hostsMatching !== null && `${ctx.hostsMatching} match`,
+  ]);
+}
+
+function providers(draft: PoolDraft, ctx: SummaryContext): string {
+  const rules = Object.entries(draft.provider_selector);
+  if (rules.length === 0) {
+    return ctx.providersTotal === null || ctx.providersTotal === 0
+      ? 'Any provider that can build a machine for it'
+      : `Any provider that can build a machine for it · ${ctx.providersTotal} configured`;
+  }
+  const shown = rules.map(([key, value]) => (value === '' ? key : `${key}=${value}`)).join(', ');
+  return join([
+    `Only providers where ${shown}`,
+    ctx.providersMatching !== null && `${ctx.providersMatching} match`,
   ]);
 }
 
@@ -170,6 +194,7 @@ export function summarise(
   return {
     basics: basics(draft, ctx),
     hosts: hosts(draft, ctx),
+    providers: providers(draft, ctx),
     runner: runner(draft),
     size: size(draft),
     scaling: scaling(draft),

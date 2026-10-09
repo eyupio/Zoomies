@@ -484,7 +484,7 @@ test('the pool editor never scrolls sideways, in any section or state', async ({
 
   await goto(page, '/pools/new', 'Create a pool');
   await expectNoSidewaysScroll(page, 'the editor as it opens');
-  for (const id of ['hosts', 'runner', 'size', 'scaling', 'speed']) {
+  for (const id of ['hosts', 'providers', 'runner', 'size', 'scaling', 'speed']) {
     await section(id).click();
     await expectNoSidewaysScroll(page, `the ${id} section`);
   }

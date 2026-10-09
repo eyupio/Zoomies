@@ -100,6 +100,7 @@ func commands() []*command {
 		{"problems", groupFleet, "What is wrong, and the changes the controller proposes for it", runProblems},
 		{"jobs", groupFleet, "Job history, queue waits and outcomes", runJobs},
 		{"why", groupFleet, "Why a job failed, stalled or is waiting", runWhy},
+		{"kennel", groupFleet, "Kennel Club: how the repositories this fleet serves measure up, and a check that runs on a checkout without a controller", runKennel},
 		{"size-pins", groupFleet, "Put a job, or a repository, in a size class by hand", runSizePins},
 		{"auto-pools", groupFleet, "What the controller keeps for each size of host", runAutoPools},
 		{"hosts", groupFleet, "Agents, their capacity, and enrolment", runHosts},
@@ -218,7 +219,7 @@ func report(e *env, name string, err error) int {
 		return int(de)
 	}
 
-	var we *whyExit
+	var we *codedExit
 	if errors.As(err, &we) {
 		if we.msg != "" {
 			fmt.Fprintf(e.err, "zoomies %s: %s\n", name, we.msg)

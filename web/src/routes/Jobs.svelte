@@ -66,7 +66,7 @@
   import PageHeader from '$lib/components/PageHeader.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import StateCell from '$lib/components/StateCell.svelte';
-  import { endOfDay, startOfDay } from '$lib/jobs/DateRange.svelte';
+  import { endOfMoment, startOfMoment } from '$lib/jobs/DateRange.svelte';
   import GitHubLink from '$lib/jobs/GitHubLink.svelte';
   import JobDrawer from '$lib/jobs/JobDrawer.svelte';
   import JobFilters from '$lib/jobs/JobFilters.svelte';
@@ -204,14 +204,16 @@
         repo: filters.repo,
         workflow: filters.workflow,
         pool_id: filters.pool_id,
+        host_id: filters.host_id,
         label: filters.label,
         conclusion: filters.conclusion,
         state: filters.state,
         provisioning: filters.provisioning,
         cancelling: inHand ? false : undefined,
-        since: startOfDay(filters.since),
-        until: endOfDay(filters.until),
+        since: startOfMoment(filters.since),
+        until: endOfMoment(filters.until),
         unmatched: filters.unmatched ? true : undefined,
+        hosted: filters.hosted === 'false' ? false : undefined,
         failed: filters.failed ? true : undefined,
         faulted: filters.faulted ? true : undefined,
         managed: filters.all ? undefined : true,
@@ -463,6 +465,7 @@
     value={filters}
     {facets}
     pools={fleet.pools}
+    hosts={fleet.hosts}
     {labelOptions}
     onchange={patch}
     onclear={clearFilters}

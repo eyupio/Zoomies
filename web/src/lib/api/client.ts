@@ -681,6 +681,16 @@ export const listKennelRepositories = (
 export const getKennelRepository = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getKennelRepository'>>(`/kennel/repositories/${enc(id)}`, { signal });
 
+export const previewKennelGuidance = (id: string, signal?: AbortSignal) =>
+  api.get<Result<'previewKennelGuidance'>>(`/kennel/repositories/${enc(id)}/agent-guidance`, {
+    signal,
+  });
+
+export const createKennelGuidancePR = (id: string, body: Body<'createKennelGuidancePR'>) =>
+  api.post<Result<'createKennelGuidancePR'>>(`/kennel/repositories/${enc(id)}/agent-guidance`, {
+    body,
+  });
+
 export const recheckKennelRepository = (id: string) =>
   api.post<Result<'recheckKennelRepository'>>(`/kennel/repositories/${enc(id)}/recheck`);
 
@@ -714,6 +724,14 @@ export const listProviders = (signal?: AbortSignal) =>
 /** What each driver can do, and the settings schema its form renders from. */
 export const listProviderKinds = (signal?: AbortSignal) =>
   api.get<Result<'listProviderKinds'>>('/providers/kinds', { signal });
+
+/**
+ * Every provider against every pool: would it rent a machine for it, and if not,
+ * whose setting says so. The same rules the machine decision acts on, so what
+ * the page explains and what the controller does cannot drift apart.
+ */
+export const listProviderPairings = (signal?: AbortSignal) =>
+  api.get<Result<'listProviderPairings'>>('/providers/pairings', { signal });
 
 export const getProvider = (id: string, signal?: AbortSignal) =>
   api.get<Result<'getProvider'>>(`/providers/${enc(id)}`, { signal });

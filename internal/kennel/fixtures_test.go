@@ -9,11 +9,14 @@ var now = time.Date(2026, 10, 6, 12, 0, 0, 0, time.UTC)
 
 func okCoverage() Coverage {
 	return Coverage{
-		SourceFleet:     {State: CoverageOK},
-		SourceMetadata:  {State: CoverageOK},
-		SourceRuns:      {State: CoverageOK},
-		SourceSetup:     {State: CoverageOK},
-		SourceWorkflows: {State: CoverageOK},
+		SourceFleet:      {State: CoverageOK},
+		SourceMetadata:   {State: CoverageOK},
+		SourceRuns:       {State: CoverageOK},
+		SourceSetup:      {State: CoverageOK},
+		SourceWorkflows:  {State: CoverageOK},
+		SourceGuidance:   {State: CoverageOK},
+		SourceSettings:   {State: CoverageOK},
+		SourceProtection: {State: CoverageOK},
 	}
 }
 
@@ -29,10 +32,13 @@ func publicRepo() Snapshot {
 			Jobs:   JobFacts{Ran: 5},
 			Pools:  []PoolFact{{ID: "pool_a1", Name: "zoomies-ubuntu-2404", JobsRun: 5}},
 		},
-		Runs:      &RunFacts{Window: 14 * 24 * time.Hour},
-		Coverage:  okCoverage(),
-		Setup:     completeSetup(),
-		Workflows: &WorkflowFacts{},
+		Runs:       &RunFacts{Window: 14 * 24 * time.Hour},
+		Coverage:   okCoverage(),
+		Setup:      completeSetup(),
+		Workflows:  &WorkflowFacts{},
+		Guidance:   &GuidanceFacts{},
+		Settings:   &SettingsFacts{ForkApproval: ApprovalAll},
+		Protection: &ProtectionFacts{},
 	}
 }
 
@@ -41,6 +47,7 @@ func privateRepo() Snapshot {
 	s := publicRepo()
 	s.Repo.Visibility = VisibilityPrivate
 	s.Runs = nil
+	s.Settings = &SettingsFacts{PrivateFork: &PrivateForkFacts{}}
 	return s
 }
 
@@ -95,6 +102,32 @@ var positives = map[Code]func() Snapshot{
 	CodeJobHitDefaultLimit: func() Snapshot {
 		s := privateRepo()
 		s.Fleet.Jobs.Long = []FinishedJob{{Duration: 360*time.Minute + 20*time.Second, Conclusion: "cancelled"}}
+		return s
+	},
+	CodeDefaultTokenWrite: func() Snapshot {
+		s := privateRepo()
+		s.Settings = &SettingsFacts{DefaultTokenWrite: true}
+		return s
+	},
+	CodeForkApprovalWeak: func() Snapshot {
+		s := publicRepo()
+		s.Settings = &SettingsFacts{ForkApproval: ApprovalNewToGitHub}
+		return s
+	},
+	CodePrivateForkSecrets: func() Snapshot {
+		s := privateRepo()
+		s.Settings = &SettingsFacts{PrivateFork: &PrivateForkFacts{Runs: true, Secrets: true}}
+		return s
+	},
+	CodeRequiredCheckNeverReports: func() Snapshot {
+		s := privateRepo()
+		s.Protection = &ProtectionFacts{Required: 3, NeverReported: 1, Unpinned: 1, JobsSeen: 40}
+		return s
+	},
+	CodeMatrixExceedsPool: func() Snapshot {
+		s := privateRepo()
+		s.Fleet.Pools = []PoolFact{{ID: "pool_a1", Name: "zoomies-ubuntu-2404", JobsRun: 6, MaxRunners: 2}}
+		s.Fleet.Jobs.Matrices = []Matrix{{PoolID: "pool_a1", Jobs: 6, Waited: 3 * time.Minute}}
 		return s
 	},
 }

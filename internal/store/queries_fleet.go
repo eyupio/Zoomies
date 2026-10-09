@@ -233,7 +233,7 @@ const poolCols = `id, name, installation_id, labels, runner_group, backend, os, 
 	idle_timeout_ms, ephemeral, docker_mode, resources, cache, host_selector, env,
 	run_as_root, enabled, created_at, updated_at, repository_scale_up_limit,
 	cost_per_runner_hour, runner_settings, cpu_burst, no_default_labels, size_from_profile, tmpfs,
-	auto_key, auto_min, auto_cap, auto_paused, memory_burst`
+	auto_key, auto_min, auto_cap, auto_paused, memory_burst, provider_selector`
 
 func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 	var p Pool
@@ -246,7 +246,7 @@ func scanPool(sc interface{ Scan(...any) error }) (*Pool, error) {
 		&idle, &ephemeral, &p.DockerMode, &resources, &cache, &p.HostSelector, &p.Env,
 		&runAsRoot, &enabled, &created, &updated, &p.RepositoryScaleUpLimit, &p.CostPerRunnerHour,
 		&runnerSettings, &cpuBurst, &noDefaultLabels, &sizeFromProfile, &tmpfs,
-		&p.AutoKey, &p.AutoMin, &p.AutoCap, &autoPaused, &memoryBurst)
+		&p.AutoKey, &p.AutoMin, &p.AutoCap, &autoPaused, &memoryBurst, &p.ProviderSelector)
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +310,7 @@ func (s *Store) poolInsert(p *Pool) (string, []any, error) {
 	if err != nil {
 		return "", nil, err
 	}
-	return `INSERT INTO pools (` + poolCols + `) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, []any{
+	return `INSERT INTO pools (` + poolCols + `) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, []any{
 		p.ID, p.Name, p.InstallationID, p.Labels, p.RunnerGroup, string(p.Backend),
 		p.Platform.OS, p.Platform.OSVersion, p.Platform.Arch, p.Image,
 		string(p.PullPolicy),
@@ -319,7 +319,7 @@ func (s *Store) poolInsert(p *Pool) (string, []any, error) {
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.CreatedAt), ms(p.UpdatedAt),
 		p.RepositoryScaleUpLimit, p.CostPerRunnerHour, settings, burst, boolInt(p.NoDefaultLabels),
 		boolInt(p.SizeFromProfile), tmpfs, p.AutoKey, p.AutoMin, p.AutoCap, boolInt(p.AutoPaused),
-		memoryBurst}, nil
+		memoryBurst, p.ProviderSelector}, nil
 }
 
 // poolJSON encodes the six columns a pool keeps as JSON documents.
@@ -435,7 +435,7 @@ func (s *Store) poolUpdate(p *Pool) (string, []any, error) {
 		boolInt(p.Ephemeral), string(p.DockerMode), res, cache, p.HostSelector, p.Env,
 		boolInt(p.RunAsRoot), boolInt(p.Enabled), ms(p.UpdatedAt), p.RepositoryScaleUpLimit,
 		p.CostPerRunnerHour, settings, burst, boolInt(p.NoDefaultLabels), boolInt(p.SizeFromProfile), tmpfs,
-		p.AutoMin, p.AutoCap, boolInt(p.AutoPaused), memoryBurst, p.ID,
+		p.AutoMin, p.AutoCap, boolInt(p.AutoPaused), memoryBurst, p.ProviderSelector, p.ID,
 	}
 	query := `UPDATE pools SET name=?, installation_id=?, labels=?, runner_group=?,
 		backend=?, os=?, os_version=?, arch=?, image=?, pull_policy=?, runner_version=?,
@@ -443,7 +443,7 @@ func (s *Store) poolUpdate(p *Pool) (string, []any, error) {
 		docker_mode=?, resources=?, cache=?, host_selector=?, env=?, run_as_root=?,
 		enabled=?, updated_at=?, repository_scale_up_limit=?, cost_per_runner_hour=?,
 		runner_settings=?, cpu_burst=?, no_default_labels=?, size_from_profile=?, tmpfs=?,
-		auto_min=?, auto_cap=?, auto_paused=?, memory_burst=? WHERE id=?`
+		auto_min=?, auto_cap=?, auto_paused=?, memory_burst=?, provider_selector=? WHERE id=?`
 	return query, args, nil
 }
 

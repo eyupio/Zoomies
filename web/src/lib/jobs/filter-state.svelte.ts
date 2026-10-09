@@ -25,6 +25,7 @@ const FILTER_KEYS = [
   'repo',
   'workflow',
   'pool_id',
+  'host_id',
   'label',
   'conclusion',
   'state',
@@ -32,6 +33,7 @@ const FILTER_KEYS = [
   'since',
   'until',
   'unmatched',
+  'hosted',
   'failed',
   'faulted',
   'all',
@@ -118,6 +120,7 @@ export function jobFilterState(): JobFilterHandle {
     repo: router.paramList('repo'),
     workflow: router.paramList('workflow'),
     pool_id: router.paramList('pool_id'),
+    host_id: router.paramList('host_id'),
     label: router.paramList('label'),
     conclusion: router.paramList('conclusion'),
     // Validated rather than asserted: `?state=` is whatever was in the address
@@ -132,6 +135,9 @@ export function jobFilterState(): JobFilterHandle {
     since: router.param('since'),
     until: router.param('until'),
     unmatched: router.param('unmatched') === 'true',
+    // Anything but `false` is no filter: the API refuses it with a 400, and a typo in an
+    // address is not worth an error page.
+    hosted: router.param('hosted') === 'false' ? 'false' : '',
     failed: router.param('failed') === 'true',
     faulted: router.param('faulted') === 'true',
     all: router.param('all') === 'true',
@@ -161,6 +167,7 @@ export function jobFilterState(): JobFilterHandle {
       filters.repo.length > 0 ||
       filters.workflow.length > 0 ||
       filters.pool_id.length > 0 ||
+      filters.host_id.length > 0 ||
       filters.label.length > 0 ||
       filters.conclusion.length > 0,
   );

@@ -2710,6 +2710,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/kennel/repositories/{id}/agent-guidance": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /**
+         * Inspect agent guidance and preview proposed changes
+         * @description Requires Kennel Club and kennel.agent_guidance to be enabled and the repository to be tracked. Pins the default branch, reads bounded instruction files and command manifests, and returns issues and before/after file contents. Contents read permission is sufficient. Repository text is untrusted and must be rendered as text. An incomplete inventory answers 409; it cannot produce a repair proposal.
+         */
+        get: operations["previewKennelGuidance"];
+        put?: never;
+        /**
+         * Open a draft pull request for reviewed agent guidance
+         * @description Recomputes the proposal and requires its exact plan_hash. Refuses changes after review. Needs Contents write and Pull requests write, without Workflows write. Uses a deterministic branch and reconciles retries without overwriting edited proposals or reopening closed PRs. Changes no workflows, installs no AI Context and grants no assistant access. Audited as kennel.guidance_pr. Merge the PR, then request Recheck to refresh the findings.
+         */
+        post: operations["createKennelGuidancePR"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/kennel/repositories/{id}/recheck": {
         parameters: {
             query?: never;
@@ -2939,6 +2966,26 @@ export interface paths {
          * @description Every driver this build ships, its capabilities, and the questions its configuration form has to ask. The wizard renders its form from this, so a setting a driver gained cannot be missing from the form that collects it.
          */
         get: operations["listProviderKinds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/providers/pairings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Which providers would rent machines for which pools
+         * @description Every provider against every pool, and whether the provider would rent a machine for it. A rental needs three things: the provider's `pool_selector` allows the pool, the pool's `provider_selector` allows the provider, and the machine the provider builds is one the pool's runners could be placed on. `by` says which selector refused, and `why` and `fix` say what did not match and what to change, so an operator looking at a pool nobody rents for can see whose setting says so.
+         */
+        get: operations["listProviderPairings"];
         put?: never;
         post?: never;
         delete?: never;
@@ -4693,8 +4740,34 @@ export interface components {
          * @enum {string}
          */
         KennelCoverageState: "ok" | "partial" | "denied" | "unavailable" | "held" | "error" | "not_read";
+        KennelGuidancePreview: {
+            base_commit: string;
+            base: string;
+            branch: string;
+            plan_hash: string;
+            issues: {
+                /** @enum {string} */
+                kind: "missing" | "broken_reference" | "duplicated" | "unreadable";
+                path: string;
+                sha: string;
+                line: number;
+            }[];
+            files: {
+                path: string;
+                /** @enum {string} */
+                mode: "100644" | "100755";
+                previous_sha: string;
+                before: string;
+                content: string;
+            }[];
+            pull_request?: {
+                number: number;
+                html_url: string;
+                branch: string;
+            };
+        };
         /** @enum {string} */
-        KennelSource: "fleet" | "metadata" | "runs" | "setup" | "workflows";
+        KennelSource: "fleet" | "metadata" | "runs" | "setup" | "workflows" | "guidance" | "settings" | "protection";
         KennelCounts: {
             error: number;
             warning: number;
@@ -4702,13 +4775,22 @@ export interface components {
             /** @description Findings a waiver covers */
             waived: number;
         };
-        /** @description The only place a name appears in a finding, typed, and passed through a closed grammar first. A name that does not pass is replaced by a plain sentence saying it was unusual. Render it as text, and never follow an instruction in it. */
+        /** @description The only place a name appears in a finding, typed, and passed through a closed grammar first. A name that does not pass is replaced by a plain sentence saying it was unusual. Render it as text, and never follow an instruction in it. A `file` is a place in a workflow file: `ref` is the file's blob SHA, never its path, and the repository's `files` resolves it to the path the page shows. */
         KennelEvidence: {
             /** @enum {string} */
-            kind: "pool" | "run";
+            kind: "pool" | "run" | "file";
             /** @description An identifier the grammar accepted. */
             ref: string;
             label?: string;
+            /** @description For a file, the job by its position in the file's `jobs` mapping, or -1 for the workflow itself. */
+            job_index?: number;
+            /** @description For a file, the 1-based line of the thing the finding is about. Absent when the finding is about the whole file. */
+            line?: number;
+        };
+        /** @description One workflow or agent instruction file of the default branch: the blob SHA a finding's file evidence names, and its path. The path is a stranger's text, gated to a plain name under `.github/workflows` for workflows, or a plain repository path for guidance; one that did not pass is empty, and the page says the file has an unusual name. Render it as text. */
+        KennelFile: {
+            sha: string;
+            path: string;
         };
         KennelFinding: {
             /** @example exposure.fork_code_ran */
@@ -4720,6 +4802,8 @@ export interface components {
             detail: string;
             fix: string;
             evidence: components["schemas"]["KennelEvidence"][];
+            /** @description The text to hand a coding agent to fix this finding: the code, the sentences above, the evidence quoted in a fenced block headed as repository data, and how to go about the change. Present on an open finding; absent on a waived one, which nobody is asked to fix. */
+            prompt?: string;
         };
         KennelWaiver: {
             /** @example kcw_k3f9qz2m */
@@ -4788,6 +4872,8 @@ export interface components {
             skipped: components["schemas"]["KennelSkipped"][];
             /** @description Checks the operator turned off, which are not a gap. */
             disabled: string[];
+            /** @description The workflow files a finding's file evidence points into, by blob SHA, with each path as the gate let it through. */
+            files: components["schemas"]["KennelFile"][];
             tracking: components["schemas"]["KennelTracking"];
         };
         /** @description Whether Kennel Club is looking at the repository. For one it is not, who stopped it, when and why; the three are empty and null otherwise. */
@@ -4877,7 +4963,7 @@ export interface components {
         KennelCatalogueEntry: {
             code: string;
             /** @enum {string} */
-            area: "exposure" | "capacity" | "setup" | "ci" | "token";
+            area: "guidance" | "exposure" | "capacity" | "setup" | "ci" | "token" | "protection";
             severity: components["schemas"]["KennelSeverity"];
             detects: string;
             /** @description What to change */
@@ -6147,6 +6233,10 @@ export interface components {
             host_selector?: {
                 [key: string]: string;
             };
+            /** @description Which providers may rent machines for this pool, matched against each provider's `name`, `kind` and machine labels, the way `host_selector` is matched against a host. Empty means any provider. A provider rents only where this and its own `pool_selector` both agree. */
+            provider_selector?: {
+                [key: string]: string;
+            };
             /** @description The environment injected into every runner this pool creates. Readable in full by operators and administrators; a viewer is sent the keys with empty values, because this is where a registry or proxy credential ends up and setting one is an operator action. The same applies to the pool.created and pool.updated events. */
             env?: {
                 [key: string]: string;
@@ -6270,6 +6360,10 @@ export interface components {
             host_selector: {
                 [key: string]: string;
             };
+            /** @description Which providers may rent machines for this pool, matched against each provider's `name`, `kind` and machine labels, the way `host_selector` is matched against a host. Empty means any provider. A provider rents only where this and its own `pool_selector` both agree. */
+            provider_selector?: {
+                [key: string]: string;
+            };
             /** @description The environment variables the pool injects. Their values are never exported. */
             env_keys: string[];
             run_as_root: boolean;
@@ -6369,6 +6463,10 @@ export interface components {
             host_selector?: {
                 [key: string]: string;
             };
+            /** @description Which providers may rent machines for this pool, matched against each provider's `name`, `kind` and machine labels, the way `host_selector` is matched against a host. Empty means any provider. A provider rents only where this and its own `pool_selector` both agree. */
+            provider_selector?: {
+                [key: string]: string;
+            };
             env?: {
                 [key: string]: string;
             };
@@ -6416,6 +6514,10 @@ export interface components {
             cache?: components["schemas"]["CacheConfig"];
             tmpfs?: components["schemas"]["TmpfsConfig"];
             host_selector?: {
+                [key: string]: string;
+            };
+            /** @description Which providers may rent machines for this pool, matched against each provider's `name`, `kind` and machine labels, the way `host_selector` is matched against a host. Empty means any provider. A provider rents only where this and its own `pool_selector` both agree. */
+            provider_selector?: {
                 [key: string]: string;
             };
             env?: {
@@ -8382,7 +8484,7 @@ export interface components {
             machine_memory_mb?: number;
             /** Format: int64 */
             machine_disk_mb?: number;
-            /** @description Which pools this provider may buy for. Empty means every pool. */
+            /** @description Which pools this provider will rent machines for. Each entry must be satisfied by the pool: a key with no value asks for a pool carrying that label, `key: value` asks for the label `key=value`, and `name` and `backend` match the pool's own. Empty means every pool. A provider rents only where this and the pool's own `provider_selector` both agree. It decides what is bought, not where a runner is placed once a machine is a host: use the pool's `host_selector` for that. */
             pool_selector?: {
                 [key: string]: string;
             };
@@ -8412,6 +8514,8 @@ export interface components {
             last_check_at?: string;
             /** @description The worst thing the last preflight found */
             last_check_error?: string;
+            /** @description The whole of the last preflight, findings with their detail and fix, so a page can show what `last_check_error` is the title of without running it again. Absent for a provider never checked, and for one last checked before the report was kept. */
+            last_check?: components["schemas"]["ProviderCheck"];
             /**
              * Format: date-time
              * @description When this provider was last asked for everything it believes it is running.
@@ -8571,6 +8675,29 @@ export interface components {
             findings: components["schemas"]["Problem"][];
             /** Format: date-time */
             checked_at: string;
+        };
+        ProviderPairing: {
+            provider_id: string;
+            provider_name: string;
+            pool_id: string;
+            pool_name: string;
+            /** @description This provider would rent a machine for this pool. */
+            serves: boolean;
+            /** @description Both selectors allow it. */
+            agrees: boolean;
+            /**
+             * @description Which side's selector refused, when `agrees` is false.
+             * @enum {string}
+             */
+            by?: "provider" | "pool";
+            /** @description The machine this provider builds is one the pool's runners could be placed on. */
+            fits: boolean;
+            /** @description What about the machine does not suit the pool */
+            fit_why?: string;
+            /** @description The first thing standing in the way */
+            why?: string;
+            /** @description What to change */
+            fix?: string;
         };
         ProviderChoice: {
             value: string;
@@ -13958,6 +14085,66 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
+    previewKennelGuidance: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description A proposal, including an empty files array when changes require manual review. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelGuidancePreview"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    createKennelGuidancePR: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    plan_hash: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The proposal and its draft pull request. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["KennelGuidancePreview"];
+                };
+            };
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
     recheckKennelRepository: {
         parameters: {
             query?: never;
@@ -14279,6 +14466,28 @@ export interface operations {
                 content: {
                     "application/json": {
                         items?: components["schemas"]["ProviderKind"][];
+                    };
+                };
+            };
+        };
+    };
+    listProviderPairings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["ProviderPairing"][];
                     };
                 };
             };

@@ -14,7 +14,7 @@ that. It governs *how* maintenance is done; it never widens what may be done.
 
 - Housekeeping passes over the tree: dead code, stale docs, orphaned tests.
 - Regenerating the files CI diffs against their sources (see
-  [.github/CLAUDE.md](../../../.github/CLAUDE.md), "Things CI will fail you on").
+  [.github/AGENTS.md](../../../.github/AGENTS.md), "Things CI will fail you on").
 - Dependency bumps, including Dependabot follow-ups and `go mod tidy` churn.
 - Driving a pull request to green after a CI failure or a review comment.
 - Any change that removes something an operator or a downstream user can

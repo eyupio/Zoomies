@@ -95,9 +95,13 @@ type Provider struct {
 	ConsecutiveFailures int        `json:"consecutive_failures,omitempty"`
 	LastCheckAt         *time.Time `json:"last_check_at,omitempty"`
 	LastCheckError      string     `json:"last_check_error,omitempty"`
-	LastSweepAt         *time.Time `json:"last_sweep_at,omitempty"`
-	CreatedAt           time.Time  `json:"created_at"`
-	UpdatedAt           time.Time  `json:"updated_at"`
+	// LastCheckReport is the whole of the last preflight, serialised by the
+	// controller. LastCheckError is the sentence a card has room for; this is
+	// what an operator reads to act on it.
+	LastCheckReport string     `json:"-"`
+	LastSweepAt     *time.Time `json:"last_sweep_at,omitempty"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 // ---------------------------------------------------------------------------

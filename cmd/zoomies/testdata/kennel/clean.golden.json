@@ -1,0 +1,107 @@
+{
+  "version": 7,
+  "root": "clean",
+  "visibility": "private",
+  "files": [
+    {
+      "sha": "c866c9c7bd6b3c0a86f99565cf3cae66f8ae703b",
+      "path": ".github/workflows/ci.yml"
+    }
+  ],
+  "unreadable": [],
+  "findings": [],
+  "not_checked": [
+    {
+      "code": "ci.label_unserved",
+      "reason": "the pools are known only to a controller"
+    },
+    {
+      "code": "guidance.missing",
+      "reason": "agent guidance files are outside this workflow-only check"
+    },
+    {
+      "code": "guidance.broken_reference",
+      "reason": "agent guidance files are outside this workflow-only check"
+    },
+    {
+      "code": "guidance.duplicated",
+      "reason": "agent guidance files are outside this workflow-only check"
+    },
+    {
+      "code": "guidance.unreadable",
+      "reason": "agent guidance files are outside this workflow-only check"
+    },
+    {
+      "code": "exposure.public_repo_on_fleet",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "exposure.public_repo_weak_pool",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "exposure.fork_code_ran",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "exposure.target_event_ran",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "exposure.fork_approval_weak",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "exposure.private_fork_secrets",
+      "reason": "needs what only a controller knows: the repository's Actions settings"
+    },
+    {
+      "code": "capacity.unserved_label",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "capacity.job_hit_default_limit",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "capacity.matrix_exceeds_pool",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    },
+    {
+      "code": "setup.readme",
+      "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
+    },
+    {
+      "code": "setup.security",
+      "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
+    },
+    {
+      "code": "setup.pull_request_template",
+      "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
+    },
+    {
+      "code": "setup.codeowners",
+      "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
+    },
+    {
+      "code": "setup.dependency_updates",
+      "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
+    },
+    {
+      "code": "setup.workflows",
+      "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
+    },
+    {
+      "code": "token.default_write",
+      "reason": "needs what only a controller knows: the repository's Actions settings"
+    },
+    {
+      "code": "ci.pins_without_updater",
+      "reason": "needs what only a controller knows: the repository's tree as GitHub lists it"
+    },
+    {
+      "code": "protection.required_check_never_reports",
+      "reason": "needs what only a controller knows: what the fleet observed"
+    }
+  ]
+}

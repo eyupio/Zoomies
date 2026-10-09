@@ -10,18 +10,27 @@
 -->
 <script lang="ts">
   import type { Snippet } from 'svelte';
-  import type { KennelFinding } from '$lib/api/types';
+  import type { KennelFile, KennelFinding } from '$lib/api/types';
   import Badge from '$lib/components/Badge.svelte';
+  import CopyButton from '$lib/components/CopyButton.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
   import { severityStatus } from '$lib/status';
+  import { fileEvidenceText } from './words';
 
   interface Props {
     finding: KennelFinding;
+    /**
+     * The repository's workflow files by blob SHA, which a file finding's
+     * evidence points into. The path is shown as text and never linked.
+     */
+    files?: KennelFile[];
     /** What can be done about it: the buttons that apply. */
     actions?: Snippet;
   }
 
-  let { finding, actions }: Props = $props();
+  let { finding, files = [], actions }: Props = $props();
+
+  const paths = $derived(new Map(files.map((file) => [file.sha, file.path])));
 
   // The same gate the controller applies, applied again: a link is built from
   // text, so it is built only from text that has the shape of what it links to.
@@ -30,12 +39,22 @@
   const evidence = $derived(
     (finding.evidence ?? [])
       .filter((item) => item.ref || item.label)
-      .map((item, index) => ({
-        key: `${index}:${item.kind}:${item.ref}`,
-        kind: item.kind === 'pool' ? 'Pool' : 'Run',
-        text: item.label || item.ref,
-        href: item.kind === 'pool' && POOL_ID.test(item.ref) ? `/pools/${item.ref}` : undefined,
-      })),
+      .map((item, index) => {
+        if (item.kind === 'file') {
+          return {
+            key: `${index}:file:${item.ref}:${item.line ?? 0}`,
+            kind: 'File',
+            text: fileEvidenceText(paths.get(item.ref) ?? '', item.job_index ?? -1, item.line ?? 0),
+            href: undefined,
+          };
+        }
+        return {
+          key: `${index}:${item.kind}:${item.ref}`,
+          kind: item.kind === 'pool' ? 'Pool' : 'Run',
+          text: item.label || item.ref,
+          href: item.kind === 'pool' && POOL_ID.test(item.ref) ? `/pools/${item.ref}` : undefined,
+        };
+      }),
   );
 </script>
 
@@ -48,6 +67,12 @@
   <div class="fix">
     <h4>What to change</h4>
     <p><RemedyText text={finding.fix} /></p>
+    {#if finding.prompt}
+      <!-- The prompt is the controller's text, copied whole: the page never
+           composes its own, so an agent reads what the API carries. A waived
+           finding has none, and so has no button. -->
+      <CopyButton value={finding.prompt} label="Copy prompt for your coding agent" showLabel />
+    {/if}
   </div>
   {#if evidence.length > 0}
     <div class="evidence">

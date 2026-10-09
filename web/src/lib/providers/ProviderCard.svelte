@@ -10,16 +10,19 @@
 -->
 <script lang="ts">
   import { Pause, Play, Stethoscope } from '@lucide/svelte';
-  import type { Provider } from '$lib/api/types';
+  import type { Provider, ProviderPairing } from '$lib/api/types';
   import { formatNumber, pluralise } from '$lib/format';
   import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
+  import CheckFindings from './CheckFindings.svelte';
 
   interface Props {
     provider: Provider;
+    /** Every pool against this provider; empty until they have been asked for. */
+    pairings?: readonly ProviderPairing[];
     canOperate?: boolean;
     /** Busy while its own preflight is in flight, so the button cannot be double-pressed. */
     checking?: boolean;
@@ -32,6 +35,7 @@
 
   let {
     provider,
+    pairings = [],
     canOperate = false,
     checking = false,
     pausing = false,
@@ -44,6 +48,7 @@
   const restricted = 'Needs the operator role. An administrator can grant it under Settings.';
   const owned = $derived(provider.owned ?? 0);
   const ceiling = $derived(provider.max_machines ?? 0);
+  const serving = $derived(pairings.filter((entry) => entry.serves).length);
   const counts = $derived(Object.entries(provider.machines ?? {}).filter(([, n]) => n > 0));
   const shape = $derived.by(() => {
     const parts: string[] = [];
@@ -121,7 +126,15 @@
   {/if}
 
   {#if provider.last_check_error}
-    <p class="held bad"><RemedyText text={provider.last_check_error} /></p>
+    <!-- The sentence is a finding's title. The detail under it is what says
+         what to do ("it offers vmbr1"), so it is one click away rather than a
+         trip to the provider page and a second Check. -->
+    <details class="held bad">
+      <summary><RemedyText text={provider.last_check_error} /></summary>
+      {#if (provider.last_check?.findings?.length ?? 0) > 0}
+        <CheckFindings findings={provider.last_check?.findings} class="why" />
+      {/if}
+    </details>
   {/if}
 
   <p class="figures tabular">
@@ -131,6 +144,21 @@
       <span class="muted">· a ceiling of zero rents nothing</span>
     {/if}
   </p>
+
+  {#if pairings.length > 0}
+    <!-- A provider is used by a pool only when both agree, so a provider that
+         no pool can use is worth saying on the card: nothing will ever be
+         rented from it, and its ceiling is beside the point. -->
+    <p class="pools" class:none={serving === 0}>
+      {#if serving === 0}
+        No pool can use this yet.
+        <a href="/providers/{provider.id}?tab=pools">See why</a>
+      {:else}
+        Rents for {pluralise(serving, 'pool')} of {pairings.length}.
+        <a href="/providers/{provider.id}?tab=pools">Which</a>
+      {/if}
+    </p>
+  {/if}
 
   {#if counts.length > 0}
     <ul class="counts">
@@ -253,6 +281,14 @@
     border-color: var(--z-danger-border);
     background: var(--z-danger-subtle);
   }
+  summary {
+    cursor: pointer;
+  }
+  .held.bad :global(.why) {
+    margin-top: var(--z-space-2);
+    padding-top: var(--z-space-2);
+    border-top: var(--z-border-width) solid var(--z-danger-border);
+  }
   .figures {
     margin: 0;
     font-size: var(--z-text-xs);
@@ -265,6 +301,14 @@
   }
   .muted {
     color: var(--z-text-subtle);
+  }
+  .pools {
+    margin: 0;
+    font-size: var(--z-text-xs);
+    color: var(--z-text-muted);
+  }
+  .pools.none {
+    color: var(--z-text);
   }
   .counts {
     display: flex;

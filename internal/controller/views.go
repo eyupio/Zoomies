@@ -1105,8 +1105,12 @@ type PoolView struct {
 	Cache          store.CacheConfig    `json:"cache"`
 	Tmpfs          store.TmpfsConfig    `json:"tmpfs"`
 	HostSelector   map[string]string    `json:"host_selector"`
-	Env            map[string]string    `json:"env"`
-	RunAsRoot      bool                 `json:"run_as_root"`
+	// ProviderSelector is which providers may rent machines for this pool,
+	// matched against each provider's name, kind and machine labels. Empty
+	// means any provider.
+	ProviderSelector map[string]string `json:"provider_selector"`
+	Env              map[string]string `json:"env"`
+	RunAsRoot        bool              `json:"run_as_root"`
 	// NoDefaultLabels says the pool's runners advertise only Labels, without
 	// self-hosted and the operating-system and architecture labels.
 	NoDefaultLabels bool           `json:"no_default_labels"`
@@ -1277,6 +1281,7 @@ func (v *PoolRenderer) View(p *store.Pool) PoolView {
 		Cache:                  p.Cache,
 		Tmpfs:                  p.Tmpfs,
 		HostSelector:           emptyMap(p.HostSelector),
+		ProviderSelector:       emptyMap(p.ProviderSelector),
 		Env:                    emptyMap(p.Env),
 		RunAsRoot:              p.RunAsRoot,
 		NoDefaultLabels:        p.NoDefaultLabels,
@@ -1797,7 +1802,12 @@ type ProviderView struct {
 	ConsecutiveFailures int        `json:"consecutive_failures,omitempty"`
 	LastCheckAt         *time.Time `json:"last_check_at,omitempty"`
 	LastCheckError      string     `json:"last_check_error,omitempty"`
-	LastSweepAt         *time.Time `json:"last_sweep_at,omitempty"`
+	// LastCheck is the whole of that check, findings with their detail and fix,
+	// so a page can show what the sentence above was the title of without the
+	// operator pressing Check again. Absent for a provider never checked, and
+	// for one last checked before the report was kept.
+	LastCheck   *ProviderCheckView `json:"last_check,omitempty"`
+	LastSweepAt *time.Time         `json:"last_sweep_at,omitempty"`
 
 	// Machines is how many this provider has, by state, so the card can show
 	// the band without a second request.
@@ -1850,6 +1860,7 @@ func (c *Controller) ProviderView(p *store.Provider, machines []*store.Machine) 
 		ConsecutiveFailures:   p.ConsecutiveFailures,
 		LastCheckAt:           p.LastCheckAt,
 		LastCheckError:        p.LastCheckError,
+		LastCheck:             decodeCheckReport(p),
 		LastSweepAt:           p.LastSweepAt,
 		Machines:              map[string]int{},
 		CreatedAt:             p.CreatedAt,

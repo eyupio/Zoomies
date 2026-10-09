@@ -348,7 +348,13 @@ func TestACheckTheOperatorTurnedOffIsNeitherRunNorAGap(t *testing.T) {
 // Turning every check off asks not to be told. It is not the same as being
 // clear, and must not earn a badge.
 func TestAFleetWithEveryCheckTurnedOffIsNotBestInShow(t *testing.T) {
-	ev := Evaluate(privateRepo(), Policy{Disabled: map[string]bool{"exposure": true, "capacity": true, "setup": true, "ci": true, "token": true}})
+	// Every area the registry has, and not a list written here that a new area
+	// would be missing from and leave one check running.
+	off := map[string]bool{}
+	for _, c := range Checks() {
+		off[string(c.Area)] = true
+	}
+	ev := Evaluate(privateRepo(), Policy{Disabled: off})
 	if ev.Complete || ev.State() == StateBestInShow {
 		t.Errorf("complete=%v state=%s with nothing checked", ev.Complete, ev.State())
 	}

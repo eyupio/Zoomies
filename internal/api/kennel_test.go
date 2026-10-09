@@ -804,3 +804,58 @@ func TestTheAuditRecordOfAWaiverCarriesEverythingThatWasDecided(t *testing.T) {
 		t.Errorf("audit = %+v, want %+v", got, want)
 	}
 }
+
+// A workflow finding's evidence is a file, with the blob SHA, the job and the
+// line, and the repository carries the files it was read from so a client can
+// name the path. Both are promised by the contract, so both are asserted on
+// the wire and not only through the view type.
+func TestARepositoryCarriesItsWorkflowFilesAndAFileFindingSaysWhereItPoints(t *testing.T) {
+	s := newKennelStack(t)
+	s.gh.AddWorkflow("acme/quiet", ".github/workflows/ci.yml", "on: push\njobs:\n  build:\n    runs-on: self-hosted\n    permissions: {}\n    steps: []\n")
+	s.ctrl.UpdateConfig(func(c *config.Config) { c.Kennel.WorkflowChecks = true })
+	s.ctrl.KennelPass(s.ctx)
+	resp := s.do(request{method: http.MethodGet, path: kennelRepository + s.quiet, cookie: s.viewer})
+	resp.mustStatus(t, http.StatusOK, "get quiet")
+	var raw struct {
+		Files    []map[string]any `json:"files"`
+		Findings []struct {
+			Code     string           `json:"code"`
+			Evidence []map[string]any `json:"evidence"`
+		} `json:"findings"`
+	}
+	resp.into(t, &raw)
+	if len(raw.Files) != 1 || raw.Files[0]["path"] != ".github/workflows/ci.yml" || len(raw.Files[0]["sha"].(string)) != 40 {
+		t.Fatalf("files = %+v", raw.Files)
+	}
+	for _, f := range raw.Findings {
+		if f.Code != "ci.no_timeout" {
+			continue
+		}
+		if len(f.Evidence) != 1 || f.Evidence[0]["kind"] != "file" || f.Evidence[0]["ref"] != raw.Files[0]["sha"] || f.Evidence[0]["job_index"] != float64(0) || f.Evidence[0]["line"] != float64(3) {
+			t.Fatalf("evidence = %+v, want the file, job 0 and line 3", f.Evidence)
+		}
+		return
+	}
+	t.Fatalf("no ci.no_timeout finding in %+v", raw.Findings)
+}
+
+// A finding's prompt is on the wire so an agent, or the page's button, takes
+// the controller's text and never composes its own.
+func TestAFindingCarriesAPromptAnAgentCanTake(t *testing.T) {
+	s := newKennelStack(t)
+	resp := s.do(request{method: http.MethodGet, path: kennelRepository + s.exposed, cookie: s.viewer})
+	resp.mustStatus(t, http.StatusOK, "get exposed")
+	var raw struct {
+		Findings []map[string]any `json:"findings"`
+	}
+	resp.into(t, &raw)
+	if len(raw.Findings) == 0 {
+		t.Fatal("no findings")
+	}
+	for _, f := range raw.Findings {
+		p, _ := f["prompt"].(string)
+		if !strings.Contains(p, "Fix the Kennel Club finding `"+f["code"].(string)+"`") {
+			t.Errorf("%v: prompt = %q", f["code"], p)
+		}
+	}
+}
