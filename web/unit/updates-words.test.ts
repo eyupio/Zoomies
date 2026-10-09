@@ -44,6 +44,7 @@ function status(overrides: Partial<UpdatesStatus> = {}): UpdatesStatus {
       state: 'missing',
       reason: "No update helper is installed on this controller's host.",
       install_command: 'sudo zoomies updates helper install',
+      upgrade_command: '',
     },
     controller: null,
     ...overrides,
@@ -294,7 +295,12 @@ function attempt(state: ControllerAttempt['state'], error = ''): ControllerAttem
 /** A manual status that can be updated: a ready helper and a newer release on offer. */
 function updatable(overrides: Partial<UpdatesStatus> = {}): UpdatesStatus {
   return status({
-    helper: { state: 'ready', reason: 'The update helper is installed.', install_command: '' },
+    helper: {
+      state: 'ready',
+      reason: 'The update helper is installed.',
+      install_command: '',
+      upgrade_command: '',
+    },
     ...overrides,
   });
 }
@@ -408,6 +414,7 @@ test('no button is offered below the platform role, and the page says which role
     kind: 'none',
     sentence: 'Updating the controller needs the platform role.',
     installCommand: '',
+    upgradeCommand: '',
   });
 });
 
@@ -435,7 +442,48 @@ test("with no helper the controller's own sentence is shown, with the command th
     kind: 'none',
     sentence: "No update helper is installed on this controller's host.",
     installCommand: 'sudo zoomies updates helper install',
+    upgradeCommand: '',
   });
+});
+
+// A command that would only refuse is worse than none: where the helper can
+// never be installed the controller's reason is shown with the upgrade that
+// works there, and an install command is never offered, whatever arrived.
+test('where the helper can never be installed the reason is shown with the upgrade command and nothing to install', () => {
+  const reason =
+    'The update helper cannot be installed here: this controller runs on a host that systemd does not run, and the update helper is a pair of systemd units. Update this controller on its host with the command below.';
+  const offer = controllerOffer(
+    status({
+      helper: {
+        state: 'unsupported',
+        reason,
+        install_command: 'sudo zoomies updates helper install',
+        upgrade_command: 'sudo zoomies upgrade',
+      },
+    }),
+    true,
+  );
+  assert.deepEqual(offer, {
+    kind: 'none',
+    sentence: reason,
+    installCommand: '',
+    upgradeCommand: 'sudo zoomies upgrade',
+  });
+});
+
+test('a missing helper is offered the install and never the upgrade by hand in its place', () => {
+  const offer = controllerOffer(
+    status({
+      helper: {
+        state: 'missing',
+        reason: 'No update helper is installed.',
+        install_command: 'sudo zoomies updates helper install',
+        upgrade_command: 'sudo zoomies upgrade',
+      },
+    }),
+    true,
+  );
+  assert.equal(offer.kind === 'none' ? offer.upgradeCommand : 'offered', '');
 });
 
 test('while an attempt is open there is no button, and once it ends there is one again', () => {

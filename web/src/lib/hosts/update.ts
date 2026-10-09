@@ -166,6 +166,20 @@ export function hostUpdateWords(host: HostFields): HostUpdateWords | null {
         inFlight: false,
         live: `${name}: the update was cancelled. ${update.reason}`,
       };
+    case 'unsupported':
+      // The helper can never be installed there, so a button would be a promise
+      // nothing can keep. Said only for a host that is not on the release.
+      if (host.version_skew !== 'behind' && host.version_skew !== 'differs') return null;
+      return {
+        label: 'Update by command',
+        tone: 'neutral',
+        sentence: update.reason,
+        offered: false,
+        canPress: false,
+        action: 'Update',
+        inFlight: false,
+        live: '',
+      };
     default: {
       // No attempt. Said only for a host that is not on the controller's release.
       if (host.version_skew !== 'behind' && host.version_skew !== 'differs') return null;

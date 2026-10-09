@@ -161,6 +161,28 @@ test('a host that cannot be updated from here says why in the controller’s wor
   assert.equal(words?.label, 'Update by command');
 });
 
+// The helper can never be installed there, so a button that can never be
+// pressed would only be a promise; the reason is the card's text, and the
+// command beneath the card is the way.
+test('a host the helper can never be installed on says why, draws no button and suggests no install', () => {
+  const why =
+    'The update helper cannot be installed on this host: its agent runs on a host that systemd does not run, and the update helper is a pair of systemd units. Update it on the host with the command below.';
+  const words = hostUpdateWords(host({}, { state: 'unsupported', can_update: false, reason: why }));
+  assert.equal(words?.label, 'Update by command');
+  assert.equal(words?.sentence, why);
+  assert.equal(words?.offered, false);
+  assert.equal(words?.canPress, false);
+  assert.equal(words?.tone, 'neutral');
+  assert.doesNotMatch(words?.sentence ?? '', /helper install/);
+});
+
+test('a host the helper cannot be installed on has no row once it runs the controller’s release', () => {
+  assert.equal(
+    hostUpdateWords(host({ version_skew: '' }, { state: 'unsupported', can_update: false })),
+    null,
+  );
+});
+
 test('the target is named with a v whether the controller reports one or not', () => {
   assert.equal(targetTag({ upgrade_version: '1.3.0' }), 'v1.3.0');
   assert.equal(targetTag({ upgrade_version: 'v1.3.0' }), 'v1.3.0');

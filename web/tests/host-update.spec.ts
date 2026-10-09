@@ -45,6 +45,7 @@ async function join(
 interface Beat {
   version?: string;
   features?: string[];
+  update_unsupported?: string;
   update?: { id: string; ok: boolean; tag: string; error?: string; finished_at: string };
 }
 
@@ -57,6 +58,7 @@ async function beat(page: Page, credentials: Credentials, over: Beat = {}): Prom
       version: over.version ?? BEHIND,
       features: over.features ?? SELF_UPDATE,
       ...(over.update ? { update: over.update } : {}),
+      ...(over.update_unsupported ? { update_unsupported: over.update_unsupported } : {}),
     },
   });
   expect(response.ok()).toBeTruthy();
@@ -213,6 +215,22 @@ test('a host whose agent does not offer to update itself says why, and the butto
     await expect(updateButton(page, name)).toBeDisabled();
     // And the command beneath it is still the way.
     await expect(card(page, name).locator('details.upgrade > summary')).toBeVisible();
+  });
+});
+
+test('a host the update helper can never be installed on says why, with no button and no install command', async ({
+  page,
+}) => {
+  await withHost(page, [], async ({ credentials, name }) => {
+    await beat(page, credentials, { features: [], update_unsupported: 'no-systemd' });
+    await goto(page, '/hosts', 'Hosts');
+    await expect(row(page, name)).toContainText('Update by command');
+    await expect(row(page, name)).toContainText('a host that systemd does not run');
+    await expect(row(page, name)).not.toContainText('helper install');
+    await expect(row(page, name).getByRole('button')).toHaveCount(0);
+    // The command beneath the card is the way.
+    await expect(card(page, name).locator('details.upgrade > summary')).toBeVisible();
+    expect((await hostOnServer(page, credentials)).update?.state).toBe('unsupported');
   });
 });
 

@@ -97,6 +97,7 @@ function waiting(): UpdatesStatus {
       state: 'missing',
       reason: "No update helper is installed on this controller's host.",
       install_command: 'sudo zoomies updates helper install',
+      upgrade_command: '',
     },
     controller: null,
   };
@@ -612,6 +613,7 @@ function updatable(controller: UpdatesStatus['controller'] = null): UpdatesStatu
       reason:
         "The update helper is installed on this controller's host, so the controller can update itself.",
       install_command: '',
+      upgrade_command: '',
     },
     controller,
   };
@@ -904,6 +906,34 @@ test('with no helper there is no button, and the page says how to install one', 
   await expect(
     update(page).getByRole('button', { name: 'Copy the install command' }),
   ).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Update to/ })).toHaveCount(0);
+});
+
+test('where the helper can never be installed the page says why, with the upgrade command and nothing to install', async ({
+  page,
+}) => {
+  const reason =
+    'The update helper cannot be installed here: this controller runs in a container that runs no runners, so the container does not mount the shared folder the update helper would read a request from. Update this controller on its host with the command below.';
+  await serve(page, () => ({
+    ...updatable(),
+    helper: {
+      state: 'unsupported',
+      reason,
+      install_command: '',
+      upgrade_command: 'sudo zoomies upgrade',
+    },
+  }));
+  await goto(page, PAGE, 'Updates');
+
+  await expect(update(page)).toContainText(reason);
+  await expect(update(page).getByText('sudo zoomies upgrade', { exact: true })).toBeVisible();
+  await expect(
+    update(page).getByRole('button', { name: 'Copy the upgrade command' }),
+  ).toBeVisible();
+  await expect(update(page).getByText('sudo zoomies updates helper install')).toHaveCount(0);
+  await expect(update(page).getByRole('button', { name: 'Copy the install command' })).toHaveCount(
+    0,
+  );
   await expect(page.getByRole('button', { name: /^Update to/ })).toHaveCount(0);
 });
 
