@@ -399,6 +399,7 @@ that is not a template are *answers*, not failures.
 | `proxmox.bridge_missing` | error | No network bridge is configured, or the configured one is not on that node. A machine with no network cannot reach this controller to enrol. | Choose a bridge that can reach the controller. |
 | `proxmox.template_missing` | error | No template VMID is configured, or nothing exists at it. | Prepare a template as the [runbook](proxmox.md#preparing-the-template) describes and give its VMID. |
 | `proxmox.template_not_a_template` | error | A VM exists at that VMID and is not a template. Cloning a running VM is not what this does. | Convert it to a template, or point at the right VMID. |
+| `proxmox.template_no_disk` | error | The template has no operating-system disk on `scsi0`, `virtio0`, `sata0` or `ide0`. A machine cloned from it starts, tries to boot from the network and never joins, while being billed. | Attach the cloud image as the first disk from a storage that holds disk images, then convert it to a template again. |
 | `proxmox.template_no_agent` | warning | The template does not have the QEMU guest agent enabled. Enrolment reaches the guest through it, so a machine made from this template will boot, cost money and never join. | Install `qemu-guest-agent` in the image and set `agent: enabled=1`. |
 | `proxmox.vmid_range` | error | No VMID range is configured, or its bounds are the wrong way round. The range is both a budget and a blast radius: a VM outside it is by construction not ours. | Give a block nothing else allocates from. |
 | `proxmox.vmid_range_reserved` | warning | Guests already exist inside the configured range. They are not touched, but the range is meant to be Zoomies' alone. | Move the range, or move those guests. |
@@ -524,6 +525,7 @@ against it in both directions, word for word.
 | `proxmox.storage_no_images` | Storage at a machine provider cannot hold machine images. |
 | `proxmox.template_missing` | A machine provider is missing the template new machines are made from. |
 | `proxmox.template_no_agent` | The template new machines are made from cannot report their address. |
+| `proxmox.template_no_disk` | The template new machines are made from has no disk to start from. |
 | `proxmox.template_not_a_template` | The template new machines are made from is set up the wrong way. |
 | `proxmox.unreachable` | A machine provider cannot be reached, so no new machines can be added from it. |
 | `proxmox.version_unqualified` | A machine provider runs a version this fleet has not been tested with. |

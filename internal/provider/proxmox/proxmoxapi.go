@@ -897,6 +897,26 @@ type VMConfig struct {
 	SMBIOS1 string `json:"smbios1"`
 	SCSI0   string `json:"scsi0"`
 	VirtIO0 string `json:"virtio0"`
+	SATA0   string `json:"sata0"`
+	IDE0    string `json:"ide0"`
+}
+
+// HasDisk reports whether the guest has an operating-system disk on one of the
+// four first slots a cloud image is attached to. A CD-ROM or a cloud-init drive
+// in one of them does not count: neither can be booted into a machine.
+//
+// It looks at slot zero only, which is where every runbook puts the image, so a
+// template that keeps its disk elsewhere would be reported here wrongly; the
+// finding names the slots it looked at for that reason.
+func (c VMConfig) HasDisk() bool {
+	for _, spec := range []string{c.SCSI0, c.VirtIO0, c.SATA0, c.IDE0} {
+		spec = strings.TrimSpace(spec)
+		if spec == "" || strings.Contains(spec, "media=cdrom") || strings.Contains(spec, "cloudinit") {
+			continue
+		}
+		return true
+	}
+	return false
 }
 
 // AgentEnabled reports whether the guest agent is switched on for this guest,

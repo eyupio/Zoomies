@@ -115,6 +115,53 @@ test('a provider whose last check failed says on the card what the check found',
   await expect(providerCard(page)).toContainText(complaint);
 });
 
+/*
+ * The sentence on the card is a finding's title. What says what to do about it
+ * is the detail, and it used to exist only in the tab that pressed Check, so
+ * "no bridge called vmbr0" was all anybody had after a reload. The controller
+ * now keeps the whole result, and the card opens onto it.
+ */
+test('a failed check opens on the detail and the fix, not only the title', async ({ page }) => {
+  const title = 'node pve-1 has no bridge called "vmbr0"';
+  await page.route(/\/api\/v1\/providers(?:\?.*)?$/, async (route) => {
+    const response = await route.fetch();
+    const body = await response.json();
+    body.items = body.items.map((provider: { name: string }) =>
+      provider.name === FIXTURE.provider
+        ? {
+            ...provider,
+            last_check_error: title,
+            last_check: {
+              provider_id: 'prov_x',
+              ok: false,
+              reachable: true,
+              checked_at: new Date().toISOString(),
+              findings: [
+                {
+                  code: 'proxmox.bridge_missing',
+                  severity: 'error',
+                  audience: 'fleet',
+                  setting: 'bridge',
+                  title,
+                  detail: 'It offers vmbr1.',
+                  fix: 'use a bridge that exists on every node this provider places on.',
+                },
+              ],
+            },
+          }
+        : provider,
+    );
+    await route.fulfill({ json: body });
+  });
+
+  await goto(page, '/providers', 'Providers');
+  const card = providerCard(page);
+  await expect(card).toContainText(title);
+  await card.locator('summary').click();
+  await expect(card).toContainText('It offers vmbr1.');
+  await expect(card).toContainText('use a bridge that exists on every node');
+});
+
 test("the wizard is rendered from the driver's schema, with the driver's own defaults filled in", async ({
   page,
 }) => {

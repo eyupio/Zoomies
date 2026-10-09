@@ -145,6 +145,12 @@ qm set 9000 --ide2 local-lvm:cloudinit --ciuser ubuntu --sshkeys ~/.ssh/id_ed255
 qm resize 9000 scsi0 32G && qm start 9000
 ```
 
+`local-lvm` is the storage name on a default install. If yours has another (the
+Datacenter tree lists them), use that name in both `qm set` lines, and make sure
+it holds **Disk image** content. If the `scsi0` step fails the VM is still
+created, with no disk, and it will boot to a network prompt and nothing else;
+the provider's **Check** reports that as `proxmox.template_no_disk`.
+
 Then, inside the guest over SSH:
 
 ```sh
