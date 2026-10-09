@@ -1,4 +1,4 @@
-# SDD ledger — plan: roadmap/in-product-updates-plan.md
+# SDD ledger: plan: roadmap/in-product-updates-plan.md
 
 Spec: roadmap/in-product-updates.md (reachable; the binding authority) and roadmap/decisions/0011-an-operator-may-let-zoomies-update-itself.md.
 Repo rules: CLAUDE.md (voice, package boundaries), ROADMAP.md section 5 (delivery rules).
