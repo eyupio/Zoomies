@@ -42,7 +42,7 @@ func providersConnectProxmox(ctx context.Context, e *env, args []string) error {
 	if runtime.GOOS != "linux" || os.Geteuid() != 0 {
 		return errors.New("proxmox setup: run this command as root on a Linux Proxmox host")
 	}
-	for _, name := range []string{"pveum", "systemctl"} {
+	for _, name := range []string{"pveum", "pvesh", "qm", "systemctl"} {
 		if _, err := exec.LookPath(name); err != nil {
 			return fmt.Errorf("proxmox setup: this Proxmox host needs %s to connect", name)
 		}
@@ -171,9 +171,14 @@ func providersConnectProxmox(ctx context.Context, e *env, args []string) error {
 			return fmt.Errorf("proxmox setup: cannot start the private provider connection; check systemctl status %s and retry", unitName)
 		}
 	}
-	conn.Templates, err = proxmoxsetup.DiscoverTemplates(ctx, h)
+	fmt.Fprintln(e.out, "Preparing the Zoomies runner template if it is missing; the first image build can take several minutes...")
+	nodeName, err := os.ReadFile("/etc/hostname")
 	if err != nil {
-		fmt.Fprintln(e.out, "VM templates could not be listed locally; Zoomies will discover them through the API.")
+		return err
+	}
+	conn.Templates, err = proxmoxsetup.EnsureTemplate(ctx, h, dir, binaryPath, strings.Split(strings.TrimSpace(string(nodeName)), ".")[0], key)
+	if err != nil {
+		return err
 	}
 	payload, err := json.Marshal(conn)
 	if err != nil {
@@ -221,9 +226,6 @@ func providersConnectProxmox(ctx context.Context, e *env, args []string) error {
 	fmt.Fprintln(e.out, "Proxmox connected. Return to Zoomies to choose the VM template and capacity.")
 	for _, template := range conn.Templates {
 		fmt.Fprintf(e.out, "Template VMID %d: %s (node %s)\n", template.VMID, template.Name, template.Node)
-	}
-	if len(conn.Templates) == 0 {
-		fmt.Fprintln(e.out, "No template VMID was detected. Prepare a runner VM template before completing Placement.")
 	}
 	return nil
 }
