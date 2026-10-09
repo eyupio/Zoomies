@@ -159,6 +159,10 @@ func (c *Controller) RequestControllerUpdate(ctx context.Context, by UpdateActor
 		// minutes and refuse every press until then.
 		c.finishUpdateAttempt(context.WithoutCancel(ctx), *attempt, store.UpdateFailed,
 			"The request could not be handed to the update helper, so nothing ran: "+err.Error())
+		// WriteRequest leaves nothing of its own behind when it fails, so this
+		// only ever finds another request, which it leaves; it is here so that no
+		// path that closes an attempt can strand that attempt's request.
+		c.withdrawRequest(*attempt)
 		_, _ = c.publishUpdates(context.WithoutCancel(ctx))
 		return nil, fmt.Errorf("%w: %w", ErrUpdateHelperMissing, err)
 	}
@@ -166,7 +170,31 @@ func (c *Controller) RequestControllerUpdate(ctx context.Context, by UpdateActor
 		"attempt", attempt.ID, "from", attempt.FromVersion, "to", target, "requested_by", attempt.RequestedBy)
 	// The loop watches for the answer from now on; a refusal comes back in seconds.
 	c.KickUpdates()
-	return c.publishUpdates(ctx)
+	view, err := c.publishUpdates(ctx)
+	if err != nil {
+		// The request is in the folder and the helper may already be running it,
+		// so this is not a failure to report: an error here would tell the person
+		// to press again, and the press would be refused as in flight. They get
+		// the attempt they made, and the next pass sends the whole status.
+		c.log.Warn("asked for the update, but could not work out the status to return", "attempt", attempt.ID, "error", err)
+		return c.requestedView(*attempt, helper.view), nil
+	}
+	return view, nil
+}
+
+// requestedView is the status as far as it is known without reading anything:
+// the settings, the build, the helper and the attempt just made.
+func (c *Controller) requestedView(a store.UpdateAttempt, helper UpdatesHelper) *UpdatesView {
+	cfg := c.cfg().Updates
+	_, fromRelease := version.Release(version.Version)
+	return &UpdatesView{
+		Mode:       string(updateModeOf(cfg.Mode)),
+		Soak:       config.TidyDuration(cfg.Soak),
+		Running:    UpdatesRunning{Version: version.Version, Release: fromRelease},
+		Reason:     fmt.Sprintf("The update to %s has been asked for, and the update helper will answer.", a.ToVersion),
+		Helper:     helper,
+		Controller: attemptView(a),
+	}
 }
 
 // controllerTarget is the tag an update of this controller takes: the one asked

@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/events"
@@ -351,25 +352,56 @@ func TestASecondRequestWhileOneIsOpenWritesNoSecondFile(t *testing.T) {
 	}
 }
 
+// A folder that cannot take a request refuses the press with the folder named,
+// and leaves nothing in flight. Some faults are found before an attempt is
+// recorded (the folder replaced by a file hides the helper's marker too); the
+// rest only when the request is written, after the attempt exists, and that
+// attempt has to be closed again before the refusal returns.
 func TestAnUnwritableFolderRefusesAndLeavesNoAttempt(t *testing.T) {
-	h := newHarness(t)
-	h.readyToUpdate()
-	if err := os.RemoveAll(h.updateDir); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.WriteFile(h.updateDir, []byte("not a folder"), 0o644); err != nil {
-		t.Fatal(err)
-	}
+	for _, tc := range []struct {
+		name string
+		// recorded says whether the fault is found after the attempt was made, so
+		// that a closed attempt is what is left.
+		recorded bool
+		spoil    func(h *harness)
+	}{
+		{"the folder replaced by a file", false, func(h *harness) {
+			if err := os.RemoveAll(h.updateDir); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(h.updateDir, []byte("not a folder"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"a folder where the request goes", true, func(h *harness) {
+			if err := os.Mkdir(filepath.Join(h.updateDir, channel.RequestFile), 0o750); err != nil {
+				t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.readyToUpdate()
+			tc.spoil(h)
 
-	_, err := h.c.RequestControllerUpdate(h.ctx, alice, "")
-	if !errors.Is(err, ErrUpdateHelperMissing) {
-		t.Fatalf("err = %v, want ErrUpdateHelperMissing", err)
-	}
-	if !strings.Contains(err.Error(), h.updateDir) {
-		t.Errorf("the refusal does not name the folder %s: %v", h.updateDir, err)
-	}
-	if open := h.openAttempts(); len(open) != 0 {
-		t.Errorf("open attempts = %+v, want none", open)
+			_, err := h.c.RequestControllerUpdate(h.ctx, alice, "")
+			if !errors.Is(err, ErrUpdateHelperMissing) {
+				t.Fatalf("err = %v, want ErrUpdateHelperMissing", err)
+			}
+			if !strings.Contains(err.Error(), h.updateDir) {
+				t.Errorf("the refusal does not name the folder %s: %v", h.updateDir, err)
+			}
+			if open := h.openAttempts(); len(open) != 0 {
+				t.Errorf("open attempts = %+v, want none", open)
+			}
+			all, _ := h.st.ListUpdateAttempts(h.ctx, "", "", 10)
+			switch {
+			case tc.recorded && (len(all) != 1 || all[0].State != store.UpdateFailed):
+				t.Errorf("attempts = %+v, want the one recorded, closed as failed", all)
+			case !tc.recorded && len(all) != 0:
+				t.Errorf("attempts = %+v, want none recorded", all)
+			}
+		})
 	}
 }
 
@@ -475,7 +507,9 @@ func TestAStaleOrUnknownResultIsIgnored(t *testing.T) {
 			h.writeResult([]byte(`{"v":2,"id":"` + open.ID + `","ok":false,"error":"x"}`))
 		}},
 		{"an oversized file", func(h *harness, _, open store.UpdateAttempt) {
-			h.writeResult(append([]byte(`{"v":1,"id":"`+open.ID+`","ok":false,"error":"`), bytes.Repeat([]byte("a"), 1<<20)...))
+			// A document the reader would otherwise accept, refused for its size
+			// alone.
+			h.helperAnswers(updates.Result{ID: open.ID, OK: false, Error: strings.Repeat("a", 1<<20), FinishedAt: time.Now()})
 		}},
 		{"a folder where the result goes", func(h *harness, _, _ store.UpdateAttempt) {
 			if err := os.Mkdir(filepath.Join(h.updateDir, channel.ResultFile), 0o750); err != nil {
@@ -765,5 +799,150 @@ func TestTheStatusSaysWhetherTheHelperIsReady(t *testing.T) {
 	ready := h.status().Helper
 	if ready.State != HelperReady || ready.InstallCommand != "" || ready.Reason == "" {
 		t.Errorf("with a helper the status says %+v, want ready and no command", ready)
+	}
+}
+
+// An attempt that ends without the helper having read its request takes the
+// request back. Left there, it would refuse every later press as an earlier
+// request still waiting, for a helper that is not going to read it.
+func TestAnAttemptThatEndsTakesBackItsUnreadRequest(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		end  func(h *harness, a store.UpdateAttempt)
+	}{
+		{"timed out", func(h *harness, _ store.UpdateAttempt) { h.advance(91 * time.Minute) }},
+		{"refused", func(h *harness, a store.UpdateAttempt) {
+			h.helperAnswers(updates.Result{ID: a.ID, OK: false, Error: "the helper could not run", FinishedAt: time.Now()})
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.readyToUpdate()
+			a := h.request()
+			tc.end(h, a)
+			h.pass(h.c)
+
+			if got := h.attempt(a.ID); got.State == store.UpdateRequested {
+				t.Fatalf("the attempt is still open")
+			}
+			if got := slices.DeleteFunc(h.folder(), func(n string) bool { return n == channel.ResultFile }); !slices.Equal(got, []string{channel.MarkerFile}) {
+				t.Errorf("the folder holds %v, want the marker and nothing the attempt wrote", got)
+			}
+			if err := os.Remove(filepath.Join(h.updateDir, channel.ResultFile)); err != nil && !errors.Is(err, os.ErrNotExist) {
+				t.Fatal(err)
+			}
+			next := h.request()
+			if req := h.takeRequest(); req.ID != next.ID {
+				t.Errorf("the next press wrote %s, want its own %s", req.ID, next.ID)
+			}
+		})
+	}
+}
+
+// Only the attempt's own request is taken back. Anything else at request.json
+// may be a person's, or another writer's, and is left for a person to look at.
+func TestAnAttemptThatEndsLeavesARequestThatIsNotItsOwn(t *testing.T) {
+	foreign, err := json.Marshal(updates.Request{V: updates.WireVersion, ID: "upd_someoneelse", Tag: "v1.3.5",
+		RequestedBy: "bob", RequestedAt: time.Now().UTC()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name string
+		body []byte
+	}{
+		{"another attempt's request", foreign},
+		{"a file that is not a request", []byte(`{"id":`)},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.readyToUpdate()
+			a := h.request()
+			path := filepath.Join(h.updateDir, channel.RequestFile)
+			if err := os.WriteFile(path, tc.body, 0o640); err != nil {
+				t.Fatal(err)
+			}
+			h.advance(91 * time.Minute)
+			h.pass(h.c)
+
+			if got := h.attempt(a.ID); got.State != store.UpdateTimedOut {
+				t.Fatalf("attempt = %s, want timed_out", got.State)
+			}
+			if body, err := os.ReadFile(path); err != nil || !bytes.Equal(body, tc.body) {
+				t.Errorf("request.json is now %q (%v), want it as it was", body, err)
+			}
+		})
+	}
+}
+
+// A result file can carry a long error, and the attempt's row is read on every
+// status. What it keeps is the start of the sentence, cut where a character
+// ends so that the page never shows half of one.
+func TestTheHelpersSentenceIsKeptToTwoKilobytes(t *testing.T) {
+	h := newHarness(t)
+	h.readyToUpdate()
+	a := h.request()
+	h.takeRequest()
+	long := "x" + strings.Repeat("é", 3000)
+	h.helperAnswers(updates.Result{ID: a.ID, OK: false, Error: long, FinishedAt: time.Now()})
+	h.pass(h.c)
+
+	got := h.attempt(a.ID).Error
+	if len(got) > 2048 || len(got) < 2040 || !utf8.ValidString(got) || !strings.HasPrefix(long, got) {
+		t.Errorf("the attempt keeps %d bytes (valid UTF-8: %v), want the start of the sentence, at most 2048 bytes, cut at a character",
+			len(got), utf8.ValidString(got))
+	}
+}
+
+// The button's once-a-minute limit is shared with the read that turning
+// updating on asks for. A press just before the switch, which read only the
+// latest release while updating was off, must not cost the list its read.
+func TestTurningUpdatingOnInsideTheButtonsMinuteStillReadsTheList(t *testing.T) {
+	h := newHarness(t)
+	withVersion(t, "1.3.4")
+	stub := h.stubGitHub(http.StatusOK, `{"tag_name":"v1.3.5","html_url":"https://example.invalid/r"}`)
+	if err := h.c.CheckForReleases(h.ctx); err != nil {
+		t.Fatalf("CheckForReleases: %v", err)
+	}
+
+	stub.body = releaseList(releaseEntry("v1.3.5", whenAgo(6*time.Hour), completeAssets(t)...))
+	h.c.UpdateConfig(func(c *config.Config) { c.Updates.Mode = "manual" })
+	h.pass(h.c)
+	if slices.Contains(stub.asked, releaseListURL) {
+		t.Fatalf("the list was asked for inside the minute: %v", stub.asked)
+	}
+
+	h.advance(61 * time.Second)
+	h.pass(h.c)
+	if !slices.Contains(stub.asked, releaseListURL) {
+		t.Fatalf("after the minute the pass asked %v, want the release list", stub.asked)
+	}
+	if view := h.status(); view.CheckedAt == nil {
+		t.Error("the status still says the list has not been read")
+	}
+}
+
+// Once the request is in the folder the helper may already be acting on it, so
+// a status that cannot be worked out is not a refusal: the person is answered
+// with the attempt they made, rather than told to press again and be refused.
+func TestARequestThatWasWrittenIsAnsweredEvenWhenTheStatusCannotBeRead(t *testing.T) {
+	h := newHarness(t)
+	h.readyToUpdate()
+	render := renderUpdates
+	t.Cleanup(func() { renderUpdates = render })
+	renderUpdates = func(*Controller, context.Context) (*UpdatesView, error) {
+		return nil, errors.New("the database is busy")
+	}
+
+	view, err := h.c.RequestControllerUpdate(h.ctx, alice, "")
+	if err != nil {
+		t.Fatalf("RequestControllerUpdate: %v", err)
+	}
+	open := h.openAttempts()
+	if len(open) != 1 || view == nil || view.Controller == nil || view.Controller.ID != open[0].ID || view.Controller.State != store.UpdateRequested {
+		t.Fatalf("view = %+v, open = %+v; want the open attempt in the answer", view, open)
+	}
+	if view.Mode != "manual" || view.Helper.State != HelperReady || view.Reason == "" {
+		t.Errorf("view = %+v, want the mode, the helper and a sentence", view)
 	}
 }

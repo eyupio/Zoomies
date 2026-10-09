@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/store"
@@ -91,12 +92,21 @@ func (c *Controller) ReconcileUpdates(ctx context.Context) error {
 	// Reading the list changes nothing in the fleet, so a controller that may not
 	// act still does it: the status it shows should not be a day stale.
 	if c.updates.checkReleases.Swap(false) && c.updateMode() != updates.ModeOff {
-		if err := c.CheckForReleases(ctx); err != nil {
+		asked, err := c.askForReleases(ctx)
+		switch {
+		case err != nil:
 			if !errors.Is(err, ErrUpdateCheckDisabled) {
 				c.log.Info("could not read the release list after updating was turned on; the scheduled check will try again", "error", err)
 			}
-		} else if _, err := c.publishUpdates(ctx); err != nil {
-			c.log.Warn("could not work out the update status for the event stream", "error", err)
+		case !asked:
+			// A press of the button took the minute, perhaps for the latest release
+			// alone while updating was still off. The list is still unread, so the
+			// flag stays, and a pass after the minute asks.
+			c.updates.checkReleases.Store(true)
+		default:
+			if _, err := c.publishUpdates(ctx); err != nil {
+				c.log.Warn("could not work out the update status for the event stream", "error", err)
+			}
 		}
 	}
 
@@ -115,6 +125,9 @@ func (c *Controller) ReconcileUpdates(ctx context.Context) error {
 		}
 		if c.finishUpdateAttempt(ctx, a, state, text) {
 			closed = true
+			if a.Scope == store.UpdateScopeController && state != store.UpdateSucceeded {
+				c.withdrawRequest(a)
+			}
 		}
 	}
 	if closed {
@@ -165,7 +178,7 @@ func (c *Controller) controllerOutcome(a store.UpdateAttempt) (state, text strin
 				"Restart zoomies on the controller's host, and look at journalctl -u zoomies-update there if it does not come back on %s.",
 				a.ToVersion, version.Version, a.ToVersion), true
 		}
-		if msg := strings.TrimSpace(res.Error); msg != "" {
+		if msg := strings.TrimSpace(cutAt(res.Error, maxHelperSentence)); msg != "" {
 			return store.UpdateFailed, msg, true
 		}
 		return store.UpdateFailed, "The update helper says the update failed, and gave no reason. Look at journalctl -u zoomies-update on the controller's host.", true
@@ -224,6 +237,45 @@ func (c *Controller) resultFor(a store.UpdateAttempt) (updates.Result, bool) {
 	return updates.Result{}, false
 }
 
+// maxHelperSentence bounds what of the helper's error an attempt keeps. The
+// result file may carry far more, and the row is read on every status; a
+// sentence an operator reads is a few hundred bytes, and the log tail is where
+// the rest is.
+const maxHelperSentence = 2048
+
+// cutAt is s cut to at most limit bytes, at a character boundary.
+func cutAt(s string, limit int) string {
+	if len(s) <= limit {
+		return s
+	}
+	end := limit
+	for end > 0 && !utf8.RuneStart(s[end]) {
+		end--
+	}
+	return s[:end]
+}
+
+// withdrawRequest takes back the controller's own request once its attempt has
+// ended without the helper taking it, so that the next press is not refused by
+// a request nobody will read. Anything there that is not provably this
+// attempt's request is left for a person.
+func (c *Controller) withdrawRequest(a store.UpdateAttempt) {
+	dir, ok := c.updateDir()
+	if !ok {
+		return
+	}
+	switch got, err := channel.WithdrawRequest(dir, a.ID); {
+	case err != nil:
+		c.log.Warn("could not take back the request of an update attempt that has ended; remove request.json from the update folder by hand",
+			"attempt", a.ID, "error", err)
+	case got == channel.RequestWithdrawn:
+		c.log.Info("took back the request of an update attempt that has ended, which the update helper never read", "attempt", a.ID)
+	case got == channel.RequestNotOurs:
+		c.log.Warn("the update folder holds a request.json that is not this attempt's, so it was left alone; the next update is refused until it is gone",
+			"attempt", a.ID)
+	}
+}
+
 // finishUpdateAttempt closes an open attempt and counts it, and says whether it
 // was this call that closed it: the store keeps the first ending, so a pass and
 // a button racing count one.
@@ -246,23 +298,31 @@ func (c *Controller) finishUpdateAttempt(ctx context.Context, a store.UpdateAtte
 	return true
 }
 
+// renderUpdates is UpdatesView. It is a variable so that a test can make the
+// status fail to render after a request has been written.
+var renderUpdates = (*Controller).UpdatesView
+
 // publishUpdates sends the update status now, if it differs from what was last
 // sent, and returns it. A request and a closed attempt write rows, and the page
 // that asked should not wait for the next pass to hear of them.
+//
+// The status is worked out with derivedMu held, as publishDerived works out its
+// own: two publishers that each rendered first and then waited for the lock
+// could send an older status after a newer one, and the page keeps whichever
+// frame came last.
 func (c *Controller) publishUpdates(ctx context.Context) (*UpdatesView, error) {
-	view, err := c.UpdatesView(ctx)
+	c.derivedMu.Lock()
+	defer c.derivedMu.Unlock()
+	view, err := renderUpdates(c, ctx)
 	if err != nil {
 		return nil, err
 	}
-	c.derivedMu.Lock()
-	defer c.derivedMu.Unlock()
 	c.sendUpdates(view)
 	return view, nil
 }
 
 // sendUpdates publishes a status that differs from the one last sent. Called
-// with derivedMu held, so that the pass and a button cannot send two frames out
-// of order.
+// with derivedMu held, and with a status rendered under it.
 func (c *Controller) sendUpdates(view *UpdatesView) {
 	if c.bus == nil {
 		return

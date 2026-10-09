@@ -283,8 +283,16 @@ func (g githubRelease) release() updates.Release {
 // The minute is counted from the request and not from its success, because a
 // refusal from GitHub is a reason to ask less often.
 func (c *Controller) CheckForReleases(ctx context.Context) error {
+	_, err := c.askForReleases(ctx)
+	return err
+}
+
+// askForReleases is CheckForReleases, saying as well whether the request was
+// made or the minute held it back, for a caller that must not take a held-back
+// press for an answer.
+func (c *Controller) askForReleases(ctx context.Context) (asked bool, err error) {
 	if c.cfg().Updates.CheckInterval <= 0 {
-		return ErrUpdateCheckDisabled
+		return false, ErrUpdateCheckDisabled
 	}
 	now := c.Now()
 	c.mu.Lock()
@@ -294,11 +302,11 @@ func (c *Controller) CheckForReleases(ctx context.Context) error {
 	// time that was never real.
 	if elapsed := now.Sub(c.releaseAsked); elapsed >= 0 && elapsed < releaseAskCooldown {
 		c.mu.Unlock()
-		return nil
+		return false, nil
 	}
 	c.releaseAsked = now
 	c.mu.Unlock()
-	return c.checkForRelease(ctx)
+	return true, c.checkForRelease(ctx)
 }
 
 // checkForMain gives a moving dev build a source of truth. The registry tag
