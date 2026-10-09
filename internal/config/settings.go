@@ -884,7 +884,7 @@ var registry = buildRegistry([]Setting{
 	{
 		Key: "updates.mode", Label: "Release update mode", Env: "ZOOMIES_UPDATE_MODE", Kind: KindEnum, Scope: ScopePlatform, Live: true,
 		Choices: updateModes,
-		Summary: "What this controller does about a newer release of Zoomies. off says that one exists and nothing more. manual adds Update buttons for the controller and its hosts, and nothing moves without a click. auto takes the newest release once it has been public for the soak, and the hosts that have opted in then follow it, one at a time. " + updatesNotInstalledYet,
+		Summary: "What this controller does about a newer release of Zoomies. off says that one exists and nothing more. manual adds Update buttons for the controller and its hosts, and nothing moves without a click. auto takes the newest release once it has been public for the soak, and the hosts that have opted in then follow it, one at a time. " + updatesControllerOnlyYet,
 	},
 	{
 		Key: "updates.soak", Label: "Release update soak", Env: "ZOOMIES_UPDATE_SOAK", Kind: KindDuration, Scope: ScopePlatform, Live: true,
