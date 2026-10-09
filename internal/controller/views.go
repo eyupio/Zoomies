@@ -251,6 +251,12 @@ type HostView struct {
 	Healthy        bool      `json:"healthy"`
 	LastHeartbeat  time.Time `json:"last_heartbeat"`
 	CreatedAt      time.Time `json:"created_at"`
+
+	// Update is the host's part in updating from here: whether it can be, why,
+	// and its latest attempt, read from what the update loop last saw rather
+	// than queried for each host. The upgrade command stays beside it as the
+	// way to update by hand.
+	Update *HostUpdateView `json:"update"`
 }
 
 // HostView renders a host as the API returns it.
@@ -316,6 +322,7 @@ func (c *Controller) HostView(h *store.Host) HostView {
 		CreatedAt:          h.CreatedAt,
 	}
 	out.UpgradeCommand, out.UpgradeVersion, out.UpgradeNote = hostUpgrade(h, version.Version)
+	out.Update = c.hostUpdateView(h)
 	if !h.Usage.SampledAt.IsZero() {
 		usage := h.Usage
 		out.Usage = &usage

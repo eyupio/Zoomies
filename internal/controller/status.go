@@ -178,9 +178,16 @@ func ProjectStatus(problems []Problem, stats *Stats) FleetStatus {
 // run, and a stock fleet carries some of them for ever: letting them in would
 // turn the public page to "degraded" for people with no account over a sysctl,
 // and to "blocked" over a check that could not read a file.
+//
+// The two host update codes are the same again. A host whose update failed is
+// still running the release it had and placing work on it, and one that cannot
+// be updated from here is an operator's convenience missing: neither says
+// whether a job will run, and a failed update must not turn the page to
+// "blocked".
 func statusExempt(code string) bool {
 	switch code {
-	case "host.os_health", "host.health_stale", "host.reboot_pending":
+	case "host.os_health", "host.health_stale", "host.reboot_pending",
+		"host.update_failed", "host.update_unavailable":
 		return true
 	}
 	return strings.HasPrefix(code, "ai_context.") || strings.HasPrefix(code, "kennel.")

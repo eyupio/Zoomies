@@ -43,6 +43,22 @@ type updatesState struct {
 	// pass and so must never wait on a read of the database or the folder.
 	sightMu sync.Mutex
 	sight   updateSight
+
+	// hostLast is each host's latest attempt as the loop last saw it, which the
+	// host view reads under hostMu for every host in every list and every pass;
+	// a query per host there would be a query per host per pass. hostLookMu
+	// keeps two lookers from storing in the wrong order, as lookMu does.
+	hostLookMu sync.Mutex
+	hostMu     sync.RWMutex
+	hostLast   map[string]store.UpdateAttempt
+	// handed is the attempts whose request an agent has said it wrote, so that
+	// the pass stops queueing their task. It is memory only: after a restart the
+	// task is sent once more. The process that wrote the request, and an agent
+	// already on the release, answer it without writing a second one; an agent
+	// restarted for another reason in between finds its request still waiting and
+	// says so, which closes the attempt as failed with that sentence.
+	handedMu sync.Mutex
+	handed   map[string]bool
 }
 
 // updateSight is what the update loop last saw of the things the problems list
@@ -112,9 +128,11 @@ func (c *Controller) runUpdates(ctx context.Context) {
 func (c *Controller) ReconcileUpdates(ctx context.Context) error {
 	c.updates.passMu.Lock()
 	defer c.updates.passMu.Unlock()
-	// Last, so that the problems list sees the attempts this pass closed. A
-	// controller that may not act still looks: what it reports is what is there.
+	// Last, so that the problems list and the host cards see the attempts this
+	// pass closed. A controller that may not act still looks: what it reports is
+	// what is there.
 	defer c.lookAtUpdates(ctx)
+	defer c.lookAtHostUpdates(ctx)
 
 	// Reading the list changes nothing in the fleet, so a controller that may not
 	// act still does it: the status it shows should not be a day stale.
@@ -145,7 +163,35 @@ func (c *Controller) ReconcileUpdates(ctx context.Context) error {
 		return fmt.Errorf("listing the update attempts in flight: %w", err)
 	}
 	closed := false
+	var hosts map[string]*store.Host
+	var closedHosts []*store.Host
 	for _, a := range open {
+		if a.Scope == store.UpdateScopeHost {
+			// Read once a pass, and only when a host has something in flight.
+			if hosts == nil {
+				list, err := c.st.ListHosts(ctx)
+				if err != nil {
+					return fmt.Errorf("listing the hosts with an update in flight: %w", err)
+				}
+				hosts = make(map[string]*store.Host, len(list))
+				for _, h := range list {
+					hosts[h.ID] = h
+				}
+			}
+			h := hosts[a.HostID]
+			state, text, ended := c.hostAttemptOutcome(a, h)
+			if !ended {
+				c.sendHostUpdate(h, a)
+				continue
+			}
+			if c.closeHostAttempt(ctx, a, state, text) {
+				closed = true
+				if h != nil {
+					closedHosts = append(closedHosts, h)
+				}
+			}
+			continue
+		}
 		state, text, ended := c.updateOutcome(a)
 		if !ended {
 			continue
@@ -156,6 +202,9 @@ func (c *Controller) ReconcileUpdates(ctx context.Context) error {
 				c.withdrawRequest(a)
 			}
 		}
+	}
+	for _, h := range closedHosts {
+		c.publishHost(h)
 	}
 	if closed {
 		if _, err := c.publishUpdates(ctx); err != nil {

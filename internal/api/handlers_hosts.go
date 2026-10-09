@@ -32,8 +32,9 @@ func (s *Server) handleListHosts(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out := make([]hostResponse, 0, len(hosts))
+	platform := isPlatform(r)
 	for _, h := range hosts {
-		out = append(out, s.ctrl.HostView(h))
+		out = append(out, s.ctrl.HostView(h).For(platform))
 	}
 	writeJSON(w, http.StatusOK, newList(out))
 }
@@ -71,7 +72,7 @@ func (s *Server) handleGetHost(w http.ResponseWriter, r *http.Request) {
 		s.fail(w, r, "reading the host", err)
 		return
 	}
-	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
+	writeJSON(w, http.StatusOK, s.ctrl.HostView(h).For(isPlatform(r)))
 }
 
 type hostUpdateRequest struct {

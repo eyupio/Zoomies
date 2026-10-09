@@ -20,6 +20,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/controller"
@@ -1060,5 +1061,55 @@ func TestACheckSendsTheNewStatusToEveryOpenPage(t *testing.T) {
 	decodeFrame(t, frame, &status)
 	if status.Latest == nil || status.Latest.Tag != "v1.3.5" || status.CheckedAt == nil {
 		t.Errorf("the frame holds %+v, want the release the check has just read", status)
+	}
+}
+
+// A host's failed update can carry the helper's own sentence, which can name a
+// path on that host. The host's card is read by every role; only the platform
+// is given the text, from the list and from the host alike.
+func TestAHostsUpdateReasonIsWithheldBelowPlatform(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	useVersion(t, "1.3.5")
+	h.ctrl.UpdateConfig(func(c *config.Config) { c.Updates.Mode = "manual" })
+	host := h.host("vm-update")
+	host.Version, host.Features = "1.3.4", []string{"self-update"}
+	if err := h.st.SetHostReported(h.ctx, host); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := h.ctrl.RequestHostUpdate(h.ctx, controller.UpdateActor{ID: "usr_x", Name: "x"}, host.ID); err != nil {
+		t.Fatalf("RequestHostUpdate: %v", err)
+	}
+	latest, err := h.st.ListUpdateAttempts(h.ctx, store.UpdateScopeHost, host.ID, 1)
+	if err != nil || len(latest) != 1 {
+		t.Fatalf("no attempt (%v)", err)
+	}
+	const path = "/usr/local/bin/zoomies"
+	if _, err := h.ctrl.Heartbeat(h.ctx, host.ID, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion, Version: "1.3.4", Features: host.Features,
+		Update: &agent.UpdateReport{ID: latest[0].ID, Error: "could not replace " + path, FinishedAt: time.Now().UTC()},
+	}); err != nil {
+		t.Fatalf("Heartbeat: %v", err)
+	}
+
+	for _, tc := range []struct {
+		role     string
+		cookie   string
+		platform bool
+	}{
+		{"viewer", as.viewer, false},
+		{"admin", as.admin, false},
+		{"platform", as.platform, true},
+	} {
+		for _, p := range []string{"/api/v1/hosts", "/api/v1/hosts/" + host.ID} {
+			resp := h.do(request{method: http.MethodGet, path: p, cookie: tc.cookie})
+			resp.mustStatus(t, http.StatusOK, "reading the host")
+			if got := strings.Contains(string(resp.body), path); got != tc.platform {
+				t.Errorf("%s reading %s: the helper's text is there = %v, want %v", tc.role, p, got, tc.platform)
+			}
+			if !strings.Contains(string(resp.body), `"state":"failed"`) {
+				t.Errorf("%s reading %s was not told the update failed: %s", tc.role, p, resp.body)
+			}
+		}
 	}
 }

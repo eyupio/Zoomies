@@ -108,13 +108,16 @@ func (c *Controller) probeUpdateHelper() helperProbe {
 		return helperProbe{view: missing, refusal: "this controller has no update folder, which installing the helper records; run \"" +
 			helperInstallCommand + "\" on the controller's host"}
 	}
-	_, found, err := channel.ReadMarker(dir)
+	// Ready and not the marker alone: a folder that is a link reads its target's
+	// marker, and WriteRequest refuses to write through one, so the status would
+	// offer an update that every press then refuses.
+	_, found, err := channel.Ready(dir)
 	switch {
 	case err != nil:
-		c.log.Debug("could not read the update helper's marker", "error", err)
-		missing.Reason = "The update helper's marker on this controller's host cannot be read, so the helper is treated as missing. " +
+		c.log.Debug("the update folder is not as the installer leaves it", "error", err)
+		missing.Reason = "The update folder on this controller's host, or the helper's marker in it, is not as the installer leaves it, so the helper is treated as missing. " +
 			"Install it again with the command below."
-		return helperProbe{dir: dir, view: missing, refusal: fmt.Sprintf("its marker in the update folder %s cannot be read (%v); run \"%s\" on the controller's host to install it again",
+		return helperProbe{dir: dir, view: missing, refusal: fmt.Sprintf("the update folder %s, or its marker, is not as the installer leaves it (%v); run \"%s\" on the controller's host to install it again",
 			dir, err, helperInstallCommand)}
 	case !found:
 		return helperProbe{dir: dir, view: missing, refusal: fmt.Sprintf("there is no %s in the update folder %s, so the helper is not installed; run \"%s\" on the controller's host",

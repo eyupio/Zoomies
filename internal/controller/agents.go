@@ -60,6 +60,13 @@ const (
 	// means nobody is listening, and delivering it hours later when the agent
 	// comes back would run a check nobody is waiting for.
 	hostCheckPendingTTL = 20 * time.Second
+	// updateLease covers an update task, which the agent answers once it has
+	// written one small request for the helper: seconds. Without a lease the task
+	// would stay in flight for ever and enqueue would refuse it again, so an
+	// agent that went away holding it would leave its host's attempt to time out.
+	// The update itself is not covered: it restarts the agent, and its outcome
+	// comes on a heartbeat.
+	updateLease = 5 * time.Minute
 	// maxTasksPerPoll bounds one response so a host that has been offline does
 	// not receive a hundred tasks in one batch.
 	maxTasksPerPoll = 20
@@ -174,6 +181,11 @@ func taskKey(t agent.Task) string {
 	if t.Kind == agent.TaskFillToolCache {
 		return string(t.Kind) + ":" + t.PoolID
 	}
+	// One per attempt, so a task left in flight by an attempt that has ended
+	// does not hold back the next attempt's.
+	if t.Kind == agent.TaskUpdateAgent {
+		return string(t.Kind) + ":" + t.UpdateID
+	}
 	if t.StreamID != "" {
 		return string(t.Kind) + "|stream:" + t.StreamID
 	}
@@ -196,6 +208,8 @@ func requeueAfter(kind agent.TaskKind) time.Duration {
 		return toolFillLease
 	case agent.TaskCheckHost:
 		return hostCheckLease
+	case agent.TaskUpdateAgent:
+		return updateLease
 	default:
 		// Log relays are tied to a browser that has since gone away, so
 		// redelivering one would open a stream nobody is reading.
@@ -318,6 +332,23 @@ func (q *taskQueue) redeliver(taskID string) redelivery {
 	default:
 	}
 	return redelivered
+}
+
+// withdraw drops the pending tasks match picks and says how many went. A task
+// already in flight is left: the agent has it, and its answer is still wanted.
+func (q *taskQueue) withdraw(match func(agent.Task) bool) int {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	kept := q.pending[:0]
+	for _, lt := range q.pending {
+		if !match(lt.task) {
+			kept = append(kept, lt)
+		}
+	}
+	n := len(q.pending) - len(kept)
+	clear(q.pending[len(kept):])
+	q.pending = kept
+	return n
 }
 
 // lifecycleTask reports whether a task's failure leaves its runner unusable.
@@ -907,6 +938,9 @@ func (c *Controller) Heartbeat(ctx context.Context, hostID string, req agent.Hea
 			c.Nudge()
 		}
 	}
+	// After the row has the version the agent reports: that version, and not the
+	// task's answer, is what says an update arrived.
+	c.noteHostUpdate(ctx, h, req.Update)
 
 	if req.Usage != nil {
 		usage := store.ObserveHostUsage(h.Usage, *req.Usage, c.lentCPUPercent(ctx, h, req.Runners, now), h.MemoryMB, now)
@@ -1242,6 +1276,12 @@ func (c *Controller) ReportResult(ctx context.Context, hostID string, res agent.
 		// hostID is the authenticated agent's, never the body's. Returning nil
 		// clears the lease on every outcome, a failed check included.
 		c.applyHostCheck(ctx, hostID, res, task.IssuedAt)
+		return nil
+	}
+	if kind == agent.TaskUpdateAgent {
+		// The host's, and never a runner's: a failure here is not a reason to
+		// fail anything but the attempt it was for.
+		c.applyUpdateTaskResult(ctx, hostID, task, known, res)
 		return nil
 	}
 	if res.RunnerID == "" {
