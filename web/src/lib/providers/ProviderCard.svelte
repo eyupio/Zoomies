@@ -17,6 +17,7 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import RemedyText from '$lib/components/RemedyText.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
+  import CheckFindings from './CheckFindings.svelte';
 
   interface Props {
     provider: Provider;
@@ -121,7 +122,15 @@
   {/if}
 
   {#if provider.last_check_error}
-    <p class="held bad"><RemedyText text={provider.last_check_error} /></p>
+    <!-- The sentence is a finding's title. The detail under it is what says
+         what to do ("it offers vmbr1"), so it is one click away rather than a
+         trip to the provider page and a second Check. -->
+    <details class="held bad">
+      <summary><RemedyText text={provider.last_check_error} /></summary>
+      {#if (provider.last_check?.findings?.length ?? 0) > 0}
+        <CheckFindings findings={provider.last_check?.findings} class="why" />
+      {/if}
+    </details>
   {/if}
 
   <p class="figures tabular">
@@ -252,6 +261,14 @@
   .held.bad {
     border-color: var(--z-danger-border);
     background: var(--z-danger-subtle);
+  }
+  summary {
+    cursor: pointer;
+  }
+  .held.bad :global(.why) {
+    margin-top: var(--z-space-2);
+    padding-top: var(--z-space-2);
+    border-top: var(--z-border-width) solid var(--z-danger-border);
   }
   .figures {
     margin: 0;

@@ -171,6 +171,46 @@ test('a host facet narrows the jobs to the ones that ran there, and agrees with 
   await expect(facetTrigger(page, 'Host')).toHaveCount(0);
 });
 
+test('leaving out hosted runners counts what the API counts, and a link can ask for it', async ({
+  page,
+}) => {
+  // The Overview counts the jobs that did not run on somebody else's hosted
+  // runners, so a link from it has to list exactly those. The totals come from
+  // the API's own filter, not from the page.
+  const total = async (query: string) =>
+    (
+      (await page.request.get(`/api/v1/jobs?limit=1&${query}`).then((r) => r.json())) as {
+        total: number;
+      }
+    ).total;
+  const everything = await total('');
+  const notHosted = await total('hosted=false');
+  expect(notHosted, 'the seed has jobs on a hosted-runner vendor').toBeLessThan(everything);
+  expect(notHosted).toBeGreaterThan(0);
+
+  // Every runner, so the page's own "ours only" default cannot narrow it further.
+  await goto(page, '/jobs?all=true&hosted=false', 'Jobs');
+  await expect(rowCount(page)).toContainText(`of ${notHosted} jobs`);
+  await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText(
+    'jobs on hosted runners',
+  );
+
+  await page
+    .getByRole('button', { name: 'Remove the Leaving out filter jobs on hosted runners' })
+    .click();
+  await expect(rowCount(page)).toContainText(`of ${everything} jobs`);
+
+  // A link that carries only this has asked the page something, so it shows every
+  // status rather than falling back to what is running.
+  const ours = await total('hosted=false&managed=true');
+  await goto(page, '/jobs?hosted=false', 'Jobs');
+  await expect(rowCount(page)).toContainText(`of ${ours} jobs`);
+
+  // Anything but `false` is no filter, where the API would answer 400.
+  await goto(page, '/jobs?all=true&hosted=maybe', 'Jobs');
+  await expect(rowCount(page)).toContainText(`of ${everything} jobs`);
+});
+
 test('a start with a time of day keeps the jobs from that minute and shows it', async ({
   page,
 }) => {

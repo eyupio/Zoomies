@@ -30,6 +30,13 @@
     until: string;
     unmatched: boolean;
     /**
+     * `'false'` leaves out the jobs that ran on somebody else's hosted runners, GitHub's
+     * own or a vendor's, and nothing else: the scope the Overview's figures count in, so
+     * a link from one lists the jobs it counted. A string so the address reads
+     * `hosted=false`, which is what the API calls it.
+     */
+    hosted: '' | 'false';
+    /**
      * Only jobs that went wrong, on either side: a failing conclusion, or a
      * runner of this fleet that stopped under the job.
      */
@@ -61,6 +68,7 @@
     since: '',
     until: '',
     unmatched: false,
+    hosted: '',
     failed: false,
     faulted: false,
     all: false,
@@ -244,6 +252,16 @@
             label: 'Only',
             value: 'unmatched jobs',
             onremove: () => onchange({ unmatched: false }),
+          },
+        ]
+      : []),
+    ...(value.hosted === 'false'
+      ? [
+          {
+            id: 'hosted',
+            label: 'Leaving out',
+            value: 'jobs on hosted runners',
+            onremove: () => onchange({ hosted: '' }),
           },
         ]
       : []),

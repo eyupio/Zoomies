@@ -121,7 +121,7 @@
       } else {
         toasts.info(
           `${provider.name} has ${pluralise(result.findings?.length ?? 0, 'finding')}`,
-          'Open the provider to read them.',
+          result.findings?.[0]?.title ?? 'Open the provider to read them.',
         );
       }
       reload += 1;

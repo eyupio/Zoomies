@@ -25,7 +25,7 @@ const providerCols = `id, kind, name, endpoint, ca_pem, insecure_skip_verify, se
 	machine_cpus, machine_memory_mb, machine_disk_mb, pool_selector, max_machines,
 	max_creates_in_flight, idle_timeout_ms, cost_per_machine_hour, enabled, paused,
 	paused_reason, paused_until, consecutive_failures, last_check_at, last_check_error,
-	last_sweep_at, created_at, updated_at, tailcat_address_enc`
+	last_sweep_at, created_at, updated_at, tailcat_address_enc, last_check_report`
 
 func scanProvider(sc interface{ Scan(...any) error }) (*Provider, error) {
 	var p Provider
@@ -38,7 +38,7 @@ func scanProvider(sc interface{ Scan(...any) error }) (*Provider, error) {
 		&p.MachineCPUs, &p.MachineMemoryMB, &p.MachineDiskMB, &p.PoolSelector, &p.MaxMachines,
 		&p.MaxCreatesInFlight, &idle, &p.CostPerMachineHour, &enabled, &paused,
 		&p.PausedReason, &pausedUntil, &p.ConsecutiveFailures, &checked, &p.LastCheckError,
-		&swept, &created, &updated, &p.TailcatAddressEnc)
+		&swept, &created, &updated, &p.TailcatAddressEnc, &p.LastCheckReport)
 	if err != nil {
 		return nil, err
 	}
@@ -70,7 +70,7 @@ func (s *Store) CreateProvider(ctx context.Context, p *Provider) error {
 		return err
 	}
 	_, err = s.exec(ctx, `INSERT INTO providers (`+providerCols+`)
-		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		p.ID, string(p.Kind), p.Name, p.Endpoint, p.CAPEM, boolInt(p.InsecureSkipVerify),
 		p.Settings, p.CredentialsEnc, p.MachineLabels, p.MachineCapacity,
 		string(p.MachineBackend), platform, p.MachineCPUs, p.MachineMemoryMB, p.MachineDiskMB,
@@ -78,7 +78,7 @@ func (s *Store) CreateProvider(ctx context.Context, p *Provider) error {
 		p.IdleTimeout.Duration().Milliseconds(), p.CostPerMachineHour,
 		boolInt(p.Enabled), boolInt(p.Paused), p.PausedReason, msp(p.PausedUntil),
 		p.ConsecutiveFailures, msp(p.LastCheckAt), p.LastCheckError, msp(p.LastSweepAt),
-		ms(p.CreatedAt), ms(p.UpdatedAt), p.TailcatAddressEnc)
+		ms(p.CreatedAt), ms(p.UpdatedAt), p.TailcatAddressEnc, p.LastCheckReport)
 	return wrapWrite(err)
 }
 
@@ -181,9 +181,12 @@ func (s *Store) SetProviderTailcatAddress(ctx context.Context, id string, enc []
 
 // SetProviderChecked records the outcome of a credential probe. An empty
 // checkErr is what a healthy probe writes, which is what clears the last one.
-func (s *Store) SetProviderChecked(ctx context.Context, id string, at time.Time, checkErr string) error {
-	_, err := s.exec(ctx, `UPDATE providers SET last_check_at=?, last_check_error=? WHERE id=?`,
-		ms(at), checkErr, id)
+//
+// report is the whole result as the caller serialised it. The store keeps it
+// without reading it, so a new field on a finding never needs a migration.
+func (s *Store) SetProviderChecked(ctx context.Context, id string, at time.Time, checkErr, report string) error {
+	_, err := s.exec(ctx, `UPDATE providers SET last_check_at=?, last_check_error=?, last_check_report=? WHERE id=?`,
+		ms(at), checkErr, report, id)
 	return err
 }
 

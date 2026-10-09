@@ -69,6 +69,10 @@ Choose it only for trusted workflows on a suitable machine; read the
 
 ## When buying runners is simpler
 
+[Should you self-host GitHub Actions runners?](should-i-self-host.md) is the
+longer version of this question: what a fleet has to do, and what Zoomies does
+and does not do for you.
+
 Maintaining hosts has a cost even when the software is free. A service can be
 the better choice when you need capacity you do not own, an operating system
 Zoomies does not qualify, or a support arrangement this project does not offer.

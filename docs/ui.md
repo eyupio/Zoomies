@@ -320,6 +320,9 @@ and the Overview's outcome links still show what they promised.
 The rest of the filters (repository, workflow, pool, host, label, outcome, dates)
 live in the URL alongside it, so a view can be pasted into a chat. *Host* is the
 host a job ran on, so it is not offered on the Queue, whose jobs have not run yet.
+`hosted=false` in the address leaves out the jobs that ran on somebody else's hosted
+runners, GitHub's own or a vendor's, and says so in a chip; it is the scope the
+Overview's figures count in, so a link from one lists the jobs it counted.
 A date range takes a time of day as well (`since=2026-10-02T05:12`, on the
 operator's own clock), which is how a link from a figure that counts a moving
 window, such as the last seven days, opens exactly the jobs it counted; a bare

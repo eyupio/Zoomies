@@ -309,6 +309,49 @@ func TestATemplateWithoutTheGuestAgentIsWarnedAbout(t *testing.T) {
 	}
 }
 
+// A template with no disk is the quiet failure: the clone starts, finds nothing
+// to boot, falls through to a network boot, and sits there costing money while
+// nothing looks wrong from the controller's side.
+func TestATemplateWithNoDiskIsAnError(t *testing.T) {
+	f := newFakePVE(t, nil)
+	f.mu.Lock()
+	f.vms[9000].disk = ""
+	f.mu.Unlock()
+
+	report := Preflight(context.Background(), f.client(t), healthyPrereqs())
+	got := finding(t, report, "proxmox.template_no_disk")
+	if got.Severity != config.SeverityError {
+		t.Errorf("severity = %q, want an error: no machine made from it can ever enrol", got.Severity)
+	}
+	if got.Setting == "" || !strings.Contains(got.Fix, "scsi0") {
+		t.Errorf("the finding does not say what to attach or where to fix it: %+v", got)
+	}
+}
+
+// A cloud-init drive or a CD-ROM sits in the same slots a disk would, and
+// neither is something a machine boots into.
+func TestADriveThatCannotBeBootedDoesNotCountAsADisk(t *testing.T) {
+	for name, cfg := range map[string]VMConfig{
+		"nothing":        {},
+		"a cd-rom":       {IDE0: "local:iso/ubuntu.iso,media=cdrom"},
+		"a cloud-init":   {SCSI0: "local-lvm:vm-9000-cloudinit,media=cdrom"},
+		"a blank string": {SCSI0: "  "},
+	} {
+		if cfg.HasDisk() {
+			t.Errorf("%s was counted as a disk", name)
+		}
+	}
+	for name, cfg := range map[string]VMConfig{
+		"scsi":   {SCSI0: "local-lvm:base-9000-disk-0,size=32G"},
+		"virtio": {VirtIO0: "local-lvm:base-9000-disk-0,size=32G"},
+		"sata":   {SATA0: "local-lvm:base-9000-disk-0"},
+	} {
+		if !cfg.HasDisk() {
+			t.Errorf("%s was not counted as a disk", name)
+		}
+	}
+}
+
 // An unqualified release is not a broken one. Refusing would strand an operator
 // whose cluster may work perfectly well; the warning is what tells them nobody
 // has checked.

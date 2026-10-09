@@ -632,6 +632,33 @@ actions are off by default, and why the token for `/mcp` should be a `viewer`
 one unless the agent is meant to act: an agent that reads logs and can also
 act is an agent a pull request can try to steer.
 
+### The zoomies skill
+
+`skills/zoomies` in the repository is a skill for a coding agent that drives the
+fleet with this command line. It tells the agent where each kind of question
+goes (this command for the live fleet, `gh` for GitHub itself), what to check
+first (`zoomies status`, and which of four things is wrong when it fails: not
+installed, no controller set, not signed in, not reachable), to ask the fleet
+why before it reads a log, and which commands it may run.
+
+Those are in three lists, and a test keeps every command in exactly one of
+them. **Reads** change nothing and the agent runs them as a question needs.
+**Changes** alter the fleet, write a file or handle a secret: the agent says
+what the command will do, shows it, and runs it only after you agree to that
+command, one yes for one command. **Leave to the user** are the commands that
+run on or reshape the host Zoomies is installed on, start and stop the fleet,
+or never return; the agent tells you the command and you run it. The skill
+carries [the same command reference](https://github.com/eyupio/zoomies/blob/main/skills/zoomies/reference.md)
+that `zoomies commands` prints.
+
+To install it, copy the folder into the agent's skills directory:
+`.claude/skills/zoomies/` in a project, or `~/.claude/skills/zoomies/` for every
+project, for Claude Code. An installer that takes a repository and reads its
+`skills/` folder takes `eyupio/zoomies`. The skill does not give an agent any
+authority it did not have: the token in `ZOOMIES_TOKEN` still decides what the
+controller will do, and a viewer token cannot make a change whatever the agent
+is asked.
+
 ## Setting up and looking around
 
 | Command | What it does |

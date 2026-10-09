@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "12f273e",
+  "generated_from": "7a4ee08",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -2905,6 +2905,20 @@
       "fix": "Install `qemu-guest-agent` in the image and set `agent: enabled=1`.",
       "verify": null,
       "status_sentence": "The template new machines are made from cannot report their address.",
+      "docs_html": "https://zoomies.sh/problem-codes/#a-providers-preflight",
+      "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#a-providers-preflight"
+    },
+    {
+      "id": "proxmox.template_no_disk",
+      "kind": "problem",
+      "title": "proxmox.template_no_disk",
+      "category": "configuration",
+      "severity": "error",
+      "detection": "static",
+      "detects": "The template has no operating-system disk on `scsi0`, `virtio0`, `sata0` or `ide0`. A machine cloned from it starts, tries to boot from the network and never joins, while being billed.",
+      "fix": "Attach the cloud image as the first disk from a storage that holds disk images, then convert it to a template again.",
+      "verify": null,
+      "status_sentence": "The template new machines are made from has no disk to start from.",
       "docs_html": "https://zoomies.sh/problem-codes/#a-providers-preflight",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#a-providers-preflight"
     },

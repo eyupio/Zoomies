@@ -202,6 +202,7 @@ nav:
   - Runners in your home lab: home-lab.md
   - Runners in Docker: docker.md
   - Runners without Kubernetes: runners-without-kubernetes.md
+  - Should you self-host?: should-i-self-host.md
   - Alternatives:
       - Overview: alternatives/index.md
       - Compared with ARC: actions-runner-controller.md
