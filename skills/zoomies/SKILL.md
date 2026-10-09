@@ -23,13 +23,15 @@ it.
 ## Preflight
 
 Run `zoomies status` before anything else. It names the controller when all is
-well. When it does not, stop and say which of these it is, and do not try other
+well. When the Zoomies MCP tools are connected instead, `fleet_status` is the
+same check and the command is not needed. When it does not, stop and say which of these it is, and do not try other
 commands to get round it:
 
 * **Not installed.** The shell says `command not found`. Tell the user; do not
   install anything unasked.
 * **Not set up.** `no controller URL`. Ask the user for the controller's address.
-  They set it with `ZOOMIES_URL` or `--url`.
+  They set it with `ZOOMIES_URL`, `--url`, or `url:` in
+  `~/.config/zoomies/cli.yaml`.
 * **Not signed in.** The controller rejected the request (401), or the token's
   role is not enough (403). The user makes a token with `zoomies tokens create`
   and sets `ZOOMIES_TOKEN` themselves; never ask for a token to be pasted into
@@ -45,14 +47,19 @@ commands, flags and exit codes is [reference.md](reference.md); read it instead
 of guessing a flag.
 
 Start with `zoomies status` and `zoomies problems list` for the fleet as a
-whole. For one job that failed or is stuck, ask the fleet why before reading
+whole. Say what they report, with the number of errors and warnings and what
+each is, rather than a verdict of "healthy" or not: what counts as healthy is
+the user's to decide. For one job that failed or is stuck, ask the fleet why before reading
 anything else:
 
 ```sh
 zoomies why <job-id>
 zoomies why https://github.com/<owner>/<repo>/actions/runs/<run>/job/<job>
-zoomies why --latest-failed --repo <owner>/<repo>
+zoomies why --latest-failed            # narrow it with --repo <owner>/<repo> or --pool <id>
 ```
+
+`zoomies why` names a job by its ID; `zoomies jobs get <id>` says which
+repository, workflow and job it was.
 
 The answer is a class (`oom`, `timeout`, `queued-blocked`, `host-lost` and so
 on), how far to trust it, the evidence, and the next steps in order. Exit status
@@ -93,6 +100,10 @@ each one: say what it will do and to what, show the exact command, and run it
 only after the user agrees to that command. One yes covers one command, never a
 batch. Where the command has `--dry-run`, run that first and show the result.
 Afterwards, read back with one of the commands above and say what changed.
+Before you propose a command, read its `--help` for what each flag does, and
+say so when a flag stops work that is running: `zoomies runners drain` on a busy
+runner needs `--yes`, which ends its job if it is still going after five
+minutes.
 
 * `zoomies pools export` (it writes a file in the working directory unless told `--file -`), `zoomies pools create`, `zoomies pools edit`, `zoomies pools delete`, `zoomies pools enable`, `zoomies pools disable`, `zoomies pools prewarm`, `zoomies pools import`
 * `zoomies runners drain`, `zoomies runners delete`
@@ -123,9 +134,11 @@ the MCP tools read.
 These run on, or reshape, the machine Zoomies is installed on, start and stop
 the fleet itself, or (`zoomies audit tail`) follow a stream and never return.
 Do not run them. If the user needs one, say what it is, what it will do, and
-the command, and let them run it. For output that keeps coming, ask for a
-bounded read instead: `zoomies audit list`, or `zoomies runners logs` without
-`--follow`.
+the command, and let them run it. That includes a command's read-only form,
+such as `zoomies upgrade --check`: say what it is for and let them run it. To
+find out whether a release is on offer, read `zoomies updates status`. For
+output that keeps coming, ask for a bounded read instead: `zoomies audit list`,
+or `zoomies runners logs` without `--follow`.
 
 * `zoomies controller`, `zoomies agent`, `zoomies gateway`, `zoomies mcp`, `zoomies demo`, `zoomies audit tail`
 * `zoomies init`, `zoomies upgrade`, `zoomies update`, `zoomies uninstall`, `zoomies restore`
