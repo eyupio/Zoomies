@@ -180,6 +180,13 @@ func updatesApply(ctx context.Context, e *env, args []string) error {
 		body = map[string]any{"tag": tag}
 	}
 
+	// Before the question, so that an address or a credential that cannot be used
+	// is reported while the person can still put it right, and not after a yes.
+	client, err := cf.client()
+	if err != nil {
+		return err
+	}
+
 	if !*yes {
 		if !canAsk(e, false) {
 			return usagef("updates apply", "this asks the controller to update itself and restart, and there is no terminal to ask you at; run it again with --yes to say yes")
@@ -196,10 +203,6 @@ func updatesApply(ctx context.Context, e *env, args []string) error {
 		}
 	}
 
-	client, err := cf.client()
-	if err != nil {
-		return err
-	}
 	var st updatesStatus
 	if _, err := client.post(ctx, "/updates/controller", nil, body, &st); err != nil {
 		return plainAPIError(err)

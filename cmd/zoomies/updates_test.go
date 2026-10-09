@@ -319,6 +319,25 @@ func TestUpdatesApplyRefusesWithoutYesWhenThereIsNoTerminal(t *testing.T) {
 	}
 }
 
+// A controller address that cannot be used is the first thing wrong, and the
+// person should hear it before being asked whether to go on: a yes given to a
+// question about a request that can never be sent is a yes wasted. Here there is
+// no terminal either, and the address is still what is reported.
+func TestUpdatesApplyReportsAnUnusableControllerBeforeItAsksAnything(t *testing.T) {
+	e, out, errOut := newTestEnv(t)
+	e.in = strings.NewReader("yes\n")
+	code := dispatch(context.Background(), e, []string{"updates", "apply", "--url", "http://"})
+	if code == exitOK {
+		t.Fatalf("apply against an address with no host exited 0:\n%s%s", out, errOut)
+	}
+	if !strings.Contains(errOut.String(), "is not a controller URL") {
+		t.Errorf("the error does not say the address is unusable:\n%s", errOut)
+	}
+	if strings.Contains(errOut.String(), "--yes") || strings.Contains(out.String()+errOut.String(), "[y/N]") {
+		t.Errorf("apply asked, or told the person to say yes, before the address was checked:\n%s%s", out, errOut)
+	}
+}
+
 func TestUpdatesApplyExitsNonZeroOnARefusalAndSaysWhyAndWhichCode(t *testing.T) {
 	cases := []struct {
 		name   string
