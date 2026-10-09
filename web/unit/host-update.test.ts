@@ -161,6 +161,24 @@ test('a host that cannot be updated from here says why in the controller’s wor
   assert.equal(words?.label, 'Update by command');
 });
 
+// With updating off the controller refuses every press, so the card must not
+// hold a button that only ever says no: what it holds is the controller's
+// sentence saying why, as text, and a button that cannot be pressed.
+test('with updating off the card says so as text and nothing on it can be pressed', () => {
+  const why =
+    'Updating is off, so hosts are not updated from here. Somebody with the platform role can turn it on by setting updates.mode to manual or auto on the Configuration page.';
+  const words = hostUpdateWords(host({}, { can_update: false, reason: why }));
+  assert.ok(words);
+  assert.equal(words.canPress, false);
+  assert.equal(words.sentence, why);
+  assert.equal(words.inFlight, false);
+  // An update that failed before updating was switched off is not offered again.
+  const failed = hostUpdateWords(
+    host({}, { state: 'failed', can_update: false, reason: 'It failed.' }),
+  );
+  assert.equal(failed?.canPress, false);
+});
+
 // The helper can never be installed there, so a button that can never be
 // pressed would only be a promise; the reason is the card's text, and the
 // command beneath the card is the way.

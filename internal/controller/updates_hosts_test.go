@@ -15,6 +15,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/updates"
 	"github.com/eyupio/zoomies/internal/version"
 )
 
@@ -277,6 +278,76 @@ func TestAHostUpdateIsRefusedWhenTheModeIsOff(t *testing.T) {
 	host := h.updatableHost("vm-1")
 	_, err := h.c.RequestHostUpdate(h.ctx, alice, host.ID)
 	assertNothingSent(t, h, host, err, ErrUpdateModeOff)
+}
+
+// With updating off every press is refused, so a card that offered one would
+// be a button that can only ever say no. The card says why instead, in a
+// sentence every role may read.
+func TestAHostCanBeUpdatedFromItsCardOnlyWhileUpdatingIsOn(t *testing.T) {
+	for _, tc := range []struct {
+		mode string
+		can  bool
+	}{{"off", false}, {"manual", true}, {"auto", true}} {
+		t.Run(tc.mode, func(t *testing.T) {
+			h := newHarness(t)
+			h.hostsCanUpdate()
+			h.inMode(tc.mode)
+			host := h.updatableHost("vm-1")
+			u := h.view(host.ID).For(false).Update
+			if u.CanUpdate != tc.can {
+				t.Fatalf("with the mode %s the card says %+v, want can_update %v", tc.mode, u, tc.can)
+			}
+			if tc.can {
+				return
+			}
+			if u.State != HostUpdateNone || !strings.Contains(u.Reason, "Updating is off") || !strings.Contains(u.Reason, "updates.mode") {
+				t.Errorf("the card says %+v, want no attempt and a reason saying updating is off and which setting turns it on", u)
+			}
+			if strings.Contains(u.Reason, "/") {
+				t.Errorf("every role reads the reason, and it names a path: %q", u.Reason)
+			}
+		})
+	}
+}
+
+// Turning updating on would not let a host the helper can never be installed
+// on be updated from here, so with it off that host still says the command on
+// its card is the way, rather than pointing at a setting that changes nothing.
+func TestAHostTheHelperCanNeverServeKeepsItsReasonWithUpdatingOff(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	h.inMode("off")
+	host := h.agentHost("vm-1", "1.3.4")
+	h.c.noteHelperUnsupported(host.ID, string(updates.HelperUnsupportedNoSystemd))
+	u := h.view(host.ID).Update
+	if u.CanUpdate || u.State != HostUpdateUnsupported || strings.Contains(u.Reason, "Updating is off") {
+		t.Errorf("the card says %+v, want unsupported with the helper's reason", u)
+	}
+}
+
+// The card is rendered from the mode as it is now, and nothing is written
+// when the mode moves, so it is the pass's comparison of what it last sent
+// that has to repaint every open Hosts page.
+func TestTurningUpdatingOffRepaintsTheHostsCard(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	sub := h.listen(events.KindHostUpdated)
+	h.c.publishDerived(h.ctx)
+	nextOfKind(t, sub, events.KindHostUpdated)
+
+	for _, step := range []struct {
+		mode string
+		can  bool
+	}{{"off", false}, {"manual", true}} {
+		h.inMode(step.mode)
+		h.c.publishDerived(h.ctx)
+		frame := nextOfKind(t, sub, events.KindHostUpdated)
+		got, _ := frame["update"].(map[string]any)
+		if frame["id"] != host.ID || got["can_update"] != step.can {
+			t.Errorf("after the mode moved to %s the frame says %v about %v, want can_update %v", step.mode, got, frame["id"], step.can)
+		}
+	}
 }
 
 // A controller built from main has no release to take its hosts to, and the

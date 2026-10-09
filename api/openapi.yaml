@@ -3941,13 +3941,14 @@ paths:
         never dials an agent, and the host is updated once its agent reports that release, which
         the page learns from the host's `host.updated` events. Everything that can refuse does so
         before anything is written, so a refusal leaves nothing in flight. A host can be asked when
-        its `update.can_update` is true: its agent offers to update itself (it does only once the
-        update helper is installed on the host), it is behind the controller's release, and no
-        attempt for it is open. The agent inside the controller is updated with the controller,
-        and is refused with `update.host_cannot_update`, as is a host that is not behind. A host
-        that is not there is a 404. Takes no body; a field sent is a 422 naming it. Audited as
-        `update.host_requested` once it is accepted, and not before. Below the `platform` role the
-        text of a failed attempt in the answer is a fixed sentence for its state.
+        its `update.can_update` is true: updating is on, its agent offers to update itself (it does
+        only once the update helper is installed on the host), it is behind the controller's
+        release, and no attempt for it is open. The agent inside the controller is updated with
+        the controller, and is refused with `update.host_cannot_update`, as is a host that is not
+        behind. A host that is not there is a 404. Takes no body; a field sent is a 422 naming it.
+        Audited as `update.host_requested` once it is accepted, and not before. Below the
+        `platform` role the text of a failed attempt in the answer is a fixed sentence for its
+        state.
       x-zoomies-role: admin
       requestBody:
         required: false
@@ -11041,10 +11042,12 @@ components:
         can_update:
           type: boolean
           description: >-
-            Whether asking for an update now would be taken: the host's agent offers it, the
-            host is behind the controller's release, the controller runs a release, it is not
-            the agent inside the controller, and no attempt is open. `updates.mode` is not part
-            of it; with the mode `off` every request is refused with `update.mode_off`.
+            Whether asking for an update now would be taken: `updates.mode` is `manual` or
+            `auto`, the host's agent offers it, the host is behind the controller's release, the
+            controller runs a release, it is not the agent inside the controller, and no attempt
+            is open. With the mode `off` it is false, and `reason` says that updating is off
+            wherever turning it on would let the host be asked; where it would not, as for a host
+            the update helper can never be installed on, `reason` says what is in the way instead.
         attempt_id: { type: string, description: The attempt `state` describes, and empty with none., examples: [upd_k3fqz2mx7abcd] }
     Host:
       type: object
