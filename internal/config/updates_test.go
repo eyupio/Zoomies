@@ -307,7 +307,7 @@ func TestEveryPlaceThatDescribesAutoSaysItNeedsAHelperAndHaltsOnAFailure(t *test
 	// What the planner does, said in the sentence: it needs a helper, it does
 	// nothing while fenced, a failure halts it, and a person resumes or cancels.
 	for _, says := range []string{"only through its own update helper", "auto waits and updates no host",
-		"nothing starts while the controller is fenced", "a failed update halts the rollout", "resumes or cancels it"} {
+		"nothing starts while the controller is fenced", "a failed update halts the rollout", "resumes or cancels it on the Hosts page (or with zoomies updates resume or cancel)"} {
 		if !strings.Contains(updatesAutoNeedsHelper, says) {
 			t.Errorf("the sentence about auto never says %q: %s", says, updatesAutoNeedsHelper)
 		}
@@ -331,8 +331,8 @@ func TestEveryPlaceThatDescribesAutoSaysItNeedsAHelperAndHaltsOnAFailure(t *test
 			t.Errorf("%s = %q, want it to say %q", tc.where, tc.text, updatesAutoNeedsHelper)
 		}
 	}
-	// The title is printed at start-up on its own, so it must not promise what
-	// what auto does only where an update helper is installed.
+	// The title is printed at start-up on its own, so it must not promise
+	// installing, which auto does only where an update helper is installed.
 	if auto.Title != "the update mode is auto" || strings.Contains(strings.ToLower(auto.Title), "install") {
 		t.Errorf("the updates.auto title = %q, want it to state the mode and promise no installing", auto.Title)
 	}

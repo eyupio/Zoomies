@@ -219,7 +219,7 @@ var updateModes = []string{"off", "manual", "auto"}
 // rollout and who starts it again, because there is no automatic rollback. The
 // docs quote it word for word, so changing what auto does is one grep for this
 // sentence.
-const updatesAutoNeedsHelper = "Auto updates a machine only through its own update helper: while a release is due and the helper beside the controller is not installed, auto waits and updates no host either (where that helper cannot be installed, the controller is left to a person and hosts follow the release it runs). Hosts go one at a time, nothing starts while the controller is fenced, and a failed update halts the rollout until an administrator resumes or cancels it on Settings → Updates, where a running rollout can be cancelled too."
+const updatesAutoNeedsHelper = "Auto updates a machine only through its own update helper: while a release is due and the helper beside the controller is not installed, auto waits and updates no host either (where that helper cannot be installed, the controller is left to a person and hosts follow the release it runs). Hosts go one at a time, nothing starts while the controller is fenced, and a failed update halts the rollout until an administrator resumes or cancels it on the Hosts page (or with zoomies updates resume or cancel), where a running rollout can be cancelled too."
 
 // Backup is the controller's own copies of its database: where they go, how
 // often one is taken, how many are kept, and which object stores each one is
