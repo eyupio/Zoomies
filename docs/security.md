@@ -104,7 +104,13 @@ on its own runners, and cannot read pools, jobs, users or the audit log.
   pull request on the repositories it is installed on. It cannot merge one.
   Rotate the key in GitHub and re-enter it in Zoomies; an App that has those
   three permissions and will never migrate anything can drop them on its
-  **Permissions & events** page.
+  **Permissions & events** page. An App that was also given **Administration:
+  read**, for the [repository settings checks](configuration.md#repository-settings-checks),
+  could read each repository's collaborators and configuration, which Kennel Club
+  does not use. GitHub offers no narrower permission for the Actions settings
+  those checks read, which is why it is asked for separately and only if you
+  turn them on, and why a test holds Kennel Club to the list of requests its
+  page names.
 * **Denial of service.** `repository_scale_up_limit` can best-effort throttle
   new runner creation attributed to one repository, but it is not a security
   boundary or strict concurrency quota: GitHub can assign that repository's

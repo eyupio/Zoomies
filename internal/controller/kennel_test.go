@@ -1096,31 +1096,90 @@ func TestEveryRequestKennelClubMakesIsOneItDocuments(t *testing.T) {
 	f.dueAgain()
 	f.pass()
 
+	assertOnlyDocumentedGets(t, f)
+}
+
+// normaliseKennelRequest turns a recorded request into the form
+// github.KennelEndpoints lists it in. It works by what a path is and not by where
+// a segment falls, because the fake records the decoded path, in which a branch
+// named release/1.0 is two segments.
+func normaliseKennelRequest(req string) string {
+	method, path, _ := strings.Cut(req, " ")
+	path, _, _ = strings.Cut(path, "?")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	switch {
+	case len(parts) >= 3 && parts[0] == "repos":
+		rest := parts[3:]
+		switch {
+		case len(rest) >= 3 && rest[0] == "actions" && rest[1] == "runs":
+			rest = []string{"actions", "runs", "{run}"}
+		case len(rest) >= 3 && rest[0] == "git" && (rest[1] == "trees" || rest[1] == "blobs"):
+			rest = []string{"git", rest[1], "{" + strings.TrimSuffix(rest[1], "s") + "}"}
+		case len(rest) >= 3 && rest[0] == "branches" && rest[len(rest)-1] == "protection":
+			rest = []string{"branches", "{branch}", "protection"}
+		case len(rest) >= 3 && rest[0] == "rules" && rest[1] == "branches":
+			rest = []string{"rules", "branches", "{branch}"}
+		}
+		parts = append([]string{"repos", "{owner}", "{repo}"}, rest...)
+	case len(parts) >= 2 && parts[0] == "orgs":
+		parts[1] = "{org}"
+	}
+	return method + " /" + strings.Join(parts, "/")
+}
+
+// assertOnlyDocumentedGets fails on a recorded request that is not a GET or not
+// one the documentation lists, and returns the set of documented requests seen.
+func assertOnlyDocumentedGets(t *testing.T, f *kennelFixture) map[string]bool {
+	t.Helper()
 	allowed := map[string]bool{}
 	for _, e := range github.KennelEndpoints {
 		allowed[e] = true
 	}
-	seen := 0
+	seen := map[string]bool{}
 	for _, req := range f.gh.Requests() {
-		method, path, _ := strings.Cut(req, " ")
-		path, _, _ = strings.Cut(path, "?")
-		parts := strings.Split(strings.Trim(path, "/"), "/")
-		switch {
-		case len(parts) >= 3 && parts[0] == "repos":
-			parts[1], parts[2] = "{owner}", "{repo}"
-			if len(parts) > 4 && parts[3] == "actions" && parts[4] == "runs" && len(parts) > 5 {
-				parts[5] = "{run}"
-			}
-		case len(parts) >= 2 && parts[0] == "orgs":
-			parts[1] = "{org}"
-		}
-		if norm := method + " /" + strings.Join(parts, "/"); !allowed[norm] {
+		norm := normaliseKennelRequest(req)
+		if !allowed[norm] {
 			t.Errorf("Kennel Club made a request it does not document: %s (as %s)", req, norm)
 		}
-		seen++
+		seen[norm] = true
 	}
-	if seen == 0 {
+	if len(seen) == 0 {
 		t.Fatal("no requests were recorded; the test proves nothing")
+	}
+	return seen
+}
+
+// The same, with every opt-in switch on. The test above turns on none, so it
+// never reached the tree, the blobs or the settings, and a documented list that
+// no test exercised was a list that could drift from the code.
+func TestEveryRequestWithEveryOptInSwitchOnIsOneItDocuments(t *testing.T) {
+	f := newKennelFixture(t)
+	f.persistent()
+	f.c.UpdateConfig(func(c *config.Config) {
+		c.Kennel.RepositorySetup, c.Kennel.WorkflowChecks, c.Kennel.AgentGuidance, c.Kennel.SettingsChecks = true, true, true, true
+	})
+	f.repo("acme/widgets", "public")
+	f.repo("acme/secret", "private")
+	f.gh.AddWorkflow("acme/widgets", ".github/workflows/ci.yml", timeoutless)
+	f.gh.AddWorkflow("acme/secret", ".github/workflows/ci.yml", timeoutless)
+	f.ran("acme/widgets", 11, f.pool)
+	f.trigger("acme/widgets", 11, "pull_request", true)
+	f.ran("acme/secret", 12, f.pool)
+	f.pass()
+	f.dueAgain()
+	f.pass()
+
+	seen := assertOnlyDocumentedGets(t, f)
+	for _, want := range []string{
+		"GET /repos/{owner}/{repo}/git/trees/{tree}",
+		"GET /repos/{owner}/{repo}/git/blobs/{blob}",
+		"GET /repos/{owner}/{repo}/actions/permissions/workflow",
+		"GET /repos/{owner}/{repo}/actions/permissions/fork-pr-contributor-approval",
+		"GET /repos/{owner}/{repo}/actions/permissions/fork-pr-workflows-private-repos",
+	} {
+		if !seen[want] {
+			t.Errorf("the documented request %s was never made, so no test holds it", want)
+		}
 	}
 }
 

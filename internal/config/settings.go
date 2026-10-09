@@ -1043,6 +1043,10 @@ var registry = buildRegistry([]Setting{
 		Summary: "Whether Kennel Club checks agent instruction files for missing guidance, broken references and exact duplication. Off by default. Reads up to 32 files of 64 KiB each with Contents read permission. Repairs require a reviewed draft pull request; checks change no files.",
 	},
 	{
+		Key: "kennel.settings_checks", Label: "Check repository settings", Env: "ZOOMIES_KENNEL_SETTINGS_CHECKS", Kind: KindBool, Scope: ScopeInstance, Live: true,
+		Summary: "Whether Kennel Club reads each repository's Actions settings, the default workflow token and the policy for fork pull requests. Off by default. Needs the App's Administration read permission, which GitHub offers no narrower form of and which is asked for separately; reads no file contents and changes no setting.",
+	},
+	{
 		Key: "kennel.scope", Label: "Repositories to check", Env: "ZOOMIES_KENNEL_SCOPE", Kind: KindEnum, Scope: ScopeInstance, Live: true,
 		Choices: KennelScopes,
 		Summary: "served checks the repositories this fleet has run a job for; installation checks every repository the GitHub App can see, up to 500. installation multiplies the requests Kennel Club makes, so it is a choice and not the default.",
