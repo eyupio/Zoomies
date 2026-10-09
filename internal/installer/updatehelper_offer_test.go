@@ -130,8 +130,11 @@ func TestAnUpgradeAsksAboutTheHelperAsItsOwnQuestionThatDefaultsToNo(t *testing.
 			if tc.says == addLater {
 				wantSaid++
 			}
-			if got := strings.Count(out, UpdateHelperNotUsedYet); got != wantSaid {
-				t.Errorf("%q is said %d times, want %d:\n%s", UpdateHelperNotUsedYet, got, wantSaid, out)
+			if got := strings.Count(out, UpdateHelperControllerOnlyYet); got != wantSaid {
+				t.Errorf("%q is said %d times, want %d:\n%s", UpdateHelperControllerOnlyYet, got, wantSaid, out)
+			}
+			if strings.Contains(out, UpdateHelperAgentHostNotUsedYet) {
+				t.Errorf("an upgrade, which may be the controller's, says what only an agent host's join says:\n%s", out)
 			}
 			if tc.asks {
 				for _, want := range []string{"sudo zoomies updates helper remove", "as root", "validated request", "by writing a request"} {

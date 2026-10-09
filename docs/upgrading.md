@@ -66,9 +66,9 @@ setup again or require a new join token. Each remote host is upgraded locally;
 without the update helper, a controller upgrade does not remotely replace
 binaries across the fleet. With the helper installed on the controller's host and
 `updates.mode` set to `manual` or `auto`, the controller can hand the helper a
-request to replace its own binary through the API (the web UI cannot yet, as
-[below](#updating-from-the-web-ui) says), and nothing else: it never replaces the
-binary of another host.
+request to replace its own binary, with `zoomies updates apply` or the Update
+button on Settings → Updates (the platform role), and nothing else: it never
+replaces the binary of another host.
 
 For a **remote agent**, copy the upgrade command from its card on **Hosts**.
 That command targets the controller's published version instead of blindly
@@ -199,7 +199,7 @@ Add the update helper? [y/N]
 ```
 
 The [update helper](security.md#what-the-agent-owns-on-a-host) is what will let
-the web UI update the host. The web UI cannot ask for updates yet; a later release adds that, and installing the helper now only makes this host ready for it.
+the web UI update the host. On the controller's host the platform role can then update the controller from Settings → Updates; the web UI cannot update other hosts yet, so on an agent host installing it now only makes the host ready for a later release.
 
 It is a pair of systemd units that run `zoomies upgrade` as root for a
 validated request; a request names a release and nothing else. The account Zoomies runs as can trigger an
