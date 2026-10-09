@@ -12,6 +12,7 @@
  * the difference between a deliberate fallback and a job that landed elsewhere.
  */
 import type { Job, LabelAdvice, SizeClass } from '../api/types';
+import { describeWindow, formatMegabytes, pluralise } from '../format';
 import { classWord } from '../hosts/tags';
 
 export type SizeBasis = NonNullable<Job['size_basis']>;
@@ -140,4 +141,38 @@ export function pinScope(row: { repo: string; workflow?: string; job_name?: stri
  */
 export function sentence(text: string): string {
   return text === '' ? text : text.charAt(0).toUpperCase() + text.slice(1);
+}
+
+/**
+ * The figures behind one advice row, in one line: the p95 and the max of
+ * memory, the p95 of CPU, and how many runs over which window. A dimension no
+ * run measured is left out rather than shown as nothing, and the window is the
+ * page's, so the sentence is built here where both are known.
+ */
+export function observedWords(
+  observed: NonNullable<LabelAdvice['observed']>,
+  window: string | null | undefined,
+): string {
+  const parts: string[] = [];
+  if (observed.memory_mb.p95 > 0) {
+    parts.push(`p95 ${formatMegabytes(observed.memory_mb.p95)}`);
+    parts.push(`max ${formatMegabytes(observed.memory_mb.max)}`);
+  }
+  if (observed.cpu.p95 > 0) parts.push(`${cpuFigure(observed.cpu.p95)} CPU at p95`);
+  const span = describeWindow(window);
+  parts.push(`${pluralise(observed.runs, 'run')}${span ? ` in ${span}` : ''}`);
+  return parts.join(' · ');
+}
+
+/** A CPU figure to a tenth, and whole where it is one: "1.5", "2". */
+function cpuFigure(v: number): string {
+  return Number.isInteger(v) ? String(v) : v.toFixed(1);
+}
+
+/**
+ * The words for a row with too few runs. The minimum comes from the payload,
+ * never from a literal here, so a changed rule cannot leave the card lying.
+ */
+export function sparseWords(runs: number, minRuns: number): string {
+  return `Not enough data yet, ${runs} of ${minRuns} runs.`;
 }

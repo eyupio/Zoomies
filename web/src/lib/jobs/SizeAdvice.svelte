@@ -34,7 +34,7 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Select from '$lib/components/Select.svelte';
   import { SIZE_CLASSES, classWord } from '$lib/hosts/tags';
-  import { adviceWords, pinKey, pinScope, sentence } from './size';
+  import { adviceWords, observedWords, pinKey, pinScope, sentence, sparseWords } from './size';
 
   interface Props {
     /** Bumped by the page's refresh button, which is what makes this read again. */
@@ -51,6 +51,7 @@
   let advice = $state<LabelAdvice[]>([]);
   let total = $state(0);
   let counts = $state<Record<string, number>>({});
+  let window = $state<string>('');
   let pins = $state<SizePin[]>([]);
   let reload = $state(0);
 
@@ -69,6 +70,7 @@
         advice = page.items;
         total = page.total ?? page.items.length;
         counts = page.counts ?? {};
+        window = page.window?.applied ?? '';
       })
       .catch(() => undefined);
     void listSizePins(signal)
@@ -82,10 +84,13 @@
   // that is too small · 1 names none".
   const countWords = $derived(
     Object.entries(counts)
-      .filter(([, n]) => n > 0)
+      .filter(([kind, n]) => n > 0 && kind !== 'not_enough_data')
       .map(([kind, n]) => `${formatNumber(n)} ${adviceWords(kind).label.toLowerCase()}`)
       .join(' · '),
   );
+  // How many runs a job needs before it is advised on, from the rows
+  // themselves: the rule lives in the controller and the page repeats it.
+  const minRuns = $derived(advice.find((item) => item.min_runs > 0)?.min_runs ?? 0);
   const pinned = $derived(new Set(pins.map(pinKey)));
 
   /* -- pinning ------------------------------------------------------------------ */
@@ -182,8 +187,9 @@
       <section aria-labelledby="advice-heading">
         <h3 id="advice-heading">Jobs that would benefit from an explicit size label</h3>
         <p class="lead">
-          Worked out from what each job's own runs used, and only for a job with at least five
-          measured runs. Writing the class label in <span class="mono">runs-on</span> is what turns
+          Worked out from what each job's own runs used{minRuns > 0
+            ? `, and only for a job with at least ${minRuns} measured runs`
+            : ''}. Writing the class label in <span class="mono">runs-on</span> is what turns
           routing from a best effort into a guarantee.
           <a href={AUTO_POOLS_URL} target="_blank" rel="noopener noreferrer">How it works</a>
         </p>
@@ -198,14 +204,17 @@
           {/if}
           <ul class="rows">
             {#each advice as item (pinKey(item) + item.kind)}
-              <li data-testid="advice-row">
+              {@const sparse = item.state === 'not_enough_data'}
+              <li data-testid="advice-row" data-state={item.state}>
                 <div class="row-head">
                   <Badge
                     tone="neutral"
                     size="sm"
                     dot={false}
-                    label={adviceWords(item.kind).label}
-                    title={adviceWords(item.kind).hint}
+                    label={sparse ? 'Not enough data yet' : adviceWords(item.kind).label}
+                    title={sparse
+                      ? 'The class is worked out from too few runs to advise on.'
+                      : adviceWords(item.kind).hint}
                   />
                   <span class="job"
                     >{item.repo} · {item.workflow} ·
@@ -213,9 +222,24 @@
                   >
                   <span class="muted tabular">{pluralise(item.runs, 'run')} measured</span>
                 </div>
-                <p>{sentence(item.message)}</p>
-                <p class="fix">{sentence(item.fix)}</p>
-                {#if canOperate}
+                {#if sparse}
+                  <p data-testid="advice-sparse">{sparseWords(item.runs, item.min_runs)}</p>
+                {:else}
+                  <p>{sentence(item.message)}</p>
+                  <p class="fix">{sentence(item.fix)}</p>
+                {/if}
+                {#if item.observed}
+                  <p class="figures mono" data-testid="advice-figures">
+                    {observedWords(item.observed, window)}
+                  </p>
+                {/if}
+                {#if item.fits && !item.fits.ok && item.fits.missing}
+                  <p class="fit" data-testid="advice-fit">
+                    No host in this fleet is {item.fits.missing}; the class cannot be answered until
+                    one is added.
+                  </p>
+                {/if}
+                {#if canOperate && !sparse}
                   <div class="actions">
                     <Button
                       size="sm"
@@ -446,6 +470,13 @@
     color: var(--z-text-muted);
   }
   .rows p.fix {
+    color: var(--z-text);
+  }
+  .rows p.figures {
+    font-size: var(--z-text-xs);
+    color: var(--z-text-subtle);
+  }
+  .rows p.fit {
     color: var(--z-text);
   }
   .actions {

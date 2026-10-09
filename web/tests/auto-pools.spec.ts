@@ -793,24 +793,65 @@ test.describe('job size', () => {
         workflow: 'ci.yml',
         job_name: 'build',
         kind: 'unguaranteed',
+        state: 'ok',
+        min_runs: 5,
         class: 'large',
+        recommended_class: 'large',
+        reason: 'its memory needs about 6.2 GB',
         runs: 12,
         labels: ['self-hosted', 'zoomies'],
         message:
           'its runs-on asks only for zoomies, so it is sent to large while there is room, which is best effort and not a promise.',
         fix: 'add zoomies-large to runs-on, beside zoomies, to make it a guarantee.',
+        observed: {
+          runs: 12,
+          cpu: { p50: 1, p95: 1.5, max: 2 },
+          memory_mb: { p50: 5200, p95: 6000, max: 7100 },
+        },
+        fits: { ok: false, missing: 'large' },
       },
       {
         repo: 'acme/web',
         workflow: 'e2e.yml',
         job_name: 'smoke',
         kind: 'too_large',
+        state: 'ok',
+        min_runs: 5,
         asked: 'large',
         class: 'small',
+        recommended_class: 'small',
+        reason: 'its memory needs about 300 MB',
         runs: 31,
         labels: ['self-hosted', 'zoomies', 'zoomies-large'],
         message: 'its runs-on asks for zoomies-large, and its runs would fit a small runner.',
         fix: 'write zoomies-small in runs-on in place of zoomies-large.',
+        observed: {
+          runs: 31,
+          cpu: { p50: 0.5, p95: 1, max: 1 },
+          memory_mb: { p50: 250, p95: 300, max: 320 },
+        },
+        fits: { ok: true },
+      },
+      {
+        repo: 'acme/web',
+        workflow: 'ci.yml',
+        job_name: 'new',
+        kind: '',
+        state: 'not_enough_data',
+        min_runs: 5,
+        class: 'medium',
+        recommended_class: 'medium',
+        reason: 'its memory needs about 2 GB',
+        runs: 2,
+        labels: ['self-hosted', 'zoomies'],
+        message: '2 of 5 measured runs so far; advice needs 5.',
+        fix: '',
+        observed: {
+          runs: 2,
+          cpu: { p50: 0, p95: 0, max: 0 },
+          memory_mb: { p50: 1800, p95: 2000, max: 2000 },
+        },
+        fits: { ok: true },
       },
     ];
     let pins: Record<string, unknown>[] = [];
@@ -824,10 +865,11 @@ test.describe('job size', () => {
       route.fulfill({
         json: {
           items: advice,
-          total: 2,
+          total: 3,
           limit: 25,
           offset: 0,
-          counts: { unguaranteed: 1, too_large: 1 },
+          counts: { unguaranteed: 1, too_large: 1, not_enough_data: 1 },
+          window: { asked: '336h0m0s', applied: '336h0m0s', bound: 'asked' },
         },
       }),
     );
@@ -850,19 +892,39 @@ test.describe('job size', () => {
     const panel = page.getByTestId('size-advice');
     await expect(panel).toContainText('Size labels and pins');
     // The count is on the closed summary, so the report is not found by chance.
-    await expect(panel.locator('summary')).toContainText('2');
+    await expect(panel.locator('summary')).toContainText('3');
     await panel.locator('summary').click();
 
+    // The lead takes the minimum from the rows, never from a number of its own.
+    await expect(panel).toContainText('at least 5 measured runs');
     await expect(panel.getByTestId('advice-counts')).toContainText(
       '1 names no class · 1 names a class that is larger than it uses',
     );
     const rows = panel.getByTestId('advice-row');
-    await expect(rows).toHaveCount(2);
+    await expect(rows).toHaveCount(3);
     await expect(rows.first()).toContainText('acme/api · ci.yml · build');
     await expect(rows.first()).toContainText('12 runs measured');
     await expect(rows.first()).toContainText(
       'Add zoomies-large to runs-on, beside zoomies, to make it a guarantee.',
     );
+    // The figures the recommendation rests on, and whether a host carries it.
+    await expect(rows.first().getByTestId('advice-figures')).toHaveText(
+      'p95 5.9 GB · max 6.9 GB · 1.5 CPU at p95 · 12 runs in 14 days',
+    );
+    await expect(rows.first().getByTestId('advice-fit')).toContainText(
+      'No host in this fleet is large',
+    );
+    await expect(rows.nth(1).getByTestId('advice-fit')).toHaveCount(0);
+    // A job with too few runs is a row that says so, with nothing to pin.
+    const sparse = rows.nth(2);
+    await expect(sparse).toHaveAttribute('data-state', 'not_enough_data');
+    await expect(sparse.getByTestId('advice-sparse')).toHaveText(
+      'Not enough data yet, 2 of 5 runs.',
+    );
+    await expect(sparse.getByTestId('advice-figures')).toHaveText(
+      'p95 2.0 GB · max 2.0 GB · 2 runs in 14 days',
+    );
+    await expect(sparse.getByRole('button', { name: /Pin to/ })).toHaveCount(0);
     await expect(panel.getByTestId('pins-none')).toBeVisible();
     await auditThePage(page, 'the Jobs page with the size report open');
 
