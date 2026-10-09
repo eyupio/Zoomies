@@ -8133,7 +8133,7 @@ export interface components {
              */
             state: "none" | "requested" | "succeeded" | "failed" | "timed_out" | "cancelled";
             /**
-             * @description The card's sentence: why the host can or cannot be updated, or how its attempt stands. For a failed, timed-out or cancelled attempt only the `platform` role is given the reason recorded for it, which can be the update helper's own and name a path on the host; every other role, and the event stream, is given a fixed sentence for the state.
+             * @description The card's sentence: why the host can or cannot be updated, or how its attempt stands. For a failed, timed-out or cancelled attempt only the `platform` role is given the reason recorded for it, which can be the update helper's own and name a path on the host; every other role is given a fixed sentence for the state, in every response and on the event stream alike.
              * @example This host's agent does not offer to update itself, which it does only once the update helper is installed on the host. Run sudo zoomies updates helper install there, or update it with the command below.
              */
             reason: string;
