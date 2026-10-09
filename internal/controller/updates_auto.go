@@ -253,6 +253,18 @@ func (c *Controller) autoUpdateHost(ctx context.Context, pic *updatesPicture, st
 	if pic.rollout == nil {
 		return false
 	}
+	// Read again: a person may have cancelled or halted the rollout, or switched
+	// to manual, since the snapshot, and a host asked now would restart after
+	// they said stop. Only the same rollout, still running, and in manual one a
+	// person started, is moved on.
+	now, err := c.st.OpenUpdateRollout(ctx)
+	if err != nil || now.ID != pic.rollout.ID || now.State != store.RolloutRunning ||
+		(c.updateMode() != updates.ModeAuto && now.Trigger != store.UpdateTriggerManual) {
+		if err != nil && !errors.Is(err, store.ErrNotFound) {
+			c.log.Warn("automatic updating could not read the open rollout again before asking a host; the next pass will decide again", "error", err)
+		}
+		return false
+	}
 	_, attempt, err := c.requestHostUpdate(ctx, autoUpdateActor(), step.HostID,
 		updateAsk{trigger: store.UpdateTriggerAuto, rolloutID: pic.rollout.ID})
 	if err != nil {

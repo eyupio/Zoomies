@@ -859,3 +859,43 @@ func TestTwoFailuresStillHoldAHostBehindFiveHundredNewerAttempts(t *testing.T) {
 		t.Errorf("the status says %q, want that an operator must act", got)
 	}
 }
+
+// A cancel, or a switch to manual, between the planner reading the rollout and
+// the applier asking the host must stop that host's update too: otherwise one
+// more machine restarts after a person said stop.
+func TestARolloutStoppedBetweenThePlanAndItsStepAsksNoHost(t *testing.T) {
+	for _, stop := range []struct {
+		name string
+		do   func(h *harness)
+	}{
+		{"cancelled", func(h *harness) {
+			if _, err := h.c.CancelRollout(h.ctx, alice); err != nil {
+				h.t.Fatalf("CancelRollout: %v", err)
+			}
+		}},
+		{"switched to manual", func(h *harness) { h.inMode("manual") }},
+		{"halted", func(h *harness) {
+			if _, err := h.st.HaltUpdateRollout(h.ctx, h.openRollout().ID, "vm-z did not come back"); err != nil {
+				h.t.Fatal(err)
+			}
+		}},
+	} {
+		t.Run(stop.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.autoFleet("auto")
+			host := h.updatableHost("vm-a")
+			h.pass(h.c)
+			pic, err := h.c.updatesSnapshot(h.ctx, h.c.cfg().Updates, h.c.probeUpdateHelper())
+			if err != nil {
+				t.Fatal(err)
+			}
+			plan := updates.Decide(pic.snap)
+			if len(plan.Actions) != 1 || plan.Actions[0].Kind != updates.ActionUpdateHost {
+				t.Fatalf("the plan is %+v, want vm-a's update", plan.Actions)
+			}
+			stop.do(h)
+			h.c.applyUpdatePlan(h.ctx, pic, plan)
+			h.noAttemptFor(host)
+		})
+	}
+}
