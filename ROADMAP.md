@@ -1508,10 +1508,16 @@ Depends on ZF-207 and ZF-404. Size L.
 
 ### ZF-233: skills for a coding agent
 
-**Classification: new; S; proposed 8 October.** `skills/zoomies/` and
-`skills/zoomies-kennel/`, with the generated command reference from ZF-230
-pinned and tested, a lint test in `internal/docs`, and install docs.
+**Classification: new; S; proposed 8 October; implemented 9 October.**
+`skills/zoomies/` (#768) and `skills/zoomies-kennel/`, with the generated
+command reference from ZF-230 pinned and tested, lint tests in `internal/docs`
+and `cmd/zoomies` that hold every skill to what an installer needs, every
+command it names to the binary, and the zoomies skill's three lists to every
+command there is, and install docs in the README and `docs/cli.md`.
 [agent-readiness.md](roadmap/agent-readiness.md) section 7 is the design.
+
+**Open:** gate row 15's second agent for the kennel skill: one agent's smoke
+test is recorded in its pull request; the owner runs the second.
 
 Depends on ZF-230, ZF-229c. Size S.
 

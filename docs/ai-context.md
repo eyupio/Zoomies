@@ -812,7 +812,9 @@ API returns carries its code, so an agent can read `fix` before proposing
 anything and check `verify` afterwards. The fleet itself is reachable over
 MCP ([Connect Claude](connect-claude.md)) and from the command line
 ([Command line](cli.md)); `zoomies commands` prints every command with its
-help, and the same text ships as a reference with the `zoomies` skill. For a
+help, and the same text ships as a reference with the `zoomies` skill; its
+sibling, `zoomies-kennel`, runs the workflow checks over a checkout with
+nothing sent anywhere (see [the CLI page](cli.md#the-zoomies-kennel-skill)). For a
 job that failed, stalled or is waiting, `zoomies why <job>`, the explanation
 route and `get_job` over MCP give the same answer: a `class` from a closed set,
 the evidence that decides it, the catalog code and the next steps in order, so
