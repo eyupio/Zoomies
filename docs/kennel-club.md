@@ -743,6 +743,24 @@ metadata, default-branch refs, commits, trees and bounded blobs; publishing adds
 Git trees, a commit, a new branch ref and a draft pull request. These are separate
 from the background read-only endpoint list below.
 
+## Protection
+
+The **Protection** tab gathers the four findings about a repository's settings
+and about the status checks its default branch requires: `token.default_write`,
+`exposure.fork_approval_weak`, `exposure.private_fork_secrets` and
+`protection.required_check_never_reports`. The fix for each is a setting on
+GitHub and not a file, so each finding links to the page that setting is on
+(the Actions settings, branch protection and rulesets) on the installation's own
+GitHub, which is not github.com on an Enterprise host. The tab also shows what
+was read of each of the two sources, the permission that would fix a gap, and
+the checks that could not run.
+
+The same findings are on the **CI** tab, where they are waived like any other.
+Until **Check repository settings** (`kennel.settings_checks`) is on, the tab
+says the checks are off and who can turn them on, and nothing is read from
+GitHub for it. Without a person's permission to list installations the findings
+have no links and nothing else changes.
+
 ## How to read a repository's standing
 
 Every repository is in one of four standings, and the badge never says more than
