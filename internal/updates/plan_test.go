@@ -28,14 +28,14 @@ func planRelease(tag string, age time.Duration) Release {
 // behaviour turns on.
 func planSnapshot() Snapshot {
 	return Snapshot{
-		Now:         planNow,
-		Mode:        ModeAuto,
-		Soak:        24 * time.Hour,
-		Running:     "1.3.5",
-		GOOS:        "linux",
-		GOARCH:      "amd64",
-		Releases:    []Release{planRelease("v1.3.4", 30*24*time.Hour), planRelease("v1.3.5", 10*24*time.Hour)},
-		HelperReady: true,
+		Now:      planNow,
+		Mode:     ModeAuto,
+		Soak:     24 * time.Hour,
+		Running:  "1.3.5",
+		GOOS:     "linux",
+		GOARCH:   "amd64",
+		Releases: []Release{planRelease("v1.3.4", 30*24*time.Hour), planRelease("v1.3.5", 10*24*time.Hour)},
+		Helper:   HelperStateReady,
 	}
 }
 
@@ -47,8 +47,15 @@ func planHost(id, name, version string, runners int) HostFacts {
 	}
 }
 
+// runningRollout is a rollout a person started a day ago.
 func runningRollout(target string) *Rollout {
-	return &Rollout{ID: "rol_1", Target: target, State: "running"}
+	return &Rollout{ID: "rol_1", Target: target, Trigger: "manual", State: "running", Since: planNow.Add(-24 * time.Hour)}
+}
+
+// endedAttempt is an attempt that ended ago before planNow, in state.
+func endedAttempt(id, scope, hostID, to, state string, ago time.Duration) Attempt {
+	return Attempt{ID: id, Scope: scope, HostID: hostID, To: to, State: state,
+		RequestedAt: planNow.Add(-ago - 10*time.Minute), FinishedAt: planNow.Add(-ago), Error: "the download failed"}
 }
 
 func openAttempt(id, scope, hostID, to string, age time.Duration) *Attempt {
@@ -143,7 +150,7 @@ func TestDecideDoesNothingWhenFenced(t *testing.T) {
 	failed := planSnapshot()
 	failed.Rollout = runningRollout("v1.3.5")
 	failed.Hosts = []HostFacts{planHost("h1", "runner-1", "1.3.4", 0)}
-	failed.Hosts[0].FailedInRollout = "the download failed"
+	failed.Hosts[0].Ended = []Attempt{endedAttempt("upd_f", "host", "h1", "v1.3.5", "failed", time.Hour)}
 
 	for name, s := range map[string]Snapshot{
 		"a controller due an update": due, "a running rollout": rollout, "an attempt past its time": stale,
@@ -283,7 +290,7 @@ func TestDecideCarriesOnARolloutSomeoneStartedInManual(t *testing.T) {
 
 func TestDecideWaitsForTheHelperAndSaysSo(t *testing.T) {
 	s := soakingSnapshot(48 * time.Hour)
-	s.HelperReady = false
+	s.Helper = HelperStateMissing
 	s.Hosts = []HostFacts{planHost("h1", "runner-1", "1.3.4", 0)}
 	p := decide(t, s)
 	wantKinds(t, p)
@@ -411,7 +418,7 @@ func TestDecideSkipsEmbeddedAheadUnhealthyAndCannotUpdateHosts(t *testing.T) {
 	}{
 		{"embedded", func(h *HostFacts) { h.Embedded = true }, ActionFinishRollout, "updated with the controller"},
 		{"ahead", func(h *HostFacts) { h.Version = "1.4.0" }, ActionFinishRollout, "never taken back"},
-		{"not a release", func(h *HostFacts) { h.Version = "main-sha-abc1234" }, ActionFinishRollout, "not a release"},
+		{"not a release", func(h *HostFacts) { h.Version = "main-sha-abc1234" }, ActionFinishRollout, "not run a release build"},
 		{"version unknown", func(h *HostFacts) { h.Version = "" }, ActionFinishRollout, "has not said which version"},
 		{"cannot update itself", func(h *HostFacts) { h.CanSelfUpdate, h.WhyNot = false, why }, ActionFinishRollout, why},
 		{"no binary for its system", func(h *HostFacts) { h.GOOS, h.GOARCH = "linux", "riscv64" }, ActionFinishRollout, "carries no binary"},
@@ -456,7 +463,7 @@ func TestDecideHaltsAfterAFailureAndStartsNothing(t *testing.T) {
 	s := planSnapshot()
 	s.Rollout = runningRollout("v1.3.5")
 	s.Hosts = []HostFacts{planHost("h1", "runner-1", "1.3.4", 0), planHost("h2", "runner-2", "1.3.4", 1)}
-	s.Hosts[1].FailedInRollout = "the download failed"
+	s.Hosts[1].Ended = []Attempt{endedAttempt("upd_2", "host", "h2", "v1.3.5", "failed", time.Hour)}
 	p := decide(t, s)
 	wantKinds(t, p, ActionHalt)
 	if p.Actions[0].HostID != "h2" {
@@ -470,7 +477,6 @@ func TestDecideHaltsAfterAFailureAndStartsNothing(t *testing.T) {
 	// Halted, nothing moves: not the next host, and not the controller either,
 	// though a newer release is due.
 	s.Rollout.State = "halted"
-	s.Hosts[1].FailedInRollout = ""
 	s.Releases = append(s.Releases, planRelease("v1.4.0", 48*time.Hour))
 	p = decide(t, s)
 	wantKinds(t, p)
@@ -528,8 +534,7 @@ func TestDecideWaitsThirtyMinutesAfterAFailure(t *testing.T) {
 	}{{29 * time.Minute, false}, {30*time.Minute - time.Second, false}, {30 * time.Minute, true}} {
 		t.Run("controller "+tc.since.String(), func(t *testing.T) {
 			s := soakingSnapshot(48 * time.Hour)
-			s.ControllerFailures = 1
-			s.ControllerLastFailedAt = planNow.Add(-tc.since)
+			s.ControllerEnded = []Attempt{endedAttempt("upd_c", "controller", "", "v1.4.0", "failed", tc.since)}
 			p := decide(t, s)
 			if tc.want {
 				wantKinds(t, p, ActionRequestController)
@@ -540,10 +545,11 @@ func TestDecideWaitsThirtyMinutesAfterAFailure(t *testing.T) {
 		})
 		t.Run("host "+tc.since.String(), func(t *testing.T) {
 			s := planSnapshot()
+			// Resumed since the failure, so it waits rather than halts.
 			s.Rollout = runningRollout("v1.3.5")
+			s.Rollout.Since = planNow
 			s.Hosts = []HostFacts{planHost("h1", "runner-1", "1.3.4", 0)}
-			s.Hosts[0].Failures = 1
-			s.Hosts[0].LastFailedAt = planNow.Add(-tc.since)
+			s.Hosts[0].Ended = []Attempt{endedAttempt("upd_h", "host", "h1", "v1.3.5", "timed_out", tc.since)}
 			p := decide(t, s)
 			if tc.want {
 				wantKinds(t, p, ActionUpdateHost)
@@ -561,22 +567,34 @@ func TestDecideWaitsThirtyMinutesAfterAFailure(t *testing.T) {
 func TestDecideWaitsForAnOperatorAfterTwoFailuresOfOneTag(t *testing.T) {
 	t.Run("controller", func(t *testing.T) {
 		s := soakingSnapshot(48 * time.Hour)
-		s.ControllerFailures = 2
-		s.ControllerLastFailedAt = planNow.Add(-5 * time.Hour)
+		s.ControllerEnded = []Attempt{
+			endedAttempt("upd_c1", "controller", "", "v1.4.0", "failed", 6*time.Hour),
+			endedAttempt("upd_c2", "controller", "", "v1.4.0", "timed_out", 5*time.Hour),
+		}
 		s.Hosts = []HostFacts{planHost("h1", "runner-1", "1.3.4", 0)}
 		p := decide(t, s)
 		wantKinds(t, p)
 		wantSentence(t, p, "v1.4.0", "an operator must act")
 
-		s.ControllerFailures = 1
+		s.ControllerEnded = s.ControllerEnded[1:]
+		wantKinds(t, decide(t, s), ActionRequestController)
+
+		// Failures on the way to another release, or that did not fail, say
+		// nothing about this one.
+		s.ControllerEnded = append(s.ControllerEnded,
+			endedAttempt("upd_c3", "controller", "", "v1.3.9", "failed", 4*time.Hour),
+			endedAttempt("upd_c4", "controller", "", "v1.4.0", "cancelled", 4*time.Hour))
 		wantKinds(t, decide(t, s), ActionRequestController)
 	})
 	t.Run("host", func(t *testing.T) {
 		s := planSnapshot()
 		s.Rollout = runningRollout("v1.3.5")
+		s.Rollout.Since = planNow
 		s.Hosts = []HostFacts{planHost("h1", "runner-1", "1.3.4", 0)}
-		s.Hosts[0].Failures = 2
-		s.Hosts[0].LastFailedAt = planNow.Add(-5 * time.Hour)
+		s.Hosts[0].Ended = []Attempt{
+			endedAttempt("upd_h1", "host", "h1", "v1.3.5", "failed", 6*time.Hour),
+			endedAttempt("upd_h2", "host", "h1", "v1.3.5", "failed", 5*time.Hour),
+		}
 		p := decide(t, s)
 		wantKinds(t, p, ActionFinishRollout)
 		wantSentence(t, p, "runner-1", "an operator must act")
@@ -587,7 +605,14 @@ func TestDecideWaitsForAnOperatorAfterTwoFailuresOfOneTag(t *testing.T) {
 		wantSentence(t, p, "an operator must act")
 
 		s.Rollout = runningRollout("v1.3.5")
-		s.Hosts[0].Failures = 1
+		s.Rollout.Since = planNow
+		s.Hosts[0].Ended = s.Hosts[0].Ended[1:]
+		wantKinds(t, decide(t, s), ActionUpdateHost)
+
+		// Another host's failures, or failures to another release, are not this one's.
+		s.Hosts[0].Ended = append(s.Hosts[0].Ended,
+			endedAttempt("upd_h3", "host", "h9", "v1.3.5", "failed", 5*time.Hour),
+			endedAttempt("upd_h4", "host", "h1", "v1.3.4", "failed", 5*time.Hour))
 		wantKinds(t, decide(t, s), ActionUpdateHost)
 	})
 }
@@ -766,8 +791,18 @@ func TestDecideIsDeterministic(t *testing.T) {
 
 	halting := waiting
 	halting.Hosts = slices.Clone(waiting.Hosts)
-	halting.Hosts[0].FailedInRollout = "it broke"
-	halting.Hosts[3].FailedInRollout = "it broke too"
+	halting.Hosts[0].Ended = []Attempt{endedAttempt("upd_a", "host", "h1", "v1.3.5", "failed", time.Hour)}
+	halting.Hosts[0].Ended = append(halting.Hosts[0].Ended, endedAttempt("upd_a2", "host", "h1", "v1.3.4", "failed", 3*time.Hour),
+		endedAttempt("upd_a3", "host", "h1", "v1.3.5", "succeeded", 4*time.Hour))
+	halting.Hosts[3].Ended = []Attempt{endedAttempt("upd_b", "host", "h4", "v1.3.5", "timed_out", 2*time.Hour)}
+	halting.ControllerEnded = []Attempt{
+		endedAttempt("upd_c1", "controller", "", "v1.4.0", "failed", 5*time.Hour),
+		endedAttempt("upd_c2", "controller", "", "v1.4.0", "timed_out", 2*time.Hour),
+	}
+
+	members := waiting
+	members.Rollout = runningRollout("v1.3.5")
+	members.Rollout.HostIDs = []string{"h5", "h2", "h1", "h3"}
 
 	finishing := waiting
 	finishing.Hosts = slices.Clone(waiting.Hosts)
@@ -783,6 +818,7 @@ func TestDecideIsDeterministic(t *testing.T) {
 	rng := rand.New(rand.NewPCG(1, 2))
 	for name, s := range map[string]Snapshot{
 		"waiting": waiting, "starting": starting, "halting": halting, "finishing": finishing, "timing out": timing,
+		"members": members,
 	} {
 		t.Run(name, func(t *testing.T) {
 			want := fmt.Sprintf("%#v", decide(t, s))
@@ -794,6 +830,21 @@ func TestDecideIsDeterministic(t *testing.T) {
 				rng.Shuffle(len(shuffled.Releases), func(i, j int) {
 					shuffled.Releases[i], shuffled.Releases[j] = shuffled.Releases[j], shuffled.Releases[i]
 				})
+				for i := range shuffled.Hosts {
+					ended := slices.Clone(shuffled.Hosts[i].Ended)
+					rng.Shuffle(len(ended), func(i, j int) { ended[i], ended[j] = ended[j], ended[i] })
+					shuffled.Hosts[i].Ended = ended
+				}
+				shuffled.ControllerEnded = slices.Clone(s.ControllerEnded)
+				rng.Shuffle(len(shuffled.ControllerEnded), func(i, j int) {
+					shuffled.ControllerEnded[i], shuffled.ControllerEnded[j] = shuffled.ControllerEnded[j], shuffled.ControllerEnded[i]
+				})
+				if s.Rollout != nil {
+					r := *s.Rollout
+					r.HostIDs = slices.Clone(r.HostIDs)
+					rng.Shuffle(len(r.HostIDs), func(i, j int) { r.HostIDs[i], r.HostIDs[j] = r.HostIDs[j], r.HostIDs[i] })
+					shuffled.Rollout = &r
+				}
 				if got := fmt.Sprintf("%#v", Decide(shuffled)); got != want {
 					t.Fatalf("a shuffled snapshot planned\n%s\nwant\n%s", got, want)
 				}
@@ -814,4 +865,223 @@ func TestDecideLeavesTheSnapshotAsItWasGiven(t *testing.T) {
 	if !reflect.DeepEqual(s.Hosts, hosts) || !reflect.DeepEqual(s.Releases, releases) {
 		t.Error("Decide reordered the snapshot it was given")
 	}
+}
+
+// A controller the helper can never be installed beside will never take its
+// release from auto. Waiting for it would hold every host for good, and telling a
+// person to install the helper would send them to a command that only refuses.
+func TestDecideNeverWaitsForAControllerThatCanNeverUpdateItself(t *testing.T) {
+	s := soakingSnapshot(48 * time.Hour)
+	s.Helper = HelperStateUnsupported
+	s.HelperWhyNot = "this controller runs in a container that runs no runners"
+	s.Hosts = []HostFacts{planHost("h1", "runner-1", "1.3.4", 0)}
+	p := decide(t, s)
+	wantKinds(t, p, ActionStartRollout)
+	if p.Actions[0].Tag != "v1.3.5" {
+		t.Errorf("tag = %q, want v1.3.5, the release the controller runs", p.Actions[0].Tag)
+	}
+
+	// With every host on the controller's release, the sentence is about the
+	// controller, and offers the upgrade by hand rather than the helper.
+	s.Hosts[0].Version = "1.3.5"
+	p = decide(t, s)
+	wantKinds(t, p)
+	wantSentence(t, p, "v1.4.0", "cannot be installed here", "runs no runners", "sudo zoomies upgrade")
+	if strings.Contains(p.Sentence, "helper install") {
+		t.Errorf("sentence %q offers to install a helper that cannot be installed", p.Sentence)
+	}
+
+	// A rollout already running carries on rather than wait for the controller.
+	s.Hosts[0].Version = "1.3.4"
+	s.Rollout = runningRollout("v1.3.5")
+	wantKinds(t, decide(t, s), ActionUpdateHost)
+
+	// A helper that is merely missing is still waited for, and a word nobody
+	// defined is read as missing.
+	for _, state := range []HelperState{HelperStateMissing, "gone"} {
+		s.Helper = state
+		p = decide(t, s)
+		wantKinds(t, p)
+		wantSentence(t, p, "sudo zoomies updates helper install")
+	}
+}
+
+// A rollout started for named hosts updates those and no others. Without this
+// an administrator who asked for one host would find the whole fleet restarted.
+func TestDecideLeavesHostsOutsideTheRolloutAlone(t *testing.T) {
+	s := planSnapshot()
+	s.Rollout = runningRollout("v1.3.5")
+	s.Rollout.HostIDs = []string{"h2"}
+	s.Hosts = []HostFacts{planHost("h1", "runner-1", "1.3.4", 0), planHost("h2", "runner-2", "1.3.4", 3)}
+
+	p := decide(t, s)
+	wantKinds(t, p, ActionUpdateHost)
+	if p.Actions[0].HostID != "h2" {
+		t.Errorf("updated %q, want h2, the host the rollout was started for, though h1 runs fewer jobs", p.Actions[0].HostID)
+	}
+
+	// A failure of a host outside it does not halt it.
+	s.Hosts[0].Ended = []Attempt{endedAttempt("upd_1", "host", "h1", "v1.3.5", "failed", time.Hour)}
+	wantKinds(t, decide(t, s), ActionUpdateHost)
+
+	// Once the hosts it was started for are done, it is finished, however many
+	// others are behind; and a host outside it is not a reason to wait.
+	s.Hosts[1].Version = "1.3.5"
+	p = decide(t, s)
+	wantKinds(t, p, ActionFinishRollout)
+	if strings.Contains(p.Sentence, "runner-1") {
+		t.Errorf("sentence %q speaks of a host the rollout was not started for", p.Sentence)
+	}
+	s.Hosts[0].Healthy = false
+	wantKinds(t, decide(t, s), ActionFinishRollout)
+
+	// Started for no host in particular, it is every host behind.
+	s.Hosts[0].Healthy, s.Hosts[0].Ended = true, nil
+	s.Rollout.HostIDs = nil
+	wantKinds(t, decide(t, s), ActionUpdateHost)
+}
+
+// A describe build is ahead of the release it describes, and CompareBuilds reads
+// its suffix as a pre-release, which would put it behind. Only a release build
+// is ever taken anywhere.
+func TestDecideNeverTouchesAHostThatDoesNotRunAReleaseBuild(t *testing.T) {
+	for _, v := range []string{"1.3.5-3-gabcdef1", "v1.3.5-dirty", "1.3.4-2-gabcdef1", "1.3.4-rc1", "main-sha-abc1234"} {
+		t.Run(v, func(t *testing.T) {
+			s := planSnapshot()
+			s.Hosts = []HostFacts{planHost("h1", "runner-1", v, 0)}
+			p := decide(t, s)
+			wantKinds(t, p)
+			wantSentence(t, p, "runner-1", "does not run a release build")
+			if strings.Contains(p.Sentence, v) {
+				t.Errorf("sentence %q repeats the version the agent reported", p.Sentence)
+			}
+
+			s.Rollout = runningRollout("v1.3.5")
+			wantKinds(t, decide(t, s), ActionFinishRollout)
+		})
+	}
+	s := planSnapshot()
+	s.Hosts = []HostFacts{planHost("h1", "runner-1", "1.3.4", 0)}
+	wantKinds(t, decide(t, s), ActionStartRollout)
+}
+
+// Switching to manual is how an operator stops automation. A rollout auto
+// started is cancelled; one a person started is what they asked for.
+func TestDecideCancelsARolloutAutoStartedOnceTheModeIsManual(t *testing.T) {
+	s := planSnapshot()
+	s.Mode = ModeManual
+	s.Rollout = runningRollout("v1.3.5")
+	s.Rollout.Trigger = "auto"
+	s.Hosts = []HostFacts{planHost("h1", "runner-1", "1.3.4", 0)}
+	p := decide(t, s)
+	wantKinds(t, p, ActionCancelRollout)
+	wantSentence(t, p, "manual", "v1.3.5", "cancelled")
+
+	s.Rollout.State = "halted"
+	wantKinds(t, decide(t, s), ActionCancelRollout)
+
+	s.Rollout.State, s.Rollout.Trigger = "running", "manual"
+	wantKinds(t, decide(t, s), ActionUpdateHost)
+
+	// In auto a rollout auto started carries on.
+	s.Mode, s.Rollout.Trigger = ModeAuto, "auto"
+	wantKinds(t, decide(t, s), ActionUpdateHost)
+}
+
+// A person who cancelled a rollout meant it to stop. Auto starting the same
+// rollout ten seconds later would undo them.
+func TestDecideStartsNoRolloutToAReleaseWhoseRolloutAPersonCancelled(t *testing.T) {
+	s := planSnapshot()
+	s.Hosts = []HostFacts{planHost("h1", "runner-1", "1.3.4", 0)}
+	s.LastRollout = &Rollout{ID: "rol_0", Target: "v1.3.5", Trigger: "auto", State: "cancelled", CancelledBy: "alice"}
+	p := decide(t, s)
+	wantKinds(t, p)
+	wantSentence(t, p, "v1.3.5", "cancelled by hand", "newer release")
+
+	// Cancelled by the planner (the mode switched off, or to manual), finished,
+	// or for another release: auto starts as usual.
+	for _, last := range []Rollout{
+		{Target: "v1.3.5", State: "cancelled"},
+		{Target: "v1.3.5", State: "done", CancelledBy: "alice"},
+		{Target: "v1.3.4", State: "cancelled", CancelledBy: "alice"},
+	} {
+		s.LastRollout = &last
+		wantKinds(t, decide(t, s), ActionStartRollout)
+	}
+}
+
+// A failure since the rollout started halts it at once on the next pass; a
+// resume moves Since past it, and the same failure must not halt it again, or
+// resuming could never work.
+func TestDecideHaltsOnAFailureSinceTheRolloutStartedOrResumedOnly(t *testing.T) {
+	s := planSnapshot()
+	s.Rollout = runningRollout("v1.3.5")
+	s.Rollout.Since = planNow.Add(-2 * time.Hour)
+	s.Hosts = []HostFacts{planHost("h1", "runner-1", "1.3.4", 0), planHost("h2", "runner-2", "1.3.4", 1)}
+	s.Hosts[0].Ended = []Attempt{endedAttempt("upd_1", "host", "h1", "v1.3.5", "timed_out", 20*time.Minute)}
+	p := decide(t, s)
+	wantKinds(t, p, ActionHalt)
+	if p.Actions[0].HostID != "h1" {
+		t.Errorf("halted on %q, want h1", p.Actions[0].HostID)
+	}
+	if strings.Contains(p.Sentence, "download") {
+		t.Errorf("sentence %q repeats the helper's error, which only the platform role reads", p.Sentence)
+	}
+
+	// Resumed after it: the host waits out its retry and the next one goes.
+	s.Rollout.Since = planNow.Add(-10 * time.Minute)
+	p = decide(t, s)
+	wantKinds(t, p, ActionUpdateHost)
+	if p.Actions[0].HostID != "h2" {
+		t.Errorf("updated %q, want h2 while h1 waits after its failure", p.Actions[0].HostID)
+	}
+
+	// A failure to another release, or another host's, is not this rollout's.
+	s.Rollout.Since = planNow.Add(-2 * time.Hour)
+	s.Hosts[0].Ended = []Attempt{
+		endedAttempt("upd_2", "host", "h1", "v1.3.4", "failed", time.Hour),
+		endedAttempt("upd_3", "host", "h9", "v1.3.5", "failed", time.Hour),
+		endedAttempt("upd_4", "host", "h1", "v1.3.5", "cancelled", time.Hour),
+	}
+	wantKinds(t, decide(t, s), ActionUpdateHost)
+}
+
+// A failure whose end is not known is not a reason to try again at once: the
+// zero time is thirty minutes before nothing.
+func TestDecideNeverRetriesAtOnceAfterAFailureOfUnknownTime(t *testing.T) {
+	s := planSnapshot()
+	s.Rollout = runningRollout("v1.3.5")
+	s.Hosts = []HostFacts{planHost("h1", "runner-1", "1.3.4", 0)}
+	a := endedAttempt("upd_1", "host", "h1", "v1.3.5", "failed", 0)
+	a.FinishedAt = time.Time{}
+	s.Hosts[0].Ended = []Attempt{a}
+	p := decide(t, s)
+	wantKinds(t, p)
+	wantSentence(t, p, "runner-1", "not known")
+
+	c := soakingSnapshot(48 * time.Hour)
+	b := endedAttempt("upd_c", "controller", "", "v1.4.0", "failed", 0)
+	b.FinishedAt = time.Time{}
+	c.ControllerEnded = []Attempt{b}
+	p = decide(t, c)
+	wantKinds(t, p)
+	wantSentence(t, p, "not known")
+}
+
+// An attempt whose start is not known is not centuries old: it is waited on,
+// not timed out.
+func TestDecideDoesNotTimeOutAnAttemptWhoseStartIsNotKnown(t *testing.T) {
+	s := planSnapshot()
+	s.Controller = openAttempt("upd_c", "controller", "", "v1.4.0", 0)
+	s.Controller.RequestedAt = time.Time{}
+	p := decide(t, s)
+	wantKinds(t, p)
+	wantSentence(t, p, "being updated")
+
+	h := planSnapshot()
+	h.Rollout = runningRollout("v1.3.5")
+	h.Hosts = []HostFacts{planHost("h1", "runner-1", "1.3.4", 0)}
+	h.Hosts[0].Open = openAttempt("upd_h", "host", "h1", "v1.3.5", 0)
+	h.Hosts[0].Open.RequestedAt = time.Time{}
+	wantKinds(t, decide(t, h))
 }

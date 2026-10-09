@@ -34,34 +34,57 @@ const (
 	scopeController = "controller"
 	scopeHost       = "host"
 	attemptOpen     = "requested"
+	attemptFailed   = "failed"
+	attemptTimedOut = "timed_out"
 	rolloutRunning  = "running"
 	rolloutHalted   = "halted"
+	rolloutCanceled = "cancelled"
+	triggerManual   = "manual"
 )
 
-// Attempt is one update that is open: the controller's own, or one host's.
+// Attempt is one update: the controller's own, or one host's, open or ended.
 type Attempt struct {
 	ID string
 	// Scope is "controller" or "host". HostID names the host for a host's
 	// attempt and is empty for the controller's.
 	Scope, HostID string
-	// To is the tag the attempt takes the machine to. It is read only for the
-	// sentence, and only when ValidTag says it is a tag.
+	// To is the tag the attempt takes the machine to. A sentence repeats it only
+	// when ValidTag says it is a tag.
 	To string
-	// State is the store's word for it. Only "requested" is open; an attempt in
-	// any other state has ended and is not read.
-	State       string
+	// State is the store's word for it: "requested" while it is open, then
+	// "succeeded", "failed", "timed_out" or "cancelled".
+	State string
+	// RequestedAt is when it was asked for. Zero is not known, and an attempt
+	// whose start is not known is never timed out by arithmetic on it.
 	RequestedAt time.Time
+	// FinishedAt is when it ended, zero while it is open. Error is why it did
+	// not succeed; the planner never repeats it, because the helper's text can
+	// name a path on the host and every role reads the sentence.
+	FinishedAt time.Time
+	Error      string
 }
 
-// Rollout is the open walk of the fleet to one release.
+// Rollout is a walk of the fleet to one release: the open one, or the last
+// one that ended.
 type Rollout struct {
 	ID string
 	// Target is the tag the rollout was started for.
 	Target string
-	// State is "running" or "halted"; anything else is not open and is read as
-	// no rollout.
+	// Trigger is "manual" for one a person started and "auto" for the planner's.
+	Trigger string
+	// State is "running" or "halted" while it is open, then "done" or
+	// "cancelled".
 	State        string
 	HaltedReason string
+	// HostIDs is the hosts it was started for; nil or empty is every host that
+	// is behind.
+	HostIDs []string
+	// Since is when it started or was last resumed. A failure before it is one
+	// an operator has resumed past, and must not halt it again.
+	Since time.Time
+	// CancelledBy is the person who cancelled it, and empty when it was not
+	// cancelled or the planner cancelled it.
+	CancelledBy string
 }
 
 // HostFacts is what the planner knows of one host.
@@ -85,17 +108,28 @@ type HostFacts struct {
 	ActiveRunners int
 	// Open is the host's open attempt, or nil.
 	Open *Attempt
-	// Failures is how many attempts to take the host to the controller's release
-	// failed or timed out. LastFailedAt is when the most recent of its attempts
-	// failed or timed out, whatever release it was for, or zero.
-	Failures     int
-	LastFailedAt time.Time
-	// FailedInRollout is the error of the open rollout's failed or timed-out
-	// attempt for this host since the rollout was started or last resumed, or
-	// empty. One an operator has resumed past is not carried, or the rollout
-	// would halt again on the failure it was resumed from.
-	FailedInRollout string
+	// Ended is the host's recent attempts that have ended, in any order. Every
+	// count of failures, and whether the open rollout halts, is worked out from
+	// them here, so the rule that stops a rollout on a failure is one a table of
+	// snapshots can try.
+	Ended []Attempt
 }
+
+// HelperState is the update helper beside the controller as the planner reads
+// it.
+type HelperState string
+
+const (
+	// HelperStateReady is installed and answering.
+	HelperStateReady HelperState = "ready"
+	// HelperStateMissing is not installed, and somebody with root could install
+	// it. Any word the planner does not know is read as missing.
+	HelperStateMissing HelperState = "missing"
+	// HelperStateUnsupported can never be installed beside this controller.
+	// Telling a person to install it would send them to a command that only
+	// refuses, and waiting for it would be waiting for ever.
+	HelperStateUnsupported HelperState = "unsupported"
+)
 
 // Snapshot is everything Decide reads, gathered by the controller.
 type Snapshot struct {
@@ -107,22 +141,24 @@ type Snapshot struct {
 	Running      string
 	GOOS, GOARCH string
 	Releases     []Release
-	// HelperReady says the update helper beside the controller is installed and
-	// answering.
-	HelperReady bool
+	// Helper is the update helper beside the controller. HelperWhyNot is, for
+	// an unsupported one, why it can never be installed, as the middle of a
+	// sentence that names no path.
+	Helper       HelperState
+	HelperWhyNot string
 	// Fenced says the controller may not act: it is fenced for recovery or does
 	// not hold the database's lease.
 	Fenced bool
 	// Controller is the controller's open attempt, or nil.
 	Controller *Attempt
-	// ControllerFailures is how many attempts to take the controller to the
-	// release Choose picks failed or timed out; ControllerLastFailedAt is when its
-	// most recent attempt failed or timed out, whatever release it was for.
-	ControllerFailures     int
-	ControllerLastFailedAt time.Time
-	// Rollout is the open rollout, or nil.
-	Rollout *Rollout
-	Hosts   []HostFacts
+	// ControllerEnded is the controller's recent attempts that have ended, in any
+	// order.
+	ControllerEnded []Attempt
+	// Rollout is the open rollout, or nil. LastRollout is the most recent one
+	// that has ended, or nil.
+	Rollout     *Rollout
+	LastRollout *Rollout
+	Hosts       []HostFacts
 }
 
 // ActionKind is one thing the controller is asked to do.
@@ -175,13 +211,19 @@ type Plan struct {
 //     bookkeeping, not a decision to update, and the controller's own closer
 //     does the same. An attempt timed out this pass still counts as open.
 //  3. Off (or a mode nothing knows): cancel an open rollout and nothing else.
+//     Manual cancels a rollout auto started, since switching to manual is how an
+//     operator stops automation, and nothing in manual moves without a click.
 //  4. A failure in a running rollout halts it; a halted rollout moves nothing,
 //     not even the controller, until an operator resumes or cancels it.
 //  5. In auto, the controller: once Choose says its release is due, it goes
-//     before any host, or waits with the reason it cannot go.
-//  6. The rollout: carried on in manual or auto, one host at a time; started
-//     only in auto. Manual never starts anything; a rollout open in manual was
-//     started by a person, and moving it is what they asked for.
+//     before any host, or waits with the reason it cannot go. A controller the
+//     helper can never be installed beside is left to a person and holds no host
+//     back, since waiting for it would be waiting for ever.
+//  6. The rollout: carried on in manual or auto, one host at a time, among the
+//     hosts it was started for; started only in auto, and not again to a release
+//     whose last rollout a person cancelled. Manual never starts anything; a
+//     rollout a person started is carried on, because moving it is what they
+//     asked for.
 //
 // The helper's path unit allows five starts in ten minutes. A plan holds at most
 // one action that writes a request, an open attempt blocks the next, and
@@ -195,6 +237,10 @@ func Decide(s Snapshot) Plan {
 	p.timeOuts()
 	if s.Mode != ModeManual && s.Mode != ModeAuto {
 		p.off()
+		return p.plan
+	}
+	if s.Mode == ModeManual && p.rollout != nil && p.rollout.Trigger != triggerManual {
+		p.stopAuto()
 		return p.plan
 	}
 	if p.halt() || p.halted() {
@@ -222,7 +268,10 @@ type planner struct {
 	rollout *Rollout
 	// timedOut is the reason given for each attempt this pass timed out.
 	timedOut map[string]string
-	plan     Plan
+	// controllerNote is what is said, when nothing else is, about a controller
+	// release that is due and that only a person can install.
+	controllerNote string
+	plan           Plan
 }
 
 func newPlanner(s Snapshot) *planner {
@@ -281,9 +330,11 @@ func hostAttempt(h HostFacts) *Attempt {
 }
 
 // expired matches the controller's own closer: at exactly 90 minutes an attempt
-// is still waited on, so the two never disagree about the minute.
+// is still waited on, so the two never disagree about the minute. An attempt
+// whose start is not known is not timed out: the zero time is not when anything
+// began, and from it every attempt would look centuries old.
 func (p *planner) expired(a *Attempt) bool {
-	return p.s.Now.Sub(a.RequestedAt) > AttemptTimeout
+	return !a.RequestedAt.IsZero() && p.s.Now.Sub(a.RequestedAt) > AttemptTimeout
 }
 
 func (p *planner) timeOuts() {
@@ -318,6 +369,53 @@ func (p *planner) off() {
 	p.say(p.choice.Reason)
 }
 
+// stopAuto cancels, in manual, a rollout auto started.
+func (p *planner) stopAuto() {
+	reason := fmt.Sprintf("Updating is manual, so the rollout auto started to %s is cancelled and nothing moves without a click. "+
+		"An update already under way finishes by itself and is recorded.", tagOr(p.rollout.Target, "its release"))
+	p.act(Action{Kind: ActionCancelRollout, Reason: reason})
+	p.say(reason)
+}
+
+// member says whether the open rollout was started for h: every host, when it
+// was started for no host in particular.
+func (p *planner) member(h HostFacts) bool {
+	return p.rollout == nil || len(p.rollout.HostIDs) == 0 || slices.Contains(p.rollout.HostIDs, h.ID)
+}
+
+// failedIn says whether h's update to the rollout's release failed or timed out
+// since the rollout started or was last resumed. One before that is a failure
+// an operator has resumed past, and halting on it again would make resuming
+// impossible.
+func (p *planner) failedIn(h HostFacts) bool {
+	for _, a := range h.Ended {
+		if a.Scope == scopeHost && a.HostID == h.ID && failed(a.State) && !a.FinishedAt.Before(p.rollout.Since) &&
+			version.CompareBuilds(a.To, p.rollout.Target) == version.SkewNone {
+			return true
+		}
+	}
+	return false
+}
+
+func failed(state string) bool { return state == attemptFailed || state == attemptTimedOut }
+
+// failures is how many of the ended attempts of one machine, those that keep
+// says are its own, failed or timed out taking it to tag, and when the latest of
+// them ended. A failure on the way to another release says nothing about this
+// one.
+func failures(ended []Attempt, tag string, keep func(Attempt) bool) (n int, last time.Time) {
+	for _, a := range ended {
+		if !keep(a) || !failed(a.State) || version.CompareBuilds(a.To, tag) != version.SkewNone {
+			continue
+		}
+		n++
+		if a.FinishedAt.After(last) {
+			last = a.FinishedAt
+		}
+	}
+	return n, last
+}
+
 // halt halts a running rollout on the first host, in planning order, whose update
 // in it failed. The helper's error is not copied into the reason: it can name a
 // path on the host, and the attempt already holds it where only the platform
@@ -327,7 +425,7 @@ func (p *planner) halt() bool {
 		return false
 	}
 	for _, h := range p.hosts {
-		if h.FailedInRollout == "" {
+		if !p.member(h) || !p.failedIn(h) {
 			continue
 		}
 		reason := fmt.Sprintf("The update of %s to %s did not succeed, so the rollout is halted. Read why on the host's card, then resume the rollout or cancel it.",
@@ -356,19 +454,33 @@ func (p *planner) controller() bool {
 		return false
 	}
 	tag := t.Release.Tag
+	if p.s.Helper == HelperStateUnsupported {
+		why := strings.TrimSpace(p.s.HelperWhyNot)
+		if why == "" {
+			why = "this controller runs where the helper's units cannot"
+		}
+		p.controllerNote = fmt.Sprintf("%s can be taken now, but the update helper cannot be installed here: %s. "+
+			"Auto leaves the controller to a person and takes hosts to the release it runs; update the controller on its host with sudo zoomies upgrade.",
+			tag, why)
+		return false
+	}
 	if sentence, open := p.blocked(); open {
 		p.say(sentence)
 		return true
 	}
+	n, lastFailed := failures(p.s.ControllerEnded, tag, func(a Attempt) bool { return a.Scope == scopeController })
 	switch {
-	case !p.s.HelperReady:
+	case p.s.Helper != HelperStateReady:
 		p.say(fmt.Sprintf("%s can be taken now, but the update helper is not installed beside the controller, so auto waits, and no host is updated before the controller. "+
 			"Run sudo zoomies updates helper install on the controller's host.", tag))
-	case p.s.ControllerFailures >= MaxFailuresPerTag:
+	case n >= MaxFailuresPerTag:
 		p.say(fmt.Sprintf("Auto stops trying to update the controller to %s after %d failed attempts, and no host is updated before the controller; an operator must act. "+
-			"Read why in Settings → Updates, then press Update there or run sudo zoomies upgrade on the controller's host.", tag, p.s.ControllerFailures))
-	case p.waiting(p.s.ControllerLastFailedAt):
-		p.say(fmt.Sprintf("The controller's last update did not succeed; auto tries %s again in %s.", tag, p.retryIn(p.s.ControllerLastFailedAt)))
+			"Read why in Settings → Updates, then press Update there or run sudo zoomies upgrade on the controller's host.", tag, n))
+	case n > 0 && lastFailed.IsZero():
+		p.say(fmt.Sprintf("The controller's last update to %s did not succeed and when it ended is not known, so auto does not try it again; an operator must act. "+
+			"Press Update in Settings → Updates, or run sudo zoomies upgrade on the controller's host.", tag))
+	case p.waiting(lastFailed):
+		p.say(fmt.Sprintf("The controller's last update did not succeed; auto tries %s again in %s.", tag, p.retryIn(lastFailed)))
 	default:
 		p.act(Action{Kind: ActionRequestController, Tag: tag, Reason: t.Reason})
 		p.say(t.Reason)
@@ -432,12 +544,19 @@ func (p *planner) start() {
 		return
 	}
 	if p.s.Mode != ModeAuto || p.target == "" {
-		p.say(p.choice.Reason)
+		p.say(p.idle())
 		return
 	}
 	sv := p.survey()
 	if sv.ready == nil {
-		p.say(withNote(p.choice.Reason, sv.note))
+		p.say(withNote(p.idle(), sv.note))
+		return
+	}
+	// A person who cancelled a rollout meant it to stop. Starting the same one
+	// on the next pass would undo them ten seconds later.
+	if lr := p.s.LastRollout; lr != nil && lr.State == rolloutCanceled && lr.CancelledBy != "" &&
+		version.CompareBuilds(lr.Target, p.target) == version.SkewNone {
+		p.say(fmt.Sprintf("The rollout to %s was cancelled by hand, so auto starts no other until there is a newer release or somebody starts one.", p.target))
 		return
 	}
 	hosts := strconv.Itoa(sv.updatable) + " hosts are behind it and are"
@@ -447,6 +566,16 @@ func (p *planner) start() {
 	reason := fmt.Sprintf("Starting a rollout to %s, the release the controller runs: %s updated one at a time.", p.target, hosts)
 	p.act(Action{Kind: ActionStartRollout, Tag: p.target, Reason: reason})
 	p.say(reason)
+}
+
+// idle is what is said when no rollout moves: Choose's sentence, unless the
+// controller's release is due and only a person can install it, where Choose's
+// "can be taken now" would promise something auto will never do.
+func (p *planner) idle() string {
+	if p.controllerNote != "" {
+		return p.controllerNote
+	}
+	return p.choice.Reason
 }
 
 func (p *planner) updateHost(h HostFacts) {
@@ -493,6 +622,11 @@ func (p *planner) survey() survey {
 	var sv survey
 	for i := range p.hosts {
 		h := &p.hosts[i]
+		// A host the open rollout was not started for is not its business, nor a
+		// reason for it to wait, nor something to say about it.
+		if !p.member(*h) {
+			continue
+		}
 		stand, note := p.assess(*h)
 		switch stand {
 		case standReady:
@@ -529,6 +663,13 @@ func (p *planner) assess(h HostFacts) (standing, string) {
 	if strings.TrimSpace(h.Version) == "" {
 		return standSkipped, name + " has not said which version it runs, so it is left alone."
 	}
+	// Only a release build can be behind. CompareBuilds reads what follows a
+	// hyphen as a pre-release, so a describe build such as 1.3.5-3-gabcdef1,
+	// which is ahead of v1.3.5, would otherwise read as behind it and be taken
+	// back. The version is the agent's word, so it is not repeated.
+	if _, ok := TargetTag(h.Version); !ok {
+		return standSkipped, name + " does not run a release build, so automatic updating leaves it alone."
+	}
 	switch version.CompareBuilds(h.Version, p.target) {
 	case version.SkewNone:
 		return standCurrent, ""
@@ -547,13 +688,18 @@ func (p *planner) assess(h HostFacts) (standing, string) {
 		return standSkipped, name + " cannot be updated from here."
 	case !p.carriesBinaryFor(h):
 		return standSkipped, fmt.Sprintf("%s carries no binary for the system %s runs on, so it is left alone.", p.target, name)
-	case h.Failures >= MaxFailuresPerTag:
+	}
+	n, lastFailed := failures(h.Ended, p.target, func(a Attempt) bool { return a.Scope == scopeHost && a.HostID == h.ID })
+	switch {
+	case n >= MaxFailuresPerTag:
 		return standSkipped, fmt.Sprintf("%d attempts to update %s to %s have failed, so Zoomies stops trying; an operator must act. "+
-			"Read why on the host's card, then press Update there or run sudo zoomies upgrade on the host.", h.Failures, name, p.target)
+			"Read why on the host's card, then press Update there or run sudo zoomies upgrade on the host.", n, name, p.target)
 	case !h.Healthy:
 		return standPending, name + " is not answering, so it is updated once it is back."
-	case p.waiting(h.LastFailedAt):
-		return standPending, fmt.Sprintf("%s's last update did not succeed; it is tried again in %s.", name, p.retryIn(h.LastFailedAt))
+	case n > 0 && lastFailed.IsZero():
+		return standPending, fmt.Sprintf("%s's last update did not succeed and when it ended is not known, so it is not tried again until an operator updates it from its card.", name)
+	case p.waiting(lastFailed):
+		return standPending, fmt.Sprintf("%s's last update did not succeed; it is tried again in %s.", name, p.retryIn(lastFailed))
 	}
 	return standReady, ""
 }
