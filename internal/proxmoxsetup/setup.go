@@ -253,6 +253,23 @@ func Command(controller, id, token, tag string) string {
 		"ZOOMIES_PROXMOX_SETUP"
 }
 
+// ConnectScriptURL is where connect-proxmox.sh is served; the site workflow
+// copies the file from the repository root, as it does install.sh.
+const ConnectScriptURL = "https://zoomies.sh/connect-proxmox.sh"
+
+// ShortCommand is Command's two-line form: the same private, checksum-verified
+// download, done by the hosted connect-proxmox.sh so the operator pastes a line
+// they can read instead of a script. Command stays as the full text for a host
+// that cannot reach zoomies.sh, and for anyone who wants to read every step
+// before running it.
+func ShortCommand(controller, id, token, tag string) string {
+	quote := func(s string) string { return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'" }
+	return "if [ \"$(id -u)\" -eq 0 ]; then zoomies_sudo=''; else zoomies_sudo='sudo'; fi\n" +
+		"curl --proto '=https' --proto-redir '=https' -fsSL " + ConnectScriptURL + " | $zoomies_sudo sh -s -- " +
+		"--version " + quote(tag) + " --key " + quote(InstanceKey(controller)) +
+		" --controller " + quote(controller) + " --setup-id " + quote(id) + " --token " + quote(token)
+}
+
 // DiscoverTemplates reads cluster inventory without changing any guests.
 func DiscoverTemplates(ctx context.Context, h Host) ([]Template, error) {
 	raw, err := h.Run(ctx, "pvesh", "get", "/cluster/resources", "--type", "vm", "--output-format", "json")

@@ -249,7 +249,9 @@ controller on macOS or Windows, on a Linux host that systemd does not run, in a
 container that runs no runners (and so does not mount the shared folder), or in
 a container under a rootless runtime shows its helper as **unsupported** on
 Settings → Updates, with the reason and `sudo zoomies upgrade` to copy instead
-of the install command, and raises no `controller.update_helper_missing`. A host
+of the install command, and raises no `controller.update_helper_missing`. On
+Windows, which has no `sudo` and no service `zoomies upgrade` can update, there
+is no command to copy, and the reason says how to replace the binary by hand. A host
 behind the controller for one of the same reasons (its agent says which on its
 heartbeat; an agent too old to say is known only by an operating system other
 than Linux) shows **Update by command** on its card with the reason and no

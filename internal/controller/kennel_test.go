@@ -1176,6 +1176,8 @@ func TestEveryRequestWithEveryOptInSwitchOnIsOneItDocuments(t *testing.T) {
 		"GET /repos/{owner}/{repo}/actions/permissions/workflow",
 		"GET /repos/{owner}/{repo}/actions/permissions/fork-pr-contributor-approval",
 		"GET /repos/{owner}/{repo}/actions/permissions/fork-pr-workflows-private-repos",
+		"GET /repos/{owner}/{repo}/branches/{branch}/protection",
+		"GET /repos/{owner}/{repo}/rules/branches/{branch}",
 	} {
 		if !seen[want] {
 			t.Errorf("the documented request %s was never made, so no test holds it", want)

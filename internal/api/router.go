@@ -109,6 +109,7 @@ func (s *Server) routes() http.Handler {
 		r.Use(s.csrf)
 		r.Use(s.authenticate)
 		r.With(s.require(auth.ActionBackupsWrite)).Post("/api/v1/backups/upload", s.handleUploadBackup)
+		r.With(s.require(auth.ActionBackupsRestore)).Post("/api/v1/transfers/import", s.handleImportTransfer)
 		// An installation archive is history rather than a request, and the
 		// handler bounds it itself for the same reason.
 		r.With(s.require(auth.ActionInstallationsWrite)).Post("/api/v1/installations/import", s.handleImportInstallation)
@@ -385,6 +386,7 @@ func (s *Server) apiRoutes() chi.Router {
 		})
 		// The assistant's providers: the administrator's, kinds included,
 		// because only the page that adds one asks for them.
+		r.With(s.require(auth.ActionAssistantChat)).Post("/assistant/chat", s.handleAssistantChat)
 		r.Route("/assistant/providers", func(r chi.Router) {
 			r.With(s.require(auth.ActionAssistantRead)).Get("/", s.handleListAssistantProviders)
 			r.With(s.require(auth.ActionAssistantWrite)).Post("/", s.handleCreateAssistantProvider)
@@ -489,6 +491,11 @@ func (s *Server) apiRoutes() chi.Router {
 		// Recovery: the fence a restore sets, and the one act that lifts it.
 		r.With(s.require(auth.ActionStatsRead)).Get("/recovery", s.handleGetRecovery)
 		r.With(s.require(auth.ActionRecoveryWrite)).Post("/recovery/unfence", s.handleUnfence)
+
+		r.With(s.require(auth.ActionBackupsRead)).Post("/transfers/export", s.handleExportTransfer)
+		r.With(s.require(auth.ActionBackupsRead)).Get("/transfers/preparation", s.handleTransferProgress)
+		r.With(s.require(auth.ActionBackupsRestore)).Post("/transfers/preparation", s.handlePrepareTransfer)
+		r.With(s.require(auth.ActionBackupsRestore)).Delete("/transfers/preparation", s.handleCancelTransfer)
 
 		// Backups. Reading one is reading the whole database, and restoring
 		// one replaces the fleet, so every route here is admin and the two

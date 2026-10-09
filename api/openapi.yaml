@@ -1990,7 +1990,10 @@ paths:
         repository permissions the migration wizard needs (`contents`,
         `pull_requests` and `workflows`, all write) are added only when
         `migration` is true, because nothing else in Zoomies writes to a
-        repository.
+        repository. An organisation App also asks for `administration` read
+        when `kennel_settings` is true, for the Kennel Club checks of a
+        repository's settings, and `contents` read when `kennel_files` is true,
+        for the checks of a repository's files.
       x-zoomies-role: admin
       requestBody:
         required: true
@@ -2013,6 +2016,30 @@ paths:
                     will not migrate workflows. Adding them to an existing App
                     later is possible, but GitHub holds the change until the
                     account's owner accepts it on the installation.
+                kennel_settings:
+                  type: boolean
+                  default: false
+                  description: |
+                    Also request `administration` read on an organisation App, for
+                    the Kennel Club checks of a repository's Actions settings and
+                    required status checks. GitHub offers no narrower permission
+                    for them, and it also lets an App read configuration Zoomies
+                    has no use for, so leave it off for a fleet that will not turn
+                    those checks on. A repository App holds `administration` write
+                    already, so this changes nothing for one. Adding it later is
+                    possible, but GitHub holds the change until the account's owner
+                    accepts it on the installation.
+                kennel_files:
+                  type: boolean
+                  default: false
+                  description: |
+                    Also request `contents` read, for the Kennel Club checks of a
+                    repository's workflow files, instruction files and file names.
+                    Read access to contents is read access to code, so leave it off
+                    for a fleet that will not turn those checks on. It is not
+                    lowered when `migration` already requests `contents` write.
+                    Adding it later is possible, but GitHub holds the change until
+                    the account's owner accepts it on the installation.
       responses:
         "200":
           description: OK
@@ -3941,13 +3968,14 @@ paths:
         never dials an agent, and the host is updated once its agent reports that release, which
         the page learns from the host's `host.updated` events. Everything that can refuse does so
         before anything is written, so a refusal leaves nothing in flight. A host can be asked when
-        its `update.can_update` is true: its agent offers to update itself (it does only once the
-        update helper is installed on the host), it is behind the controller's release, and no
-        attempt for it is open. The agent inside the controller is updated with the controller,
-        and is refused with `update.host_cannot_update`, as is a host that is not behind. A host
-        that is not there is a 404. Takes no body; a field sent is a 422 naming it. Audited as
-        `update.host_requested` once it is accepted, and not before. Below the `platform` role the
-        text of a failed attempt in the answer is a fixed sentence for its state.
+        its `update.can_update` is true: updating is on, its agent offers to update itself (it does
+        only once the update helper is installed on the host), it is behind the controller's
+        release, and no attempt for it is open. The agent inside the controller is updated with
+        the controller, and is refused with `update.host_cannot_update`, as is a host that is not
+        behind. A host that is not there is a 404. Takes no body; a field sent is a 422 naming it.
+        Audited as `update.host_requested` once it is accepted, and not before. Below the
+        `platform` role the text of a failed attempt in the answer is a fixed sentence for its
+        state.
       x-zoomies-role: admin
       requestBody:
         required: false
@@ -4838,6 +4866,50 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/Provider" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /assistant/chat:
+    post:
+      operationId: assistantChat
+      tags: [assistant]
+      summary: Ask the assistant's model a question
+      description: |
+        Answers a conversation as a `text/event-stream`: `delta` frames carrying
+        `{"text": ...}` as the model writes, one `usage` frame with
+        `{"input_tokens", "output_tokens"}` when the provider reports them, and a final
+        `done` frame with the provider's name and the model, or an `error` frame with a
+        `message` if the answer failed after it began (the status had gone out with the
+        first byte by then).
+
+        The controller keeps nothing between requests: send the conversation so far,
+        ending in the person's question, and send it again with the next one. Only
+        `user` and `assistant` messages are accepted. The model is told what Zoomies
+        is and that it cannot see this fleet or change anything; no tool is offered
+        and no fleet data is attached.
+
+        Everything that can be refused is refused before the stream opens: a conversation
+        that is empty, too long or does not end in a user message is a 422 naming the
+        message; an instance with no enabled provider, or a named one that is not, is a
+        409; a model that would not answer at all (the address was refused, the key was
+        wrong) is a 502 with code `assistant.provider_failed`.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssistantChatRequest" }
+      responses:
+        "200":
+          description: The answer, as it is written
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "502":
+          description: The model would not answer. The code is `assistant.provider_failed` and the message says why in words that never carry the request or the key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
 
   /assistant/providers:
     get:
@@ -5768,6 +5840,98 @@ paths:
               schema: { $ref: "#/components/schemas/Backup" }
         "409": { $ref: "#/components/responses/Conflict" }
 
+  /transfers/preparation:
+    get:
+      operationId: getTransferPreparation
+      tags: [backups]
+      x-zoomies-role: platform
+      summary: Follow complete instance preparation
+      responses:
+        "200":
+          description: Current drain and cleanup progress
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TransferProgress" }
+    post:
+      operationId: prepareInstanceTransfer
+      tags: [backups]
+      x-zoomies-role: platform
+      summary: Drain this instance for transfer
+      description: >-
+        Stops new runner and machine demand without changing saved pool settings. Busy jobs finish naturally. Idle runners withdraw safely, cleanup continues, and the recovery fence is raised automatically when no work is in flight. Preparation survives a restart. Requires process operator authority.
+      responses:
+        "202":
+          description: Preparation started or already in progress
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/TransferProgress" }
+        "409": { $ref: "#/components/responses/Conflict" }
+    delete:
+      operationId: cancelInstanceTransfer
+      tags: [backups]
+      x-zoomies-role: platform
+      summary: Cancel preparation before cutover
+      description: >-
+        Once fenced, use the explicit recovery action after checking no destination is running.
+      responses:
+        "204":
+          description: Preparation cancelled
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /transfers/export:
+    post:
+      operationId: exportInstanceTransfer
+      tags: [backups]
+      x-zoomies-role: platform
+      summary: Export a complete portable instance
+      description: >-
+        Requires a drained, fenced source. All database records and fleet credentials travel under a disposable transfer key inside the encrypted archive. The source encryption key and configuration file do not travel. Stop the source controller before cutover and keep it stopped while the destination runs. Requires process operator authority.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [passphrase]
+              properties:
+                passphrase: { type: string, format: password, minLength: 8, maxLength: 4096 }
+      responses:
+        "200":
+          description: The encrypted portable archive
+          content:
+            application/octet-stream:
+              schema: { type: string, format: binary }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /transfers/import:
+    post:
+      operationId: importInstanceTransfer
+      tags: [backups]
+      x-zoomies-role: platform
+      summary: Prepare a portable instance for this destination
+      description: >-
+        Authenticates an encrypted archive, verifies the database and re-seals secrets under this destination's key. Returns inventory counts and a prepared backup without replacing the database. Stage it using the restore endpoint with source_stopped=true, then restart to apply. The destination must be empty and keep its own operator access. Source operator authority and sign-in configuration are invalidated at apply. The imported instance remains fenced. Requires process operator authority.
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [file, passphrase]
+              properties:
+                file: { type: string, format: binary }
+                passphrase: { type: string, format: password, maxLength: 4096 }
+      responses:
+        "201":
+          description: Verified and sealed for this destination
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Backup" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "413": { description: The upload is over the limit. }
+
   /backups/upload:
     post:
       operationId: uploadBackup
@@ -6225,6 +6389,7 @@ paths:
             schema:
               type: object
               properties:
+                source_stopped: { type: boolean, description: Required for complete transfers; confirm the source controller is stopped and will remain stopped. }
                 revoke_api_tokens: { type: boolean, description: Revoke every API token as well. }
                 reset_agent_tokens: { type: boolean, description: Forget every host's agent credential, so each agent joins again. }
       responses:
@@ -7015,7 +7180,7 @@ components:
           properties:
             code:
               type: string
-              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, too_large, rate_limited, limit_reached, update.mode_off, update.check_disabled, update.helper_missing, update.in_progress, update.not_a_release, update.nothing_newer, update.host_cannot_update, update.rollout_halted, update.check_failed, internal]
+              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, too_large, rate_limited, limit_reached, update.mode_off, update.check_disabled, update.helper_missing, update.in_progress, update.not_a_release, update.nothing_newer, update.host_cannot_update, update.rollout_halted, update.check_failed, assistant.provider_failed, internal]
             message: { type: string, description: Written for a person to read, and to act on. }
             field: { type: string, description: "The form field at fault, or on a `limit_reached` refusal the `limits.*` setting that refused." }
             detail: { type: string }
@@ -9508,11 +9673,34 @@ components:
           type: string
           description: Why the fence is on -- normally the backup this database was restored from.
 
+    TransferProgress:
+      type: object
+      required: [draining, ready, live_runners, busy_runners, pending_cleanup, active_jobs, machine_operations]
+      properties:
+        draining: { type: boolean }
+        ready: { type: boolean }
+        live_runners: { type: integer }
+        busy_runners: { type: integer }
+        pending_cleanup: { type: integer }
+        active_jobs: { type: integer }
+        machine_operations: { type: integer }
+
+    TransferInfo:
+      type: object
+      required: [version, prepared, inventory]
+      properties:
+        version: { type: integer }
+        prepared: { type: boolean }
+        inventory:
+          type: object
+          additionalProperties: { type: integer, format: int64 }
+
     Backup:
       type: object
       description: One backup, as the Backups tab lists it. The manifest's facts are lifted out flat.
       required: [id, taken_at, source, location, bytes, total_bytes, schema_migrations, secrets, key_matches, key_included, restorable]
       properties:
+        transfer: { $ref: "#/components/schemas/TransferInfo" }
         id: { type: string, description: The backup's directory name., examples: [zoomies-20260916-120000] }
         taken_at: { type: string, format: date-time }
         source:
@@ -9735,6 +9923,7 @@ components:
       type: object
       required: [backup_id, dir, requested_at, revoke_api_tokens, reset_agent_tokens]
       properties:
+        source_stopped: { type: boolean }
         backup_id: { type: string }
         dir: { type: string }
         taken_at: { type: string, format: date-time }
@@ -11041,10 +11230,12 @@ components:
         can_update:
           type: boolean
           description: >-
-            Whether asking for an update now would be taken: the host's agent offers it, the
-            host is behind the controller's release, the controller runs a release, it is not
-            the agent inside the controller, and no attempt is open. `updates.mode` is not part
-            of it; with the mode `off` every request is refused with `update.mode_off`.
+            Whether asking for an update now would be taken: `updates.mode` is `manual` or
+            `auto`, the host's agent offers it, the host is behind the controller's release, the
+            controller runs a release, it is not the agent inside the controller, and no attempt
+            is open. With the mode `off` it is false, and `reason` says that updating is off
+            wherever turning it on would let the host be asked; where it would not, as for a host
+            the update helper can never be installed on, `reason` says what is in the way instead.
         attempt_id: { type: string, description: The attempt `state` describes, and empty with none., examples: [upd_k3fqz2mx7abcd] }
     Host:
       type: object
@@ -11386,7 +11577,8 @@ components:
         name: { type: string }
         endpoint: { type: string }
         templates: { type: array, items: { $ref: "#/components/schemas/ProxmoxSetupTemplate" }, description: QEMU templates detected by the setup command. }
-        command: { type: string, description: Returned only at creation; contains the short-lived setup capability. }
+        command: { type: string, description: Returned only at creation; the whole setup script, contains the short-lived setup capability. }
+        short_command: { type: string, description: Returned only at creation; the same setup as two lines that fetch the hosted connect-proxmox.sh. Contains the short-lived setup capability. }
 
     ProviderInput:
       type: object
@@ -11530,6 +11722,23 @@ components:
         usage_reported: { type: boolean, description: Whether the provider counts tokens, which is what the limits in a later slice rest on. }
         error: { type: string, description: Why the check failed, written for a person and never carrying the request. }
         checked_at: { type: string, format: date-time }
+
+    AssistantChatRequest:
+      type: object
+      required: [messages]
+      properties:
+        provider_id:
+          type: string
+          description: The provider to ask. Omit for the default. A disabled provider is not one to ask.
+        messages:
+          type: array
+          description: The conversation so far, oldest first, ending in a `user` message. At most 40 messages, 8 KiB each and 32 KiB in all.
+          items:
+            type: object
+            required: [role, content]
+            properties:
+              role: { type: string, enum: [user, assistant] }
+              content: { type: string }
 
     AssistantProvider:
       type: object
@@ -12168,7 +12377,7 @@ components:
           examples: [sudo zoomies updates helper install]
         upgrade_command:
           type: string
-          description: The command that updates the controller by hand on its host, for a person to copy. Set only when the state is `unsupported`, where it is the way.
+          description: The command that updates the controller by hand on its host, for a person to copy. Set only when the state is `unsupported`, where it is the way, and empty on Windows, which has no service `zoomies upgrade` can update, where `reason` says what to do by hand instead.
           examples: [sudo zoomies upgrade]
     UpdatesAttempt:
       type: object

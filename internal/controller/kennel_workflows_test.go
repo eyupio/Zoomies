@@ -289,18 +289,19 @@ func TestASwitchTurnsOffEveryCheckThatReadsItsSource(t *testing.T) {
 	if off[string(kennel.CodeForkCodeRan)] || off[string(kennel.AreaExposure)] {
 		t.Errorf("a check that reads no gated source was turned off: %v", off)
 	}
-	// With every switch there is on, only the check that reads a branch's required
-	// checks is off: nothing reads those yet, and a check that needs an unread
-	// source would cost every repository its best-in-show. This changes when the
-	// read arrives.
+	// With every switch there is on, every check is on: each source a check reads
+	// has a switch that reads it, and a check that needs a source nobody reads
+	// would cost every repository its best-in-show.
 	on := kennelDisabled(config.Kennel{RepositorySetup: true, WorkflowChecks: true, AgentGuidance: true, SettingsChecks: true})
-	if len(on) != 1 || !on[string(kennel.CodeRequiredCheckNeverReports)] {
-		t.Errorf("with every switch on, off = %v, want only %s", on, kennel.CodeRequiredCheckNeverReports)
+	if len(on) != 0 {
+		t.Errorf("with every switch on, off = %v, want nothing", on)
 	}
-	// Without the settings switch the three checks that read settings are off too.
+	// Without the settings switch the four checks that read settings or required
+	// checks are off too.
 	noSettings := kennelDisabled(config.Kennel{RepositorySetup: true, WorkflowChecks: true, AgentGuidance: true})
 	for _, c := range kennel.Checks() {
-		readsSettings := slices.Contains(c.Needs, kennel.SourceSettings) || slices.Contains(c.Conditional, kennel.SourceSettings)
+		readsSettings := slices.Contains(c.Needs, kennel.SourceSettings) || slices.Contains(c.Conditional, kennel.SourceSettings) ||
+			slices.Contains(c.Needs, kennel.SourceProtection) || slices.Contains(c.Conditional, kennel.SourceProtection)
 		if readsSettings && !noSettings[string(c.Code)] {
 			t.Errorf("%s reads settings and is on with that switch off", c.Code)
 		}

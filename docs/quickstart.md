@@ -177,6 +177,22 @@ permission to an App that already exists is held by GitHub until the account's
 owner accepts it on the installation, and until then the wizard cannot read a
 workflow at all ([how to add them later](migration.md#permissions)).
 
+For an organisation App it asks a second: **Also let Kennel Club check repository
+settings?** Again the answer is no unless you say otherwise. Yes adds
+`administration: read`, which the [repository settings
+checks](configuration.md#repository-settings-checks) need and GitHub offers no
+narrower form of. A repository App is not asked, because `administration: write`
+already includes it.
+
+It then asks **Also let Kennel Club read repository files?**, and again the answer
+is no unless you say otherwise. Yes adds `contents: read`, which Kennel Club's
+checks of workflow files, instruction files and file names need on private
+repositories. That is read access to code, which is why it is a question and not
+part of the list above; the migration wizard's `contents: write` includes it, so
+an App that asked for the wizard needs no second grant. Without it the checks
+that read files still run on public repositories and show a private repository
+as **not granted**.
+
 Create the App, install it on your organisation -- or, for a repository target,
 on your own account scoped to that repository, which is how a personal account
 is used -- and the credentials come back to the installer automatically. The

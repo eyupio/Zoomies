@@ -115,8 +115,9 @@ type Options struct {
 
 // Controller owns the control plane's moving parts and their lifecycles.
 type Controller struct {
-	doctor          *hosttune.Monitor
-	aiContextChecks chan struct{}
+	transferDraining atomic.Bool
+	doctor           *hosttune.Monitor
+	aiContextChecks  chan struct{}
 	// aiContextRuns remembers, per repository, which commit the controller has
 	// been waiting on the managed workflow for and how often it has started it.
 	// It lives in memory on purpose: forgetting it on a restart costs at most one
@@ -581,6 +582,11 @@ func (c *Controller) Start(ctx context.Context) error {
 	// The fence, before any loop starts. A controller that began reconciling
 	// and then discovered it was fenced would already have created the runners
 	// the fence exists to prevent.
+	if raw, err := c.st.GetSetting(ctx, store.SettingTransferDraining); err != nil {
+		return err
+	} else {
+		c.transferDraining.Store(raw == "true")
+	}
 	if err := c.LoadFence(ctx); err != nil {
 		return fmt.Errorf("controller: reading the recovery fence: %w", err)
 	}
@@ -740,6 +746,10 @@ func (c *Controller) Fenced() store.RecoveryFence {
 // It writes the database first and the in-memory copy second, so a failed
 // write leaves a fenced controller rather than one that believes it is free.
 func (c *Controller) Unfence(ctx context.Context) error {
+	if err := c.st.DeleteSetting(ctx, store.SettingTransferDraining); err != nil {
+		return err
+	}
+	c.transferDraining.Store(false)
 	if err := c.st.SetRecoveryFence(ctx, false, ""); err != nil {
 		return err
 	}

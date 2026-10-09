@@ -1432,6 +1432,46 @@ GitHub changes both (every endpoint is a capability probe, 404 or 405 becomes
 its negative, and is silent with the right coverage reason when its source is
 `denied`, `unavailable` or `partial`; no write request is ever made.
 
+**As built (9 October 2026).** The plan is
+[roadmap/plans/2026-10-09-zf-229d-settings.md](plans/2026-10-09-zf-229d-settings.md)
+and the work landed in seven pull requests: the plan (#779), the reader and the
+fake (#780), the four checks as pure code with the registry at version 7 (#782),
+the settings read behind a new opt-in, `kennel.settings_checks` (#784), the
+required-check read and judgement with `store.KennelJobsSeen` (#787), the
+Administration-read option for a new App (#790) and the Protection tab (#792).
+Where it differs from the design above:
+
+* The base `GET …/actions/permissions` is not read: no finding uses it, and the
+  list of what Kennel Club may call holds only what it needs.
+* One setting turns on all four checks, and it is named for what it reads
+  (`kennel.settings_checks`, **Check repository settings**) so that it cannot be
+  mistaken for `kennel.repository_setup`. `kennelDisabled` works from the
+  sources a check reads and not from its area, so `token.default_write` runs
+  with the workflow switch off.
+* The required checks are compared with the jobs table at every evaluation and
+  not once at read time, because the jobs change between reads. Their names stay
+  in the stored watermark and nowhere else; the snapshot holds counts. Every job
+  the controller was told about counts, hosted runners' included, and a name is
+  matched exactly, which is why a matrix job (`<job> (<values>)`) does not meet a
+  requirement for the bare name.
+* A reader call is one budget take however many requests it makes (up to three
+  for the settings, up to six for the protection), as the setup read already was.
+* Without Administration, rulesets still answer and classic protection does not,
+  so the source is **partly read**, not refused, and judges what the rulesets
+  require. Only when both halves are refused is it **not permitted**.
+* The Protection tab's links come from the installation's `web_url` plus a fixed
+  path, because the repository view carries no `html_url`. The findings are on
+  the CI tab as well, since its counts, filters and Waive button cover every
+  finding.
+* An organisation App asks for Administration read only if the operator says so;
+  a repository App holds Administration write already and is never asked.
+
+**Still to do.** Nothing here has run against a real installation: the
+`approval_policy` words, the shapes of the protection and rules answers and
+GitHub's acceptance of `administration: read` in a manifest are taken from the
+documentation and go-github's types. The first live run should compare them. No
+documentation screenshot of the Protection tab has been captured.
+
 ### Stage 5 (ZF-229e): fix by pull request
 
 **Goal and outcome.** For the three findings where a safe edit exists, an
@@ -1846,7 +1886,7 @@ read on 6 October 2026.
 | 2 | `GET /repos/{r}/actions/runs`, `…/runs/{id}` | Actions: read | Run state for the dry run's "in progress" and "latest successful" checks |
 | 3 | `GET /repos/{r}/contents/.github/workflows`, `…/git/blobs/{sha}` | Contents: read | Workflow files, by SHA |
 | 3 | `GET /repos/{r}/contents/.github/dependabot.yml` | Contents: read | Whether pins have an updater |
-| 4 | `GET /repos/{r}/actions/permissions`, `…/permissions/workflow`, `…/permissions/fork-pr-contributor-approval`, `…/permissions/fork-pr-workflows-private-repos` | Administration: read | Token default, approval policy |
+| 4 | `GET /repos/{r}/actions/permissions/workflow`, `…/permissions/fork-pr-contributor-approval` (public), `…/permissions/fork-pr-workflows-private-repos` (private) | Administration: read | Token default, approval policy. The base `…/actions/permissions` is not read |
 | 4 | `GET /repos/{r}/branches/{b}/protection` | Administration: read | Classic required checks (404 when none is normal) |
 | 4 | `GET /repos/{r}/rules/branches/{b}` | Metadata: read | Ruleset required checks |
 | 5 | `GET /repos/{o}/{a}/git/ref/tags/{t}`, `…/git/tags/{sha}` | none beyond reading the action's repository | Resolve a tag to a commit |

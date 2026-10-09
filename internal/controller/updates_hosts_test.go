@@ -1,8 +1,10 @@
 package controller
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
 	"strings"
 	"testing"
@@ -15,6 +17,7 @@ import (
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/store"
+	"github.com/eyupio/zoomies/internal/updates"
 	"github.com/eyupio/zoomies/internal/version"
 )
 
@@ -279,6 +282,76 @@ func TestAHostUpdateIsRefusedWhenTheModeIsOff(t *testing.T) {
 	assertNothingSent(t, h, host, err, ErrUpdateModeOff)
 }
 
+// With updating off every press is refused, so a card that offered one would
+// be a button that can only ever say no. The card says why instead, in a
+// sentence every role may read.
+func TestAHostCanBeUpdatedFromItsCardOnlyWhileUpdatingIsOn(t *testing.T) {
+	for _, tc := range []struct {
+		mode string
+		can  bool
+	}{{"off", false}, {"manual", true}, {"auto", true}} {
+		t.Run(tc.mode, func(t *testing.T) {
+			h := newHarness(t)
+			h.hostsCanUpdate()
+			h.inMode(tc.mode)
+			host := h.updatableHost("vm-1")
+			u := h.view(host.ID).For(false).Update
+			if u.CanUpdate != tc.can {
+				t.Fatalf("with the mode %s the card says %+v, want can_update %v", tc.mode, u, tc.can)
+			}
+			if tc.can {
+				return
+			}
+			if u.State != HostUpdateNone || !strings.Contains(u.Reason, "Updating is off") || !strings.Contains(u.Reason, "updates.mode") {
+				t.Errorf("the card says %+v, want no attempt and a reason saying updating is off and which setting turns it on", u)
+			}
+			if strings.Contains(u.Reason, "/") {
+				t.Errorf("every role reads the reason, and it names a path: %q", u.Reason)
+			}
+		})
+	}
+}
+
+// Turning updating on would not let a host the helper can never be installed
+// on be updated from here, so with it off that host still says the command on
+// its card is the way, rather than pointing at a setting that changes nothing.
+func TestAHostTheHelperCanNeverServeKeepsItsReasonWithUpdatingOff(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	h.inMode("off")
+	host := h.agentHost("vm-1", "1.3.4")
+	h.c.noteHelperUnsupported(host.ID, string(updates.HelperUnsupportedNoSystemd))
+	u := h.view(host.ID).Update
+	if u.CanUpdate || u.State != HostUpdateUnsupported || strings.Contains(u.Reason, "Updating is off") {
+		t.Errorf("the card says %+v, want unsupported with the helper's reason", u)
+	}
+}
+
+// The card is rendered from the mode as it is now, and nothing is written
+// when the mode moves, so it is the pass's comparison of what it last sent
+// that has to repaint every open Hosts page.
+func TestTurningUpdatingOffRepaintsTheHostsCard(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	sub := h.listen(events.KindHostUpdated)
+	h.c.publishDerived(h.ctx)
+	nextOfKind(t, sub, events.KindHostUpdated)
+
+	for _, step := range []struct {
+		mode string
+		can  bool
+	}{{"off", false}, {"manual", true}} {
+		h.inMode(step.mode)
+		h.c.publishDerived(h.ctx)
+		frame := nextOfKind(t, sub, events.KindHostUpdated)
+		got, _ := frame["update"].(map[string]any)
+		if frame["id"] != host.ID || got["can_update"] != step.can {
+			t.Errorf("after the mode moved to %s the frame says %v about %v, want can_update %v", step.mode, got, frame["id"], step.can)
+		}
+	}
+}
+
 // A controller built from main has no release to take its hosts to, and the
 // command by hand is what still works.
 func TestAHostCannotBeUpdatedWhenTheControllerIsNotARelease(t *testing.T) {
@@ -448,7 +521,7 @@ func TestAFailedResultOnTheHeartbeatClosesTheAttempt(t *testing.T) {
 
 	// The agent cleans the helper's text, but the controller does not take its
 	// word for it.
-	said := "the checksum did not match\x1b[31m‮" + strings.Repeat("é", 3000) + "\xff"
+	said := "the checksum did not match\x1b[31m\u202e" + strings.Repeat("é", 3000) + "\xff"
 	h.agentBeat(host, "1.3.4", &agent.UpdateReport{ID: a.ID, OK: false, Tag: "v1.3.5", Error: said, FinishedAt: h.c.Now().UTC()})
 	got := h.attempt(a.ID)
 	if got.State != store.UpdateFailed || !strings.HasPrefix(got.Error, "the checksum did not match") {
@@ -591,6 +664,29 @@ func TestAnUpdateTaskGivenBackUnstartedLeavesTheAttemptOpen(t *testing.T) {
 	h.pass(h.c)
 	if got := updateTasks(h.poll(host)); len(got) != 1 {
 		t.Errorf("the pass sent %d update tasks after the agent gave the last one back, want 1", len(got))
+	}
+}
+
+// An agent told to pause while the controller recovers gives each update task
+// back, and that is not an agent shutting down: a log that said so on every
+// pass would send whoever reads it looking for a restart that never happened.
+func TestAnUpdateTaskGivenBackByAPausedAgentIsNotLoggedAsAShutdown(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	h.requestHost(host)
+	var logged bytes.Buffer
+	h.c.log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelDebug}))
+
+	const said = "the controller has paused every change on this host while it recovers, so the update was not asked for; it is safe to send again"
+	task := updateTasks(h.poll(host))[0]
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: task.ID, Kind: agent.TaskUpdateAgent, NotStarted: true, Error: said, CompletedAt: h.c.Now(),
+	}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+	if out := logged.String(); strings.Contains(out, "shutting down") || !strings.Contains(out, "paused every change") {
+		t.Errorf("the task given back was logged as:\n%s\nwant the agent's own reason and no shutdown", out)
 	}
 }
 
@@ -959,6 +1055,55 @@ func TestTheUnavailableNoteLeavesOutTheEmbeddedAgentAndIncompatibleHosts(t *test
 	}
 	if contains(h.problemCodes(), "host.update_unavailable") {
 		t.Error("the embedded agent or an incompatible host was noted as unable to update from here")
+	}
+}
+
+// The note and the card are two views of one answer. A note about a host whose
+// card offers the button, or a card that says the helper is in the way with no
+// note beside it, would leave an operator choosing which of the two to believe.
+func TestTheUnavailableNoteIsRaisedForExactlyTheHostsWhoseCardBlamesTheHelper(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	hosts := []*store.Host{
+		h.agentHost("vm-no-helper", "1.3.4"),
+		h.updatableHost("vm-ready"),
+		h.agentHost("vm-current", "1.3.5"),
+		h.agentHost("vm-build", "main-sha-abc1234"),
+		h.agentHost("vm-quiet", ""),
+		h.agentHost("vm-no-systemd", "1.3.4"),
+	}
+	h.c.noteHelperUnsupported(hosts[5].ID, string(updates.HelperUnsupportedNoSystemd))
+
+	noted := func() map[string]bool {
+		ps, err := h.c.Problems(h.ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := make(map[string]bool)
+		for _, p := range ps {
+			if p.Code == "host.update_unavailable" {
+				out[p.TargetID] = true
+			}
+		}
+		return out
+	}
+	got := noted()
+	for _, host := range hosts {
+		u := h.view(host.ID).Update
+		blamesHelper := u.State == HostUpdateUnsupported || strings.Contains(u.Reason, "helper install")
+		if got[host.ID] != blamesHelper {
+			t.Errorf("%s: noted %v, but its card says %+v", host.Name, got[host.ID], u)
+		}
+	}
+	if len(got) != 2 {
+		t.Errorf("noted %d hosts, want the one without the helper and the one that can never have it", len(got))
+	}
+
+	// With updating off nothing is offered, so nothing is noted, even of the
+	// host whose card still says the helper can never be installed there.
+	h.inMode("off")
+	if got := noted(); len(got) != 0 {
+		t.Errorf("with updating off %d hosts are noted as unable to update from here", len(got))
 	}
 }
 

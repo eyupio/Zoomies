@@ -83,6 +83,11 @@ type kennelWatermark struct {
 	// word. They are never a name or a line of text a repository wrote.
 	Settings      *kennel.SettingsFacts `json:"settings,omitempty"`
 	SettingsState kennel.CoverageState  `json:"settings_state,omitempty"`
+	// Protection is the default branch's required status checks. It holds names a
+	// repository chose, so it stays in this document and is turned into counts
+	// before anything is evaluated.
+	Protection      *kennelProtection    `json:"protection,omitempty"`
+	ProtectionState kennel.CoverageState `json:"protection_state,omitempty"`
 	// Runs are the fork pull requests and stranger-triggered runs found, newest
 	// first.
 	Runs []kennelSeenRun `json:"runs"`

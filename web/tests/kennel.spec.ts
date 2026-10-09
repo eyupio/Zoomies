@@ -1278,6 +1278,118 @@ test.describe('with Kennel Club on', () => {
       await expect(page).toHaveURL(new RegExp(`${base}$`));
       await selected('Overview');
     });
+
+    // The settings checks are an opt-in, off in the fixture controller, so what the
+    // tab says there is the sentence that explains it. The states that need a
+    // GitHub which answers are put on the page by the API's own shapes.
+    test('the Protection tab says the settings checks are off when nothing reads settings', async ({
+      page,
+    }) => {
+      const row = await repository(page, PUBLIC_REPO);
+      await goto(page, `/kennel/repositories/${row.id}/protection`, PUBLIC_REPO);
+      await expect(page.getByRole('tab', { name: 'Protection', exact: true })).toHaveAttribute(
+        'aria-selected',
+        'true',
+      );
+      await expect(page.getByText('Repository settings checks are off.')).toBeVisible();
+      await expect(page.getByRole('link', { name: 'Open Settings' })).toBeVisible();
+      await expect(page.getByRole('article')).toHaveCount(0);
+    });
+
+    test('the Protection tab shows what was read and links each finding to its setting on GitHub', async ({
+      page,
+    }) => {
+      const row = await repository(page, PUBLIC_REPO);
+      const current = (await page.request
+        .get(`/api/v1/kennel/repositories/${row.id}`)
+        .then((r) => r.json())) as { installation_id: string };
+      const finding = (code: string, title: string) => ({
+        code,
+        severity: 'warning',
+        subject: '',
+        title,
+        detail: `${title}.`,
+        fix: 'Change the setting.',
+        evidence: [],
+      });
+      await page.route(`**/api/v1/kennel/repositories/${row.id}`, async (route) => {
+        const response = await route.fetch();
+        const body = (await response.json()) as Record<string, unknown> & {
+          findings: unknown[];
+          coverage: unknown[];
+          disabled: string[];
+        };
+        body.disabled = body.disabled.filter(
+          (code) =>
+            ![
+              'token.default_write',
+              'exposure.fork_approval_weak',
+              'exposure.private_fork_secrets',
+              'protection.required_check_never_reports',
+            ].includes(code),
+        );
+        body.findings = [
+          ...body.findings,
+          finding('token.default_write', 'The default workflow token can write'),
+          finding(
+            'protection.required_check_never_reports',
+            'Required checks that no job produces',
+          ),
+        ];
+        body.coverage = [
+          ...body.coverage,
+          {
+            source: 'settings',
+            label: 'Repository settings',
+            state: 'ok',
+            reason: 'The settings were read.',
+            permission: 'Repository permissions: Administration: Read-only',
+          },
+          {
+            source: 'protection',
+            label: 'Required status checks',
+            state: 'denied',
+            reason: 'GitHub refused the read.',
+            permission: 'Repository permissions: Administration: Read-only',
+          },
+        ];
+        return route.fulfill({ response, json: body });
+      });
+      // Where GitHub's pages are served from is the installation's to say, and an
+      // Enterprise host is not github.com.
+      await page.route('**/api/v1/installations', (route) =>
+        route.fulfill({
+          json: { items: [{ id: current.installation_id, web_url: 'https://ghe.example.test/' }] },
+        }),
+      );
+      await goto(page, `/kennel/repositories/${row.id}/protection`, PUBLIC_REPO);
+
+      const sources = page.getByRole('list', { name: 'What was read' });
+      await expect(sources).toContainText('Repository settings');
+      await expect(sources).toContainText('Required status checks');
+      await expect(sources).toContainText('Not granted');
+      await expect(sources).toContainText('Administration: Read-only');
+
+      const token = page.getByRole('article', { name: 'The default workflow token can write' });
+      await expect(token.getByRole('link', { name: 'Actions settings on GitHub' })).toHaveAttribute(
+        'href',
+        `https://ghe.example.test/${PUBLIC_REPO}/settings/actions`,
+      );
+      const required = page.getByRole('article', { name: 'Required checks that no job produces' });
+      await expect(
+        required.getByRole('link', { name: 'Branch protection on GitHub' }),
+      ).toHaveAttribute('href', `https://ghe.example.test/${PUBLIC_REPO}/settings/branches`);
+      await expect(required.getByRole('link', { name: 'Rulesets on GitHub' })).toHaveAttribute(
+        'href',
+        `https://ghe.example.test/${PUBLIC_REPO}/settings/rules`,
+      );
+
+      // The same findings are on the CI tab, where they are waived.
+      await page.getByRole('tab', { name: 'CI', exact: true }).click();
+      await expect(
+        page.getByRole('article', { name: 'The default workflow token can write' }),
+      ).toBeVisible();
+    });
   });
 
   /* -- waiving ----------------------------------------------------------------- */

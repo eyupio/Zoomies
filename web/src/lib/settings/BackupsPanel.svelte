@@ -67,6 +67,7 @@
   import RestartWait from './RestartWait.svelte';
   import { describeInterval, keyStatus, saveBlob, schemaShort, sourceOf } from './backups';
   import PageHeader from '$lib/components/PageHeader.svelte';
+  import TransferPanel from './TransferPanel.svelte';
 
   let page = $state<Backups | null>(null);
   let loading = $state(true);
@@ -484,6 +485,8 @@
     Back up now
   </Button>
 </PageHeader>
+
+<TransferPanel />
 
 <div class="panel">
   {#if restarting}

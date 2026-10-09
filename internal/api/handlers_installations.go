@@ -696,6 +696,13 @@ type manifestRequest struct {
 	// pull requests?". Absent means no: a request from a client written before
 	// the question existed gets the smaller permission set.
 	Migration bool `json:"migration"`
+	// KennelSettings is the answer to "also let Kennel Club check repository
+	// settings?", which adds Administration read to an organisation App. Absent
+	// means no, for the same reason.
+	KennelSettings bool `json:"kennel_settings"`
+	// KennelFiles is the answer to "also let Kennel Club read repository files?",
+	// which adds Contents read. Absent means no, for the same reason.
+	KennelFiles bool `json:"kennel_files"`
 }
 
 type manifestResponse struct {
@@ -769,6 +776,8 @@ func (s *Server) handleCreateManifest(w http.ResponseWriter, r *http.Request) {
 		SetupURL:                  s.cfg().Server.ExternalURL + "/settings/github/setup",
 		AllowWorkflowCancellation: s.cfg().GitHub.AllowWorkflowCancellation,
 		Migration:                 req.Migration,
+		KennelSettings:            req.KennelSettings,
+		KennelFiles:               req.KennelFiles,
 	})
 	if err != nil {
 		unprocessable(w, err.Error(), []fieldError{{"name", err.Error()}})

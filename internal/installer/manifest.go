@@ -49,6 +49,15 @@ type GitHubPlan struct {
 	// wants the App created with the three write permissions it needs. It is
 	// off unless they said yes: nothing else in Zoomies writes to a repository.
 	Migration bool
+	// KennelSettings records that the operator wants Kennel Club's checks of a
+	// repository's settings, and so wants an organisation App created with
+	// Administration read. It is off unless they said yes: GitHub offers no
+	// narrower permission for those settings, and it reaches more than they do.
+	KennelSettings bool
+	// KennelFiles records that the operator wants Kennel Club's checks of a
+	// repository's files, and so wants the App created with Contents read. It is
+	// off unless they said yes: read access to contents is read access to code.
+	KennelFiles bool
 }
 
 // manifestWait is how long the installer waits for GitHub to come back. Five
@@ -157,6 +166,12 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 	if err := i.askMigrationPermissions(ctx, p); err != nil {
 		return err
 	}
+	if err := i.askKennelSettingsPermission(ctx, p); err != nil {
+		return err
+	}
+	if err := i.askKennelFilesPermission(ctx, p); err != nil {
+		return err
+	}
 
 	cfg := p.Config()
 	webhookURL := cfg.WebhookURL()
@@ -185,6 +200,8 @@ func (i *Installer) appFromManifest(ctx context.Context, st *store.Store, key *c
 		RedirectURL:               srv.CallbackURL(),
 		AllowWorkflowCancellation: cfg.GitHub.AllowWorkflowCancellation,
 		Migration:                 p.GitHub.Migration,
+		KennelSettings:            p.GitHub.KennelSettings,
+		KennelFiles:               p.GitHub.KennelFiles,
 	})
 	if err != nil {
 		return err
@@ -364,7 +381,14 @@ func (i *Installer) checkWebhookReachable(ctx context.Context, p *Plan) error {
 // consent screen should find exactly what this list promised.
 func (i *Installer) notePermissions(p *Plan) {
 	i.ui.note("permissions   actions:read, metadata:read, " + runnerPermission(p.GitHub.TargetType) + ":write, event workflow_job")
+	if askedForAdministrationRead(p) {
+		i.ui.note("              administration:read (for Kennel Club's checks of repository settings)")
+	}
 	if !p.GitHub.Migration {
+		if p.GitHub.KennelFiles {
+			i.ui.note("              contents:read (for Kennel Club's checks of workflow and instruction files)")
+			return
+		}
 		i.ui.note("              no repository permissions: this App cannot read or change code")
 		return
 	}
@@ -395,6 +419,57 @@ func (i *Installer) askMigrationPermissions(ctx context.Context, p *Plan) error 
 		return err
 	}
 	p.GitHub.Migration = want
+	return nil
+}
+
+// askedForAdministrationRead is whether the App will carry Administration read
+// because the operator asked for it. A repository App holds Administration write
+// to register its runners, which is listed with them and includes read.
+func askedForAdministrationRead(p *Plan) bool {
+	return p.GitHub.KennelSettings && p.GitHub.TargetType == store.TargetOrg
+}
+
+// askKennelSettingsPermission asks whether an organisation App should also carry
+// Administration read, which is what Kennel Club's checks of a repository's
+// settings need. The default is no: GitHub offers no narrower permission, it also
+// lets an App read repository configuration Zoomies has no use for, and most
+// fleets will not turn those checks on.
+//
+// A repository App is not asked: it holds Administration write already, and the
+// question would offer to change nothing.
+func (i *Installer) askKennelSettingsPermission(ctx context.Context, p *Plan) error {
+	if p.GitHub.TargetType != store.TargetOrg {
+		p.GitHub.KennelSettings = false
+		return nil
+	}
+	want := p.GitHub.KennelSettings
+	if err := i.confirm(ctx, "Also let Kennel Club check repository settings?",
+		"Kennel Club can read each repository's Actions settings and the status checks its default branch requires, "+
+			"which needs the App's Administration read permission. GitHub offers no narrower one, and it also lets an App "+
+			"read repository configuration that Zoomies does not use, so leave this off unless you will turn the checks on. "+
+			"You can add it later, but GitHub holds the change until the account's owner accepts it.",
+		&want); err != nil {
+		return err
+	}
+	p.GitHub.KennelSettings = want
+	return nil
+}
+
+// askKennelFilesPermission asks whether the App should also carry Contents read,
+// which Kennel Club's checks of a repository's files need on a private
+// repository. The default is no: read access to contents is read access to the
+// code, and a fleet that will not turn those checks on has no use for it.
+func (i *Installer) askKennelFilesPermission(ctx context.Context, p *Plan) error {
+	want := p.GitHub.KennelFiles
+	if err := i.confirm(ctx, "Also let Kennel Club read repository files?",
+		"Kennel Club can check a repository's workflow files, its instruction files and the names of its files, "+
+			"which needs the App's Contents read permission on private repositories. That is read access to code, "+
+			"so leave this off unless you will turn those checks on. "+
+			"You can add it later, but GitHub holds the change until the account's owner accepts it.",
+		&want); err != nil {
+		return err
+	}
+	p.GitHub.KennelFiles = want
 	return nil
 }
 

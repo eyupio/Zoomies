@@ -322,7 +322,8 @@ func TestAGitHubWithoutTheForkEndpointLeavesTheSettingsPartial(t *testing.T) {
 // Every settings read is charged to the installation's budget before it is made,
 // like the others, so a fleet of many repositories cannot spend what scaling
 // needs. At the smallest share of a limit of a hundred that is five requests an
-// hour: one for the listing and four for repositories.
+// hour: one for the listing and four for repositories. A repository's settings
+// and its required checks are two reads, so four requests reach two of them.
 func TestTheBudgetStopsTheSettingsReadsWhenItIsSpent(t *testing.T) {
 	f := newKennelFixture(t)
 	f.settingsOn()
@@ -335,16 +336,23 @@ func TestTheBudgetStopsTheSettingsReadsWhenItIsSpent(t *testing.T) {
 	f.gh.SetRateLimit(100, 100, f.c.Now().Add(time.Hour))
 	f.pass()
 
-	var read, held int
+	var read, held, protRead, protHeld int
 	for _, name := range names {
-		switch parseKennelWatermark(f.row(name).Watermark).SettingsState {
+		wm := parseKennelWatermark(f.row(name).Watermark)
+		switch wm.SettingsState {
 		case kennel.CoverageOK:
 			read++
 		case kennel.CoverageHeld:
 			held++
 		}
+		switch wm.ProtectionState {
+		case kennel.CoverageOK:
+			protRead++
+		case kennel.CoverageHeld:
+			protHeld++
+		}
 	}
-	if read != 4 || held != 2 {
-		t.Errorf("%d repositories read and %d held, want 4 and 2: the budget leaves four after the listing", read, held)
+	if read != 2 || held != 4 || protRead != 2 || protHeld != 4 {
+		t.Errorf("settings: %d read and %d held; required checks: %d read and %d held; want 2 and 4 of each: the budget leaves four after the listing, two a repository", read, held, protRead, protHeld)
 	}
 }

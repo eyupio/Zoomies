@@ -176,8 +176,9 @@ the host's own page. It is offered when all of these are true:
   install` there), so its agent reports that it can update itself.
 * The host is **behind** the controller's release, and the controller was built
   from a release.
-* `updates.mode` is `manual` or `auto`. With `off` every request is refused and
-  says so.
+* `updates.mode` is `manual` or `auto`. With `off` the button cannot be pressed,
+  the card says that updating is off and which setting turns it on, and every
+  request is refused and says so.
 
 Pressing it asks you to confirm, naming the host and the release it will be
 taken to. The controller then asks the agent on its next poll (it never dials a

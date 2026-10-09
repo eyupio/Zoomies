@@ -117,6 +117,11 @@ const (
 const (
 	ActionAssistantRead  Action = "assistant.read"
 	ActionAssistantWrite Action = "assistant.write"
+	// ActionAssistantChat is asking the default model a question. It is admin
+	// until the limits and the redaction of slice 7c exist: a question goes to
+	// whatever provider the administrator chose, a hosted one included, and costs
+	// what that provider charges.
+	ActionAssistantChat Action = "assistant.chat"
 )
 
 // Webhook actions cover the delivery log and the reachability test.
@@ -308,6 +313,7 @@ var actionRoles = map[Action]store.Role{
 
 	ActionAssistantRead:  store.RoleAdmin,
 	ActionAssistantWrite: store.RoleAdmin,
+	ActionAssistantChat:  store.RoleAdmin,
 
 	ActionProvidersRead:   store.RoleViewer,
 	ActionProvidersWrite:  store.RoleAdmin,

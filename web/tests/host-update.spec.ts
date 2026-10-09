@@ -423,13 +423,15 @@ test('a refusal is a message in the controller’s words and the card is as it w
   page,
 }) => {
   await withHost(page, SELF_UPDATE, async ({ credentials, name }) => {
+    // A controller fenced for recovery refuses while the card still offers the
+    // update, because the card is not told when the controller may not act.
     await page.route(`**/api/v1/hosts/${credentials.host_id}/update`, (route) =>
       route.fulfill({
         status: 409,
         json: {
           error: {
-            code: 'update.mode_off',
-            message: 'updating is off; set updates.mode to manual or auto to update from here',
+            code: 'conflict',
+            message: 'this controller may not act right now, so it starts no update',
           },
         },
       }),
@@ -442,12 +444,65 @@ test('a refusal is a message in the controller’s words and the card is as it w
 
     await expect(confirmation(page, name)).toBeHidden();
     const toast = page.locator('.toast').filter({ hasText: `${name} was not asked to update` });
-    await expect(toast).toContainText('Updating is off');
+    await expect(toast).toContainText('This controller may not act right now');
     // Nothing was claimed: the card still offers the update, and holds focus on it.
     await expect(row(page, name)).toContainText('Can be updated');
     await expect(row(page, name)).not.toContainText('Updating');
     await expect(updateButton(page, name)).toBeEnabled();
     await expect(updateButton(page, name)).toBeFocused();
+  });
+});
+
+/** The card's sentence for a host the mode alone keeps from being updated, as the controller words it. */
+const MODE_OFF =
+  'Updating is off, so hosts are not updated from here. Somebody with the platform role can turn it on by setting updates.mode to manual or auto on the Configuration page.';
+
+/** Serve one host as a controller with updating off renders it: the fixture pins its mode to manual. */
+async function withUpdatingOff(page: Page, hostID: string): Promise<void> {
+  const off = (host: Record<string, unknown>) =>
+    host.id === hostID
+      ? { ...host, update: { state: 'none', reason: MODE_OFF, can_update: false, attempt_id: '' } }
+      : host;
+  await page.route(/\/api\/v1\/hosts(\?.*)?$/, async (route) => {
+    const response = await route.fetch();
+    const body = (await response.json()) as { items?: Record<string, unknown>[] };
+    return route.fulfill({ response, json: { ...body, items: (body.items ?? []).map(off) } });
+  });
+  // And no stream, or a host frame from the real controller replaces the rewrite.
+  await page.route('**/api/v1/events*', (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+      body: '',
+    }),
+  );
+  await page.route(`**/api/v1/hosts/${hostID}`, async (route) => {
+    const response = await route.fetch();
+    return route.fulfill({
+      response,
+      json: off((await response.json()) as Record<string, unknown>),
+    });
+  });
+}
+
+test('with updating off the card says so, and its button cannot be pressed', async ({ page }) => {
+  await withHost(page, SELF_UPDATE, async ({ credentials, name }) => {
+    const starts = countStarts(page);
+    await withUpdatingOff(page, credentials.host_id);
+    await goto(page, '/hosts', 'Hosts');
+    // The reason is text on the card, not a tooltip: a phone has no hover.
+    await expect(row(page, name)).toContainText('Updating is off');
+    await expect(row(page, name)).toContainText('updates.mode');
+    await expect(updateButton(page, name)).toBeDisabled();
+    await updateButton(page, name).click({ force: true });
+    await expect(confirmation(page, name)).toHaveCount(0);
+    // The command beneath the card is still the way.
+    await expect(card(page, name).locator('details.upgrade > summary')).toBeVisible();
+
+    await goto(page, `/hosts/${credentials.host_id}`, name);
+    await expect(row(page, name)).toContainText('Updating is off');
+    await expect(updateButton(page, name)).toBeDisabled();
+    expect(starts(), 'nothing was asked of the controller').toBe(0);
   });
 });
 

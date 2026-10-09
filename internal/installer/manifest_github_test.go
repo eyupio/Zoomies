@@ -244,6 +244,80 @@ func TestRunnerPermissionDependsOnTheTarget(t *testing.T) {
 	}
 }
 
+// Administration read reaches more than the checks that need it do, so the list
+// names it when it is requested and not otherwise. A repository App already
+// lists Administration write among its runner permissions, and a request for
+// read on top of that would be a line that promises nothing the App lacks.
+func TestNotePermissionsNamesAdministrationReadOnlyWhenKennelSettingsAreRequested(t *testing.T) {
+	for _, tc := range []struct {
+		name     string
+		target   store.TargetType
+		kennel   bool
+		mentions bool
+	}{
+		{"an organisation App that did not ask", store.TargetOrg, false, false},
+		{"an organisation App that asked", store.TargetOrg, true, true},
+		{"a repository App that asked", store.TargetRepo, true, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			i, out := newUnattendedInstaller(t, nil)
+			i.notePermissions(&Plan{GitHub: GitHubPlan{TargetType: tc.target, KennelSettings: tc.kennel}})
+			if got := strings.Contains(out.String(), "administration:read"); got != tc.mentions {
+				t.Errorf("mentions administration:read = %v, want %v\n%s", got, tc.mentions, out.String())
+			}
+		})
+	}
+}
+
+// Contents read is the permission that lets an App read code, so the list names it
+// when it was requested, and says the App cannot read code only when it was not.
+// With the migration wizard the App holds Contents write, which the list already
+// names, so read is not said twice.
+func TestNotePermissionsNamesContentsReadOnlyWhenKennelFilesAreRequested(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		files     bool
+		migration bool
+		reads     bool
+		cannot    bool
+	}{
+		{"neither", false, false, false, true},
+		{"files asked", true, false, true, false},
+		{"files asked with the wizard", true, true, false, false},
+		{"the wizard alone", false, true, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			i, out := newUnattendedInstaller(t, nil)
+			i.notePermissions(&Plan{GitHub: GitHubPlan{TargetType: store.TargetOrg, KennelFiles: tc.files, Migration: tc.migration}})
+			body := out.String()
+			if got := strings.Contains(body, "contents:read"); got != tc.reads {
+				t.Errorf("mentions contents:read = %v, want %v\n%s", got, tc.reads, body)
+			}
+			if got := strings.Contains(body, "cannot read or change code"); got != tc.cannot {
+				t.Errorf("says the App cannot read code = %v, want %v\n%s", got, tc.cannot, body)
+			}
+		})
+	}
+}
+
+// A repository App holds Administration write already, so the question could
+// change nothing for it. It is not asked, which a test can see because asking
+// needs a terminal and this one has none, and the answer is recorded as no even
+// if the plan arrived with a yes.
+func TestTheKennelSettingsQuestionIsNotAskedOfARepositoryApp(t *testing.T) {
+	i, out := newUnattendedInstaller(t, nil)
+	p := &Plan{GitHub: GitHubPlan{TargetType: store.TargetRepo, KennelSettings: true}}
+	if err := i.askKennelSettingsPermission(t.Context(), p); err != nil {
+		t.Fatalf("a repository App was asked: %v", err)
+	}
+	if p.GitHub.KennelSettings {
+		t.Error("a repository App was recorded as wanting a permission it already holds")
+	}
+	if out.Len() != 0 {
+		t.Errorf("a repository App was told something: %q", out.String())
+	}
+}
+
 // An operator reading GitHub's consent screen should find exactly what the
 // installer said it would ask for. The migration wizard's three write
 // permissions are the ones nobody expects a runner controller to want, so the
@@ -456,7 +530,7 @@ func TestTheReachabilityQuestionIsAskedBeforeTheQuestionsAboutTheApp(t *testing.
 		return -1
 	}
 	reachable := position("checkWebhookReachable")
-	for _, later := range []string{"askGitHubTarget", "askMigrationPermissions"} {
+	for _, later := range []string{"askGitHubTarget", "askMigrationPermissions", "askKennelSettingsPermission", "askKennelFilesPermission"} {
 		if at := position(later); at < reachable {
 			t.Errorf("%s is asked before checkWebhookReachable: a Skip would throw its answers away", later)
 		}

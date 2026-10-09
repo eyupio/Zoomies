@@ -63,3 +63,63 @@ test('a private address is refused until the switch is on, the key is never show
 
   await allowPrivate(page, null);
 });
+
+/**
+ * Asking the model. The demo's built-in model answers "The built-in model heard:"
+ * and what it was asked, so a conversation can be followed end to end with no
+ * account and no key.
+ */
+test('the demo model answers a question typed on the page, and the next one carries the first', async ({
+  page,
+}) => {
+  const asked: Array<{ messages: Array<{ role: string; content: string }> }> = [];
+  await page.route('**/api/v1/assistant/chat', async (route) => {
+    asked.push(route.request().postDataJSON());
+    await route.continue();
+  });
+  await goto(page, '/settings/assistant', 'Assistant');
+  await expect(page.getByText(/Answers from .*Demo model \(built in\)/)).toBeVisible();
+
+  const message = page.getByRole('textbox', { name: 'Message' });
+  await message.fill('What is a runner?');
+  await page.getByRole('button', { name: 'Send' }).click();
+  const answers = page.getByRole('article', { name: 'Assistant' });
+  await expect(answers.first()).toContainText('The built-in model heard: What is a runner?');
+  await expect(answers.first()).toContainText('Demo model (built in)');
+  await expect(page.getByRole('article', { name: 'You' }).first()).toContainText(
+    'What is a runner?',
+  );
+  expect(asked[0]!.messages).toEqual([{ role: 'user', content: 'What is a runner?' }]);
+
+  // Enter sends, and what was said before travels with the question.
+  await message.fill('And an ephemeral one?');
+  await message.press('Enter');
+  await expect(answers.nth(1)).toContainText('The built-in model heard: And an ephemeral one?');
+  expect(asked[1]!.messages.map((m) => m.role)).toEqual(['user', 'assistant', 'user']);
+  expect(asked[1]!.messages[1]!.content).toBe('The built-in model heard: What is a runner?');
+
+  await page.getByRole('button', { name: 'New conversation' }).click();
+  await expect(page.getByRole('article', { name: 'You' })).toHaveCount(0);
+});
+
+test('a refused question says why where the answer would have been', async ({ page }) => {
+  await page.route('**/api/v1/assistant/chat', (route) =>
+    route.fulfill({
+      status: 502,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        error: { code: 'assistant.provider_failed', message: 'the provider refused the key' },
+      }),
+    }),
+  );
+  await goto(page, '/settings/assistant', 'Assistant');
+  await page.getByRole('textbox', { name: 'Message' }).fill('hello');
+  await page.getByRole('button', { name: 'Send' }).click();
+  await expect(
+    page.getByRole('alert').filter({ hasText: 'the provider refused the key' }),
+  ).toBeVisible();
+  // A turn that failed is not repeated to the model, and the box is ready again.
+  await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled();
+  await page.getByRole('textbox', { name: 'Message' }).fill('again');
+  await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();
+});

@@ -529,7 +529,7 @@ if you set `keep: 0` and never expect the page to say what is there.
 | `kennel.enabled` | `ZOOMIES_KENNEL_ENABLED` | at once | Check repository standards: Whether Kennel Club runs. Off by default, and off means off: no request to GitHub, nothing stored, and AI Context carries on as it was. On, it reads facts about the repositories this fleet serves and keeps what it concludes. |
 | `kennel.refresh_interval` | `ZOOMIES_KENNEL_REFRESH_INTERVAL` | at once | Refresh interval: How stale what Kennel Club reads from GitHub may get before it is read again. What the fleet observed for itself is re-checked as the fleet changes, whatever this says. The smallest useful value is 1h. |
 | `kennel.repository_setup` | `ZOOMIES_KENNEL_REPOSITORY_SETUP` | at once | Check repository setup: Whether Kennel Club reads the default-branch file inventory for advisory setup checks. Off by default. Needs Contents read for private repositories; reads no file contents and changes no App permissions. |
-| `kennel.settings_checks` | `ZOOMIES_KENNEL_SETTINGS_CHECKS` | at once | Check repository settings: Whether Kennel Club reads each repository's Actions settings, the default workflow token and the policy for fork pull requests. Off by default. Needs the App's Administration read permission, which GitHub offers no narrower form of and which is asked for separately; reads no file contents and changes no setting. |
+| `kennel.settings_checks` | `ZOOMIES_KENNEL_SETTINGS_CHECKS` | at once | Check repository settings: Whether Kennel Club reads each repository's Actions settings, the default workflow token and the policy for fork pull requests, and the status checks its default branch requires. Off by default. Needs the App's Administration read permission, which GitHub offers no narrower form of and which is asked for separately; reads no file contents and changes no setting. |
 | `kennel.workflow_checks` | `ZOOMIES_KENNEL_WORKFLOW_CHECKS` | at once | Check workflow best practices: Whether Kennel Club reads default-branch workflow contents for timeouts, concurrency, action pins and token permission declarations. Off by default. Needs Contents read for private repositories; changes no files or App permissions. |
 | `kennel.scope` | `ZOOMIES_KENNEL_SCOPE` | at once | Repositories to check, served checks the repositories this fleet has run a job for; installation checks every repository the GitHub App can see, up to 500. installation multiplies the requests Kennel Club makes, so it is a choice and not the default. |
 
@@ -2038,8 +2038,12 @@ badge.
 Set `kennel.repository_setup: true` to add a default-branch file inventory to
 Kennel Club. It is off by default, including for installations already using
 Kennel Club. It does not grant or request App permissions. Private repositories
-need **Contents: read**; a denied, hidden or unavailable tree is a coverage gap,
-never a claim that a file is missing.
+need **Contents: read**, which a new App asks for only if you answer yes to
+**Also let Kennel Club read repository files?** in the installer or the Connect
+GitHub dialog, and which you can add to an App that exists on its **Permissions &
+events** page; GitHub holds the change until the account's owner accepts it. A
+denied, hidden or unavailable tree is a coverage gap, never a claim that a file
+is missing.
 
 | Check | What its absence makes harder |
 | --- | --- |
@@ -2084,7 +2088,8 @@ explain why a local file's absence is advice rather than proof of missing setup.
 Set `kennel.workflow_checks: true` to inspect the contents of default-branch
 workflow files. This is a separate opt-in from the setup inventory, off by
 default, and does not grant App permissions or edit any repository files.
-Private repositories need **Contents: read**.
+Private repositories need **Contents: read**, which a new App asks for in the
+same way as the setup inventory above does.
 
 | Check | What it detects | Severity |
 | --- | --- | --- |
@@ -2522,6 +2527,7 @@ makes for it changes one.
 | `token.default_write` | The repository's default workflow token can write, so every workflow that sets no permissions runs with write access. | Warning |
 | `exposure.fork_approval_weak` | A public repository this fleet serves asks for approval of fork pull requests only from contributors new to GitHub. | Warning; error once a fork's code has run here |
 | `exposure.private_fork_secrets` | A private repository lets fork pull requests run workflows and sends them secrets or a token that can write. | Warning |
+| `protection.required_check_never_reports` | The default branch requires a status check that GitHub Actions should post, and none of the jobs this fleet was told about in the window has that name. | Warning |
 
 The settings are read with the App's **Administration: read** permission.
 GitHub offers no narrower permission for them, so it also lets an App read
@@ -2531,14 +2537,42 @@ and no others, and a test holds it to that list. Without the permission the
 read is shown as **not granted** and names the permission; nothing else about
 Kennel Club changes.
 
+A new organisation App asks for it only if you answer yes to **Also let Kennel
+Club check repository settings?**, in the installer or in the Connect GitHub
+dialog. A repository App holds **Administration: write** already to register
+its runners, which includes read, and is never asked. To add the permission to
+an App that exists, open the App's **Permissions & events** page on GitHub and
+set **Administration** to **Read-only**; GitHub holds the change until the
+account's owner accepts it on the installation, and the repository shows as
+**not granted** until they do.
+
 A repository's private fork rules and public approval policy are read once a
 refresh, with the other reads and through the same request budget and holds.
 A GitHub that lacks the fork-policy endpoints leaves the repository partly
-checked and still reads the default token. The three checks are also off, and
+checked and still reads the default token. The four checks are also off, and
 shown as turned off, while this setting is.
 
-`protection.required_check_never_reports` reads the status checks a branch
-requires and is not turned on by this setting yet.
+`protection.required_check_never_reports` reads the status checks the default
+branch requires, from classic branch protection and from the rulesets that
+apply to it, and compares them with the jobs this fleet was told about. Three
+rules keep it from guessing:
+
+* Only a check pinned to the GitHub Actions app is judged. A check with no app,
+  or another app, could be posted from somewhere the fleet cannot see, so it is
+  counted and never judged.
+* A check counts as posted when any job in the window has its exact name,
+  whichever runner ran the job. Jobs on GitHub-hosted runners count, because a
+  required check does not care who ran the job. A matrix job is named
+  `<job> (<values>)`, so a requirement for the bare job name is not met by it,
+  and that mismatch is the commonest cause of a check that never reports.
+* Fewer than twenty jobs in the window is too few to tell a check nobody posts
+  from a window the fleet barely saw, so the repository is shown as not fully
+  checked and no finding is made.
+
+The name of a required check is a repository's own text. It is kept in Zoomies'
+database so the next evaluation can compare it, and the finding says how many
+checks are affected and never which: the name is not shown, logged, sent to an
+assistant or put in a prompt.
 
 ### Agent guidance checks
 

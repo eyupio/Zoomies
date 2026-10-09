@@ -268,7 +268,7 @@ func (c *Controller) kennelInstallation(ctx context.Context, inst *store.Install
 		known[strings.ToLower(r.FullName)] = r
 		if r.Untracked == nil {
 			anyTracked = true
-			if kennelDue(r, in.now) || kennelSetupDue(r, in) || kennelWorkflowsDue(r, in) || kennelGuidanceDue(r, in) || kennelSettingsDue(r, in) {
+			if kennelDue(r, in.now) || kennelSetupDue(r, in) || kennelWorkflowsDue(r, in) || kennelGuidanceDue(r, in) || kennelSettingsDue(r, in) || kennelProtectionDue(r, in) {
 				anyDue = true
 			}
 		}
@@ -520,7 +520,7 @@ func (c *Controller) kennelTouch(ctx context.Context, inst *store.Installation, 
 // read ended in.
 func (c *Controller) kennelRefresh(ctx context.Context, inst *store.Installation, row *store.KennelRepository, l *kennelListing, in kennelPassInput) kennel.CoverageState {
 	wm := parseKennelWatermark(row.Watermark)
-	due := kennelDue(row, in.now) || kennelSetupDue(row, in) || kennelWorkflowsDue(row, in) || kennelGuidanceDue(row, in) || kennelSettingsDue(row, in)
+	due := kennelDue(row, in.now) || kennelSetupDue(row, in) || kennelWorkflowsDue(row, in) || kennelGuidanceDue(row, in) || kennelSettingsDue(row, in) || kennelProtectionDue(row, in)
 	var retry time.Duration
 	outcome := kennel.CoverageOK
 
@@ -579,9 +579,22 @@ func (c *Controller) kennelRefresh(ctx context.Context, inst *store.Installation
 			retry = max(retry, kennelRetryAfter(state))
 		}
 	}
+	if due && kennelProtectionEnabled(in.policy) {
+		state := c.kennelReadProtection(ctx, inst, row, &wm, l, in)
+		if state != kennel.CoverageOK {
+			if state == kennel.CoverageError || outcome == kennel.CoverageOK {
+				outcome = state
+			}
+			retry = max(retry, kennelRetryAfter(state))
+		}
+	}
 	if !kennelSettingsEnabled(in.policy) {
 		wm.Settings = nil
 		wm.SettingsState = ""
+	}
+	if !kennelProtectionEnabled(in.policy) {
+		wm.Protection = nil
+		wm.ProtectionState = ""
 	}
 	if !kennelGuidanceEnabled(in.policy) {
 		wm.Guidance = nil
@@ -838,6 +851,14 @@ func (c *Controller) kennelSnapshot(ctx context.Context, inst *store.Installatio
 	if kennelSettingsEnabled(in.policy) {
 		snap.Settings = wm.Settings
 		cov[kennel.SourceSettings] = kennel.SourceState{State: wm.SettingsState}
+	}
+	if kennelProtectionEnabled(in.policy) {
+		protection, err := c.kennelProtectionFacts(ctx, row.FullName, wm, in)
+		if err != nil {
+			return kennel.Snapshot{}, fmt.Errorf("counting the jobs behind the required checks: %w", err)
+		}
+		snap.Protection = protection
+		cov[kennel.SourceProtection] = kennel.SourceState{State: wm.ProtectionState}
 	}
 	// A private repository's runs are not read, so they are not in its coverage
 	// either: a source nothing needs is not a gap.

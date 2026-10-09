@@ -65,7 +65,7 @@ func (c *Controller) updatesSnapshot(ctx context.Context, helper helperProbe) (*
 		s.Helper = updates.HelperStateReady
 	case helper.view.State == HelperUnsupported:
 		s.Helper = updates.HelperStateUnsupported
-		s.HelperWhyNot = helperUnsupportedWhy(c.helperUnsupported(), "this controller")
+		s.HelperWhyNot = helperUnsupportedWhy(updates.HelperSupport(c.helperHostFacts()), "this controller")
 	default:
 		s.Helper = updates.HelperStateMissing
 	}
@@ -104,7 +104,7 @@ func (c *Controller) updatesSnapshot(ctx context.Context, helper helperProbe) (*
 	byHost := make(map[string]*updates.HostFacts, len(pic.hosts))
 	target := hostTarget()
 	for _, h := range pic.hosts {
-		can, why, _ := hostCanSelfUpdate(h, target, c.hostHelperUnsupported(h))
+		can, why, _ := hostCanSelfUpdate(h, target, c.hostHelperUnsupported(h), c.updateMode())
 		s.Hosts = append(s.Hosts, updates.HostFacts{
 			ID: h.ID, Name: h.Name, Version: h.Version, GOOS: h.OS, GOARCH: h.Arch,
 			Embedded: h.Embedded, Healthy: h.Healthy(s.Now), CanSelfUpdate: can, WhyNot: why,
@@ -352,7 +352,7 @@ func (c *Controller) StartHostRollout(ctx context.Context, by UpdateActor, hostI
 			continue
 		}
 		behind++
-		if can, _, _ := hostCanSelfUpdate(h, target, c.hostHelperUnsupported(h)); can {
+		if can, _, _ := hostCanSelfUpdate(h, target, c.hostHelperUnsupported(h), c.updateMode()); can {
 			able++
 		}
 	}

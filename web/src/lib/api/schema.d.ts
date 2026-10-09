@@ -1499,7 +1499,10 @@ export interface paths {
          *     repository permissions the migration wizard needs (`contents`,
          *     `pull_requests` and `workflows`, all write) are added only when
          *     `migration` is true, because nothing else in Zoomies writes to a
-         *     repository.
+         *     repository. An organisation App also asks for `administration` read
+         *     when `kennel_settings` is true, for the Kennel Club checks of a
+         *     repository's settings, and `contents` read when `kennel_files` is true,
+         *     for the checks of a repository's files.
          */
         post: operations["createAppManifest"];
         delete?: never;
@@ -2491,7 +2494,7 @@ export interface paths {
         put?: never;
         /**
          * Update a host to this controller's release
-         * @description Asks the host's agent to have its update helper replace the agent's binary with the release this controller runs. It answers 202 with the host, whose `update` block holds the attempt as `requested`: the task goes out on the agent's own poll, because the controller never dials an agent, and the host is updated once its agent reports that release, which the page learns from the host's `host.updated` events. Everything that can refuse does so before anything is written, so a refusal leaves nothing in flight. A host can be asked when its `update.can_update` is true: its agent offers to update itself (it does only once the update helper is installed on the host), it is behind the controller's release, and no attempt for it is open. The agent inside the controller is updated with the controller, and is refused with `update.host_cannot_update`, as is a host that is not behind. A host that is not there is a 404. Takes no body; a field sent is a 422 naming it. Audited as `update.host_requested` once it is accepted, and not before. Below the `platform` role the text of a failed attempt in the answer is a fixed sentence for its state.
+         * @description Asks the host's agent to have its update helper replace the agent's binary with the release this controller runs. It answers 202 with the host, whose `update` block holds the attempt as `requested`: the task goes out on the agent's own poll, because the controller never dials an agent, and the host is updated once its agent reports that release, which the page learns from the host's `host.updated` events. Everything that can refuse does so before anything is written, so a refusal leaves nothing in flight. A host can be asked when its `update.can_update` is true: updating is on, its agent offers to update itself (it does only once the update helper is installed on the host), it is behind the controller's release, and no attempt for it is open. The agent inside the controller is updated with the controller, and is refused with `update.host_cannot_update`, as is a host that is not behind. A host that is not there is a 404. Takes no body; a field sent is a 422 naming it. Audited as `update.host_requested` once it is accepted, and not before. Below the `platform` role the text of a failed attempt in the answer is a fixed sentence for its state.
          */
         post: operations["requestHostUpdate"];
         delete?: never;
@@ -3131,6 +3134,43 @@ export interface paths {
          * @description Pressing it twice is not an error.
          */
         post: operations["resumeProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Ask the assistant's model a question
+         * @description Answers a conversation as a `text/event-stream`: `delta` frames carrying
+         *     `{"text": ...}` as the model writes, one `usage` frame with
+         *     `{"input_tokens", "output_tokens"}` when the provider reports them, and a final
+         *     `done` frame with the provider's name and the model, or an `error` frame with a
+         *     `message` if the answer failed after it began (the status had gone out with the
+         *     first byte by then).
+         *
+         *     The controller keeps nothing between requests: send the conversation so far,
+         *     ending in the person's question, and send it again with the next one. Only
+         *     `user` and `assistant` messages are accepted. The model is told what Zoomies
+         *     is and that it cannot see this fleet or change anything; no tool is offered
+         *     and no fleet data is attached.
+         *
+         *     Everything that can be refused is refused before the stream opens: a conversation
+         *     that is empty, too long or does not end in a user message is a 422 naming the
+         *     message; an instance with no enabled provider, or a named one that is not, is a
+         *     409; a model that would not answer at all (the address was refused, the key was
+         *     wrong) is a 502 with code `assistant.provider_failed`.
+         */
+        post: operations["assistantChat"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3811,6 +3851,71 @@ export interface paths {
          * @description A consistent copy of the live database, taken with `VACUUM INTO`, checked with `PRAGMA integrity_check`, and written with its manifest into `backup.directory`. Retention (`backup.keep`) runs afterwards. Refused with 409 while another backup is being taken.
          */
         post: operations["takeBackup"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/transfers/preparation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Follow complete instance preparation */
+        get: operations["getTransferPreparation"];
+        put?: never;
+        /**
+         * Drain this instance for transfer
+         * @description Stops new runner and machine demand without changing saved pool settings. Busy jobs finish naturally. Idle runners withdraw safely, cleanup continues, and the recovery fence is raised automatically when no work is in flight. Preparation survives a restart. Requires process operator authority.
+         */
+        post: operations["prepareInstanceTransfer"];
+        /**
+         * Cancel preparation before cutover
+         * @description Once fenced, use the explicit recovery action after checking no destination is running.
+         */
+        delete: operations["cancelInstanceTransfer"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/transfers/export": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Export a complete portable instance
+         * @description Requires a drained, fenced source. All database records and fleet credentials travel under a disposable transfer key inside the encrypted archive. The source encryption key and configuration file do not travel. Stop the source controller before cutover and keep it stopped while the destination runs. Requires process operator authority.
+         */
+        post: operations["exportInstanceTransfer"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/transfers/import": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prepare a portable instance for this destination
+         * @description Authenticates an encrypted archive, verifies the database and re-seals secrets under this destination's key. Returns inventory counts and a prepared backup without replacing the database. Stage it using the restore endpoint with source_stopped=true, then restart to apply. The destination must be empty and keep its own operator access. Source operator authority and sign-in configuration are invalidated at apply. The imported instance remains fenced. Requires process operator authority.
+         */
+        post: operations["importInstanceTransfer"];
         delete?: never;
         options?: never;
         head?: never;
@@ -4746,7 +4851,7 @@ export interface components {
         ErrorEnvelope: {
             error: {
                 /** @enum {string} */
-                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "too_large" | "rate_limited" | "limit_reached" | "update.mode_off" | "update.check_disabled" | "update.helper_missing" | "update.in_progress" | "update.not_a_release" | "update.nothing_newer" | "update.host_cannot_update" | "update.rollout_halted" | "update.check_failed" | "internal";
+                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "too_large" | "rate_limited" | "limit_reached" | "update.mode_off" | "update.check_disabled" | "update.helper_missing" | "update.in_progress" | "update.not_a_release" | "update.nothing_newer" | "update.host_cannot_update" | "update.rollout_halted" | "update.check_failed" | "assistant.provider_failed" | "internal";
                 /** @description Written for a person to read */
                 message: string;
                 /** @description The form field at fault, or on a `limit_reached` refusal the `limits.*` setting that refused. */
@@ -6965,8 +7070,25 @@ export interface components {
             /** @description Why the fence is on -- normally the backup this database was restored from. */
             reason?: string;
         };
+        TransferProgress: {
+            draining: boolean;
+            ready: boolean;
+            live_runners: number;
+            busy_runners: number;
+            pending_cleanup: number;
+            active_jobs: number;
+            machine_operations: number;
+        };
+        TransferInfo: {
+            version: number;
+            prepared: boolean;
+            inventory: {
+                [key: string]: number;
+            };
+        };
         /** @description One backup, as the Backups tab lists it. The manifest's facts are lifted out flat. */
         Backup: {
+            transfer?: components["schemas"]["TransferInfo"];
             /**
              * @description The backup's directory name.
              * @example zoomies-20260916-120000
@@ -7207,6 +7329,7 @@ export interface components {
             problems: string[];
         };
         StagedRestore: {
+            source_stopped?: boolean;
             backup_id: string;
             dir: string;
             /** Format: date-time */
@@ -8400,7 +8523,7 @@ export interface components {
              * @example This host's agent does not offer to update itself, which it does only once the update helper is installed on the host. Run sudo zoomies updates helper install there, or update it with the command below.
              */
             reason: string;
-            /** @description Whether asking for an update now would be taken: the host's agent offers it, the host is behind the controller's release, the controller runs a release, it is not the agent inside the controller, and no attempt is open. `updates.mode` is not part of it; with the mode `off` every request is refused with `update.mode_off`. */
+            /** @description Whether asking for an update now would be taken: `updates.mode` is `manual` or `auto`, the host's agent offers it, the host is behind the controller's release, the controller runs a release, it is not the agent inside the controller, and no attempt is open. With the mode `off` it is false, and `reason` says that updating is off wherever turning it on would let the host be asked; where it would not, as for a host the update helper can never be installed on, `reason` says what is in the way instead. */
             can_update: boolean;
             /**
              * @description The attempt `state` describes
@@ -8684,8 +8807,10 @@ export interface components {
             endpoint?: string;
             /** @description QEMU templates detected by the setup command. */
             templates?: components["schemas"]["ProxmoxSetupTemplate"][];
-            /** @description Returned only at creation; contains the short-lived setup capability. */
+            /** @description Returned only at creation; the whole setup script */
             command?: string;
+            /** @description Returned only at creation; the same setup as two lines that fetch the hosted connect-proxmox.sh. Contains the short-lived setup capability. */
+            short_command?: string;
         };
         /** @description Creating and editing a provider take the same body. On a PATCH every field is optional and independent; what is not named is left alone. */
         ProviderInput: {
@@ -8819,6 +8944,16 @@ export interface components {
             error?: string;
             /** Format: date-time */
             checked_at: string;
+        };
+        AssistantChatRequest: {
+            /** @description The provider to ask. Omit for the default. A disabled provider is not one to ask. */
+            provider_id?: string;
+            /** @description The conversation so far, oldest first, ending in a `user` message. At most 40 messages, 8 KiB each and 32 KiB in all. */
+            messages: {
+                /** @enum {string} */
+                role: "user" | "assistant";
+                content: string;
+            }[];
         };
         AssistantProvider: {
             id: string;
@@ -9398,7 +9533,7 @@ export interface components {
              */
             install_command: string;
             /**
-             * @description The command that updates the controller by hand on its host, for a person to copy. Set only when the state is `unsupported`, where it is the way.
+             * @description The command that updates the controller by hand on its host, for a person to copy. Set only when the state is `unsupported`, where it is the way, and empty on Windows, which has no service `zoomies upgrade` can update, where `reason` says what to do by hand instead.
              * @example sudo zoomies upgrade
              */
             upgrade_command: string;
@@ -12152,6 +12287,30 @@ export interface operations {
                      * @default false
                      */
                     migration?: boolean;
+                    /**
+                     * @description Also request `administration` read on an organisation App, for
+                     *     the Kennel Club checks of a repository's Actions settings and
+                     *     required status checks. GitHub offers no narrower permission
+                     *     for them, and it also lets an App read configuration Zoomies
+                     *     has no use for, so leave it off for a fleet that will not turn
+                     *     those checks on. A repository App holds `administration` write
+                     *     already, so this changes nothing for one. Adding it later is
+                     *     possible, but GitHub holds the change until the account's owner
+                     *     accepts it on the installation.
+                     * @default false
+                     */
+                    kennel_settings?: boolean;
+                    /**
+                     * @description Also request `contents` read, for the Kennel Club checks of a
+                     *     repository's workflow files, instruction files and file names.
+                     *     Read access to contents is read access to code, so leave it off
+                     *     for a fleet that will not turn those checks on. It is not
+                     *     lowered when `migration` already requests `contents` write.
+                     *     Adding it later is possible, but GitHub holds the change until
+                     *     the account's owner accepts it on the installation.
+                     * @default false
+                     */
+                    kennel_files?: boolean;
                 };
             };
         };
@@ -14910,6 +15069,41 @@ export interface operations {
             404: components["responses"]["NotFound"];
         };
     };
+    assistantChat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantChatRequest"];
+            };
+        };
+        responses: {
+            /** @description The answer, as it is written */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+            /** @description The model would not answer. The code is `assistant.provider_failed` and the message says why in words that never carry the request or the key. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     listAssistantProviders: {
         parameters: {
             query?: never;
@@ -15957,6 +16151,133 @@ export interface operations {
             409: components["responses"]["Conflict"];
         };
     };
+    getTransferPreparation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Current drain and cleanup progress */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferProgress"];
+                };
+            };
+        };
+    };
+    prepareInstanceTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Preparation started or already in progress */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TransferProgress"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    cancelInstanceTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Preparation cancelled */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: components["responses"]["Conflict"];
+        };
+    };
+    exportInstanceTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    /** Format: password */
+                    passphrase: string;
+                };
+            };
+        };
+        responses: {
+            /** @description The encrypted portable archive */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/octet-stream": string;
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    importInstanceTransfer: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": {
+                    /** Format: binary */
+                    file: string;
+                    /** Format: password */
+                    passphrase: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Verified and sealed for this destination */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Backup"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            /** @description The upload is over the limit. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
     uploadBackup: {
         parameters: {
             query?: never;
@@ -16436,6 +16757,8 @@ export interface operations {
         requestBody?: {
             content: {
                 "application/json": {
+                    /** @description Required for complete transfers; confirm the source controller is stopped and will remain stopped. */
+                    source_stopped?: boolean;
                     /** @description Revoke every API token as well. */
                     revoke_api_tokens?: boolean;
                     /** @description Forget every host's agent credential */

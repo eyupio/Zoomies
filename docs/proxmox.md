@@ -189,6 +189,12 @@ Copy the command and run it as root on your Proxmox host. Return to the wizard;
 the connection appears automatically. You do not need to enter a name, API token,
 certificate, endpoint or Tailcat address.
 
+The wizard shows a short command: two lines that fetch
+[`connect-proxmox.sh`](https://zoomies.sh/connect-proxmox.sh) from this site and
+run it, so you can read what it does before you run it. **Show the full command**
+reveals the same setup written out step by step, for a Proxmox host that cannot
+reach zoomies.sh.
+
 The command downloads and verifies a separate Zoomies binary, detects the local
 API certificate, creates a dedicated Proxmox user and privilege-separated token,
 and installs a persistent Tailcat gateway to the local API on port 8006. It sends

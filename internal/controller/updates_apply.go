@@ -96,17 +96,19 @@ type helperProbe struct {
 // goes only to the person who pressed the button, and names the folder so that
 // they can find it.
 func (c *Controller) probeUpdateHelper() helperProbe {
-	cause := c.helperUnsupported()
+	facts := c.helperHostFacts()
+	cause := updates.HelperSupport(facts)
 	missing := func(p helperProbe) helperProbe {
 		if cause == "" {
 			return p
 		}
 		why := helperUnsupportedWhy(cause, "this controller")
+		status, refusal := controllerByHand(facts.GOOS)
 		return helperProbe{dir: p.dir, view: UpdatesHelper{
 			State:          HelperUnsupported,
-			Reason:         "The update helper cannot be installed here: " + why + ". Update this controller on its host with the command below.",
-			UpgradeCommand: controllerUpgradeCommand,
-		}, refusal: "the update helper cannot be installed here: " + why + "; update this controller on its host with zoomies upgrade"}
+			Reason:         "The update helper cannot be installed here: " + why + ". " + status,
+			UpgradeCommand: controllerUpgradeCommand(facts.GOOS),
+		}, refusal: "the update helper cannot be installed here: " + why + "; " + refusal}
 	}
 	view := UpdatesHelper{
 		State: HelperMissing,

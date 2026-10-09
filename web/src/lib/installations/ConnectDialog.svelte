@@ -166,6 +166,22 @@
    * code, and the permission list is the first thing a security reviewer reads.
    */
   let migration = $state(false);
+  /**
+   * Whether an organisation App also asks for Administration read, for Kennel
+   * Club's checks of a repository's settings. Off unless the operator says so:
+   * GitHub offers no narrower permission, and it also lets an App read
+   * configuration a runner fleet has no use for. A repository App holds
+   * Administration write already, so the question is not put to one.
+   */
+  let kennelSettings = $state(false);
+  /**
+   * Whether the App also asks for Contents read, for Kennel Club's checks of a
+   * repository's workflow files, instruction files and file names. Off unless the
+   * operator says so: read access to contents is read access to the code. The
+   * migration wizard's Contents write includes it, so the list names the one that
+   * the App will hold and not both.
+   */
+  let kennelFiles = $state(false);
   let code = $state('');
   let installationId = $state('');
   /**
@@ -274,6 +290,8 @@
     apiBase = '';
     appName = '';
     migration = false;
+    kennelSettings = false;
+    kennelFiles = false;
     code = '';
     installationId = '';
     appIdInput = '';
@@ -467,6 +485,12 @@
       ? 'actions: write, read workflow jobs and cancel workflow runs from Zoomies'
       : 'actions: read, read workflow runs and jobs for the fallback poller',
     'metadata: read, required by GitHub for every App',
+    ...(kennelSettings && targetType !== 'repo'
+      ? ["administration: read, for Kennel Club's checks of repository settings"]
+      : []),
+    ...(kennelFiles && !migration
+      ? ["contents: read, for Kennel Club's checks of workflow and instruction files"]
+      : []),
     ...(migration
       ? [
           'contents: write, read and rewrite workflow files for the migration wizard',
@@ -540,6 +564,8 @@
         target_type: targetType as TargetType,
         api_base_url: apiBase.trim() || undefined,
         migration,
+        kennel_settings: targetType === 'repo' ? undefined : kennelSettings,
+        kennel_files: kennelFiles,
       });
       postUrl = result.post_url ?? '';
       manifest = result.manifest ?? '';
@@ -566,7 +592,15 @@
   let builtFrom = $state('');
   /** Everything the manifest was built from, so a change to any of it is noticed. */
   function fingerprint(): string {
-    return JSON.stringify([target.trim(), targetType, apiBase.trim(), appName.trim(), migration]);
+    return JSON.stringify([
+      target.trim(),
+      targetType,
+      apiBase.trim(),
+      appName.trim(),
+      migration,
+      kennelSettings && targetType !== 'repo',
+      kennelFiles,
+    ]);
   }
   $effect(() => {
     const now = fingerprint();
@@ -1026,6 +1060,27 @@
               label="Also let Zoomies open migration pull requests"
               description="Adds write access to contents, pull requests and workflows, which only the migration wizard uses. Runners do not need it. Adding it later is not a click: the account's owner has to approve the change on GitHub."
             />
+
+            <!-- The same for read access to contents, which only Kennel Club's
+                 checks of a repository's files need and which is read access to
+                 the code. The wizard's write includes it, and the list names the
+                 one the App will hold. -->
+            <Checkbox
+              bind:checked={kennelFiles}
+              label="Also let Kennel Club read repository files"
+              description="Adds read access to contents, which only Kennel Club's checks of workflow files, instruction files and file names use, on private repositories. That is read access to code. Adding it later is not a click: the account's owner has to approve the change on GitHub."
+            />
+
+            <!-- And for the one permission Kennel Club's checks of a repository's
+                 settings need. A repository App holds it already, so only an
+                 organisation App is asked. -->
+            {#if targetType !== 'repo'}
+              <Checkbox
+                bind:checked={kennelSettings}
+                label="Also let Kennel Club check repository settings"
+                description="Adds read access to administration, which only Kennel Club's checks of Actions settings and required status checks use. GitHub offers no narrower permission, and it also lets the App read repository configuration Zoomies does not use. Adding it later is not a click: the account's owner has to approve the change on GitHub."
+              />
+            {/if}
 
             <!-- Two optional answers that almost nobody gives, behind a fold so
                  everybody else is asked for one thing. A field that has an

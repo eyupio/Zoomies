@@ -68,14 +68,24 @@ export default defineConfig({
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
       testIgnore:
-        /(first-run|two-step|mcp-oauth|diagnostics|connect|ai-context|status-page|updates|host-update)\.spec\.ts/,
+        /(^|\/)(first-run|two-step|mcp-oauth|diagnostics|connect|ai-context|status-page|updates|host-update|transfer)\.spec\.ts/,
     },
     // Read-only monitoring on a phone is a stated requirement, so it is tested.
     {
       name: 'mobile',
       use: { ...devices['Pixel 7'] },
       testIgnore:
-        /(first-run|two-step|mcp-oauth|diagnostics|connect|ai-context|status-page|updates|host-update)\.spec\.ts/,
+        /(^|\/)(first-run|two-step|mcp-oauth|diagnostics|connect|ai-context|status-page|updates|host-update|transfer)\.spec\.ts/,
+    },
+    {
+      name: 'transfer',
+      testMatch: /(^|\/)transfer\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:8093' },
+    },
+    {
+      name: 'transfer-mobile',
+      testMatch: /(^|\/)transfer\.spec\.ts/,
+      use: { ...devices['Pixel 7'], baseURL: 'http://127.0.0.1:8093' },
     },
     {
       name: 'first-run',
@@ -112,6 +122,14 @@ export default defineConfig({
     },
   ],
   webServer: [
+    {
+      command: 'node tests/support/serve-transfer.mjs 8093',
+      url: 'http://127.0.0.1:8093/healthz',
+      reuseExistingServer: false,
+      timeout: 60_000,
+      stdout: 'pipe',
+      stderr: 'pipe',
+    },
     {
       command: `node tests/support/serve.mjs ${PORT}`,
       url: `http://127.0.0.1:${PORT}/healthz`,

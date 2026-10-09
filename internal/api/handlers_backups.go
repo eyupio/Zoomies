@@ -38,11 +38,12 @@ const maxBackupUploadBytes = 8 << 30
 // manifest's shape to draw one. The manifest itself is not carried: it holds
 // the blanked configuration, which is a page of JSON per row.
 type backupView struct {
-	ID       string    `json:"id"`
-	TakenAt  time.Time `json:"taken_at"`
-	Source   string    `json:"source"`
-	TakenBy  string    `json:"taken_by,omitempty"`
-	Location string    `json:"location"`
+	Transfer *backup.TransferInfo `json:"transfer,omitempty"`
+	ID       string               `json:"id"`
+	TakenAt  time.Time            `json:"taken_at"`
+	Source   string               `json:"source"`
+	TakenBy  string               `json:"taken_by,omitempty"`
+	Location string               `json:"location"`
 	// Bytes is the database; TotalBytes is the directory, which differs when
 	// the key is in it.
 	Bytes      int64 `json:"bytes"`
@@ -117,6 +118,7 @@ type backupSchedule struct {
 
 // restoreRequest is what staging a restore asks for.
 type restoreRequest struct {
+	SourceStopped    bool `json:"source_stopped"`
 	RevokeAPITokens  bool `json:"revoke_api_tokens"`
 	ResetAgentTokens bool `json:"reset_agent_tokens"`
 }
@@ -152,6 +154,7 @@ func (s *Server) backupView(e backup.Entry, location string) backupView {
 		Bytes: e.Bytes, TotalBytes: e.TotalBytes, KeyIncluded: e.KeyIncluded, Problem: e.Problem,
 	}
 	if m := e.Manifest; m != nil {
+		v.Transfer = m.Transfer
 		v.TakenBy = m.TakenBy
 		v.Version = m.Zoomies.Version
 		v.SchemaLatest = m.LastMigration()
@@ -440,6 +443,14 @@ func (s *Server) handleDownloadBackup(w http.ResponseWriter, r *http.Request) {
 // proxy log. The file part is spooled to disk before anything is decided, so
 // the passphrase may come before or after it.
 func (s *Server) handleUploadBackup(w http.ResponseWriter, r *http.Request) {
+	s.uploadSnapshot(w, r, false)
+}
+
+func (s *Server) handleImportTransfer(w http.ResponseWriter, r *http.Request) {
+	s.uploadSnapshot(w, r, true)
+}
+
+func (s *Server) uploadSnapshot(w http.ResponseWriter, r *http.Request, transfer bool) {
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err != nil || mediaType != "multipart/form-data" {
 		badRequest(w, "send the backup as multipart/form-data: a `file` part holding the archive, and a `passphrase` part when it is encrypted")
@@ -484,9 +495,13 @@ func (s *Server) handleUploadBackup(w http.ResponseWriter, r *http.Request) {
 		}
 		switch part.FormName() {
 		case "passphrase":
-			raw, err := io.ReadAll(io.LimitReader(part, 4096))
+			raw, err := io.ReadAll(io.LimitReader(part, 4097))
 			if err != nil {
 				badRequest(w, "reading the passphrase: "+err.Error())
+				return
+			}
+			if len(raw) > 4096 {
+				badRequest(w, "the passphrase exceeds 4096 bytes")
 				return
 			}
 			passphrase = string(raw)
@@ -528,7 +543,7 @@ func (s *Server) handleUploadBackup(w http.ResponseWriter, r *http.Request) {
 	case encrypted && passphrase == "":
 		unprocessable(w, "this archive is encrypted", []fieldError{{"passphrase", "it was downloaded with a passphrase; send the same one"}})
 		return
-	case encrypted:
+	case encrypted && !transfer:
 		src, err = backup.NewDecryptor(peek, passphrase)
 		if err != nil {
 			s.internal(w, r, "opening the encrypted upload", err)
@@ -539,9 +554,18 @@ func (s *Server) handleUploadBackup(w http.ResponseWriter, r *http.Request) {
 		// archive has lost nothing. The upload proceeds without it.
 	}
 
-	entry, err := backup.Unpack(r.Context(), root, src, backup.UnpackOptions{
-		Source: backup.SourceUploaded, TakenBy: Identity(r.Context()).Name, MaxBytes: maxBackupUploadBytes, Now: s.ctrl.Now,
-	})
+	var entry *backup.Entry
+	if transfer {
+		entry, err = backup.ReadTransfer(r.Context(), s.cfg(), root, peek, passphrase)
+	} else {
+		entry, err = backup.Unpack(r.Context(), root, src, backup.UnpackOptions{
+			Source: backup.SourceUploaded, TakenBy: Identity(r.Context()).Name, MaxBytes: maxBackupUploadBytes, Now: s.ctrl.Now,
+		})
+		if err == nil && entry.Manifest != nil && entry.Manifest.Transfer != nil {
+			_ = os.RemoveAll(entry.Dir)
+			err = errors.New("use the complete instance transfer import endpoint for this archive")
+		}
+	}
 	if err != nil {
 		if errors.Is(err, backup.ErrWrongPassphrase) {
 			unprocessable(w, "the archive did not open", []fieldError{{"passphrase", backup.ErrWrongPassphrase.Error()}})
@@ -583,7 +607,7 @@ func (s *Server) handleStageRestore(w http.ResponseWriter, r *http.Request) {
 	}
 	id := Identity(r.Context())
 	staged, err := backup.Stage(r.Context(), s.cfg(), e, backup.Staged{
-		RequestedBy: id.Name, RequestedAt: s.ctrl.Now(),
+		SourceStopped: body.SourceStopped, RequestedBy: id.Name, RequestedAt: s.ctrl.Now(),
 		RevokeAPITokens: body.RevokeAPITokens, ResetAgentTokens: body.ResetAgentTokens,
 	})
 	if err != nil {
@@ -651,4 +675,48 @@ func (s *Server) handleApplyRestore(w http.ResponseWriter, r *http.Request) {
 		Message: "The controller is stopping. If its service manager starts it again, the restore is applied before the database is opened " +
 			"and the fleet comes back fenced; if nothing starts it, start it by hand and the same happens.",
 	})
+}
+
+// The encrypted file is finished privately before response headers are sent,
+// so a failed export has a JSON error and cannot be mistaken for a snapshot.
+func (s *Server) handleExportTransfer(w http.ResponseWriter, r *http.Request) {
+	var body downloadRequest
+	if !decode(w, r, &body) {
+		return
+	}
+	if len(body.Passphrase) < config.MinBackupPassphrase || len(body.Passphrase) > 4096 {
+		unprocessable(w, "choose a transfer passphrase", []fieldError{{"passphrase", fmt.Sprintf("use between %d and 4096 characters", config.MinBackupPassphrase)}})
+		return
+	}
+	if err := s.ctrl.Store().TransferReady(r.Context()); err != nil {
+		conflict(w, err.Error())
+		return
+	}
+	root := s.ctrl.BackupDir()
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		s.internal(w, r, "creating the transfer directory", err)
+		return
+	}
+	f, err := os.CreateTemp(root, ".outgoing-*")
+	if err != nil {
+		s.internal(w, r, "creating the encrypted transfer", err)
+		return
+	}
+	defer os.Remove(f.Name())
+	defer f.Close()
+	if err = backup.WriteTransfer(r.Context(), s.ctrl.Store(), s.cfg(), body.Passphrase, f); err != nil {
+		s.internal(w, r, "preparing the encrypted transfer", err)
+		return
+	}
+	if _, err = f.Seek(0, io.SeekStart); err != nil {
+		s.internal(w, r, "reading the encrypted transfer", err)
+		return
+	}
+	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "instance.export", "instance", "", map[string]any{"encrypted": true})
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", `attachment; filename="zoomies-instance.zbk"`)
+	_ = http.NewResponseController(w).SetWriteDeadline(time.Time{})
+	if _, err = io.Copy(w, f); err != nil {
+		s.logger(r).Warn("complete instance download did not finish", "error", err)
+	}
 }
