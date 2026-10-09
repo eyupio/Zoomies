@@ -4977,6 +4977,44 @@ paths:
               schema: { $ref: "#/components/schemas/AssistantProviderCheck" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
+  /assistant/providers/models:
+    post:
+      operationId: listAssistantModels
+      tags: [assistant]
+      summary: List the models a provider serves
+      description: >-
+        Asks the provider, as the body has it, which models it serves, with the key the form
+        holds (or the saved row's, when `id` names one and the key is blank), so the Add form
+        can offer a list and not a box to type a spelling into. The model need not be chosen
+        yet. Nothing is written. A provider that would not answer is a 502 with code
+        `assistant.provider_failed`; one that has no list to give is a 409, and its model is
+        typed.
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssistantProviderInput" }
+      responses:
+        "200":
+          description: The model names, sorted and without repeats
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { type: string }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "502":
+          description: The provider would not answer. The code is `assistant.provider_failed`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
   /assistant/providers/kinds:
     get:
       operationId: listAssistantProviderKinds

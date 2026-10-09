@@ -96,3 +96,13 @@ type Provider interface {
 	Chat(ctx context.Context, req Request) (Stream, error)
 	Check(ctx context.Context) (CheckResult, error)
 }
+
+// ModelLister is optional: a provider that can say which models it serves, so
+// the settings page can offer them in a list and not ask a person to remember
+// how the provider spells one. A provider that cannot is typed into.
+type ModelLister interface {
+	// Models returns the model names, sorted and without repeats. The list is
+	// the provider's own and is a choice for a person to make, not a fact the
+	// assistant relies on.
+	Models(ctx context.Context) ([]string, error)
+}

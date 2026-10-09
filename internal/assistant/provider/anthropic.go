@@ -228,6 +228,27 @@ func newAnthropicDecoder() Decoder {
 	}
 }
 
+// Models implements assistant.ModelLister. The list is the first hundred the API
+// returns, which is more than a person picks from.
+func (p *Anthropic) Models(ctx context.Context) ([]string, error) {
+	hr, err := http.NewRequestWithContext(ctx, http.MethodGet, p.base+"/v1/models?limit=100", nil)
+	if err != nil {
+		return nil, err
+	}
+	hr.Header.Set("Accept", "application/json")
+	hr.Header.Set("x-api-key", p.cfg.APIKey)
+	hr.Header.Set("anthropic-version", anthropicVersion)
+	resp, err := p.cfg.client().Do(hr)
+	if err != nil {
+		return nil, fmt.Errorf("reaching the provider: %w", err)
+	}
+	if err := StatusError(resp); err != nil {
+		resp.Body.Close()
+		return nil, err
+	}
+	return modelsFrom(resp)
+}
+
 // Check implements assistant.Provider with one request of one token: the
 // Messages API has no model list worth a second round trip.
 func (p *Anthropic) Check(ctx context.Context) (assistant.CheckResult, error) {

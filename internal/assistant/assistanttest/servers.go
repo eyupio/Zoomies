@@ -32,6 +32,9 @@ type Server struct {
 	Status  int
 	Body    string
 	NoUsage bool
+	// Models, when set, is what the model list answers with, in the order given;
+	// otherwise it lists Model alone.
+	Models []string
 
 	mu       sync.Mutex
 	requests []Recorded
@@ -115,7 +118,15 @@ func NewOpenAI(t testing.TB) *Server {
 		if s.refuse(w) {
 			return
 		}
-		fmt.Fprintf(w, `{"object":"list","data":[{"id":%q,"object":"model"}]}`, s.Model)
+		ids := s.Models
+		if ids == nil {
+			ids = []string{s.Model}
+		}
+		data := []map[string]any{}
+		for _, id := range ids {
+			data = append(data, map[string]any{"id": id, "object": "model"})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"object": "list", "data": data})
 	})
 	mux.HandleFunc("POST /v1/chat/completions", func(w http.ResponseWriter, r *http.Request) {
 		rec := s.record(r)
@@ -160,6 +171,21 @@ func NewAnthropic(t testing.TB) *Server {
 	t.Helper()
 	s := &Server{Model: "fake-claude"}
 	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, r *http.Request) {
+		s.record(r)
+		if s.refuse(w) {
+			return
+		}
+		ids := s.Models
+		if ids == nil {
+			ids = []string{s.Model}
+		}
+		data := []map[string]any{}
+		for _, id := range ids {
+			data = append(data, map[string]any{"type": "model", "id": id})
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{"data": data, "has_more": false})
+	})
 	mux.HandleFunc("POST /v1/messages", func(w http.ResponseWriter, r *http.Request) {
 		rec := s.record(r)
 		if s.refuse(w) {

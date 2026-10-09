@@ -61,6 +61,15 @@ func (f *Fake) Chat(ctx context.Context, req Request) (Stream, error) {
 	return &fakeStream{events: events}, nil
 }
 
+// Models implements ModelLister: the model it was given and one larger, so the
+// demo's list has something to choose between.
+func (f *Fake) Models(ctx context.Context) ([]string, error) {
+	if f.opts.Fail != nil {
+		return nil, f.opts.Fail
+	}
+	return []string{f.opts.Model, f.opts.Model + "-large"}, nil
+}
+
 // Check implements Provider.
 func (f *Fake) Check(ctx context.Context) (CheckResult, error) {
 	if f.opts.Fail != nil {

@@ -91,6 +91,15 @@ the problems-drawer warning (do this before sending any fleet data to a hosted m
 card; 7e the real panel (drawer, chips, stored conversations, what-was-shared); 7f Kennel Club Stage 5 and "Propose fix";
 7g model-drafted patches; 7h step-up authentication; 7i autonomy and the kill switch; 7j docs.
 
+### 2b. Provider presets and the pulled model list (branch `claude/zf-235d-presets`)
+The Provider field is a dropdown whose first choice is Ollama Cloud (`https://ollama.com/v1`), then OpenCode Go
+(`https://opencode.ai/zen/go/v1`), a local or other OpenAI-compatible server, Anthropic and OpenAI. Choosing one fills the
+address and name where they are empty or still the previous preset's. The model is a dropdown filled from
+`POST /assistant/providers/models` (optional `assistant.ModelLister`, implemented by both adapters and the fake), loaded
+when the key field loses focus or on a button. The Ollama Cloud address is from Ollama's documentation; the OpenCode Go
+address and key page are from third-party guides and **unverified**, and models it serves over the Anthropic Messages
+format are not supported. The chat box is on Settings, Assistant, below the cards; making it easier to find is undecided.
+
 ### 3. Smaller loose ends
 * Stage 3 debt: a missing Contents permission shows as "unavailable, this GitHub does not offer it", which is misleading;
   fixing it means telling a missing permission from a missing endpoint.

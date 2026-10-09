@@ -239,6 +239,15 @@ func (p *OpenAICompatible) Check(ctx context.Context) (assistant.CheckResult, er
 	return assistant.CheckResult{Model: p.cfg.Model, Latency: time.Since(start), UsageReported: reported}, nil
 }
 
+// Models implements assistant.ModelLister with the same request Check makes.
+func (p *OpenAICompatible) Models(ctx context.Context) ([]string, error) {
+	resp, err := p.do(ctx, http.MethodGet, "/models", nil)
+	if err != nil {
+		return nil, err
+	}
+	return modelsFrom(resp)
+}
+
 // completeOneToken runs a chat to its end and reports whether usage came
 // back, which is what the settings page tells the administrator.
 func completeOneToken(ctx context.Context, open func(context.Context) (assistant.Stream, error)) (bool, error) {

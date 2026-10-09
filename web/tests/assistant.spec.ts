@@ -34,7 +34,7 @@ test('a private address is refused until the switch is on, the key is never show
   await page.getByRole('button', { name: 'Add a provider' }).first().click();
   const form = dialog(page, 'Add a provider');
   await form.getByRole('textbox', { name: 'Name' }).fill('Local Ollama');
-  await form.getByLabel('Kind').selectOption('openai_compatible');
+  await form.getByLabel('Provider').selectOption('openai-compatible');
   await form.getByRole('textbox', { name: 'Base URL' }).fill('http://127.0.0.1:11434/v1');
   await form.getByRole('textbox', { name: 'Model' }).fill('llama3');
   await form.getByLabel('API key').fill('sk-spec-not-a-real-key');
@@ -122,4 +122,59 @@ test('a refused question says why where the answer would have been', async ({ pa
   await expect(page.getByRole('button', { name: 'Send' })).toBeDisabled();
   await page.getByRole('textbox', { name: 'Message' }).fill('again');
   await expect(page.getByRole('button', { name: 'Send' })).toBeEnabled();
+});
+
+test('Ollama Cloud and OpenCode Go are in the provider list and fill in their addresses', async ({
+  page,
+}) => {
+  await goto(page, '/settings/assistant', 'Assistant');
+  await page.getByRole('button', { name: 'Add a provider' }).first().click();
+  const form = dialog(page, 'Add a provider');
+  const provider = form.getByLabel('Provider');
+  const address = form.getByRole('textbox', { name: 'Base URL' });
+  const name = form.getByRole('textbox', { name: 'Name' });
+
+  // Ollama Cloud is where a new provider starts.
+  await expect(provider).toHaveValue('ollama-cloud');
+  await expect(address).toHaveValue('https://ollama.com/v1');
+  await expect(name).toHaveValue('Ollama Cloud');
+
+  await provider.selectOption('opencode-go');
+  await expect(address).toHaveValue('https://opencode.ai/zen/go/v1');
+  await expect(name).toHaveValue('OpenCode Go');
+  await expect(form.getByText(/opencode\.ai\/auth/)).toBeVisible();
+
+  // What the person typed is theirs: choosing another provider does not replace it.
+  await name.fill('My gateway');
+  await address.fill('https://gateway.example.test/v1');
+  await provider.selectOption('ollama-cloud');
+  await expect(name).toHaveValue('My gateway');
+  await expect(address).toHaveValue('https://gateway.example.test/v1');
+});
+
+test('the model is chosen from the provider’s own list once it has been loaded', async ({
+  page,
+}) => {
+  const asked: Array<Record<string, unknown>> = [];
+  await page.route('**/api/v1/assistant/providers/models', async (route) => {
+    asked.push(route.request().postDataJSON());
+    await route.fulfill({ json: { items: ['model-a', 'model-b'] } });
+  });
+  await goto(page, '/settings/assistant', 'Assistant');
+  await page.getByRole('button', { name: 'Add a provider' }).first().click();
+  const form = dialog(page, 'Add a provider');
+
+  // Before it is loaded the model is typed.
+  await expect(form.getByRole('textbox', { name: 'Model' })).toBeVisible();
+  await form.getByLabel('API key').fill('sk-spec-not-a-real-key');
+  await form.getByRole('button', { name: 'Load the list of models' }).click();
+  const choice = form.getByLabel('Model');
+  await expect(choice.locator('option')).toHaveText(['Choose a model', 'model-a', 'model-b']);
+  await choice.selectOption('model-b');
+  await expect(choice).toHaveValue('model-b');
+  expect(asked[0]).toMatchObject({ kind: 'openai_compatible', base_url: 'https://ollama.com/v1' });
+
+  // Changing provider forgets a list that was another provider's.
+  await form.getByLabel('Provider').selectOption('opencode-go');
+  await expect(form.getByRole('textbox', { name: 'Model' })).toBeVisible();
 });

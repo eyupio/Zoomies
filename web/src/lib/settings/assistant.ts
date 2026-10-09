@@ -29,3 +29,70 @@ export function baseURLHint(kind: AssistantProviderKind, defaultBaseURL: string)
     return `Leave empty for ${defaultBaseURL}; set it only for a gateway in front of the API.`;
   return 'Where requests go.';
 }
+
+/**
+ * A provider a person can pick by name. A preset is a kind, an address and the
+ * words that help with them: which key to paste, and what to know before they
+ * do. Several presets can share one kind; Ollama Cloud and OpenCode Go both
+ * speak the OpenAI chat protocol, so they are an address and a hint on top of
+ * the OpenAI-compatible adapter and not adapters of their own.
+ */
+export interface ProviderPreset {
+  id: string;
+  label: string;
+  kind: AssistantProviderKind;
+  /** The address to fill in, or empty where the kind has its own or none. */
+  baseURL: string;
+  /** What the provider is called on its card until the person says otherwise. */
+  name: string;
+  /** Where the key comes from, and anything the person should know first. */
+  help: string;
+}
+
+export const PRESETS: readonly ProviderPreset[] = [
+  {
+    id: 'ollama-cloud',
+    label: 'Ollama Cloud',
+    kind: 'openai_compatible',
+    baseURL: 'https://ollama.com/v1',
+    name: 'Ollama Cloud',
+    help: 'Create a key at ollama.com/settings/keys and name a cloud model from Ollama’s catalogue. The traffic leaves this machine, so it cannot be used while Local models only is on.',
+  },
+  {
+    id: 'opencode-go',
+    label: 'OpenCode Go',
+    kind: 'openai_compatible',
+    baseURL: 'https://opencode.ai/zen/go/v1',
+    name: 'OpenCode Go',
+    help: 'Use the key from opencode.ai/auth. The models OpenCode Go serves over the Anthropic Messages format (MiniMax and Qwen, as far as we know) are not supported here yet; the others speak the OpenAI protocol. The traffic leaves this machine, so it cannot be used while Local models only is on.',
+  },
+  {
+    id: 'openai-compatible',
+    label: 'Local or other OpenAI-compatible server (Ollama, LM Studio, vLLM, OpenRouter)',
+    kind: 'openai_compatible',
+    baseURL: '',
+    name: '',
+    help: 'A local server usually needs no key. A server on this machine or your network needs the private-address switch below the cards.',
+  },
+  { id: 'anthropic', label: 'Anthropic API', kind: 'anthropic', baseURL: '', name: '', help: '' },
+  { id: 'openai', label: 'OpenAI API', kind: 'openai', baseURL: '', name: '', help: '' },
+];
+
+/** The preset that new providers start as. */
+export const DEFAULT_PRESET = 'ollama-cloud';
+
+const trim = (url: string) => url.trim().replace(/\/+$/, '').toLowerCase();
+
+/**
+ * The preset a saved provider is, so that editing one opens on the same choice
+ * adding it did: the kind alone, unless the address is one a preset names.
+ */
+export function presetFor(
+  kind: AssistantProviderKind,
+  baseURL: string,
+): ProviderPreset | undefined {
+  const named = PRESETS.find(
+    (p) => p.kind === kind && p.baseURL !== '' && trim(p.baseURL) === trim(baseURL),
+  );
+  return named ?? PRESETS.find((p) => p.kind === kind && p.baseURL === '');
+}
