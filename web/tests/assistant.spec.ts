@@ -528,3 +528,58 @@ test('somebody else’s Claude subscription is on the list, marked, and can be r
   await expect(card.getByRole('button', { name: 'Edit' })).toBeDisabled();
   await expect(card.getByRole('button', { name: 'Remove' })).toBeEnabled();
 });
+
+for (const tool of [
+  { preset: 'codex', name: 'ChatGPT (my plan)', heard: 'Codex heard: ', bin: 'Codex' },
+  { preset: 'copilot', name: 'GitHub Copilot (my plan)', heard: 'Copilot heard: ', bin: 'Copilot' },
+]) {
+  test(`${tool.bin} is added with no address, no key and no list of models, and Eli answers through it`, async ({
+    page,
+  }) => {
+    await goto(page, '/settings/assistant', 'Assistant');
+    await page.getByRole('button', { name: 'Add a provider' }).first().click();
+    const form = dialog(page, 'Add a provider');
+    await form.getByLabel('Provider', { exact: true }).selectOption(tool.preset);
+
+    // A name and, if wanted, a model: the tool chooses one when none is named.
+    await expect(form.getByRole('textbox', { name: 'Base URL' })).toHaveCount(0);
+    await expect(form.getByLabel('API key')).toHaveCount(0);
+    await expect(form.getByRole('switch', { name: /read this fleet/ })).toHaveCount(0);
+    await expect(form.getByRole('button', { name: /list of models/ })).toHaveCount(0);
+    await expect(form.getByText(/It is yours alone/)).toBeVisible();
+    await expect(form.getByRole('textbox', { name: 'Name' })).toHaveValue(tool.name);
+    await expect(form.getByRole('textbox', { name: 'Model' })).toHaveValue('');
+    await expect(form.getByText(/Leave this empty and/)).toBeVisible();
+
+    try {
+      await form.getByRole('button', { name: 'Test' }).click();
+      await expect(form.getByText(/Answered as /)).toBeVisible();
+      await form.getByRole('button', { name: 'Add provider' }).click();
+      await expect(form).toBeHidden();
+
+      const card = page.getByRole('article', { name: tool.name });
+      await expect(card.getByText('Your subscription')).toBeVisible();
+      await card.getByRole('button', { name: 'Set as default' }).click();
+      await expect(card.getByRole('button', { name: 'Is the default' })).toBeVisible();
+
+      await openEli(page);
+      const message = page.getByRole('textbox', { name: 'Message' });
+      await message.fill('hello from the spec');
+      await message.press('Enter');
+      const eli = page.getByRole('article', { name: 'Eli' });
+      await expect(eli).toContainText(`${tool.heard}hello from the spec`);
+      // What the agent's own tools did is not part of the answer.
+      await expect(eli).not.toContainText('NOT-FOR-ELI');
+      await expect(eli).toContainText('its default model');
+    } finally {
+      const list = await (await page.request.get('/api/v1/assistant/providers')).json();
+      const demo = list.items.find((p: { kind: string }) => p.kind === 'fake');
+      await page.request.post(`/api/v1/assistant/providers/${demo.id}/default`, { data: {} });
+      const mine = list.items.find((p: { kind: string }) => p.kind === tool.preset);
+      if (mine)
+        await page.request.delete(`/api/v1/assistant/providers/${mine.id}`, {
+          data: { name: mine.name },
+        });
+    }
+  });
+}

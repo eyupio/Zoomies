@@ -8955,10 +8955,10 @@ export interface components {
             warnings: components["schemas"]["Problem"][];
         };
         /**
-         * @description Which protocol the provider speaks. `openai_compatible` covers Ollama, LM Studio, vLLM, llama.cpp, OpenRouter and the gateways; `fake` is the demo's built-in model and cannot be created elsewhere. `claude_code` is somebody's own Claude subscription, used by running their signed-in Claude Code on the controller's machine with every tool off: it has no address and no key, and only the person who added it may use it.
+         * @description Which protocol the provider speaks. `openai_compatible` covers Ollama, LM Studio, vLLM, llama.cpp, OpenRouter and the gateways; `fake` is the demo's built-in model and cannot be created elsewhere. `claude_code`, `codex` and `copilot` are somebody's own subscription (Claude, ChatGPT, GitHub Copilot), used by running their signed-in command line tool on the controller's machine: no address, no key, and only the person who added it may use it. Claude Code is run with every tool off; Codex and Copilot have no such mode, so they are run read-only or with no tool pre-approved, and what their tools do is ignored. The model may be left empty for these, and the tool chooses its own.
          * @enum {string}
          */
-        AssistantProviderKind: "fake" | "openai_compatible" | "anthropic" | "openai" | "claude_code";
+        AssistantProviderKind: "fake" | "openai_compatible" | "anthropic" | "openai" | "claude_code" | "codex" | "copilot";
         AssistantProviderCheck: {
             ok: boolean;
             /** @description The model that answered. */

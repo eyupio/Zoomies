@@ -23,7 +23,18 @@ export const KIND_LABELS: Record<AssistantProviderKind, string> = {
   anthropic: 'Anthropic API',
   openai: 'OpenAI API',
   claude_code: 'Claude, your own subscription (through Claude Code)',
+  codex: 'ChatGPT, your own plan (through Codex)',
+  copilot: 'GitHub Copilot, your own plan (through its command line tool)',
 };
+
+/**
+ * Kinds that are somebody's own subscription, used through the vendor's tool on the
+ * controller's machine: no address, no key, and only the person who added one may
+ * use it. The controller decides this; the page needs it to know what to ask for.
+ */
+export function isSubscriptionKind(kind: AssistantProviderKind): boolean {
+  return kind === 'claude_code' || kind === 'codex' || kind === 'copilot';
+}
 
 /** The hint under the address field, which changes with the kind. */
 export function baseURLHint(kind: AssistantProviderKind, defaultBaseURL: string): string {
@@ -58,6 +69,12 @@ export interface ProviderPreset {
    * only one who may use it.
    */
   subscription?: boolean;
+  /** For a subscription: the tool can say which models it has, so the list is offered. */
+  listsModels?: boolean;
+  /** For a subscription: the model to start from, and empty leaves it to the tool. */
+  defaultModel?: string;
+  /** For a subscription: what is said under the model box. */
+  modelHint?: string;
 }
 
 export const PRESETS: readonly ProviderPreset[] = [
@@ -93,6 +110,29 @@ export const PRESETS: readonly ProviderPreset[] = [
     name: 'Claude (my subscription)',
     help: 'Uses your own Claude plan through Claude Code, installed on the machine the controller runs on. Sign in there, as the user the controller runs as, with claude auth login: Zoomies never sees the sign-in. It is yours alone, because Anthropic’s terms are that each person uses their own plan, and what you ask goes to Anthropic, so it cannot be used while Local models only is on.',
     subscription: true,
+    listsModels: true,
+    defaultModel: 'sonnet',
+    modelHint: 'Claude Code’s own names for its models, which follow its updates.',
+  },
+  {
+    id: 'codex',
+    label: 'ChatGPT, my own plan (through Codex)',
+    kind: 'codex',
+    baseURL: '',
+    name: 'ChatGPT (my plan)',
+    help: 'Uses your own ChatGPT plan through Codex, installed on the machine the controller runs on. Sign in there, as the user the controller runs as, with codex login: Zoomies never sees the sign-in. It is yours alone, because the plan is yours, and what you ask goes to OpenAI, so it cannot be used while Local models only is on. Codex cannot be run with its tools off: it is run read-only in an empty folder, and what its tools do is ignored.',
+    subscription: true,
+    modelHint: 'Leave this empty and Codex chooses, or name a model as Codex does.',
+  },
+  {
+    id: 'copilot',
+    label: 'GitHub Copilot, my own plan (through its command line tool)',
+    kind: 'copilot',
+    baseURL: '',
+    name: 'GitHub Copilot (my plan)',
+    help: 'Uses your own GitHub Copilot plan through its command line tool, installed on the machine the controller runs on. Sign in there, as the user the controller runs as, with copilot login: Zoomies never sees the sign-in. It is yours alone, because the plan is yours, and what you ask goes to GitHub, so it cannot be used while Local models only is on. Test sends one short question, which uses one request of your plan. No tool is approved for it to run, but it cannot be run with its tools off, and the question is passed to it as an argument that anyone who can list processes on that machine can read while it runs.',
+    subscription: true,
+    modelHint: 'Leave this empty and Copilot chooses, or name a model as Copilot does.',
   },
   {
     id: 'openai-compatible',

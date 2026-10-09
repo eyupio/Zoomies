@@ -1,18 +1,15 @@
 package provider
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/assistant"
@@ -39,11 +36,6 @@ type ClaudeCode struct {
 // run, and otherwise it is looked for.
 func NewClaudeCode(cfg Config) *ClaudeCode { return &ClaudeCode{cfg: cfg} }
 
-// claudeSlots bounds how many copies run at once. Each is a process of its own
-// that can hold a few hundred megabytes, and the questions of one controller are
-// few; the rest wait their turn.
-var claudeSlots = make(chan struct{}, 2)
-
 // claudeAliases are the model names Claude Code documents. They follow Claude Code
 // as it is updated, which a full model name does not.
 var claudeAliases = []string{"sonnet", "opus", "haiku", "fable"}
@@ -58,18 +50,7 @@ var errClaudeNotSignedIn = errors.New("nobody is signed in to Claude Code on thi
 // claudeBinary finds the executable: the one named, or one on the PATH, or one
 // where its installers put it.
 func claudeBinary(override string) (string, error) {
-	if override != "" {
-		return override, nil
-	}
-	if p, err := exec.LookPath("claude"); err == nil {
-		return p, nil
-	}
-	for _, c := range claudeCandidates() {
-		if st, err := os.Stat(c); err == nil && !st.IsDir() && st.Mode()&0o111 != 0 {
-			return c, nil
-		}
-	}
-	return "", ErrClaudeNotFound
+	return cliBinary(override, "claude", claudeCandidates(), ErrClaudeNotFound)
 }
 
 // claudeCandidates are the places Claude Code's installers put it, for a service
@@ -83,28 +64,12 @@ var claudeCandidates = func() []string {
 	return append(out, "/usr/local/bin/claude", "/opt/homebrew/bin/claude")
 }
 
-// claudeEnvKeep is the only part of this process's environment Claude Code is
-// given: where it lives and where its sign-in is kept, and nothing of the
-// controller's. In particular no ZOOMIES_ variable and no Anthropic key: a key
-// in the environment would make it bill an API account instead of the person's
-// subscription, which is not what was asked for.
-var claudeEnvKeep = map[string]bool{
-	"HOME": true, "PATH": true, "USER": true, "LOGNAME": true, "LANG": true, "LC_ALL": true,
-	"TZ": true, "TMPDIR": true, "XDG_CONFIG_HOME": true, "XDG_DATA_HOME": true,
-	"XDG_CACHE_HOME": true, "XDG_STATE_HOME": true, "CLAUDE_CONFIG_DIR": true,
-	"SSL_CERT_FILE": true, "SSL_CERT_DIR": true, "HTTPS_PROXY": true, "https_proxy": true,
-	"NO_PROXY": true, "no_proxy": true,
-}
-
-func claudeEnv(environ []string) []string {
-	var out []string
-	for _, kv := range environ {
-		if k, _, ok := strings.Cut(kv, "="); ok && claudeEnvKeep[k] {
-			out = append(out, kv)
-		}
-	}
-	return out
-}
+// claudeEnv is the only part of this process's environment Claude Code is given:
+// where it lives and where its sign-in is kept, and nothing of the controller's. In
+// particular no ZOOMIES_ variable and no Anthropic key: a key in the environment
+// would make it bill an API account instead of the person's subscription, which is
+// not what was asked for.
+func claudeEnv(environ []string) []string { return cliEnv(environ, "CLAUDE_CONFIG_DIR") }
 
 // claudeArgs is how Claude Code is run. Every flag is there for a reason: the
 // print mode and stream so there is something to read, no built-in tool and no
@@ -155,142 +120,20 @@ func (p *ClaudeCode) Chat(ctx context.Context, req assistant.Request) (assistant
 	if err != nil {
 		return nil, err
 	}
-	select {
-	case claudeSlots <- struct{}{}:
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	}
-	dir, err := os.MkdirTemp("", "zoomies-eli-")
-	if err != nil {
-		<-claudeSlots
-		return nil, fmt.Errorf("making a directory for Claude Code to run in: %w", err)
-	}
 	model := req.Model
 	if model == "" {
 		model = p.cfg.Model
 	}
-	cmd := exec.CommandContext(ctx, bin, claudeArgs(req.System, model)...)
-	cmd.Dir = dir
-	cmd.Env = claudeEnv(os.Environ())
-	cmd.Stdin = strings.NewReader(claudePrompt(req.Messages))
-	cmd.WaitDelay = 3 * time.Second
-	ownGroup(cmd)
-	stderr := &limitedBuffer{limit: 8 << 10}
-	cmd.Stderr = stderr
-	out, err := cmd.StdoutPipe()
-	if err != nil {
-		_ = os.RemoveAll(dir)
-		<-claudeSlots
-		return nil, err
-	}
-	if err := cmd.Start(); err != nil {
-		_ = os.RemoveAll(dir)
-		<-claudeSlots
-		return nil, fmt.Errorf("starting Claude Code: %w", err)
-	}
-	s := &claudeStream{cmd: cmd, dir: dir, events: make(chan assistant.Event, 16), done: make(chan struct{}), quit: make(chan struct{})}
-	go s.read(out, stderr)
-	return s, nil
-}
-
-// limitedBuffer keeps the first limit bytes written to it and drops the rest.
-type limitedBuffer struct {
-	mu    sync.Mutex
-	buf   bytes.Buffer
-	limit int
-}
-
-func (b *limitedBuffer) Write(p []byte) (int, error) {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	if room := b.limit - b.buf.Len(); room > 0 {
-		b.buf.Write(p[:min(len(p), room)])
-	}
-	return len(p), nil
-}
-
-func (b *limitedBuffer) String() string {
-	b.mu.Lock()
-	defer b.mu.Unlock()
-	return b.buf.String()
-}
-
-// claudeStream is a question in progress: the process, and what it has said.
-type claudeStream struct {
-	cmd    *exec.Cmd
-	dir    string
-	events chan assistant.Event
-	done   chan struct{}
-	quit   chan struct{}
-	once   sync.Once
-}
-
-// send hands an event to whoever is reading, unless they have closed the stream:
-// a reader that stopped must not leave the process waiting for a place to put
-// what it says.
-func (s *claudeStream) send(ev assistant.Event) bool {
-	select {
-	case s.events <- ev:
-		return true
-	case <-s.quit:
-		return false
-	}
-}
-
-// Next implements assistant.Stream.
-func (s *claudeStream) Next(ctx context.Context) (assistant.Event, bool) {
-	select {
-	case ev, ok := <-s.events:
-		return ev, ok
-	case <-ctx.Done():
-		return assistant.Event{}, false
-	}
-}
-
-// Close implements assistant.Stream: it ends the process if it is still running,
-// waits for it, and gives the directory and the slot back.
-func (s *claudeStream) Close() error {
-	s.once.Do(func() {
-		close(s.quit)
-		_ = killGroup(s.cmd)
-		<-s.done
-		_ = os.RemoveAll(s.dir)
-		<-claudeSlots
+	parse := &claudeParse{}
+	return startCLI(ctx, cliCommand{
+		tool:   "Claude Code",
+		bin:    bin,
+		args:   claudeArgs(req.System, model),
+		env:    claudeEnv(os.Environ()),
+		stdin:  claudePrompt(req.Messages),
+		reader: readLines(parse),
+		exit:   claudeExit,
 	})
-	return nil
-}
-
-// read turns what Claude Code prints into events, and says how it ended.
-func (s *claudeStream) read(out io.Reader, stderr *limitedBuffer) {
-	defer close(s.done)
-	defer close(s.events)
-	var st claudeParse
-	sc := bufio.NewScanner(out)
-	sc.Buffer(make([]byte, 64<<10), 4<<20)
-	for sc.Scan() {
-		for _, ev := range st.line(sc.Bytes()) {
-			if !s.send(ev) {
-				_ = killGroup(s.cmd)
-				_ = s.cmd.Wait()
-				return
-			}
-			if ev.Done || ev.Err != nil {
-				// The answer is over; what is left is the process leaving.
-				_ = killGroup(s.cmd)
-				_ = s.cmd.Wait()
-				return
-			}
-		}
-	}
-	err := s.cmd.Wait()
-	switch {
-	case st.sawText:
-		s.send(assistant.Event{Done: true})
-	case err != nil:
-		s.send(assistant.Event{Err: claudeExit(err, stderr.String())})
-	default:
-		s.send(assistant.Event{Err: errors.New("the run ended in Claude Code without an answer")})
-	}
 }
 
 // claudeParse reads the lines of Claude Code's stream-json output, one at a time,
@@ -323,6 +166,9 @@ type claudeLine struct {
 		OutputTokens int `json:"output_tokens"`
 	} `json:"usage"`
 }
+
+// answered is whether anything was said as an answer.
+func (c *claudeParse) answered() bool { return c.sawText }
 
 // line interprets one line. A line it does not understand is nothing: a newer
 // Claude Code may print more than this one knows, and that is not an error.
@@ -402,13 +248,6 @@ func claudeExit(err error, stderr string) error {
 		return fmt.Errorf("the run stopped in Claude Code: %s", clip(first, 300))
 	}
 	return fmt.Errorf("the run stopped in Claude Code without an answer (%v)", err)
-}
-
-func clip(s string, n int) string {
-	if len(s) <= n {
-		return s
-	}
-	return strings.ToValidUTF8(s[:n], "") + "..."
 }
 
 // Check implements assistant.Provider. It spends no usage: it asks Claude Code
