@@ -36,12 +36,14 @@ type harness struct {
 	stopErr  error
 }
 
-func newAgent(t *testing.T, capacity int) (*Agent, *fakeTransport, *fakeBackend, *testClock) {
+// newAgent builds an agent against fakes. A tweak changes the options before the
+// agent is built, for a test that needs one more fact about the host.
+func newAgent(t *testing.T, capacity int, tweaks ...func(*Options)) (*Agent, *fakeTransport, *fakeBackend, *testClock) {
 	t.Helper()
 	tr := newFakeTransport()
 	be := newFakeBackend(store.BackendDocker)
 	clock := newTestClock()
-	a, err := New(Options{
+	opts := Options{
 		Name:              "test-host",
 		WorkDir:           t.TempDir(),
 		Capacity:          capacity,
@@ -51,16 +53,20 @@ func newAgent(t *testing.T, capacity int) (*Agent, *fakeTransport, *fakeBackend,
 		HeartbeatInterval: time.Second,
 		Logger:            testLogger(),
 		Clock:             clock.Now,
-	})
+	}
+	for _, tweak := range tweaks {
+		tweak(&opts)
+	}
+	a, err := New(opts)
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
 	return a, tr, be, clock
 }
 
-func newHarness(t *testing.T, capacity int) *harness {
+func newHarness(t *testing.T, capacity int, tweaks ...func(*Options)) *harness {
 	t.Helper()
-	a, tr, be, clock := newAgent(t, capacity)
+	a, tr, be, clock := newAgent(t, capacity, tweaks...)
 	if err := a.Join(context.Background(), "join-token"); err != nil {
 		t.Fatalf("Join: %v", err)
 	}

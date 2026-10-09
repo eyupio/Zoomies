@@ -2,12 +2,16 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/installer"
+	"github.com/eyupio/zoomies/internal/updates"
+	"github.com/eyupio/zoomies/internal/updates/channel"
 )
 
 func TestAgentNeedsAControllerToTalkTo(t *testing.T) {
@@ -123,5 +127,32 @@ func TestAgentInstallTakesNoArguments(t *testing.T) {
 	}
 	if !strings.Contains(errOut.String(), "unexpected argument") {
 		t.Errorf("the error does not name the stray argument:\n%s", errOut)
+	}
+}
+
+// A standalone agent finds the helper's folder the way the installer recorded
+// it, beside the configuration file. Where the helper's systemd units cannot
+// run there is no folder to find, whatever a stray pointer says, so the agent
+// never offers to update itself there.
+func TestAnAgentFindsItsUpdateFolderOnlyWhereTheHelperCanRun(t *testing.T) {
+	cfgDir := t.TempDir()
+	folder := filepath.Join(t.TempDir(), "update")
+	pointer, err := json.Marshal(channel.Pointer{V: updates.WireVersion, Dir: folder, ConfigDir: cfgDir})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(cfgDir, channel.PointerFile), pointer, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	dir, ok := agentUpdateDir(filepath.Join(cfgDir, "zoomies.yaml"))()
+	if runtime.GOOS != "linux" {
+		if ok {
+			t.Fatalf("on %s the agent found the update folder %s, where no helper can run", runtime.GOOS, dir)
+		}
+		return
+	}
+	if !ok || dir != folder {
+		t.Fatalf("the agent found %q (ok %v), want the folder the pointer names, %s", dir, ok, folder)
 	}
 }
