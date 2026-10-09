@@ -20,7 +20,6 @@ func TestTheAssistantPackageImportsOnlyWhatItMayImport(t *testing.T) {
 	allowed := []string{
 		"bufio", "bytes", "context", "crypto/tls", "encoding/json", "errors", "fmt", "io", "iter",
 		"net", "net/http", "net/netip", "net/url", "slices", "strings", "sync", "testing", "time",
-		"github.com/eyupio/zoomies/internal/assistant/provider",
 	}
 	all, err := filepath.Glob("*.go")
 	if err != nil {
@@ -44,9 +43,10 @@ func TestTheAssistantPackageImportsOnlyWhatItMayImport(t *testing.T) {
 	}
 }
 
-// Section 9.2: nothing else may import a provider package but
-// internal/assistant, so that a model's wire protocol is reachable from one
-// place and the rule that every provider passes the contract has teeth.
+// Section 9.2: nothing else may import a provider package but the assistant,
+// and within it only the kinds package, which opens one by kind, so that a
+// model's wire protocol is reachable from one place and the rule that every
+// provider passes the contract has teeth.
 func TestNothingButTheAssistantImportsAnAdapter(t *testing.T) {
 	fset := token.NewFileSet()
 	for _, root := range []string{"../../internal", "../../cmd"} {
@@ -57,7 +57,8 @@ func TestNothingButTheAssistantImportsAnAdapter(t *testing.T) {
 			if d.IsDir() || !strings.HasSuffix(path, ".go") {
 				return nil
 			}
-			if strings.Contains(filepath.ToSlash(path), "/internal/assistant/") {
+			slash := filepath.ToSlash(path)
+			if strings.Contains(slash, "/internal/assistant/kinds/") || strings.Contains(slash, "/internal/assistant/provider/") {
 				return nil
 			}
 			file, err := parser.ParseFile(fset, path, nil, parser.ImportsOnly)
@@ -67,7 +68,7 @@ func TestNothingButTheAssistantImportsAnAdapter(t *testing.T) {
 			for _, imp := range file.Imports {
 				p, _ := strconv.Unquote(imp.Path.Value)
 				if strings.HasPrefix(p, "github.com/eyupio/zoomies/internal/assistant/provider") {
-					t.Errorf("%s imports %s; only internal/assistant may", path, p)
+					t.Errorf("%s imports %s; only internal/assistant/kinds may", path, p)
 				}
 			}
 			return nil
