@@ -242,7 +242,9 @@ func (c *Controller) ReconcileMachines(ctx context.Context) error {
 
 	c.recoverMachineOperations(ctx, env)
 	c.sweepProviders(ctx, env)
-	c.applyMachinePlan(ctx, env, DecideMachines(env.demand()))
+	if !c.transferDraining.Load() {
+		c.applyMachinePlan(ctx, env, DecideMachines(env.demand()))
+	}
 	c.stepMachines(ctx, env)
 	c.publishDerived(ctx)
 	return nil
@@ -377,6 +379,9 @@ func (c *Controller) mutationsHeld() string {
 func (c *Controller) provisioningHeld(p *store.Provider, now time.Time) string {
 	if held := c.mutationsHeld(); held != "" {
 		return held
+	}
+	if c.transferDraining.Load() {
+		return "this instance is draining for transfer; no new machines are created"
 	}
 	if c.cfg().Provider.Paused {
 		return "provider.paused is set, so no new machine is created anywhere; " +

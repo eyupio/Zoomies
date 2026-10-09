@@ -928,9 +928,22 @@ export const deleteRemoteBackup = (name: string, id: string) =>
  * browser is handed it, which is the price of that.
  */
 export async function downloadBackupEncrypted(id: string, passphrase: string): Promise<Blob> {
+  return downloadEncryptedArchive(`/backups/${enc(id)}/download`, passphrase);
+}
+
+export const getTransferPreparation = (signal?: AbortSignal) =>
+  api.get<Result<'getTransferPreparation'>>('/transfers/preparation', { signal });
+export const prepareInstanceTransfer = () =>
+  api.post<Result<'prepareInstanceTransfer'>>('/transfers/preparation', {});
+export const cancelInstanceTransfer = () =>
+  api.del<Result<'cancelInstanceTransfer'>>('/transfers/preparation');
+export const exportInstanceTransfer = (passphrase: string) =>
+  downloadEncryptedArchive('/transfers/export', passphrase);
+
+async function downloadEncryptedArchive(path: string, passphrase: string): Promise<Blob> {
   let response: Response;
   try {
-    response = await fetch(`${BASE}/backups/${enc(id)}/download`, {
+    response = await fetch(`${BASE}${path}`, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', Accept: 'application/octet-stream' },
@@ -963,6 +976,21 @@ export function uploadBackup(
   passphrase: string,
   onProgress?: (fraction: number) => void,
 ): Promise<Result<'uploadBackup'>> {
+  return uploadArchive('/backups/upload', file, passphrase, onProgress);
+}
+export function importInstanceTransfer(
+  file: File,
+  passphrase: string,
+  onProgress?: (fraction: number) => void,
+): Promise<Result<'importInstanceTransfer'>> {
+  return uploadArchive('/transfers/import', file, passphrase, onProgress);
+}
+function uploadArchive(
+  path: string,
+  file: File,
+  passphrase: string,
+  onProgress?: (fraction: number) => void,
+): Promise<Result<'uploadBackup'>> {
   const form = new FormData();
   // The passphrase first, so the server can read it before spooling the
   // file; it handles either order, but this is the cheaper one.
@@ -970,7 +998,7 @@ export function uploadBackup(
   form.append('file', file, file.name);
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', `${BASE}/backups/upload`);
+    xhr.open('POST', `${BASE}${path}`);
     xhr.withCredentials = true;
     xhr.setRequestHeader('Accept', 'application/json');
     xhr.responseType = 'json';

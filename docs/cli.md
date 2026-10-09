@@ -748,3 +748,23 @@ HTTP by an HTTPS server, `healthcheck` asks the same address over `https`
 without checking the certificate: the listener is this host's own, and its
 certificate may be self-signed. `--ca-file` still verifies against that
 certificate when given. An address off the host is never moved to `https`.
+
+### `zoomies transfer`
+
+Move a complete instance to an independently configured controller, with history
+and fleet credentials retained. [The transfer guide](backup-and-restore.md#move-a-complete-instance)
+explains cutover, destination operator access, and recovery checks.
+
+| Command | What it does |
+| --- | --- |
+| `zoomies transfer prepare` | One-click drain on the running source: pause new demand, let busy jobs finish naturally, withdraw idle runners and fence after cleanup. |
+| `zoomies transfer status` | Show remaining runners, busy jobs, cleanup and machine operations. |
+| `zoomies transfer cancel` | Resume saved pools while preparation is still draining. Once fenced, use the explicit recovery action after checking that no destination runs. |
+| `zoomies transfer export` | With the controller stopped, write a new encrypted archive using `--out` and `--passphrase-file`. Existing files are refused; the source key never travels. |
+| `zoomies transfer import` | With an empty destination stopped and its own key configured, import an archive using `--source-stopped` and `--passphrase-file`. Retain its own operator access or establish a distinct local operator using `--operator-name` and `--operator-password-file`. The imported fleet remains fenced. |
+
+`prepare`, `status` and `cancel` use the ordinary connection flags. Offline
+`export` and `import` take `--config` and refuse a live controller's database
+lock. Archive passphrases and new operator passwords are read from private
+files rather than command-line values. The archive opens only with its
+passphrase; neither endpoint retains it after preparation.

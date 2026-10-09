@@ -435,6 +435,11 @@ fenced controller is not restarted by its own runtime.
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
+| GET | `/api/v1/transfers/preparation` | process operator | Drain progress: busy and remaining runners, cleanup, jobs and machine operations; ready when fenced. |
+| POST | `/api/v1/transfers/preparation` | process operator | One-click preparation: pause demand, let busy jobs finish, drain idle runners, and fence after cleanup. Saved pool settings remain intact. |
+| DELETE | `/api/v1/transfers/preparation` | process operator | Cancel before the fence; saved pools resume. Once fenced, use the explicit recovery action after checking that no destination is running. |
+| POST | `/api/v1/transfers/export` | process operator | Download a mandatory passphrase-encrypted complete instance, with fleet secrets under a disposable transfer key. Requires a drained and fenced source. |
+| POST | `/api/v1/transfers/import` | process operator | Multipart `file` and `passphrase`; authenticate, verify and re-seal for the destination key. Returns a prepared backup and inventory counts. Stage using the restore route with `source_stopped: true`, then restart; the destination must be empty and have its own operator access. |
 | GET | `/api/v1/backups` | platform | Every backup in `backup.directory` and every copy the store took before migrating, newest first, each with what its manifest says and whether a restore of it would be refused (`restorable`, `restore_problem`); the schedule and its last outcome; the restore waiting for a restart, if any; and what became of the last one. |
 | POST | `/api/v1/backups` | platform | Take one now: `VACUUM INTO`, integrity checked, with its manifest. Retention runs afterwards. `409` while another is being taken. |
 | POST | `/api/v1/backups/upload` | platform | `multipart/form-data`: the archive in `file`, and for an encrypted one its `passphrase`. Unpacked into a staging directory, verified, then listed under the name its manifest gives it. Bounded by its own limit rather than the API's, since an archive is the whole database. |
