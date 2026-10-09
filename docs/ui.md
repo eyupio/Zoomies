@@ -319,7 +319,10 @@ and the Overview's outcome links still show what they promised.
 
 The rest of the filters (repository, workflow, pool, host, label, outcome, dates)
 live in the URL alongside it, so a view can be pasted into a chat. *Host* is the
-host a job ran on, so it is not offered on the Queue, whose jobs have not run yet. A queued job
+host a job ran on, so it is not offered on the Queue, whose jobs have not run yet.
+`hosted=false` in the address leaves out the jobs that ran on somebody else's hosted
+runners, GitHub's own or a vendor's, and says so in a chip; it is the scope the
+Overview's figures count in, so a link from one lists the jobs it counted. A queued job
 that no enabled pool claims is one filter away, *Unmatched only*, and the
 problems drawer links straight to it: on an organisation that also rents
 runners elsewhere, most such jobs are somebody else's rather than a fault.
