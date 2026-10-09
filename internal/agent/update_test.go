@@ -424,7 +424,7 @@ func TestTheHeartbeatCarriesTheHelpersResultUntilOneSucceeds(t *testing.T) {
 	finished := clock.Now().Add(-5 * time.Minute).In(time.FixedZone("CEST", 2*60*60))
 	writeJSON(t, filepath.Join(dir, channel.ResultFile), updates.Result{
 		V: updates.WireVersion, ID: "upd_abc123", OK: false, Tag: "v1.3.5", From: "1.3.0",
-		Error:     "the download failed:\x1b[31m checksum mismatch\nfor zoomies_linux_amd64‮",
+		Error:     "the download failed:\x1b[31m checksum mismatch\nfor zoomies_linux_amd64\u202e",
 		StartedAt: finished.Add(-time.Minute), FinishedAt: finished,
 	})
 
