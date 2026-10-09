@@ -492,7 +492,8 @@ export function rolloutOffer(
  * Each line is as true as the code behind it. The planner asks one host at a
  * time and waits for it to report the release; the agent's restart does not
  * wait for its jobs, which keep running and are taken over, so it is not said
- * to; and the first failure halts the rollout.
+ * to; the first failure halts the rollout; and a host that has failed twice on
+ * this release is counted in the button but passed over by the planner.
  */
 export function confirmRollout(
   tag: string,
@@ -511,6 +512,7 @@ export function confirmRollout(
       `The host running the fewest jobs goes first, and each waits until the one before it reports ${tag}.`,
       'Each host’s agent restarts when its turn comes. Jobs that are running keep running: their runners stay in place and the new agent takes them over. The restart does not wait for them to finish.',
       'If one host’s update fails or times out, the rollout halts, and nothing more is updated until an administrator resumes or cancels it.',
+      `A host whose update to ${tag} has already failed twice is skipped, and left for a person to update.`,
     ],
     confirmLabel: `Update ${hosts}`,
   };

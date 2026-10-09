@@ -700,6 +700,8 @@ test('the rollout confirmation names the release and the hosts and says what a f
   assert.match(lines, /does not wait for them to finish/);
   assert.match(lines, /one host’s update fails or times out, the rollout halts/);
   assert.match(lines, /until an administrator resumes or cancels it/);
+  // The count includes a host the planner will pass over, so the dialog says so.
+  assert.match(lines, /A host whose update to v1\.3\.0 has already failed twice is skipped/);
   assert.doesNotMatch(`${words.description}\n${lines}`, /\u2014| -- /);
   assert.equal(confirmRollout('v1.3.0', 1).title, 'Update 1 host');
 });
