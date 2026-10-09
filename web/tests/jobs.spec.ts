@@ -121,6 +121,56 @@ test('a repository facet narrows the rows and is shareable', async ({ page }) =>
   await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
 });
 
+test('a host facet narrows the jobs to the ones that ran there, and agrees with the API', async ({
+  page,
+}) => {
+  await goto(page, '/jobs', 'Jobs');
+  await expect(dataRows(jobs(page)).first()).toBeVisible();
+  await everyStatus(page);
+
+  // The host is chosen by what the API says it ran, not by a name written into
+  // this test: what matters is that the page and the API count the same jobs.
+  const { items: hosts } = (await page.request.get('/api/v1/hosts').then((r) => r.json())) as {
+    items: { id: string; name: string }[];
+  };
+  let chosen: { id: string; name: string; jobs: number } | undefined;
+  for (const host of hosts) {
+    const { total } = (await page.request
+      .get(`/api/v1/jobs?managed=true&limit=1&host_id=${encodeURIComponent(host.id)}`)
+      .then((r) => r.json())) as { total: number };
+    if (total > 0 && total < FIXTURE.managedJobs) {
+      chosen = { ...host, jobs: total };
+      break;
+    }
+  }
+  expect(chosen, 'the demo fleet has a host that ran some of its jobs, but not all').toBeTruthy();
+  const host = chosen!;
+
+  await facetTrigger(page, 'Host').click();
+  await page
+    .getByRole('group', { name: 'Filter by host' })
+    .getByRole('checkbox', { name: host.name })
+    .check();
+  await page.keyboard.press('Escape');
+
+  await expect(rowCount(page)).toContainText(`of ${host.jobs} jobs`);
+  await expect(page).toHaveURL(new RegExp(`[?&]host_id=${host.id}`));
+  await expect(page.getByRole('group', { name: 'Filters in effect' })).toContainText(host.name);
+
+  await page.getByRole('button', { name: `Remove the Host filter ${host.name}` }).click();
+  await expect(rowCount(page)).toContainText(`of ${FIXTURE.managedJobs} jobs`);
+
+  // A link that carries only a host has asked the page something, so it must
+  // not fall back to the bare visit's "what is running" and hide the rest.
+  await goto(page, `/jobs?host_id=${encodeURIComponent(host.id)}`, 'Jobs');
+  await expect(rowCount(page)).toContainText(`of ${host.jobs} jobs`);
+
+  // A queued job has not run anywhere, so the Queue offers no host to filter by.
+  await goto(page, '/queue');
+  await expect(facetTrigger(page, 'Pool')).toBeVisible();
+  await expect(facetTrigger(page, 'Host')).toHaveCount(0);
+});
+
 test('the unmatched filter finds the job no pool claims and explains it', async ({ page }) => {
   await goto(page, '/jobs', 'Jobs');
   await expect(dataRows(jobs(page)).first()).toBeVisible();
