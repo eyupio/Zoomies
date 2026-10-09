@@ -164,24 +164,32 @@ func (c *Controller) ReconcileUpdates(ctx context.Context) error {
 	}
 	closed := false
 	var hosts map[string]*store.Host
+	var hostsUnread bool
 	var closedHosts []*store.Host
 	for _, a := range open {
 		if a.Scope == store.UpdateScopeHost {
 			// Read once a pass, and only when a host has something in flight.
-			if hosts == nil {
+			if hosts == nil && !hostsUnread {
 				list, err := c.st.ListHosts(ctx)
 				if err != nil {
-					return fmt.Errorf("listing the hosts with an update in flight: %w", err)
+					// The hosts' attempts wait for the next pass; the controller's own
+					// does not depend on the list, and is still judged.
+					c.log.Warn("could not list the hosts with an update in flight; the next pass will try again", "error", err)
+					hostsUnread = true
+					continue
 				}
 				hosts = make(map[string]*store.Host, len(list))
 				for _, h := range list {
 					hosts[h.ID] = h
 				}
 			}
+			if hostsUnread {
+				continue
+			}
 			h := hosts[a.HostID]
 			state, text, ended := c.hostAttemptOutcome(a, h)
 			if !ended {
-				c.sendHostUpdate(h, a)
+				c.keepHostUpdateGoing(h, a)
 				continue
 			}
 			if c.closeHostAttempt(ctx, a, state, text) {

@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -1064,33 +1065,53 @@ func TestACheckSendsTheNewStatusToEveryOpenPage(t *testing.T) {
 	}
 }
 
-// A host's failed update can carry the helper's own sentence, which can name a
-// path on that host. The host's card is read by every role; only the platform
-// is given the text, from the list and from the host alike.
-func TestAHostsUpdateReasonIsWithheldBelowPlatform(t *testing.T) {
-	h := newHarness(t)
-	as := h.updateCallers()
-	useVersion(t, "1.3.5")
+// failedHostUpdate is a host whose update the helper refused with a sentence that
+// names a path on the host, and that path.
+func (h *harness) failedHostUpdate() (*store.Host, string) {
+	h.t.Helper()
+	useVersion(h.t, "1.3.5")
 	h.ctrl.UpdateConfig(func(c *config.Config) { c.Updates.Mode = "manual" })
 	host := h.host("vm-update")
-	host.Version, host.Features = "1.3.4", []string{"self-update"}
+	host.Version, host.Features = "1.3.4", []string{agent.FeatureSelfUpdate}
 	if err := h.st.SetHostReported(h.ctx, host); err != nil {
-		t.Fatal(err)
+		h.t.Fatal(err)
 	}
 	if _, err := h.ctrl.RequestHostUpdate(h.ctx, controller.UpdateActor{ID: "usr_x", Name: "x"}, host.ID); err != nil {
-		t.Fatalf("RequestHostUpdate: %v", err)
+		h.t.Fatalf("RequestHostUpdate: %v", err)
 	}
 	latest, err := h.st.ListUpdateAttempts(h.ctx, store.UpdateScopeHost, host.ID, 1)
 	if err != nil || len(latest) != 1 {
-		t.Fatalf("no attempt (%v)", err)
+		h.t.Fatalf("no attempt (%v)", err)
 	}
 	const path = "/usr/local/bin/zoomies"
 	if _, err := h.ctrl.Heartbeat(h.ctx, host.ID, agent.HeartbeatRequest{
 		ProtocolVersion: agent.ProtocolVersion, Version: "1.3.4", Features: host.Features,
 		Update: &agent.UpdateReport{ID: latest[0].ID, Error: "could not replace " + path, FinishedAt: time.Now().UTC()},
 	}); err != nil {
-		t.Fatalf("Heartbeat: %v", err)
+		h.t.Fatalf("Heartbeat: %v", err)
 	}
+	return host, path
+}
+
+// assertHostReasonFor checks one host body: told the update failed, and given the
+// helper's text only when the reader holds the platform role.
+func assertHostReasonFor(t *testing.T, what, body, path string, platform bool) {
+	t.Helper()
+	if got := strings.Contains(body, path); got != platform {
+		t.Errorf("%s: the helper's text is there = %v, want %v: %s", what, got, platform, body)
+	}
+	if !strings.Contains(body, `"state":"failed"`) {
+		t.Errorf("%s was not told the update failed: %s", what, body)
+	}
+}
+
+// A host's failed update can carry the helper's own sentence, which can name a
+// path on that host. The host's card is read by every role; only the platform
+// is given the text, from every route that answers with a host.
+func TestAHostsUpdateReasonIsWithheldBelowPlatform(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	host, path := h.failedHostUpdate()
 
 	for _, tc := range []struct {
 		role     string
@@ -1098,18 +1119,141 @@ func TestAHostsUpdateReasonIsWithheldBelowPlatform(t *testing.T) {
 		platform bool
 	}{
 		{"viewer", as.viewer, false},
+		{"operator", as.operator, false},
 		{"admin", as.admin, false},
 		{"platform", as.platform, true},
 	} {
 		for _, p := range []string{"/api/v1/hosts", "/api/v1/hosts/" + host.ID} {
 			resp := h.do(request{method: http.MethodGet, path: p, cookie: tc.cookie})
 			resp.mustStatus(t, http.StatusOK, "reading the host")
-			if got := strings.Contains(string(resp.body), path); got != tc.platform {
-				t.Errorf("%s reading %s: the helper's text is there = %v, want %v", tc.role, p, got, tc.platform)
-			}
-			if !strings.Contains(string(resp.body), `"state":"failed"`) {
-				t.Errorf("%s reading %s was not told the update failed: %s", tc.role, p, resp.body)
+			assertHostReasonFor(t, tc.role+" reading "+p, string(resp.body), path, tc.platform)
+		}
+		resp := h.do(request{method: http.MethodPost, path: "/api/v1/hosts/" + host.ID + "/cordon", cookie: tc.cookie,
+			body: map[string]any{"cordoned": false}})
+		if resp.status == http.StatusOK {
+			assertHostReasonFor(t, tc.role+" cordoning", string(resp.body), path, tc.platform)
+		}
+	}
+	for _, tc := range []struct {
+		role     string
+		cookie   string
+		platform bool
+	}{
+		{"admin", as.admin, false},
+		{"platform", as.platform, true},
+	} {
+		resp := h.do(request{method: http.MethodPatch, path: "/api/v1/hosts/" + host.ID, cookie: tc.cookie,
+			body: map[string]any{"capacity": 4}})
+		resp.mustStatus(t, http.StatusOK, "editing the host")
+		assertHostReasonFor(t, tc.role+" editing the host", string(resp.body), path, tc.platform)
+		resp = h.do(request{method: http.MethodPost, path: "/api/v1/hosts/" + host.ID + "/throttle/clear", cookie: tc.cookie})
+		resp.mustStatus(t, http.StatusOK, "clearing the throttle")
+		assertHostReasonFor(t, tc.role+" clearing the throttle", string(resp.body), path, tc.platform)
+	}
+}
+
+// The stream carries the host in the platform's form and narrows it per
+// subscriber, live and on a replay, so that a platform account's card is what
+// its GET says and nobody else's carries the helper's text.
+func TestAHostFrameIsTheGETShapeForEachRole(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	callers := []struct {
+		role     string
+		cookie   string
+		platform bool
+	}{
+		{"viewer", as.viewer, false},
+		{"operator", as.operator, false},
+		{"admin", as.admin, false},
+		{"platform", as.platform, true},
+	}
+	type watcher struct {
+		role     string
+		cookie   string
+		platform bool
+		frames   <-chan sseFrame
+	}
+	var watchers []watcher
+	for _, tc := range callers {
+		frames, _ := h.openStream(t, ctx, "/api/v1/events?kinds=host.updated", tc.cookie, nil)
+		await(t, frames, "the opening comment", func(f sseFrame) bool { return f.comment != "" })
+		watchers = append(watchers, watcher{tc.role, tc.cookie, tc.platform, frames})
+	}
+	bus := h.ctrl.Events()
+	// A Last-Event-ID of zero asks for no replay, so the stream is given an event
+	// to resume after.
+	bus.Publish(events.KindPoolUpdated, "pool:marker", map[string]any{"id": "marker"})
+	before := bus.LastID()
+	host, path := h.failedHostUpdate()
+
+	failed := func(f sseFrame) bool {
+		return f.event == string(events.KindHostUpdated) && strings.Contains(f.data, `"state":"failed"`)
+	}
+	for _, w := range watchers {
+		frame := await(t, w.frames, "the "+w.role+"'s host frame", failed)
+		assertHostReasonFor(t, w.role+"'s live frame", frame.data, path, w.platform)
+		if w.platform {
+			resp := h.do(request{method: http.MethodGet, path: "/api/v1/hosts/" + host.ID, cookie: w.cookie})
+			resp.mustStatus(t, http.StatusOK, "reading the host")
+			var fromFrame, fromGET map[string]any
+			decodeFrame(t, frame, &fromFrame)
+			resp.into(t, &fromGET)
+			if !reflect.DeepEqual(fromFrame["update"], fromGET["update"]) {
+				t.Errorf("the platform's frame has update %v and its GET %v", fromFrame["update"], fromGET["update"])
 			}
 		}
+
+		replayed, _ := h.openStream(t, ctx, "/api/v1/events?kinds=host.updated", w.cookie, map[string]string{
+			"Last-Event-ID": bus.WireID(before),
+		})
+		frame = await(t, replayed, "the "+w.role+"'s replayed host frame", failed)
+		assertHostReasonFor(t, w.role+"'s replayed frame", frame.data, path, w.platform)
+	}
+}
+
+// A host frame that names no ended update is passed on as it came, and one the
+// filter cannot read goes only to the platform.
+func TestAHostFrameTheFilterCannotReadIsOnlyPassedToThePlatform(t *testing.T) {
+	plain := []byte(`{"id":"hst_1","update":{"state":"requested","reason":"asked for"}}`)
+	if out, ok := hostsFor(plain, false); !ok || string(out) != string(plain) {
+		t.Errorf("hostsFor(a frame with nothing to withhold) = %q, %v, want it untouched", out, ok)
+	}
+	garbled := []byte(`{"id":"hst_1","update":{"state":"failed","reason":"cannot write /var/lib/zoomies-update"`)
+	if out, ok := hostsFor(garbled, true); !ok || string(out) != string(garbled) {
+		t.Errorf("hostsFor(platform) = %q, %v, want the frame untouched", out, ok)
+	}
+	if out, ok := hostsFor(garbled, false); ok {
+		t.Errorf("hostsFor(below platform) = %q, true, want it refused", out)
+	}
+}
+
+// On the stream, a host frame the filter cannot read is dropped for everybody
+// below the platform rather than passed on unread: it could carry exactly what
+// is withheld. The platform is sent it as it came.
+func TestAnUnreadableHostFrameIsDroppedBelowPlatform(t *testing.T) {
+	h := newHarness(t)
+	as := h.updateCallers()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	viewer, _ := h.openStream(t, ctx, "/api/v1/events?kinds=host.updated", as.viewer, nil)
+	await(t, viewer, "the viewer's opening comment", func(f sseFrame) bool { return f.comment != "" })
+	platform, _ := h.openStream(t, ctx, "/api/v1/events?kinds=host.updated", as.platform, nil)
+	await(t, platform, "the platform's opening comment", func(f sseFrame) bool { return f.comment != "" })
+
+	bus := h.ctrl.Events()
+	unreadable := `["failed","/var/lib/zoomies-update"]`
+	bus.Publish(events.KindHostUpdated, "host:hst_odd", json.RawMessage(unreadable))
+	bus.Publish(events.KindHostUpdated, "host:hst_marker", json.RawMessage(`{"id":"hst_marker"}`))
+
+	got := await(t, viewer, "the viewer's marker frame", func(f sseFrame) bool { return f.event == string(events.KindHostUpdated) })
+	if strings.Contains(got.data, "zoomies-update") || !strings.Contains(got.data, "hst_marker") {
+		t.Errorf("the viewer's first host frame is %s, want the unreadable one dropped and the marker next", got.data)
+	}
+	got = await(t, platform, "the platform's first host frame", func(f sseFrame) bool { return f.event == string(events.KindHostUpdated) })
+	if got.data != unreadable {
+		t.Errorf("the platform's first host frame is %s, want the unreadable one as it came", got.data)
 	}
 }

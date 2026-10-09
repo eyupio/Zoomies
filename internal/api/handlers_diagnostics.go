@@ -272,8 +272,9 @@ func (s *Server) supportBundle(ctx context.Context) supportBundle {
 		if err != nil {
 			return err
 		}
+		platform := callerRoleCtx(ctx).AtLeast(store.RolePlatform)
 		for _, h := range hosts {
-			b.Hosts = append(b.Hosts, s.ctrl.HostView(h))
+			b.Hosts = append(b.Hosts, s.ctrl.HostView(h).For(platform))
 		}
 		return nil
 	})

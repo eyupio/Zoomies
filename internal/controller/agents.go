@@ -334,9 +334,11 @@ func (q *taskQueue) redeliver(taskID string) redelivery {
 	return redelivered
 }
 
-// withdraw drops the pending tasks match picks and says how many went. A task
-// already in flight is left: the agent has it, and its answer is still wanted.
-func (q *taskQueue) withdraw(match func(agent.Task) bool) int {
+// withdraw drops the pending tasks match picks, and with inFlight the ones an
+// agent holds as well, and says how many went. A task taken out of flight is
+// never offered again when its lease runs out, and its answer, if one comes,
+// matches no task and changes nothing.
+func (q *taskQueue) withdraw(match func(agent.Task) bool, inFlight bool) int {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 	kept := q.pending[:0]
@@ -348,6 +350,14 @@ func (q *taskQueue) withdraw(match func(agent.Task) bool) int {
 	n := len(q.pending) - len(kept)
 	clear(q.pending[len(kept):])
 	q.pending = kept
+	if inFlight {
+		for id, lt := range q.inflight {
+			if match(lt.task) {
+				delete(q.inflight, id)
+				n++
+			}
+		}
+	}
 	return n
 }
 
@@ -697,6 +707,10 @@ func (c *Controller) join(ctx context.Context, req agent.JoinRequest, ip string,
 			return nil, fmt.Errorf("replacing the previous registration of host %s: %w", name, err)
 		}
 		c.publishRunnersDeleted(dropped)
+		// The delete cancelled the old registration's open update attempt. A task
+		// for it still queued, or held by the agent that went away, would update
+		// the machine joining now with nothing recording it.
+		c.withdrawHostUpdates(existing.ID)
 		h.Embedded = existing.Embedded || embedded
 		h.Cordoned = existing.Cordoned
 		// The reserve is the operator's, and a re-join is something the agent

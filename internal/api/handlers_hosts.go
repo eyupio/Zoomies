@@ -285,7 +285,7 @@ func (s *Server) applyHostUpdate(w http.ResponseWriter, r *http.Request, id stri
 	s.ctrl.PublishHost(h)
 	// Capacity, labels and the reserve all decide where runners may be placed.
 	s.ctrl.Nudge()
-	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
+	writeJSON(w, http.StatusOK, s.ctrl.HostView(h).For(isPlatform(r)))
 }
 
 // auditHostUpdate writes the PATCH's audit row: the fields that differ, as
@@ -336,7 +336,7 @@ func (s *Server) handleClearHostThrottle(w http.ResponseWriter, r *http.Request)
 			"effective_capacity": effective, "capacity": h.Capacity,
 		})
 	}
-	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
+	writeJSON(w, http.StatusOK, s.ctrl.HostView(h).For(isPlatform(r)))
 }
 
 type cordonRequest struct {
@@ -376,7 +376,7 @@ func (s *Server) handleCordonHost(w http.ResponseWriter, r *http.Request) {
 		s.ctrl.PublishHost(h)
 		s.ctrl.Nudge()
 	}
-	writeJSON(w, http.StatusOK, s.ctrl.HostView(h))
+	writeJSON(w, http.StatusOK, s.ctrl.HostView(h).For(isPlatform(r)))
 }
 
 // handleCheckHost answers POST /api/v1/hosts/{id}/health-check.
@@ -405,7 +405,7 @@ func (s *Server) handleCheckHost(w http.ResponseWriter, r *http.Request) {
 	if queued {
 		s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "host.check_requested", "host", id, map[string]any{"name": h.Name})
 	}
-	writeJSON(w, http.StatusAccepted, s.ctrl.HostView(&h))
+	writeJSON(w, http.StatusAccepted, s.ctrl.HostView(&h).For(isPlatform(r)))
 }
 
 // handleDeleteHost removes a host.
@@ -889,7 +889,7 @@ func (s *Server) handleAcceptHostCheck(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = s.auth.Auditor().Record(r.Context(), ident, "host.check_accepted", "host", id, nil, acceptanceAudit(a))
-	writeJSON(w, http.StatusOK, v)
+	writeJSON(w, http.StatusOK, v.For(isPlatform(r)))
 }
 
 // handleRevokeHostCheck answers DELETE /api/v1/hosts/{id}/check-acceptances/{check_id}.
@@ -907,5 +907,5 @@ func (s *Server) handleRevokeHostCheck(w http.ResponseWriter, r *http.Request) {
 	if ended != nil {
 		_ = s.auth.Auditor().Record(r.Context(), Identity(r.Context()), "host.check_revoked", "host", id, acceptanceAudit(ended), nil)
 	}
-	writeJSON(w, http.StatusOK, v)
+	writeJSON(w, http.StatusOK, v.For(isPlatform(r)))
 }

@@ -984,13 +984,16 @@ func (c *Controller) publishHost(h *store.Host) {
 	if h == nil || c.bus == nil {
 		return
 	}
-	raw, err := json.Marshal(c.HostView(h))
+	// The platform's form, which is what the platform's GET answers; the stream
+	// narrows it for every other subscriber, as it does the update status.
+	view := c.HostView(h).For(true)
+	raw, err := json.Marshal(view)
 	if err != nil {
 		// Not reachable with a HostView, and not worth dropping the frame
 		// over if it ever were: the operator needs the event more than the
 		// pass needs its record.
 		c.log.Error("could not marshal a host for the event stream", "host", h.ID, "error", err)
-		c.publish(events.KindHostUpdated, "host:"+h.ID, c.HostView(h))
+		c.publish(events.KindHostUpdated, "host:"+h.ID, view)
 		return
 	}
 	c.rememberHost(h.ID, raw)

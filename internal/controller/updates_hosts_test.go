@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/backend"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/store"
@@ -544,8 +545,9 @@ func TestAHostAttemptTimesOutAfterNinetyMinutes(t *testing.T) {
 	}
 }
 
-// The agent may still hold the task of an attempt that has ended. The next
-// attempt's task is its own, and is not held back behind it.
+// The agent may still hold the task of an attempt that ended where this
+// controller's closers did not see it, closed by another process for instance.
+// The next attempt's task is its own, and is not held back behind it.
 func TestATaskLeftInFlightDoesNotHoldBackTheNextAttempt(t *testing.T) {
 	h := newHarness(t)
 	h.hostsCanUpdate()
@@ -554,10 +556,8 @@ func TestATaskLeftInFlightDoesNotHoldBackTheNextAttempt(t *testing.T) {
 	if got := updateTasks(h.poll(host)); len(got) != 1 || got[0].UpdateID != a.ID {
 		t.Fatalf("the agent took %+v, want the first attempt's task", got)
 	}
-	h.advance(91 * time.Minute)
-	h.pass(h.c)
-	if got := h.attempt(a.ID); got.State != store.UpdateTimedOut {
-		t.Fatalf("the first attempt is %s, want timed_out", got.State)
+	if _, err := h.st.FinishUpdateAttempt(h.ctx, a.ID, store.UpdateCancelled, "closed elsewhere"); err != nil {
+		t.Fatal(err)
 	}
 	b := h.requestHost(host)
 	if got := updateTasks(h.poll(host)); len(got) != 1 || got[0].UpdateID != b.ID {
@@ -680,8 +680,8 @@ func TestTheHostViewCarriesNoElapsedTime(t *testing.T) {
 }
 
 // The helper's sentence can name a path on the host, and the host card is read
-// by every role and sent on the stream to all of them. Only a caller that knows
-// its reader holds the platform role gets the text.
+// by every role. The view is rendered in the platform's form, as the platform's
+// GET and the bus carry it, and For narrows it for everybody else.
 func TestTheHelpersSentenceOnAHostIsShownOnlyToThePlatform(t *testing.T) {
 	h := newHarness(t)
 	h.hostsCanUpdate()
@@ -692,21 +692,28 @@ func TestTheHelpersSentenceOnAHostIsShownOnlyToThePlatform(t *testing.T) {
 	h.agentBeat(host, "1.3.4", &agent.UpdateReport{ID: a.ID, OK: false, Error: said, FinishedAt: h.c.Now().UTC()})
 
 	view := h.view(host.ID)
-	if view.Update.State != store.UpdateFailed || view.Update.Reason != withheldAttemptError(store.UpdateFailed) {
-		t.Errorf("the card says %+v, want failed with the fixed sentence", view.Update)
-	}
-	if got := view.For(false).Update.Reason; strings.Contains(got, "/usr/local") {
-		t.Errorf("below the platform the card says %q", got)
+	if view.Update.State != store.UpdateFailed || view.Update.Reason != said {
+		t.Errorf("the card says %+v, want failed with the helper's sentence in the platform's form", view.Update)
 	}
 	if got := view.For(true).Update.Reason; got != said {
 		t.Errorf("the platform reads %q, want the helper's sentence", got)
 	}
-	if view.Update.Reason != withheldAttemptError(store.UpdateFailed) {
-		t.Error("For(true) changed the view it was called on")
+	below := view.For(false)
+	if below.Update.Reason != withheldAttemptError(store.UpdateFailed) || below.Update.State != store.UpdateFailed {
+		t.Errorf("below the platform the card says %+v, want failed with the fixed sentence", below.Update)
+	}
+	if view.Update.Reason != said {
+		t.Error("For(false) changed the view it was called on")
+	}
+	for _, state := range []string{store.UpdateTimedOut, store.UpdateCancelled} {
+		u := HostUpdateView{State: state, Reason: "under /var/lib/zoomies-update"}.For(false)
+		if strings.Contains(u.Reason, "/var/lib") {
+			t.Errorf("a %s attempt below the platform reads %q", state, u.Reason)
+		}
 	}
 	frame := nextOfKind(t, sub, events.KindHostUpdated)
-	if raw, _ := json.Marshal(frame); strings.Contains(string(raw), "/usr/local") {
-		t.Errorf("the frame on the stream carries the helper's text: %s", raw)
+	if got, _ := frame["update"].(map[string]any); got["reason"] != said {
+		t.Errorf("the frame on the bus has update %v, want the platform's form for the stream to narrow", frame["update"])
 	}
 	ps, err := h.c.Problems(h.ctx)
 	if err != nil {
@@ -837,5 +844,228 @@ func TestAnUpdateFolderThatIsALinkIsNotReady(t *testing.T) {
 	}
 	if _, err := h.c.RequestControllerUpdate(h.ctx, alice, ""); !errors.Is(err, ErrUpdateHelperMissing) {
 		t.Errorf("err = %v, want ErrUpdateHelperMissing", err)
+	}
+}
+
+// updateTasksQueued counts a host's update tasks, waiting or held by its agent.
+func (h *harness) updateTasksQueued(host *store.Host) int {
+	h.t.Helper()
+	q, ok := h.c.queues.all()[host.ID]
+	if !ok {
+		return 0
+	}
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	n := 0
+	for _, lt := range q.pending {
+		if lt.task.Kind == agent.TaskUpdateAgent {
+			n++
+		}
+	}
+	for _, lt := range q.inflight {
+		if lt.task.Kind == agent.TaskUpdateAgent {
+			n++
+		}
+	}
+	return n
+}
+
+// A host that joins again is a new registration under the same id, and its old
+// attempt is cancelled with the old row. A task for that attempt, waiting or held
+// by the agent that went away, would otherwise reach the machine joining now
+// when its lease ran out, and update it with nothing recording it.
+func TestARejoinedHostIsNotSentTheCancelledAttemptsTask(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	a := h.requestHost(host)
+	if got := updateTasks(h.poll(host)); len(got) != 1 {
+		t.Fatalf("the agent took %d update tasks, want 1", len(got))
+	}
+
+	resp, err := h.c.EmbeddedTransport().Join(h.ctx, agent.JoinRequest{
+		ProtocolVersion: agent.ProtocolVersion, Name: "vm-1", Capacity: 4,
+		Backends: []backend.Info{{Kind: store.BackendDocker, Available: true}},
+	})
+	if err != nil {
+		t.Fatalf("re-Join: %v", err)
+	}
+	if resp.HostID != host.ID {
+		t.Fatalf("the re-join made host %s, want the row %s kept", resp.HostID, host.ID)
+	}
+	if got := h.attempt(a.ID); got.State != store.UpdateCancelled {
+		t.Errorf("the old registration's attempt is %s, want cancelled", got.State)
+	}
+	if n := h.updateTasksQueued(host); n != 0 {
+		t.Errorf("%d update tasks are still queued for the re-joined host", n)
+	}
+	if _, ok := h.c.hostAttempt(host.ID); ok {
+		t.Error("the loop still holds the old registration's attempt")
+	}
+}
+
+// The helper says the release is installed, but the agent reporting it still
+// runs the old build: the update did not take, whatever the result says.
+func TestAnOKResultWhileTheHostIsStillBehindIsAFailure(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	a := h.requestHost(host)
+	h.agentBeat(host, "1.3.4", &agent.UpdateReport{ID: a.ID, OK: true, Tag: "v1.3.5", From: "1.3.4", To: "1.3.5", FinishedAt: h.c.Now().UTC()})
+	got := h.attempt(a.ID)
+	if got.State != store.UpdateFailed || !strings.Contains(got.Error, "still reports 1.3.4") {
+		t.Errorf("attempt = %s %q, want failed, saying the agent still runs the old build", got.State, got.Error)
+	}
+}
+
+// A failure is history once the host is on that release some other way, by hand
+// for instance, and the card says what is true now.
+func TestTheCardForgetsAFailureOnceTheHostRunsTheRelease(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	a := h.requestHost(host)
+	h.agentBeat(host, "1.3.4", &agent.UpdateReport{ID: a.ID, OK: false, Error: "the download failed", FinishedAt: h.c.Now().UTC()})
+	if u := h.view(host.ID).Update; u.State != store.UpdateFailed {
+		t.Fatalf("the card says %+v, want the failure", u)
+	}
+	h.agentBeat(host, "1.3.5", nil)
+	u := h.view(host.ID).Update
+	if u.State != HostUpdateNone || u.AttemptID != "" || !strings.Contains(u.Reason, "already runs") {
+		t.Errorf("the card says %+v, want no attempt and that the host is on the release", u)
+	}
+}
+
+// The agent inside the controller is updated with it, and a host whose agent
+// speaks another protocol has a louder entry of its own; neither is also a note
+// that it cannot be updated from here.
+func TestTheUnavailableNoteLeavesOutTheEmbeddedAgentAndIncompatibleHosts(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	embedded := &store.Host{
+		Name: "controller", Capacity: 4, Embedded: true, Backends: store.StringSlice{"docker"}, Labels: store.StringMap{},
+		OS: "linux", Arch: "amd64", LastHeartbeat: time.Now(),
+	}
+	if err := h.st.CreateHost(h.ctx, embedded); err != nil {
+		t.Fatal(err)
+	}
+	embedded.Version = "1.3.4"
+	if err := h.st.SetHostReported(h.ctx, embedded); err != nil {
+		t.Fatal(err)
+	}
+	incompatible := h.agentHost("vm-old-protocol", "1.3.4")
+	if err := h.st.SetHostProtocol(h.ctx, incompatible.ID, agent.ProtocolVersion+1, true); err != nil {
+		t.Fatal(err)
+	}
+	if contains(h.problemCodes(), "host.update_unavailable") {
+		t.Error("the embedded agent or an incompatible host was noted as unable to update from here")
+	}
+}
+
+// An older agent that is somehow sent the task answers that it does not know the
+// kind, and the card says what that means rather than repeating the agent.
+func TestAnAgentThatDoesNotKnowTheTaskIsToldItIsOlder(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	a := h.requestHost(host)
+	task := updateTasks(h.poll(host))[0]
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: task.ID, Kind: agent.TaskUpdateAgent, OK: false, CompletedAt: h.c.Now(),
+		Error: `unknown task kind "update_agent"; this agent speaks protocol version 9, so upgrade it to match the controller`,
+	}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+	got := h.attempt(a.ID)
+	if got.State != store.UpdateFailed || !strings.Contains(got.Error, "older than this controller") || strings.Contains(got.Error, "unknown task kind") {
+		t.Errorf("attempt = %s %q, want failed, saying the agent is older", got.State, got.Error)
+	}
+}
+
+// A restored copy must not write over what the live controller is recording, so
+// one that may not act takes no report and no answer as closing anything.
+func TestAFencedControllerIgnoresWhatAnAgentReports(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	a := h.requestHost(host)
+	task := updateTasks(h.poll(host))[0]
+	h.fence("restored from a backup")
+
+	h.agentBeat(host, "1.3.4", &agent.UpdateReport{ID: a.ID, OK: false, Error: "the download failed", FinishedAt: h.c.Now().UTC()})
+	if got := h.attempt(a.ID); got.State != store.UpdateRequested {
+		t.Errorf("a heartbeat to a fenced controller closed the attempt as %s", got.State)
+	}
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{
+		TaskID: task.ID, Kind: agent.TaskUpdateAgent, OK: false, Error: "the folder is missing", CompletedAt: h.c.Now(),
+	}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+	if got := h.attempt(a.ID); got.State != store.UpdateRequested {
+		t.Errorf("a task answer to a fenced controller closed the attempt as %s", got.State)
+	}
+	h.agentBeat(host, "1.3.5", nil)
+	if got := h.attempt(a.ID); got.State != store.UpdateRequested {
+		t.Errorf("a heartbeat on the release to a fenced controller closed the attempt as %s", got.State)
+	}
+}
+
+// Switching updating off starts nothing new: a task the agent has not taken is
+// taken back and the attempt ends by itself at its time-out. One the agent has
+// already acted on is in the helper's hands, and how it ends is still recorded.
+func TestSwitchingUpdatingOffStopsSendingAHostsTask(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	waiting := h.updatableHost("vm-waiting")
+	a := h.requestHost(waiting)
+	taken := h.updatableHost("vm-taken")
+	b := h.requestHost(taken)
+	task := updateTasks(h.poll(taken))[0]
+	if err := h.c.ReportResult(h.ctx, taken.ID, agent.TaskResult{TaskID: task.ID, Kind: agent.TaskUpdateAgent, OK: true, CompletedAt: h.c.Now()}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+	h.inMode("off")
+
+	h.pass(h.c)
+	if n := h.updateTasksQueued(waiting); n != 0 {
+		t.Errorf("with updating off %d update tasks still wait for a host", n)
+	}
+	h.c.queues.forget(waiting.ID)
+	h.pass(h.c)
+	if n := h.updateTasksQueued(waiting); n != 0 {
+		t.Errorf("with updating off the pass queued %d update tasks again", n)
+	}
+	h.agentBeat(taken, "1.3.5", nil)
+	if got := h.attempt(b.ID); got.State != store.UpdateSucceeded {
+		t.Errorf("the update the agent had taken is %s, want it recorded as succeeded", got.State)
+	}
+	h.advance(91 * time.Minute)
+	h.pass(h.c)
+	if got := h.attempt(a.ID); got.State != store.UpdateTimedOut {
+		t.Errorf("the attempt never sent is %s, want timed_out", got.State)
+	}
+}
+
+// What the pass remembers of an agent's answer goes with the attempt, however
+// it ends, so the memory does not grow for the life of the process.
+func TestWhatIsRememberedOfAnAnswerGoesWithItsAttempt(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	a := h.requestHost(host)
+	task := updateTasks(h.poll(host))[0]
+	if err := h.c.ReportResult(h.ctx, host.ID, agent.TaskResult{TaskID: task.ID, Kind: agent.TaskUpdateAgent, OK: true, CompletedAt: h.c.Now()}); err != nil {
+		t.Fatalf("ReportResult: %v", err)
+	}
+	if !h.c.handedOver(a.ID) {
+		t.Fatal("the agent's answer was not remembered")
+	}
+	// Closed by something other than this controller's own closers.
+	if _, err := h.st.FinishUpdateAttempt(h.ctx, a.ID, store.UpdateCancelled, "closed elsewhere"); err != nil {
+		t.Fatal(err)
+	}
+	h.pass(h.c)
+	if h.c.handedOver(a.ID) {
+		t.Error("the answer to an attempt that has ended is still remembered")
 	}
 }

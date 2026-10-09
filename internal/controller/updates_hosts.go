@@ -32,37 +32,42 @@ type HostUpdateView struct {
 	// there is no such attempt, including one that failed before the host
 	// reached its release some other way.
 	State string `json:"state"`
-	// Reason is the sentence the card shows. Below the platform role a failed
-	// attempt's reason is a fixed sentence for the state, because the text can
-	// be the helper's own and name a path on the host (see HostView.For).
+	// Reason is the sentence the card shows. For an attempt that ended without
+	// the update it is the reason recorded for it, often the helper's own, which
+	// can name a path on the host: only the platform role reads it (see For).
 	Reason string `json:"reason"`
 	// CanUpdate says whether asking for an update now would be taken.
 	CanUpdate bool `json:"can_update"`
 	// AttemptID is the attempt State describes, and empty with none.
 	AttemptID string `json:"attempt_id"`
-
-	// detail is the attempt's own reason, kept for the platform role. It is
-	// unexported so that every frame and every response carries the fixed
-	// sentence unless a caller that knows the role asks for more.
-	detail string
 }
 
 // HostUpdateNone is the state of a host with no attempt worth showing.
 const HostUpdateNone = "none"
 
-// For is the host as one audience may read it. Every view is rendered with the
-// fixed sentence in place of an attempt's own reason, so a frame on the stream,
-// a diagnostics bundle or a handler that forgets to ask never carries the
-// helper's text; only a caller that knows its reader holds the platform role
-// gets it back.
-//
-// It narrows a copy, because the update block it points to is shared.
+// For is the update block as one audience may read it. The platform reads it
+// whole; every other role is given a fixed sentence for an ended attempt in
+// place of its reason, and still learns that it ended and how. It works on the
+// fields alone, so the event stream can apply it to a frame it has decoded.
+func (u HostUpdateView) For(platform bool) HostUpdateView {
+	switch {
+	case platform:
+		return u
+	case u.State == store.UpdateFailed, u.State == store.UpdateTimedOut, u.State == store.UpdateCancelled:
+		u.Reason = withheldAttemptError(u.State)
+	}
+	return u
+}
+
+// For is the host as one audience may read it: HostView renders the platform's
+// form, and every handler that answers with a host passes it through here with
+// the caller's role. The view it returns has an update block of its own, so the
+// one it was called on, which may be shared, is never changed.
 func (v HostView) For(platform bool) HostView {
-	if !platform || v.Update == nil || v.Update.detail == "" {
+	if v.Update == nil {
 		return v
 	}
-	u := *v.Update
-	u.Reason = u.detail
+	u := v.Update.For(platform)
 	v.Update = &u
 	return v
 }
@@ -80,7 +85,7 @@ func hostCanSelfUpdate(h *store.Host, target string) (can bool, why string) {
 	case target == "":
 		return false, "This controller is not running a release, so there is no release to take its hosts to. Install a release on the controller with zoomies upgrade first."
 	case strings.TrimSpace(h.Version) == "":
-		return false, "This host's agent has not said which version it runs, so Zoomies cannot tell whether " + target + " is newer. Update it on the host with the command below."
+		return false, "This host's agent has not said which version it runs, so Zoomies cannot tell whether " + target + " is newer. Update it on the host with zoomies upgrade."
 	}
 	switch version.CompareBuilds(h.Version, target) {
 	case version.SkewNone, version.SkewAhead:
@@ -199,18 +204,31 @@ func (c *Controller) noteHandedOver(attemptID string) {
 	c.updates.handed[attemptID] = true
 }
 
-// withdrawHostUpdate takes an ended attempt's task off its host's queue if it is
-// still waiting there, so that a host that comes back after its attempt timed
-// out is not then updated with nothing recording it.
+// withdrawHostUpdate takes an ended attempt's task back from its host's queue,
+// waiting or held by the agent, so that a host that comes back after its attempt
+// timed out is not then updated with nothing recording it.
 func (c *Controller) withdrawHostUpdate(a store.UpdateAttempt) {
 	c.updates.handedMu.Lock()
 	delete(c.updates.handed, a.ID)
 	c.updates.handedMu.Unlock()
-	q, ok := c.queues.all()[a.HostID]
+	c.withdrawUpdateTasks(a.HostID, func(t agent.Task) bool { return t.UpdateID == a.ID }, true)
+}
+
+// withdrawHostUpdates takes back every update task of a host whose registration
+// is going away, and forgets what the loop saw of it.
+func (c *Controller) withdrawHostUpdates(hostID string) {
+	c.withdrawUpdateTasks(hostID, func(agent.Task) bool { return true }, true)
+	c.forgetHostUpdates(hostID)
+}
+
+// withdrawUpdateTasks drops a host's update tasks that match, without making a
+// queue for a host that has none.
+func (c *Controller) withdrawUpdateTasks(hostID string, match func(agent.Task) bool, inFlight bool) {
+	q, ok := c.queues.all()[hostID]
 	if !ok {
 		return
 	}
-	q.withdraw(func(t agent.Task) bool { return t.Kind == agent.TaskUpdateAgent && t.UpdateID == a.ID })
+	q.withdraw(func(t agent.Task) bool { return t.Kind == agent.TaskUpdateAgent && match(t) }, inFlight)
 }
 
 // applyUpdateTaskResult takes the agent's answer to an update task. The answer
@@ -360,6 +378,19 @@ func (c *Controller) closeHostAttempt(ctx context.Context, a store.UpdateAttempt
 	return true
 }
 
+// keepHostUpdateGoing is what a pass does for a host's attempt that has not
+// ended. With updating switched off nothing new is started: a task the agent has
+// not yet taken is taken back, and the attempt ends by itself at its time-out.
+// One the agent has taken, or still holds, carries on, and its outcome is
+// recorded however it ends.
+func (c *Controller) keepHostUpdateGoing(h *store.Host, a store.UpdateAttempt) {
+	if c.updateMode() == updates.ModeOff {
+		c.withdrawUpdateTasks(a.HostID, func(t agent.Task) bool { return t.UpdateID == a.ID }, false)
+		return
+	}
+	c.sendHostUpdate(h, a)
+}
+
 // hostAttemptOutcome is how a pass judges a host's open attempt: the host gone,
 // the host on the release, or the time-out. A host that has merely gone quiet is
 // none of these, because an update restarts the agent and the planner counts
@@ -411,6 +442,21 @@ func (c *Controller) lookAtHostUpdates(ctx context.Context) {
 	c.updates.hostMu.Lock()
 	c.updates.hostLast = latest
 	c.updates.hostMu.Unlock()
+
+	// An attempt can end without passing through closeHostAttempt: the host's
+	// row deleted with it, or another process closing it. What is remembered of
+	// it goes when it is no longer open, whichever way it ended.
+	stillOpen := make(map[string]bool, len(open))
+	for _, a := range open {
+		stillOpen[a.ID] = true
+	}
+	c.updates.handedMu.Lock()
+	for id := range c.updates.handed {
+		if !stillOpen[id] {
+			delete(c.updates.handed, id)
+		}
+	}
+	c.updates.handedMu.Unlock()
 }
 
 // hostAttempt is the latest attempt the loop saw for a host.
@@ -451,8 +497,10 @@ func (c *Controller) hostUpdateView(h *store.Host) *HostUpdateView {
 			return out
 		}
 		out.State, out.AttemptID = a.State, a.ID
-		out.Reason = withheldAttemptError(a.State)
-		out.detail = withoutDirectionControls(a.Error)
+		out.Reason = withoutDirectionControls(a.Error)
+		if strings.TrimSpace(out.Reason) == "" {
+			out.Reason = withheldAttemptError(a.State)
+		}
 	}
 	return out
 }
