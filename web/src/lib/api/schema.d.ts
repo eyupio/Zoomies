@@ -1499,7 +1499,9 @@ export interface paths {
          *     repository permissions the migration wizard needs (`contents`,
          *     `pull_requests` and `workflows`, all write) are added only when
          *     `migration` is true, because nothing else in Zoomies writes to a
-         *     repository.
+         *     repository. An organisation App also asks for `administration` read
+         *     when `kennel_settings` is true, for the Kennel Club checks of a
+         *     repository's settings.
          */
         post: operations["createAppManifest"];
         delete?: never;
@@ -8767,8 +8769,10 @@ export interface components {
             endpoint?: string;
             /** @description QEMU templates detected by the setup command. */
             templates?: components["schemas"]["ProxmoxSetupTemplate"][];
-            /** @description Returned only at creation; contains the short-lived setup capability. */
+            /** @description Returned only at creation; the whole setup script */
             command?: string;
+            /** @description Returned only at creation; the same setup as two lines that fetch the hosted connect-proxmox.sh. Contains the short-lived setup capability. */
+            short_command?: string;
         };
         /** @description Creating and editing a provider take the same body. On a PATCH every field is optional and independent; what is not named is left alone. */
         ProviderInput: {
@@ -12211,6 +12215,19 @@ export interface operations {
                      * @default false
                      */
                     migration?: boolean;
+                    /**
+                     * @description Also request `administration` read on an organisation App, for
+                     *     the Kennel Club checks of a repository's Actions settings and
+                     *     required status checks. GitHub offers no narrower permission
+                     *     for them, and it also lets an App read configuration Zoomies
+                     *     has no use for, so leave it off for a fleet that will not turn
+                     *     those checks on. A repository App holds `administration` write
+                     *     already, so this changes nothing for one. Adding it later is
+                     *     possible, but GitHub holds the change until the account's owner
+                     *     accepts it on the installation.
+                     * @default false
+                     */
+                    kennel_settings?: boolean;
                 };
             };
         };

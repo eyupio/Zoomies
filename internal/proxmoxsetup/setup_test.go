@@ -13,6 +13,7 @@ import (
 	"math/big"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -207,5 +208,52 @@ func TestDiscoverTemplatesFiltersGuestsAndSortsIDs(t *testing.T) {
 	h.Run = func(context.Context, string, ...string) ([]byte, error) { return []byte(`not json`), nil }
 	if _, err := DiscoverTemplates(context.Background(), h); err == nil {
 		t.Fatal("malformed inventory accepted")
+	}
+}
+
+// The short command is what an operator pastes, so it has to stay a command a
+// shell reads as one thing: a controller address with a quote in it must not
+// become a second command, and the values the hosted script needs to find the
+// private directory must all be there.
+func TestShortCommandIsShellQuotedAndNamesTheHostedScript(t *testing.T) {
+	controller := "https://zoomies.example/a'$(touch should-not-exist)"
+	command := ShortCommand(controller, "pvs_abc", "secret", "v1.2.3")
+	cmd := exec.Command("bash", "-n")
+	cmd.Stdin = strings.NewReader(command)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("invalid shell: %v %s", err, out)
+	}
+	for _, want := range []string{ConnectScriptURL, "--version 'v1.2.3'", "--key '" + InstanceKey(controller) + "'", "--setup-id 'pvs_abc'", "--token 'secret'"} {
+		if !strings.Contains(command, want) {
+			t.Fatalf("short command lacks %q:\n%s", want, command)
+		}
+	}
+	if strings.Count(command, "\n") != 1 {
+		t.Fatalf("short command is not two lines:\n%s", command)
+	}
+	if strings.Contains(command, "sha256sum") || strings.Contains(command, "<<") {
+		t.Fatal("short command carries the download logic it exists to hide")
+	}
+}
+
+// The script is served from the site, so a value it was not given is refused
+// before it names a directory or a download, and root is only asked for after.
+func TestConnectScriptRefusesIncompleteOrUnsafeArguments(t *testing.T) {
+	script, err := filepath.Abs("../../connect-proxmox.sh")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, args := range map[string][]string{
+		"a missing token":     {"--version", "v1", "--key", "k", "--controller", "https://c", "--setup-id", "pvs_1"},
+		"a path in a version": {"--version", "../x", "--key", "k", "--controller", "https://c", "--setup-id", "pvs_1", "--token", "t"},
+		"a path in a key":     {"--version", "v1", "--key", "a/b", "--controller", "https://c", "--setup-id", "pvs_1", "--token", "t"},
+		"an unknown option":   {"--bogus", "x"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			out, err := exec.Command("sh", append([]string{script}, args...)...).CombinedOutput()
+			if err == nil || !strings.Contains(string(out), "copy the complete command") {
+				t.Fatalf("accepted: %v %s", err, out)
+			}
+		})
 	}
 }

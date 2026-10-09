@@ -1430,9 +1430,20 @@ page's Copy button, `zoomies kennel` with its five readers, and
 `zoomies kennel check [path]`, the same checks over a checkout with nothing
 sent anywhere, held by golden JSON (#767).
 
-**Open:** Stage 4 (ZF-229d, repository settings), planned in
-[roadmap/plans/2026-10-09-zf-229d-settings.md](roadmap/plans/2026-10-09-zf-229d-settings.md);
-Stage 5 (ZF-229e, fix by pull request); the documentation page.
+Stage 4 (ZF-229d, repository settings), planned in
+[roadmap/plans/2026-10-09-zf-229d-settings.md](roadmap/plans/2026-10-09-zf-229d-settings.md),
+landed in seven pull requests (#779, #780, #782, #784, #787, #790, #792): four
+checks (`token.default_write`, `exposure.fork_approval_weak`,
+`exposure.private_fork_secrets` and `protection.required_check_never_reports`)
+behind one opt-in, `kennel.settings_checks`, that reads a repository's Actions
+settings and the status checks its default branch requires, judged against the
+jobs the fleet saw with the checks' names kept out of everything shown; the
+Administration-read permission asked for as a question when an organisation App
+is created; and a Protection tab that links each finding to the GitHub page
+where its setting is changed.
+
+**Open:** Stage 5 (ZF-229e, fix by pull request); the documentation page; a
+first look at Stage 4 against a real installation.
 
 Depends on ZF-227. Size L.
 

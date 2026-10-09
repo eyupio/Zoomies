@@ -2532,6 +2532,15 @@ and no others, and a test holds it to that list. Without the permission the
 read is shown as **not granted** and names the permission; nothing else about
 Kennel Club changes.
 
+A new organisation App asks for it only if you answer yes to **Also let Kennel
+Club check repository settings?**, in the installer or in the Connect GitHub
+dialog. A repository App holds **Administration: write** already to register
+its runners, which includes read, and is never asked. To add the permission to
+an App that exists, open the App's **Permissions & events** page on GitHub and
+set **Administration** to **Read-only**; GitHub holds the change until the
+account's owner accepts it on the installation, and the repository shows as
+**not granted** until they do.
+
 A repository's private fork rules and public approval policy are read once a
 refresh, with the other reads and through the same request budget and holds.
 A GitHub that lacks the fork-policy endpoints leaves the repository partly

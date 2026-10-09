@@ -1990,7 +1990,9 @@ paths:
         repository permissions the migration wizard needs (`contents`,
         `pull_requests` and `workflows`, all write) are added only when
         `migration` is true, because nothing else in Zoomies writes to a
-        repository.
+        repository. An organisation App also asks for `administration` read
+        when `kennel_settings` is true, for the Kennel Club checks of a
+        repository's settings.
       x-zoomies-role: admin
       requestBody:
         required: true
@@ -2013,6 +2015,19 @@ paths:
                     will not migrate workflows. Adding them to an existing App
                     later is possible, but GitHub holds the change until the
                     account's owner accepts it on the installation.
+                kennel_settings:
+                  type: boolean
+                  default: false
+                  description: |
+                    Also request `administration` read on an organisation App, for
+                    the Kennel Club checks of a repository's Actions settings and
+                    required status checks. GitHub offers no narrower permission
+                    for them, and it also lets an App read configuration Zoomies
+                    has no use for, so leave it off for a fleet that will not turn
+                    those checks on. A repository App holds `administration` write
+                    already, so this changes nothing for one. Adding it later is
+                    possible, but GitHub holds the change until the account's owner
+                    accepts it on the installation.
       responses:
         "200":
           description: OK
@@ -11503,7 +11518,8 @@ components:
         name: { type: string }
         endpoint: { type: string }
         templates: { type: array, items: { $ref: "#/components/schemas/ProxmoxSetupTemplate" }, description: QEMU templates detected by the setup command. }
-        command: { type: string, description: Returned only at creation; contains the short-lived setup capability. }
+        command: { type: string, description: Returned only at creation; the whole setup script, contains the short-lived setup capability. }
+        short_command: { type: string, description: Returned only at creation; the same setup as two lines that fetch the hosted connect-proxmox.sh. Contains the short-lived setup capability. }
 
     ProviderInput:
       type: object
