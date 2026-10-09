@@ -28,6 +28,41 @@ to type in, or press **Ask Eli**. <kbd>Esc</kbd> puts the panel away.
 Until there is an enabled default provider there is no Eli to ask, and the
 button is not shown.
 
+### Using your own Claude subscription
+
+A provider can also be **Claude, my own subscription (through Claude Code)**. Zoomies
+then runs Anthropic's own `claude` program on the controller's machine and asks it
+the question. You sign in to that program once, as the user the controller runs as
+(`claude auth login`); Zoomies never sees the login, holds no key and has no address
+to call. Choosing a model offers Claude Code's own names (`sonnet`, `opus`, `haiku`).
+
+Things to know before you add one:
+
+* **It is yours alone.** Anthropic's terms do not allow one person's plan to serve
+  other people, so only the person who added the provider can use it, test it,
+  change it or make it the default. Another administrator sees it on the list,
+  marked with your name, and can remove it, but cannot use it. For them Eli answers
+  through a provider they are allowed to use, if there is one.
+* **Read Anthropic's terms yourself.** Whether your plan allows this use is your
+  decision, and Zoomies cannot check it for you.
+* **Eli cannot read the fleet through it.** Claude Code is run with every one of its
+  own tools off, in an empty temporary directory, in its safe mode (so a
+  `CLAUDE.md`, hook or plugin on the machine does not change that), and with an
+  environment that carries no `ZOOMIES_*` setting and no Anthropic key. The fleet
+  switch is not offered for it. What you type to Eli does leave this machine, for
+  Anthropic.
+* **It follows Claude Code's releases.** The options Zoomies uses are Claude Code's
+  own. If a release stops accepting one, **Test** says to update with
+  `claude update` or to tell us.
+* **A plan, not an API key.** Test refuses a Claude Code signed in with an API key
+  and says so; use the Anthropic provider for that.
+* **Not while Local models only is on.** The question goes to Anthropic.
+* **Host installs only.** It needs `claude` installed on the machine the controller
+  runs on. The controller image is distroless and has no such program, so a compose
+  or image deployment cannot use it.
+* **Two at a time.** At most two Claude Code processes run at once, so a busy
+  conversation cannot start a crowd of them.
+
 ## What Eli can see
 
 By default, **nothing about your fleet**. Eli is told it cannot see it, and answers

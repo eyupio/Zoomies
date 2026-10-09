@@ -7225,7 +7225,7 @@ components:
           properties:
             code:
               type: string
-              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, too_large, rate_limited, limit_reached, update.mode_off, update.check_disabled, update.helper_missing, update.in_progress, update.not_a_release, update.nothing_newer, update.host_cannot_update, update.rollout_halted, update.check_failed, assistant.provider_failed, internal]
+              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, too_large, rate_limited, limit_reached, update.mode_off, update.check_disabled, update.helper_missing, update.in_progress, update.not_a_release, update.nothing_newer, update.host_cannot_update, update.rollout_halted, update.check_failed, assistant.provider_failed, assistant.provider_not_yours, internal]
             message: { type: string, description: Written for a person to read, and to act on. }
             field: { type: string, description: "The form field at fault, or on a `limit_reached` refusal the `limits.*` setting that refused." }
             detail: { type: string }
@@ -11751,11 +11751,13 @@ components:
 
     AssistantProviderKind:
       type: string
-      enum: [fake, openai_compatible, anthropic, openai]
+      enum: [fake, openai_compatible, anthropic, openai, claude_code]
       description: >-
         Which protocol the provider speaks. `openai_compatible` covers Ollama, LM Studio,
         vLLM, llama.cpp, OpenRouter and the gateways; `fake` is the demo's built-in model
-        and cannot be created elsewhere.
+        and cannot be created elsewhere. `claude_code` is somebody's own Claude subscription,
+        used by running their signed-in Claude Code on the controller's machine with every
+        tool off: it has no address and no key, and only the person who added it may use it.
 
     AssistantProviderCheck:
       type: object
@@ -11787,7 +11789,7 @@ components:
 
     AssistantProvider:
       type: object
-      required: [id, name, kind, base_url, model, key_configured, enabled, is_default, local, fleet_access, created_at, updated_at]
+      required: [id, name, kind, base_url, model, key_configured, enabled, is_default, local, fleet_access, subscription, owned_by_you, usable, created_at, updated_at]
       properties:
         id: { type: string }
         name: { type: string }
@@ -11804,6 +11806,19 @@ components:
             The assistant may read this fleet through the provider. An administrator's
             decision per provider, off until made: what the tools return is sent to the
             provider, which for a hosted one leaves this network.
+        subscription:
+          type: boolean
+          description: >-
+            Somebody's own subscription, used through the vendor's own tool on the
+            controller's machine. Such a provider belongs to the person who added it.
+        owner: { type: string, description: The username it belongs to, for a subscription. }
+        owned_by_you: { type: boolean, description: The person asking is the owner of this subscription. }
+        usable:
+          type: boolean
+          description: >-
+            The person asking may use this provider: it is shared, or it is their own
+            subscription. Anyone else's gets a 403 `assistant.provider_not_yours` where it is
+            used, changed or tested.
         last_check: { $ref: "#/components/schemas/AssistantProviderCheck" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }

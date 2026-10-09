@@ -26,7 +26,7 @@
   interface Props {
     conversation: Conversation;
     /** Whoever is answering. Without one the box is closed. */
-    answering?: { name: string; model: string };
+    answering?: { id: string; name: string; model: string };
     /** What to put in the box's place of a hint when nothing can be asked yet. */
     closedHint?: string;
     /** Whether Eli can read the fleet through whoever is answering. */
@@ -105,7 +105,7 @@
     draft = '';
     atBottom = true;
     void tick().then(fit);
-    await conversation.send(question);
+    await conversation.send(question, answering.id);
   }
 
   function onkeydown(event: KeyboardEvent): void {

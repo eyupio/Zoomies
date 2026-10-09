@@ -1,0 +1,15 @@
+#!/bin/sh
+# A stand-in for Claude Code, for the specs: it is first on the PATH of the
+# controller the browser tests run, so the Claude subscription provider can be
+# added, tested and asked something with no account and no network. It reads the
+# conversation from standard input as the real one is given it, and answers with
+# the last thing the user said, streamed in two pieces as Claude Code streams.
+case "$1" in
+  --version) echo "2.1.300 (Claude Code)"; exit 0 ;;
+  auth) echo '{"loggedIn":true,"authMethod":"claude.ai"}'; exit 0 ;;
+esac
+last=$(grep '^User: ' | tail -1 | sed 's/^User: //' | sed 's/\\/\\\\/g; s/"/\\"/g')
+echo '{"type":"system","subtype":"init"}'
+echo '{"type":"stream_event","event":{"type":"content_block_delta","delta":{"type":"text_delta","text":"Claude Code heard: "}}}'
+echo "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\",\"delta\":{\"type\":\"text_delta\",\"text\":\"$last\"}}}"
+echo "{\"type\":\"result\",\"subtype\":\"success\",\"is_error\":false,\"result\":\"Claude Code heard: $last\",\"usage\":{\"input_tokens\":11,\"output_tokens\":5}}"

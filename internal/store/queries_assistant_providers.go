@@ -20,14 +20,17 @@ type AssistantProvider struct {
 	IsDefault bool
 	// FleetAccess is whether the assistant may read this fleet through the
 	// provider. Off unless an administrator turned it on for this one.
-	FleetAccess   bool
+	FleetAccess bool
+	// OwnerID is the account a provider belongs to, and empty for one that is
+	// shared by every administrator. Set when it is created and never changed.
+	OwnerID       string
 	LastCheck     []byte
 	LastCheckedAt *time.Time
 	CreatedAt     time.Time
 	UpdatedAt     time.Time
 }
 
-const assistantProviderCols = `id, name, kind, base_url, model, key_enc, enabled, is_default, fleet_access,
+const assistantProviderCols = `id, name, kind, base_url, model, key_enc, enabled, is_default, fleet_access, owner_id,
 	last_check, last_checked_at, created_at, updated_at`
 
 func scanAssistantProvider(sc interface{ Scan(...any) error }) (*AssistantProvider, error) {
@@ -36,7 +39,7 @@ func scanAssistantProvider(sc interface{ Scan(...any) error }) (*AssistantProvid
 	var created, updated int64
 	var check sql.NullString
 	var checked sql.NullInt64
-	if err := sc.Scan(&p.ID, &p.Name, &p.Kind, &p.BaseURL, &p.Model, &p.KeyEnc, &enabled, &isDefault, &fleetAccess,
+	if err := sc.Scan(&p.ID, &p.Name, &p.Kind, &p.BaseURL, &p.Model, &p.KeyEnc, &enabled, &isDefault, &fleetAccess, &p.OwnerID,
 		&check, &checked, &created, &updated); err != nil {
 		return nil, err
 	}
@@ -87,9 +90,9 @@ func (s *Store) CreateAssistantProvider(ctx context.Context, p *AssistantProvide
 	now := s.Now()
 	p.CreatedAt, p.UpdatedAt = now, now
 	_, err := s.exec(ctx, `INSERT INTO assistant_providers
-		(id, name, kind, base_url, model, enabled, is_default, fleet_access, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`,
-		p.ID, p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), boolInt(p.FleetAccess), ms(now), ms(now))
+		(id, name, kind, base_url, model, enabled, is_default, fleet_access, owner_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), boolInt(p.FleetAccess), p.OwnerID, ms(now), ms(now))
 	return wrapWrite(err)
 }
 

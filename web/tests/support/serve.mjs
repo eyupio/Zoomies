@@ -5,12 +5,16 @@
 // sign-in step in every spec. The seed is deterministic, so the fixtures in
 // ./fixtures.ts can assert on exact counts.
 
+import { join } from 'node:path';
 import { serveController } from './controller.mjs';
 
 serveController({
   port: process.argv[2] ?? '8099',
   prefix: 'zoomies-e2e-',
   env: {
+    // A stand-in for Claude Code comes first on the PATH, so the Assistant specs can
+    // add a Claude subscription and ask it something without an account.
+    PATH: `${join(import.meta.dirname, 'bin')}:${process.env.PATH}`,
     ZOOMIES_DISABLE_AUTH: 'true',
     // Seeds a deterministic fixture fleet so pages have content to assert on.
     ZOOMIES_SEED_DEMO: 'true',

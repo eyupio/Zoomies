@@ -10,13 +10,14 @@
   import EliAvatar from '$lib/assistant/EliAvatar.svelte';
   import { eli } from '$lib/assistant/eli.svelte';
   import Button from '$lib/components/Button.svelte';
+  import { answeringProvider } from './assistant';
 
   interface Props {
     providers: readonly AssistantProvider[];
   }
   let { providers }: Props = $props();
 
-  const answering = $derived(providers.find((p) => p.is_default && p.enabled));
+  const answering = $derived(answeringProvider(providers));
 </script>
 
 <section class="eli" aria-labelledby="assistant-eli">

@@ -1,6 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_PRESET, PRESETS, presetFor } from '../src/lib/settings/assistant.ts';
+import {
+  answeringProvider,
+  DEFAULT_PRESET,
+  KIND_LABELS,
+  PRESETS,
+  presetFor,
+} from '../src/lib/settings/assistant.ts';
+import type { AssistantProvider } from '../src/lib/api/types.ts';
 
 test('Ollama Cloud and OpenCode Go are presets of the OpenAI-compatible kind, at their addresses', () => {
   const byId = Object.fromEntries(PRESETS.map((p) => [p.id, p]));
@@ -30,4 +37,36 @@ test('a saved provider opens on the preset it was added as', () => {
   assert.equal(presetFor('openai', 'https://api.openai.com/v1')?.id, 'openai');
   // The same address under another kind is not the preset.
   assert.notEqual(presetFor('anthropic', 'https://ollama.com/v1')?.id, 'ollama-cloud');
+});
+
+test('a Claude subscription is a preset of its own kind, with no address and the person’s own plan said', () => {
+  const claude = PRESETS.find((p) => p.id === 'claude-code');
+  assert.equal(claude?.kind, 'claude_code');
+  assert.equal(claude?.baseURL, '');
+  assert.equal(claude?.subscription, true);
+  assert.match(claude?.help ?? '', /your own/i);
+  assert.match(claude?.help ?? '', /yours alone/);
+  assert.match(claude?.help ?? '', /Local models only/);
+  // Every other preset is shared, and a saved Claude subscription opens on its own preset.
+  assert.deepEqual(
+    PRESETS.filter((p) => p.subscription).map((p) => p.id),
+    ['claude-code'],
+  );
+  assert.equal(presetFor('claude_code', '')?.id, 'claude-code');
+  assert.ok(KIND_LABELS.claude_code);
+});
+
+const provider = (over: Partial<AssistantProvider>): AssistantProvider =>
+  ({ enabled: true, is_default: false, usable: true, ...over }) as AssistantProvider;
+
+test('the provider that answers is the default when it may be used, and otherwise the first that may', () => {
+  const mine = provider({ id: 'a', is_default: true });
+  const other = provider({ id: 'b' });
+  const alices = provider({ id: 'c', is_default: true, usable: false });
+  const off = provider({ id: 'd', enabled: false, is_default: true });
+  assert.equal(answeringProvider([other, mine])?.id, 'a');
+  assert.equal(answeringProvider([alices, other])?.id, 'b');
+  assert.equal(answeringProvider([alices])?.id, undefined);
+  assert.equal(answeringProvider([off, other])?.id, 'b');
+  assert.equal(answeringProvider([])?.id, undefined);
 });

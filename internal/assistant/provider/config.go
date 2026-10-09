@@ -9,6 +9,9 @@ type Config struct {
 	APIKey  string
 	Model   string
 	Client  *http.Client
+	// Command is the executable a kind that runs one is to run, in place of
+	// looking for it. Empty for every kind that speaks over the network.
+	Command string
 }
 
 func (c Config) client() *http.Client {

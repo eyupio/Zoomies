@@ -104,7 +104,7 @@
     <div class="body">
       <ConversationView
         conversation={eli.conversation}
-        answering={{ name: answering.name, model: answering.model }}
+        answering={{ id: answering.id, name: answering.name, model: answering.model }}
         fleetAccess={eli.fleetAccess}
         height="100%"
       />

@@ -51,6 +51,9 @@ const assistantToolsSystemPrompt = "You are Eli, the assistant built into Zoomie
 // answer it, or of a provider that is not one.
 var ErrAssistantNoModel = errors.New("no assistant model is set up")
 
+// ErrAssistantNotYours is a chat asked through somebody else's own subscription.
+var ErrAssistantNotYours = errors.New("that provider is another person's own subscription, and only they may use it")
+
 // AssistantChatInvalid is a request that cannot be answered as sent. The field
 // names the part of the body to fix.
 type AssistantChatInvalid struct {
@@ -74,6 +77,9 @@ type AssistantChatRequest struct {
 	// ProviderID names the provider to ask, or is empty for the default.
 	ProviderID string
 	Messages   []AssistantChatMessage
+	// UserID is the account asking. A provider that belongs to somebody is used
+	// only by them: it is what Anthropic's terms ask of a subscription.
+	UserID string
 	// Tools is what the fleet can be read with, as the person asking: nil when
 	// there is none. Eli is offered it only if the provider is one the
 	// administrator let read the fleet, and only the part of it that
@@ -120,9 +126,17 @@ func ValidateAssistantChat(in []AssistantChatMessage) ([]assistant.Message, erro
 	return out, nil
 }
 
-// chatProvider is the provider a chat is for: the one named, or the default.
-// A disabled provider is not one to answer, whichever way it was asked for.
-func (c *Controller) chatProvider(ctx context.Context, id string) (*store.AssistantProvider, error) {
+// UsableBy is whether an account may use a provider: any administrator may use
+// one that is shared, and only its owner one that is somebody's own subscription.
+func UsableBy(row *store.AssistantProvider, userID string) bool {
+	return row.OwnerID == "" || row.OwnerID == userID
+}
+
+// chatProvider is the provider a chat is for: the one named, or the default, or
+// when the default is somebody else's own subscription the first other provider
+// the person may use. A disabled provider is not one to answer, whichever way it
+// was asked for.
+func (c *Controller) chatProvider(ctx context.Context, id, userID string) (*store.AssistantProvider, error) {
 	if id != "" {
 		row, err := c.st.GetAssistantProvider(ctx, id)
 		if errors.Is(err, store.ErrNotFound) {
@@ -134,6 +148,9 @@ func (c *Controller) chatProvider(ctx context.Context, id string) (*store.Assist
 		if !row.Enabled {
 			return nil, ErrAssistantNoModel
 		}
+		if !UsableBy(row, userID) {
+			return nil, ErrAssistantNotYours
+		}
 		return row, nil
 	}
 	rows, err := c.st.ListAssistantProviders(ctx)
@@ -141,7 +158,12 @@ func (c *Controller) chatProvider(ctx context.Context, id string) (*store.Assist
 		return nil, err
 	}
 	for _, row := range rows {
-		if row.IsDefault && row.Enabled {
+		if row.IsDefault && row.Enabled && UsableBy(row, userID) {
+			return row, nil
+		}
+	}
+	for _, row := range rows {
+		if row.Enabled && UsableBy(row, userID) {
 			return row, nil
 		}
 	}
@@ -159,7 +181,7 @@ func (c *Controller) StartAssistantChat(ctx context.Context, in AssistantChatReq
 	if err != nil {
 		return nil, err
 	}
-	row, err := c.chatProvider(ctx, in.ProviderID)
+	row, err := c.chatProvider(ctx, in.ProviderID, in.UserID)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +198,7 @@ func (c *Controller) StartAssistantChat(ctx context.Context, in AssistantChatReq
 	// The administrator decides, per provider, whether the fleet may be read
 	// through it. Off, the model is not told there are tools and is not given any.
 	allowed := map[string]bool{}
-	if in.Tools != nil && row.FleetAccess {
+	if in.Tools != nil && row.FleetAccess && assistant.SupportsTools(assistant.Kind(row.Kind)) {
 		for _, t := range in.Tools.Tools() {
 			if slices.Contains(AssistantFleetTools, t.Name) {
 				req.Tools = append(req.Tools, t)

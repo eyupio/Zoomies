@@ -50,9 +50,16 @@ func Open(kind assistant.Kind, cfg Config) (assistant.Provider, error) {
 		return provider.NewOpenAICompatible(pc), nil
 	case assistant.KindAnthropic:
 		return provider.NewAnthropic(pc), nil
+	case assistant.KindClaudeCode:
+		// Claude Code dials Anthropic itself, outside the dialer this package
+		// applies, so the one promise local-only makes cannot be kept for it.
+		if cfg.LocalOnly {
+			return nil, errors.New("Claude Code sends what is asked to Anthropic, which is not on this machine or its network, and Local models only is on")
+		}
+		return provider.NewClaudeCode(pc), nil
 	}
-	return nil, fmt.Errorf("unknown provider kind %q; the kinds are %s, %s and %s", kind,
-		assistant.KindOpenAICompatible, assistant.KindAnthropic, assistant.KindOpenAI)
+	return nil, fmt.Errorf("unknown provider kind %q; the kinds are %s, %s, %s and %s", kind,
+		assistant.KindOpenAICompatible, assistant.KindAnthropic, assistant.KindOpenAI, assistant.KindClaudeCode)
 }
 
 // newTransport is an http.Transport with the assistant's dialer. In
