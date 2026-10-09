@@ -150,3 +150,28 @@ workflow URL, routing, pool and runner IDs, timestamps and relevant logs for
 an [issue](https://github.com/eyupio/zoomies/issues). Remove credentials and
 private payloads before sharing. Avoid deleting a busy runner or resetting the
 fleet while diagnosing a single waiting job.
+
+## 6. Ask the fleet why
+
+When a job ran and failed, stalled, or is still waiting after the checks
+above, ask the fleet for its verdict before you open a log. Three places give
+the same answer, from the controller's own explanation:
+
+* [`zoomies why <job>`](cli.md#zoomies-why) in a terminal, with a job ID, a
+  GitHub run or job URL, or `--latest-failed` when the job is not to hand.
+* The **Why** section of the job's drawer in the UI.
+* `get_job` over MCP, for a coding agent ([Connect Claude](connect-claude.md)).
+
+The answer is a **class** from a closed set (`oom`, `timeout`, `cancelled`,
+`queued-unmatched`, `queued-blocked`, `queued-capacity`, `queued`,
+`runner-startup-failure`, `host-lost`, `disk`, `workflow-failure`,
+`held-by-github`, `running`, `succeeded` or `unknown`), how sure the fleet is
+and, when it is not sure, what was missing; the **evidence** the class rests
+on, each a fact you can check; the runner's last lines up to the one that
+decided it; the catalogue code to read on, whose entry says what to change and
+how to see that the change worked; and the next steps in order. A fleet that
+caused the failure says so (`host-lost`, `runner-startup-failure`, `oom`), and
+one that did not says that too (`workflow-failure`), so a person reads a
+verdict before it reads a log, and the log only to confirm it. `unknown` is a
+verdict as well: the explanation is still printed, with what the fleet would
+have needed to decide.
