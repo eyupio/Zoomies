@@ -2477,6 +2477,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/hosts/{id}/update": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update a host to this controller's release
+         * @description Asks the host's agent to have its update helper replace the agent's binary with the release this controller runs. It answers 202 with the host, whose `update` block holds the attempt as `requested`: the task goes out on the agent's own poll, because the controller never dials an agent, and the host is updated once its agent reports that release, which the page learns from the host's `host.updated` events. Everything that can refuse does so before anything is written, so a refusal leaves nothing in flight. A host can be asked when its `update.can_update` is true: its agent offers to update itself (it does only once the update helper is installed on the host), it is behind the controller's release, and no attempt for it is open. The agent inside the controller is updated with the controller, and is refused with `update.host_cannot_update`, as is a host that is not behind. A host that is not there is a 404. Takes no body; a field sent is a 422 naming it. Audited as `update.host_requested` once it is accepted, and not before. Below the `platform` role the text of a failed attempt in the answer is a fixed sentence for its state.
+         */
+        post: operations["requestHostUpdate"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/hosts/{id}/check-acceptances": {
         parameters: {
             query?: never;
@@ -8283,7 +8306,7 @@ export interface components {
              * @enum {string}
              */
             version_skew?: "behind" | "ahead" | "differs";
-            /** @description Copyable `sudo zoomies upgrade --mode agent --version <tag>` command for an older or different remote agent, targeting the controller's published release or dev channel. An operator runs it on the host; the controller never does. Absent for embedded, matching or newer agents, and for unpublished controller builds. Contains no credentials. */
+            /** @description Copyable `sudo zoomies upgrade --mode agent --version <tag>` command for an older or different remote agent, targeting the controller's published release or dev channel. An operator runs it on the host. The controller asks the host's agent to update itself instead, with `POST /hosts/{id}/update`, only when `update.can_update` is true; for every other host this command is how it is upgraded. Absent for embedded, matching or newer agents, and for unpublished controller builds. Contains no credentials. */
             upgrade_command?: string;
             /** @description Controller build the upgrade is intended to match. */
             upgrade_version?: string;
@@ -13542,6 +13565,38 @@ export interface operations {
             404: components["responses"]["NotFound"];
             409: components["responses"]["Conflict"];
             429: components["responses"]["RateLimited"];
+        };
+    };
+    requestHostUpdate: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Asked for. The host's `update` is `requested`. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Host"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["UpdateRefused"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     acceptHostCheck: {
