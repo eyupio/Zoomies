@@ -1035,6 +1035,11 @@ func TestAFailedControllerUpdateRaisesAProblemWithTheHelpersSentence(t *testing.
 		if !strings.Contains(p.Detail, sentence) {
 			t.Errorf("detail = %q, want the helper's sentence", p.Detail)
 		}
+		// Only the opening of a long reason is here, so the problem says where the
+		// rest is.
+		if !strings.Contains(p.Detail, "Settings → Updates") || !strings.Contains(p.Detail, "zoomies updates helper status") {
+			t.Errorf("detail = %q, want it to say where the whole reason is", p.Detail)
+		}
 		if p.Since == nil {
 			t.Error("the problem has no start, but the attempt has a finishing time")
 		}
@@ -1125,6 +1130,39 @@ func TestAFailedControllerUpdateRaisesAProblemWithTheHelpersSentence(t *testing.
 		}
 	})
 
+	// The press that cannot hand its request over closes its own attempt as
+	// failed. The loop would say so within ten seconds, but the press is what
+	// knows, and an operator who reads the refusal should find the problem too.
+	t.Run("a request that could not be written raises it at once", func(t *testing.T) {
+		h := newHarness(t)
+		h.readyToUpdate()
+		if err := os.WriteFile(filepath.Join(h.updateDir, channel.RequestFile), []byte(`{"left":"by somebody"}`), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := h.c.RequestControllerUpdate(h.ctx, alice, ""); err == nil {
+			t.Fatal("RequestControllerUpdate: want a refusal")
+		}
+		p := h.problem(t, "controller.update_failed")
+		if !strings.Contains(p.Detail, "could not be handed to the update helper") {
+			t.Errorf("detail = %q, want the reason the request was not handed over", p.Detail)
+		}
+	})
+
+	// A database that cannot be read for a moment is not an attempt that
+	// succeeded. Dropping the error from the list would tell the operator the
+	// trouble had gone away because the store was busy.
+	t.Run("a look that cannot read the attempts keeps the last one", func(t *testing.T) {
+		h := newHarness(t)
+		h.readyToUpdate()
+		h.failTheUpdate(sentence)
+		h.problem(t, "controller.update_failed")
+
+		gone, cancel := context.WithCancel(h.ctx)
+		cancel()
+		h.c.lookAtUpdates(gone)
+		h.problem(t, "controller.update_failed")
+	})
+
 	// The mode decides whether an update can start, not whether one that went
 	// wrong is still wrong.
 	t.Run("switching updating off does not hide it", func(t *testing.T) {
@@ -1192,8 +1230,9 @@ func TestAHelperSentenceInAProblemIsPlainBoundedProse(t *testing.T) {
 		if !utf8.ValidString(p.Detail) {
 			t.Errorf("the detail is not valid UTF-8 after the cut: %q", p.Detail)
 		}
-		if len(p.Detail) > 400 {
-			t.Errorf("the detail is %d bytes, want the helper's line cut well under that", len(p.Detail))
+		reason, _, _ := strings.Cut(strings.TrimPrefix(p.Detail, "The reason recorded for it: "), " Only the opening")
+		if len(reason) > 303 {
+			t.Errorf("the helper's line is %d bytes in the detail, want it cut to 300 and an ellipsis", len(reason))
 		}
 		if !strings.Contains(p.Detail, "\u00e9\u00e9\u00e9") {
 			t.Errorf("the cut left nothing of the sentence: %q", p.Detail)
@@ -1261,6 +1300,19 @@ func TestAMissingHelperRaisesAPlatformProblemOnlyWhenTheModeIsNotOff(t *testing.
 			}
 		})
 	}
+
+	// A build from main cannot be updated by the button (RequestControllerUpdate
+	// refuses it first), so a missing helper is no reason to warn: the warning
+	// would name a fix that changes nothing.
+	t.Run("manual with the helper missing on a build that is not a release", func(t *testing.T) {
+		h := newHarness(t)
+		withVersion(t, "main-sha-abc1234")
+		h.inMode("manual")
+		h.pass(h.c)
+		if contains(h.problemCodes(), "controller.update_helper_missing") {
+			t.Errorf("problems = %v, want no missing-helper problem on a build that cannot be updated", h.problemCodes())
+		}
+	})
 
 	t.Run("it clears when the helper is installed", func(t *testing.T) {
 		h := newHarness(t)

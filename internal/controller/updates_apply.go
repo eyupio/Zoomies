@@ -166,6 +166,7 @@ func (c *Controller) RequestControllerUpdate(ctx context.Context, by UpdateActor
 		// only ever finds another request, which it leaves; it is here so that no
 		// path that closes an attempt can strand that attempt's request.
 		c.withdrawRequest(*attempt)
+		c.lookAtUpdates(context.WithoutCancel(ctx))
 		_, _ = c.publishUpdates(context.WithoutCancel(ctx))
 		return nil, fmt.Errorf("%w: %w", ErrUpdateHelperMissing, err)
 	}

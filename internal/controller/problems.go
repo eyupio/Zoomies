@@ -2668,12 +2668,17 @@ const maxProblemSentence = 300
 func (c *Controller) controllerUpdateProblems() []Problem {
 	sight := c.updateSightNow()
 	var out []Problem
-	if mode := c.updateMode(); mode != updates.ModeOff && sight.helperMissing {
+	// Only a release build can be updated by the button, and RequestControllerUpdate
+	// refuses any other before it looks for the helper, so for a build from main a
+	// missing helper changes nothing and the warning would name a fix that does
+	// nothing.
+	_, fromRelease := version.Release(version.Version)
+	if mode := c.updateMode(); mode != updates.ModeOff && fromRelease && sight.helperMissing {
 		out = append(out, Problem{
 			Code:     "controller.update_helper_missing",
 			Severity: config.SeverityWarning,
 			Title:    "this controller has no update helper, so it cannot update itself",
-			Detail: fmt.Sprintf("updates.mode is %s, so this controller may be asked to update itself, but the update helper that would replace its binary "+
+			Detail: fmt.Sprintf("updates.mode is %s, so this release build of Zoomies may be asked to update itself, but the update helper that would replace its binary "+
 				"is not installed on its host. Nothing else is affected: runners, pools and jobs carry on.", mode),
 			Fix: "have somebody with root on the controller's host run `" + helperInstallCommand + "`, " +
 				"or set updates.mode to off if this controller is to be upgraded by hand with `zoomies upgrade`.",
@@ -2710,7 +2715,8 @@ func failedUpdateProblem(a *store.UpdateAttempt) (Problem, bool) {
 		Code:     "controller.update_failed",
 		Severity: config.SeverityError,
 		Title:    fmt.Sprintf("the update of this controller to %s %s", naming.ForSentence(a.ToVersion), how),
-		Detail:   "The reason recorded for it: " + reason,
+		Detail: "The reason recorded for it: " + reason +
+			" Only the opening of a long reason is shown here; the whole of it is on Settings → Updates, and zoomies updates helper status on the controller's host says what the helper did last.",
 		Fix: "look at `journalctl -u zoomies-update` on the controller's host, where `zoomies updates helper status` says what the helper did last. " +
 			"Once the cause is dealt with, update again from Settings → Updates (updates.mode must be manual or auto), or run `zoomies upgrade` on the host.",
 	}
