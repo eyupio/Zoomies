@@ -21,7 +21,7 @@ import (
 
 // Version is the evaluator's version. A stored evaluation made by an older one
 // is re-run, so bump it whenever a check's meaning or wording changes.
-const Version = 3
+const Version = 4
 
 // Code names one check. Codes are stable across releases and form a closed
 // set: Evaluate returns no code that is not in the registry below.

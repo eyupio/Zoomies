@@ -27,6 +27,10 @@ func hostileSnapshot() Snapshot {
 		{ID: 2, Event: hostile},
 		{ID: 3, Event: "issues"},
 	}}
+	s.Workflows = &WorkflowFacts{
+		Files:      []WorkflowFile{{SHA: hostile, NoTimeout: []Location{{0, 4}}, OtherUnpinned: []Location{{0, 8}}, PermissionsUnset: []Location{{0, 4}}}},
+		Unreadable: []string{hostile},
+	}
 	return s
 }
 
