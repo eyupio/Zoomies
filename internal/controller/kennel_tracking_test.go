@@ -337,6 +337,9 @@ func TestTheOverviewCountsWhatIsNotTrackedApartAndTheExposureProblemFollowsWhatI
 	}
 
 	f.stopTracking("acme/exposed")
+	if frame := nextOfKind(t, sub, events.KindKennelSummary); frame["not_tracked"] != float64(1) || frame["repositories"] != float64(1) {
+		t.Errorf("summary frame after stopping tracking = %v", frame)
+	}
 	o, _ = f.c.KennelOverview(f.ctx)
 	if o.Repositories != 1 || o.NotTracked != 1 || o.States.Attention != 1 || o.States.Pending != 0 {
 		t.Errorf("overview = %d repositories, %d not tracked, %d attention, %d pending; want the stopped one counted apart and in nothing else",
@@ -351,12 +354,6 @@ func TestTheOverviewCountsWhatIsNotTrackedApartAndTheExposureProblemFollowsWhatI
 	if p := kennelProblemsOf(t, f, "kennel.exposure"); len(p) != 1 || p[0].Title != "Kennel Club: 1 repository has an exposure error open" {
 		t.Errorf("problems = %+v, want one for the repository still tracked", p)
 	}
-	// The summary frame is computed, so the change reaches an open page by itself.
-	f.c.publishDerived(f.ctx)
-	if frame := nextOfKind(t, sub, events.KindKennelSummary); frame["not_tracked"] != float64(1) || frame["repositories"] != float64(1) {
-		t.Errorf("summary frame = %v", frame)
-	}
-
 	f.stopTracking("acme/also-exposed")
 	if p := kennelProblemsOf(t, f, "kennel.exposure"); len(p) != 0 {
 		t.Errorf("problems = %+v: nobody is looking at either repository, so nothing is exposed that Kennel Club knows of", p)
