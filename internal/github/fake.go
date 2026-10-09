@@ -479,6 +479,7 @@ func (f *FakeGitHub) handler() http.Handler {
 	mux.HandleFunc("POST /repos/{owner}/{repo}/actions/jobs/{job}/rerun", f.rerunJob)
 
 	f.registerMigrationRoutes(mux)
+	f.registerKennelSettingsRoutes(mux)
 
 	return f.middleware(mux)
 }
