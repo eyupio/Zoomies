@@ -53,7 +53,7 @@ Main was merged into it (the generated `internal/api/openapi_spec.go` conflicted
 Safety-net check-in is armed (`trig_01BYiWposNPjRgBL5imJZzwE`, 13:53 UTC). Unverified: its Playwright spec.
 
 ### 2. The assistant chat MVP (the owner asked for "an MVP as soon as we can, then build on top")
-Branch `claude/zf-235c-chat`, pushed with this file. Goal: set up a model on Settings, Assistant and talk to it.
+Branch `claude/zf-235c-chat`, draft PR #799 (subscribed). Goal: set up a model on Settings, Assistant and talk to it.
 
 Built and checked:
 * `internal/controller/assistant_chat.go`: `ValidateAssistantChat` (roles `user`/`assistant` only, ends with a user turn,
@@ -81,7 +81,7 @@ Built and checked:
 Not done:
 * **The Playwright specs have never been run** and the binary was not run by hand against a real model. Next step: get a
   browser working (see above) or rely on CI, and try it once against Ollama (needs `assistant.allow_private_provider`).
-* No PR yet for this branch; open it as a draft, with an honest "not verified" list.
+* PR #799 is open as a draft; watch its CI (the Playwright jobs are the first real run of its specs).
 * `docs/ui.md` has no sentence about the chat; the plan file `roadmap/plans/2026-10-09-zf-235c-chat-mvp.md` was not
   written; `roadmap/progress.md` ZF-235 row needs the new slice.
 * No audit rows, no per-person limits, no redaction, no stored conversations, no tools: those are deliberately later.
