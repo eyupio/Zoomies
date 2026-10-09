@@ -194,8 +194,10 @@
             label: template.name || String(template.vmid),
             consequence: `VMID ${template.vmid} on ${template.node}`,
           }));
-          const template = result.templates?.[0];
-          if (template && result.templates?.length === 1) {
+          const template =
+            result.templates?.find((item) => item.name === 'zoomies-template') ??
+            (result.templates?.length === 1 ? result.templates[0] : undefined);
+          if (template) {
             draft.settings = {
               ...draft.settings,
               template_id: String(template.vmid),
@@ -941,8 +943,9 @@
         {#if automaticProxmox}
           <p class="prose">
             Run one command as root on your Proxmox host. Zoomies detects its name, creates an API
-            token, trusts its certificate and keeps a private Tailcat connection running. An
-            existing Zoomies runner host can stay connected while you add the provider.
+            token, trusts its certificate and keeps a private Tailcat connection running. It creates
+            a prepared Zoomies runner template if one is missing and fills in its VMID. An existing
+            Zoomies runner host can stay connected while you add the provider.
           </p>
           {#if !tailcatAvailable}
             <p class="note">
@@ -970,7 +973,8 @@
               </div>
               <p class="note" role="status">
                 Waiting for your Proxmox host… This command expires in one hour. Return here after
-                running it; the connection details appear automatically.
+                running it; the connection details and template VMID appear automatically. The first
+                template build can take several minutes.
               </p>
             {/if}
           {/if}
