@@ -346,7 +346,7 @@ test.describe('with Kennel Club on', () => {
     const row = await repository(page, PUBLIC_REPO);
     const doc = (await page.request
       .get(`/api/v1/kennel/repositories/${row.id}`)
-      .then((r) => r.json())) as { findings: { code: string; prompt: string }[] };
+      .then((r) => r.json())) as { findings: { code: string; subject: string; prompt: string }[] };
     await goto(page, `/kennel/repositories/${row.id}/ci`, PUBLIC_REPO);
     expect(doc.findings.length).toBeGreaterThan(0);
     const first = page.getByRole('article').first();
@@ -356,9 +356,34 @@ test.describe('with Kennel Club on', () => {
     expect(match, 'the clipboard holds one of the prompts the API sent, unchanged').toBeTruthy();
     expect(copied).toContain('Fix the Kennel Club finding `');
     // A waived finding is not something anyone is asked to fix: no button.
-    const waived = page.getByRole('region', { name: 'Waived' });
-    if ((await waived.count()) > 0) {
+    const firstFinding = doc.findings[0]!;
+    const made = await page.request.put(`/api/v1/kennel/repositories/${row.id}/waivers`, {
+      data: {
+        code: firstFinding.code,
+        subject: firstFinding.subject,
+        reason: 'Waived under the test, to show a waived finding offers no prompt.',
+        expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+      },
+    });
+    expect(made.ok(), 'the waiver was made').toBeTruthy();
+    try {
+      await page.reload();
+      await expect(page.locator('details.waived summary')).toContainText('Waived');
+      const buttons = page.getByRole('button', { name: 'Copy prompt for your coding agent' });
+      await expect(buttons).toHaveCount(doc.findings.length - 1);
+      const waived = page.locator('details.waived');
       await expect(waived.getByRole('button', { name: /Copy prompt/ })).toHaveCount(0);
+    } finally {
+      const waiver = (
+        (await (await page.request.get(`/api/v1/kennel/repositories/${row.id}`)).json()) as {
+          waived: { waiver: { id: string } }[];
+        }
+      ).waived[0];
+      if (waiver) {
+        await page.request.delete(
+          `/api/v1/kennel/repositories/${row.id}/waivers/${waiver.waiver.id}`,
+        );
+      }
     }
   });
 
