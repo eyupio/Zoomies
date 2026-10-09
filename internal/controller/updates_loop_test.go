@@ -766,3 +766,48 @@ func TestThePlannersSnapshotSaysWhatTheCardSaysWithUpdatingOff(t *testing.T) {
 			got.CanSelfUpdate, got.WhyNot, card.CanUpdate, card.Reason)
 	}
 }
+
+// A describe build such as 1.3.5-3-gabcdef1 is ahead of v1.3.5, and CompareBuilds
+// reads its suffix as a pre-release, which would put it behind. The card, the
+// button, the planner and the rollout's count must all say the one thing: it is
+// not a release build, and nothing here takes it anywhere.
+func TestEveryAnswerAgreesThatADescribeBuildIsNotUpdatedFromHere(t *testing.T) {
+	for _, v := range []string{"1.3.5-3-gabcdef1", "v1.3.5-dirty", "1.3.4-2-gabcdef1"} {
+		t.Run(v, func(t *testing.T) {
+			h := newHarness(t)
+			h.autoFleet("manual")
+			host := h.agentHost("vm-describe", v, agent.FeatureSelfUpdate)
+			behind := h.updatableHost("vm-behind")
+
+			card := h.view(host.ID).Update
+			if card.CanUpdate || !strings.Contains(card.Reason, "not a release build") {
+				t.Errorf("the card says %v %q, want it unable, because the build is not a release", card.CanUpdate, card.Reason)
+			}
+			if _, err := h.c.RequestHostUpdate(h.ctx, alice, host.ID); !errors.Is(err, ErrUpdateHostCannotUpdate) || !strings.Contains(err.Error(), "not a release build") {
+				t.Errorf("the button: err = %v, want the card's refusal", err)
+			}
+			if _, err := h.c.StartHostRollout(h.ctx, alice, []string{host.ID}); !errors.Is(err, ErrUpdateNothingNewer) {
+				t.Errorf("a rollout of it alone: err = %v, want ErrUpdateNothingNewer, since it is not behind", err)
+			}
+			pic, err := h.c.updatesSnapshot(h.ctx, h.c.cfg().Updates, h.c.probeUpdateHelper())
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, f := range pic.snap.Hosts {
+				if f.ID == host.ID && (f.CanSelfUpdate || f.WhyNot != card.Reason) {
+					t.Errorf("the planner is told %v %q, want what the card says", f.CanSelfUpdate, f.WhyNot)
+				}
+			}
+
+			if _, err := h.c.StartHostRollout(h.ctx, alice, nil); err != nil {
+				t.Fatalf("StartHostRollout: %v", err)
+			}
+			if r := h.status().Rollout; r == nil || r.Total != 1 {
+				t.Errorf("the rollout counts %+v, want one host: vm-behind, and not the describe build", r)
+			}
+			h.pass(h.c)
+			h.openHostAttempt(behind)
+			h.noAttemptFor(host)
+		})
+	}
+}

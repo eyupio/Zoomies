@@ -124,11 +124,19 @@ func hostCanSelfUpdate(h *store.Host, target string, unsupported updates.HelperU
 	case strings.TrimSpace(h.Version) == "":
 		return false, "This host's agent has not said which version it runs, so Zoomies cannot tell whether " + target + " is newer. Update it on the host with zoomies upgrade.", hostGapNone
 	}
+	// Only a release build can be behind. CompareBuilds reads what follows a
+	// hyphen as a pre-release, so a describe build such as 1.3.5-3-gabcdef1,
+	// which is ahead of v1.3.5, would otherwise read as behind it, and the
+	// button would take it back. The planner keeps the same gate of its own.
+	if _, ok := updates.TargetTag(h.Version); !ok {
+		return false, "This host runs the build " + reportedVersion(h.Version) + ", which is not a release build, so Zoomies cannot tell whether " +
+			target + " is newer. Update it on the host with the command below.", hostGapNone
+	}
 	switch version.CompareBuilds(h.Version, target) {
 	case version.SkewNone, version.SkewAhead:
 		return false, "This host already runs " + target + " or a later release, so there is nothing to update.", hostGapNone
 	case version.SkewDiffers:
-		return false, "This host runs the build " + reportedVersion(h.Version) + ", which is not a release, so Zoomies cannot tell whether " +
+		return false, "This host runs the build " + reportedVersion(h.Version) + ", which is not a release build, so Zoomies cannot tell whether " +
 			target + " is newer. Update it on the host with the command below.", hostGapNone
 	}
 	selfUpdates := h.Supports(agent.FeatureSelfUpdate)
@@ -144,6 +152,16 @@ func hostCanSelfUpdate(h *store.Host, target string, unsupported updates.HelperU
 			"Run sudo zoomies updates helper install there, or update it with the command below.", hostGapHelperMissing
 	}
 	return true, "This host runs " + reportedVersion(h.Version) + " and can be updated to " + target + ".", hostGapNone
+}
+
+// hostBehind says whether a host runs a release build older than target: the
+// hosts a rollout to target is for, whether or not each can update itself.
+// hostCanSelfUpdate asks the same of the version, so the two never disagree.
+func hostBehind(h *store.Host, target string) bool {
+	if _, ok := updates.TargetTag(h.Version); !ok || h.Embedded || target == "" {
+		return false
+	}
+	return version.CompareBuilds(h.Version, target) == version.SkewBehind
 }
 
 // hostTarget is the release every host is taken to: the one this controller

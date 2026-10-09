@@ -349,8 +349,7 @@ func (c *Controller) StartHostRollout(ctx context.Context, by UpdateActor, hostI
 	}
 	behind, able := 0, 0
 	for _, h := range hosts {
-		// The planner's own test: only a release build is behind.
-		if _, ok := updates.TargetTag(h.Version); !ok || h.Embedded || version.CompareBuilds(h.Version, target) != version.SkewBehind {
+		if !hostBehind(h, target) {
 			continue
 		}
 		behind++
