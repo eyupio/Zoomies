@@ -1,0 +1,10 @@
+#!/bin/sh
+# A stand-in for the GitHub Copilot command line tool, for the specs: first on the
+# PATH of the controller the browser tests run. The question is the argument of -p,
+# as it is for the real one, and the answer is plain text.
+case "$1" in
+  version) echo "GitHub Copilot CLI 1.2.3"; exit 0 ;;
+esac
+last=$(printf '%s\n' "$2" | grep '^User: ' | tail -1 | sed 's/^User: //')
+printf 'Copilot heard: '
+printf '%s\n' "$last"

@@ -667,9 +667,10 @@ everybody, marked rather than hidden.
 Where an administrator connects the model the assistant talks to. A new provider
 starts as **Ollama Cloud** with its address already filled in; **OpenCode Zen**, **OpenCode Go**,
 a local or other OpenAI-compatible server, Anthropic and OpenAI are one choice
-away, and so is **Claude, my own subscription**, which has no address or key to
-type and is usable only by the person who added it ([how that works](eli.md)), and an address or name you have already typed is never overwritten by
-changing the choice. Once the key is entered the **model** is chosen from the
+away, and so are **Claude, ChatGPT and GitHub Copilot on your own plan**, which have no
+address or key to type and are usable only by the person who added them
+([how that works](eli.md)). An address or name you have already typed is never
+overwritten by changing the choice. Once the key is entered the **model** is chosen from the
 list the provider itself offers (**Load the list of models** fetches it, and it
 loads by itself when you leave the key field), so a model the provider has
 retired cannot be picked by mistake. A provider that will not list its models

@@ -86,7 +86,7 @@
             : `${provider.owner || 'Someone'}’s subscription`}
           size="sm"
           dot={false}
-          title="Used through Claude Code on the controller’s machine. Only its owner may use it."
+          title="Used through the vendor’s own tool, signed in on the controller’s machine. Only its owner may use it."
         />
       {/if}
       {#if provider.fleet_access}

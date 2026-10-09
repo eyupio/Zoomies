@@ -29,6 +29,7 @@
     baseURLHint,
     checkSummary,
     DEFAULT_PRESET,
+    isSubscriptionKind,
     KIND_LABELS,
     PRESETS,
     presetFor,
@@ -112,7 +113,9 @@
   const preset = $derived(PRESETS.find((p) => p.id === presetId));
   // Somebody's own subscription has no address to type and no key to hold: it is
   // used through the vendor's own tool, signed in on the controller's machine.
-  const subscription = $derived(kind === 'claude_code');
+  const subscription = $derived(isSubscriptionKind(kind));
+  // Only some tools can say which models they have; the rest are typed or left empty.
+  const listsModels = $derived(!subscription || !!preset?.listsModels);
   const defaultBaseURL = $derived(kinds.find((k) => k.kind === kind)?.default_base_url ?? '');
   // The hosted kinds have an address of their own when the box is empty.
   const presetBaseURL = $derived(preset?.baseURL || defaultBaseURL);
@@ -144,8 +147,8 @@
       baseURL = '';
       apiKey = '';
       fleetAccess = false;
-      if (model.trim() === '') model = 'sonnet';
-      void loadModels();
+      if (model.trim() === '') model = after.defaultModel ?? '';
+      if (after.listsModels) void loadModels();
       return;
     }
     if (baseURL.trim() === '' || baseURL.trim() === (before?.baseURL ?? ''))
@@ -183,7 +186,8 @@
    * beside it.
    */
   async function loadModels(): Promise<void> {
-    if (loadingModels || (!subscription && !baseURL.trim() && !presetBaseURL)) return;
+    if (loadingModels || !listsModels || (!subscription && !baseURL.trim() && !presetBaseURL))
+      return;
     loadingModels = true;
     modelsNote = '';
     try {
@@ -289,7 +293,7 @@
       label="Model"
       hint={modelsNote ||
         (subscription
-          ? 'Claude Code’s own names for its models, which follow its updates.'
+          ? (preset?.modelHint ?? '')
           : models.length > 0
             ? 'From the provider’s own list.'
             : 'As the provider names it. Load the list once the address and key are in.')}
@@ -298,14 +302,21 @@
       {#if models.length > 0}
         <Select id="assistant-model" bind:value={model} options={modelChoices} />
       {:else}
-        <Input id="assistant-model" bind:value={model} placeholder="llama3.1" autocomplete="off" />
+        <Input
+          id="assistant-model"
+          bind:value={model}
+          placeholder={subscription ? 'The tool chooses' : 'llama3.1'}
+          autocomplete="off"
+        />
       {/if}
     </Field>
-    <div class="models">
-      <Button size="sm" loading={loadingModels} onclick={() => void loadModels()}
-        >{models.length > 0 ? 'Refresh the list' : 'Load the list of models'}</Button
-      >
-    </div>
+    {#if listsModels}
+      <div class="models">
+        <Button size="sm" loading={loadingModels} onclick={() => void loadModels()}
+          >{models.length > 0 ? 'Refresh the list' : 'Load the list of models'}</Button
+        >
+      </div>
+    {/if}
 
     {#if !subscription}
       <Field

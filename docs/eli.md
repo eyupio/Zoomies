@@ -15,7 +15,8 @@ words, and Eli answers about Zoomies, about GitHub Actions and, if you allow it,
 about your own fleet.
 
 Eli talks to a model **you** choose and pay for: one on your own machine such as
-Ollama, or a hosted one such as Ollama Cloud, OpenCode Zen, OpenCode Go, Anthropic or OpenAI.
+Ollama, or a hosted one such as Ollama Cloud, OpenCode Zen, OpenCode Go, Anthropic or OpenAI, or your own
+Claude, ChatGPT or GitHub Copilot plan.
 Nothing is sent anywhere until somebody asks Eli something.
 
 ## Setting it up
@@ -28,39 +29,60 @@ to type in, or press **Ask Eli**. <kbd>Esc</kbd> puts the panel away.
 Until there is an enabled default provider there is no Eli to ask, and the
 button is not shown.
 
-### Using your own Claude subscription
+### Using your own subscription
 
-A provider can also be **Claude, my own subscription (through Claude Code)**. Zoomies
-then runs Anthropic's own `claude` program on the controller's machine and asks it
-the question. You sign in to that program once, as the user the controller runs as
-(`claude auth login`); Zoomies never sees the login, holds no key and has no address
-to call. Choosing a model offers Claude Code's own names (`sonnet`, `opus`, `haiku`).
+A provider can also be your own plan, used through the vendor's own program on the
+controller's machine: **Claude** through Claude Code, **ChatGPT** through Codex, or
+**GitHub Copilot** through its command line tool. Zoomies runs the program and asks
+it the question. You sign in to it once, as the user the controller runs as
+(`claude auth login`, `codex login` or `copilot login`); Zoomies never sees the login,
+holds no key and has no address to call.
+
+| | Claude Code | Codex | GitHub Copilot |
+| --- | --- | --- | --- |
+| Sends the question to | Anthropic | OpenAI | GitHub |
+| Tools of its own | Every one off | Read-only sandbox | None pre-approved |
+| Model | `sonnet`, `opus`, `haiku`, chosen from a list | Left empty, Codex chooses, or named | Left empty, Copilot chooses, or named |
+| **Test** spends | Nothing | Nothing | One request of the plan |
+| Refuses an API key | Yes | Yes | Not detectable |
 
 Things to know before you add one:
 
-* **It is yours alone.** Anthropic's terms do not allow one person's plan to serve
-  other people, so only the person who added the provider can use it, test it,
-  change it or make it the default. Another administrator sees it on the list,
-  marked with your name, and can remove it, but cannot use it. For them Eli answers
-  through a provider they are allowed to use, if there is one.
-* **Read Anthropic's terms yourself.** Whether your plan allows this use is your
+* **It is yours alone.** A plan is one person's, and the vendors' terms do not allow
+  it to serve other people, so only the person who added the provider can use it,
+  test it, change it or make it the default. Another administrator sees it on the
+  list, marked with your name, and can remove it, but cannot use it. For them Eli
+  answers through a provider they are allowed to use, if there is one.
+* **Read the vendor's terms yourself.** Whether your plan allows this use is your
   decision, and Zoomies cannot check it for you.
-* **Eli cannot read the fleet through it.** Claude Code is run with every one of its
-  own tools off, in an empty temporary directory, in its safe mode (so a
-  `CLAUDE.md`, hook or plugin on the machine does not change that), and with an
-  environment that carries no `ZOOMIES_*` setting and no Anthropic key. The fleet
-  switch is not offered for it. What you type to Eli does leave this machine, for
-  Anthropic.
-* **It follows Claude Code's releases.** The options Zoomies uses are Claude Code's
-  own. If a release stops accepting one, **Test** says to update with
-  `claude update` or to tell us.
-* **A plan, not an API key.** Test refuses a Claude Code signed in with an API key
-  and says so; use the Anthropic provider for that.
-* **Not while Local models only is on.** The question goes to Anthropic.
-* **Host installs only.** It needs `claude` installed on the machine the controller
-  runs on. The controller image is distroless and has no such program, so a compose
-  or image deployment cannot use it.
-* **Two at a time.** At most two Claude Code processes run at once, so a busy
+* **Eli cannot read the fleet through it.** Eli's own fleet tools are never offered
+  to these programs, and the fleet switch is not shown for them. They are run from
+  an empty temporary directory with an environment that carries no `ZOOMIES_*`
+  setting and no key or token. What you type to Eli does leave this machine, for the
+  vendor.
+* **Codex and Copilot have tools of their own, and cannot be run without them.**
+  Claude Code is run with every one of its tools off, in its safe mode. Codex has no
+  such mode: it is run in its read-only sandbox, so it can read files the controller's
+  user can read, and it is asked in the prompt not to. Copilot is run with nobody to
+  ask and none of its approval options passed, so a tool that needs permission does
+  not run. For both, whatever their tools did is ignored: it is not shown and Eli
+  does nothing on the strength of it, but ignoring what a tool did is not the same as
+  the tool not having done it. Only the person who added the provider can ask it
+  anything, and nothing about your fleet is put in the question, so what could lead
+  one to read a file is the person's own words.
+* **Copilot's question is a command line argument.** Anyone who can list processes on
+  the controller's machine can read it while the answer is being made.
+* **They follow the programs' releases.** The options Zoomies uses are the
+  programs' own. If a release stops accepting one, **Test** says to update the
+  program.
+* **A plan, not an API key.** For Claude Code and Codex, **Test** refuses a program
+  signed in with an API key and says so; use the Anthropic or OpenAI provider for
+  that. Copilot cannot be told apart, but its token variables are never passed on.
+* **Not while Local models only is on.** The question goes to the vendor.
+* **Host installs only.** They need the program installed on the machine the
+  controller runs on. The controller image is distroless and has none, so a compose
+  or image deployment cannot use them.
+* **Two at a time.** At most two of these programs run at once, so a busy
   conversation cannot start a crowd of them.
 
 ## What Eli can see

@@ -376,16 +376,16 @@ func TestClosingAClaudeCodeStreamEndsTheProcessAndFreesItsPlace(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(claudeSlots) != 1 {
-		t.Errorf("slots in use = %d, want 1", len(claudeSlots))
+	if len(cliSlots) != 1 {
+		t.Errorf("slots in use = %d, want 1", len(cliSlots))
 	}
 	started := time.Now()
 	_ = s.Close()
 	if time.Since(started) > 10*time.Second {
 		t.Errorf("closing took %v", time.Since(started))
 	}
-	if len(claudeSlots) != 0 {
-		t.Errorf("slots in use after closing = %d", len(claudeSlots))
+	if len(cliSlots) != 0 {
+		t.Errorf("slots in use after closing = %d", len(cliSlots))
 	}
 	cwd, _ := os.ReadFile(filepath.Join(rec, "cwd"))
 	if dir := strings.TrimSpace(string(cwd)); dir != "" {

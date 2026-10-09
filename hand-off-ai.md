@@ -112,13 +112,15 @@ The assistant is named **Eli** (Extremely Lively Intelligence). Plan: `roadmap/p
 * Audit: `assistant.chat` (provider, model, fleet_access, tools, outcome, never the words) and `assistant.provider.fleet_access`.
 * The browser specs now run locally: `PLAYWRIGHT_CHROMIUM=/opt/pw-browsers/chromium npx playwright test --project=chromium`.
   Playwright reuses a server already on port 8099 outside CI, so kill a stray one or you test an old binary.
-* Claude Code as a subscription provider (`claude_code`, `internal/assistant/provider/claudecode.go`): owner-only
-  (`assistant_providers.owner_id`, migration 0092), tools off, no fleet access, refused under `assistant.local_only`, host
-  installs only (the controller image is distroless). Tested only against a stand-in `claude` script: **never run against a real
-  Claude Code or subscription**, so press Test on a machine that has one first. Codex and Copilot are not built (no documented
-  tool-free mode); OpenCode is an API-key preset only (Zen and Go).
-* Not done: redaction (7c), per-person limits, stored conversations, write tools and the confirmation card, and Codex and
-  Copilot.
+* Subscription providers: `claude_code`, `codex` and `copilot` (`internal/assistant/provider/{claudecode,codex,copilot,cli}.go`,
+  one shared runner in `cli.go`). Owner-only (`assistant_providers.owner_id`, migration 0092), no address, no key, no fleet access,
+  refused under `assistant.local_only`, host installs only (the controller image is distroless). Claude Code is run with every
+  tool off; **Codex (read-only sandbox) and Copilot (nothing pre-approved) cannot be, by the owner's decision their tool activity is
+  ignored by the parser**, which is not the same as them not acting. Tested only against stand-in scripts: **never run against a real
+  Claude Code, Codex, Copilot or subscription**, so press Test on a machine that has one first. Codex's API-key refusal and Copilot's
+  stdin, exit codes and tool behaviour under `-p` rest on guesses where the docs are silent. OpenCode is an API-key preset only
+  (Zen and Go).
+* Not done: redaction (7c), per-person limits, stored conversations, write tools and the confirmation card.
 * Nothing has been tried against a real model: how well Ollama Cloud and others choose tools is unknown.
 
 ### 3. Smaller loose ends
