@@ -56,23 +56,39 @@ func (LocalSystem) ReadFile(p string) ([]byte, error)       { return os.ReadFile
 func (LocalSystem) ReadDir(p string) ([]fs.DirEntry, error) { return os.ReadDir(p) }
 func (LocalSystem) Stat(p string) (fs.FileInfo, error)      { return os.Lstat(p) }
 func (LocalSystem) Remove(p string) error                   { return os.Remove(p) }
-func (LocalSystem) Run(ctx context.Context, n string, a ...string) (string, error) {
-	budget := 30 * time.Second
+
+// Time allowed for one host command. Most return at once; the longer budgets
+// are for commands that legitimately wait on other work.
+const (
+	defaultCommandBudget = 30 * time.Second
+	aptCommandBudget     = 20 * time.Minute
+	// A Zoomies unit stops by waiting for the tasks it admitted (a cold image
+	// pull included) and its unit allows 20 minutes for it, so a client that
+	// gave up at three left systemd finishing a stop nothing would then start again.
+	maintainedUnitBudget = 21 * time.Minute
+	// A service or a daemon stopping waits on what it is running: Docker
+	// gives each container ten seconds before it kills it.
+	stopStartBudget = 3 * time.Minute
+)
+
+// commandBudget picks the longest wait a command can reasonably need. The
+// maintained-unit case must stay ahead of the general systemctl one, or it
+// would be cut short at the smaller budget.
+func commandBudget(n string, a []string) time.Duration {
 	switch {
 	case n == "apt-get":
-		budget = 20 * time.Minute
+		return aptCommandBudget
 	case n == "systemctl" && len(a) > 1 && (a[0] == "stop" || a[0] == "start") && slices.Contains(maintainedServices, a[len(a)-1]):
-		// A Zoomies unit stops by waiting for the tasks it admitted -- a cold image pull
-		// included -- and its unit allows 20 minutes for it, so a client that gave up at
-		// three left systemd finishing a stop nothing would then start again.
-		budget = 21 * time.Minute
+		return maintainedUnitBudget
 	case n == "systemctl" && len(a) > 0 && (a[0] == "stop" || a[0] == "start" || a[0] == "restart"),
 		n == "docker" && len(a) > 0 && a[0] == "stop":
-		// A service or a daemon stopping waits on what it is running: Docker
-		// gives each container ten seconds before it kills it.
-		budget = 3 * time.Minute
+		return stopStartBudget
 	}
-	cctx, cancel := context.WithTimeout(ctx, budget)
+	return defaultCommandBudget
+}
+
+func (LocalSystem) Run(ctx context.Context, n string, a ...string) (string, error) {
+	cctx, cancel := context.WithTimeout(ctx, commandBudget(n, a))
 	defer cancel()
 	c := exec.CommandContext(cctx, n, a...)
 	c.Env = append(os.Environ(), "LC_ALL=C", "DEBIAN_FRONTEND=noninteractive")
