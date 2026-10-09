@@ -27,6 +27,7 @@ import {
   navEntry,
   openNavMenu,
   plantMarker,
+  rowCount,
 } from './support/fixtures';
 
 test.use(browserOverride);
@@ -801,6 +802,99 @@ test.describe('with Kennel Club on', () => {
           name,
         ).toContainText('leaves out cancelled and skipped jobs');
       }
+    });
+
+    test('each figure opens the jobs it counted, and the list agrees with the figure', async ({
+      page,
+    }) => {
+      const tile = (label: string) => page.locator('.metric').filter({ hasText: label });
+      // The demo fleet's pools and hosts all have IDs, so each count is a link.
+      const place = async (name: string, by: 'pool' | 'host') => {
+        const groups = (await stats(page, name, by)).filter((g) => g.keys[by] !== 'unknown');
+        expect(groups.length, `${name} ran jobs on a ${by}`).toBeGreaterThan(0);
+        return groups;
+      };
+
+      // A link that is not there is not checked, so say how many were.
+      const opened = { failed: 0, faulted: 0 };
+
+      for (const name of FIXTURE.repos) {
+        const row = await repository(page, name);
+        const overview = `/kennel/repositories/${row.id}`;
+        const [all] = await stats(page, name);
+        expect(all, `${name} ran jobs this week`).toBeTruthy();
+
+        // The link starts the list at the very instant the figure was counted from,
+        // not at one worked out again: the demo's jobs are not near enough the edge
+        // of the window to tell, so the instant itself is what is compared.
+        const counted = page.waitForRequest(
+          (r) => r.url().includes('/api/v1/jobs/stats') && !r.url().includes('group_by'),
+        );
+        await goto(page, overview, name);
+        const from = new Date(new URL((await counted).url()).searchParams.get('since')!);
+        const pad = (n: number) => String(n).padStart(2, '0');
+        const minute = `${from.getFullYear()}-${pad(from.getMonth() + 1)}-${pad(from.getDate())}T${pad(from.getHours())}:${pad(from.getMinutes())}`;
+        const finished = tile('Jobs finished').getByRole('link', { name: /^Jobs finished:/ });
+        expect(
+          new URL((await finished.getAttribute('href'))!, 'http://zoomies.test').searchParams.get(
+            'since',
+          ),
+          name,
+        ).toBe(minute);
+
+        // Every finished job the figure counted, and no more.
+        await finished.click();
+        await expect(rowCount(page), name).toContainText(`of ${all!.count} jobs`);
+
+        // The failures inside that count, and the ones the fleet itself caused.
+        for (const [narrow, count, text] of [
+          ['failed', all!.failed, `See the ${all!.failed} that failed`],
+          ['faulted', all!.fleet_failed, `See the ${all!.fleet_failed} lost to this fleet`],
+        ] as const) {
+          if (count === 0) continue;
+          opened[narrow] += 1;
+          await goto(page, overview, name);
+          await page.getByRole('link', { name: text }).click();
+          await expect(page, `${name} ${narrow}`).toHaveURL(new RegExp(`[?&]${narrow}=true`));
+          await expect(rowCount(page), `${name} ${narrow}`).toContainText(`of ${count} jobs`);
+        }
+
+        // Each pool's and each host's count opens the jobs that ran there.
+        for (const [by, key] of [
+          ['pool', 'pool_id'],
+          ['host', 'host_id'],
+        ] as const) {
+          for (const group of await place(name, by)) {
+            await goto(page, overview, name);
+            await page
+              .locator(
+                `section[aria-labelledby="${by}s-heading"] a[href*="${key}=${group.keys[by]}"]`,
+              )
+              .click();
+            await expect(rowCount(page), `${name} on ${group.keys[by]}`).toContainText(
+              `of ${group.count} jobs`,
+            );
+          }
+        }
+
+        // The timings open the same jobs, slowest first.
+        for (const [label, column] of [
+          ['Time waiting for a runner', 'Queue wait'],
+          ['Time running', 'Duration'],
+        ] as const) {
+          await goto(page, overview, name);
+          await tile(label)
+            .getByRole('link', { name: new RegExp(`^${label}:`) })
+            .click();
+          await expect(rowCount(page), `${name} ${label}`).toContainText(`of ${all!.count} jobs`);
+          await expect(
+            page.getByRole('columnheader', { name: column }),
+            `${name} ${label}`,
+          ).toHaveAttribute('aria-sort', 'descending');
+        }
+      }
+      expect(opened.failed, 'the demo has failures to open').toBeGreaterThan(0);
+      expect(opened.faulted, 'the demo has failures this fleet caused to open').toBeGreaterThan(0);
     });
 
     test('a repository nothing succeeded for says 0%, and one with no verdict says there is none', async ({

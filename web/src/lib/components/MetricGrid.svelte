@@ -4,6 +4,12 @@
     value: string;
     detail: string;
     href?: string;
+    /**
+     * Further places the figure can be opened, each its own link: the failures
+     * behind a count, say. Set above the tile's own link, which covers the whole
+     * tile, so that a click on one of these goes to it and not to the tile's.
+     */
+    links?: { text: string; href: string }[];
     progress?: number | null;
     tone?: 'neutral' | 'success' | 'danger' | 'warning' | 'accent' | 'busy';
   }
@@ -26,6 +32,11 @@
            the meter a bare div, and a screen reader lost the pairing. -->
       <dd class="detail">
         {item.detail}
+        {#if item.links?.length}<ul class="links">
+            {#each item.links as link (link.href)}<li>
+                <a href={link.href}>{link.text}</a>
+              </li>{/each}
+          </ul>{/if}
         {#if item.progress != null}<div class="meter" aria-hidden="true">
             <span style:width={`${Math.min(100, Math.max(0, item.progress))}%`}></span>
           </div>{/if}
@@ -88,6 +99,21 @@
     position: absolute;
     inset: 0;
     border-radius: var(--z-radius-md);
+  }
+  .links {
+    margin: var(--z-space-2) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+  /* Above the tile's stretched link, or the tile's own would take the click. */
+  .links a {
+    position: relative;
+    display: inline;
+    color: var(--z-accent);
+    text-decoration: underline;
+  }
+  .links a::after {
+    content: none;
   }
   .metric:has(a):hover {
     border-color: var(--z-accent-border);

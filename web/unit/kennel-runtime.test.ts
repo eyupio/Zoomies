@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  jobsLink,
   outcomeText,
   partialWindowNote,
   percentileTile,
@@ -33,6 +34,54 @@ test('a window starts the stated number of days before now', () => {
   const now = new Date('2026-10-07T12:00:00.000Z');
   assert.equal(windowStart(7, now), '2026-09-30T12:00:00.000Z');
   assert.equal(windowStart(30, now), '2026-09-07T12:00:00.000Z');
+});
+
+test('a window starts on a minute, so the list a figure links to counts the same jobs', () => {
+  // The Jobs page takes a time of day to the minute and no finer. A start with
+  // seconds in it would count jobs the link's list cannot tell apart.
+  const now = new Date('2026-10-07T12:00:47.912Z');
+  assert.equal(windowStart(7, now), '2026-09-30T12:00:00.000Z');
+  // Always rounded down, so the window is never shorter than it says.
+  assert.equal(windowStart(7, new Date('2026-10-07T12:00:59.999Z')), '2026-09-30T12:00:00.000Z');
+});
+
+test('a link to the jobs behind a figure carries the scope the figure was counted in', () => {
+  const link = jobsLink('acme/api', '2026-10-02T05:12');
+  const query = new URL(link, 'http://zoomies.test').searchParams;
+  assert.equal(new URL(link, 'http://zoomies.test').pathname, '/jobs');
+  // The repository, finished jobs only (the stats count nothing else), from the
+  // window's start, leaving out hosted runners as the stats do, and from every
+  // runner so the page's own scope cannot narrow it further.
+  assert.deepEqual(Object.fromEntries(query), {
+    repo: 'acme/api',
+    state: 'completed',
+    since: '2026-10-02T05:12',
+    hosted: 'false',
+    all: 'true',
+  });
+  // What a figure narrows by is added to that, never in place of it.
+  assert.deepEqual(
+    Object.fromEntries(
+      new URL(
+        jobsLink('acme/api', '2026-10-02T05:12', { pool_id: 'pool_x' }),
+        'http://zoomies.test',
+      ).searchParams,
+    ),
+    {
+      repo: 'acme/api',
+      state: 'completed',
+      since: '2026-10-02T05:12',
+      hosted: 'false',
+      all: 'true',
+      pool_id: 'pool_x',
+    },
+  );
+});
+
+test('a repository name with characters an address treats specially still arrives whole', () => {
+  const query = new URL(jobsLink('acme/a&b c', '2026-10-02T05:12'), 'http://zoomies.test')
+    .searchParams;
+  assert.equal(query.get('repo'), 'acme/a&b c');
 });
 
 test('a window as long as the jobs are kept says it is partial, and a shorter one says nothing', () => {
