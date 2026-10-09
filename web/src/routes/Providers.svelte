@@ -187,6 +187,7 @@
 
 <div class="content">
   <LoadingBoundary
+    class="stack"
     loading={loading && !loaded}
     error={loaded ? null : error}
     empty={loaded && providers.length === 0}
@@ -312,10 +313,16 @@
 </div>
 
 <style>
-  .content {
+  /* The gap has to sit on LoadingBoundary's own wrapper: `.content` only has
+     that one child, so a gap on it spaces nothing and the metrics, the band,
+     the cards and the Machines panel all touch. */
+  .content :global(.stack) {
     display: flex;
     flex-direction: column;
     gap: var(--z-space-5);
+  }
+  .content :global(.stack > .metrics) {
+    margin-bottom: 0;
   }
   .summary {
     margin: 0;
