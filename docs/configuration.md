@@ -2038,8 +2038,12 @@ badge.
 Set `kennel.repository_setup: true` to add a default-branch file inventory to
 Kennel Club. It is off by default, including for installations already using
 Kennel Club. It does not grant or request App permissions. Private repositories
-need **Contents: read**; a denied, hidden or unavailable tree is a coverage gap,
-never a claim that a file is missing.
+need **Contents: read**, which a new App asks for only if you answer yes to
+**Also let Kennel Club read repository files?** in the installer or the Connect
+GitHub dialog, and which you can add to an App that exists on its **Permissions &
+events** page; GitHub holds the change until the account's owner accepts it. A
+denied, hidden or unavailable tree is a coverage gap, never a claim that a file
+is missing.
 
 | Check | What its absence makes harder |
 | --- | --- |
@@ -2084,7 +2088,8 @@ explain why a local file's absence is advice rather than proof of missing setup.
 Set `kennel.workflow_checks: true` to inspect the contents of default-branch
 workflow files. This is a separate opt-in from the setup inventory, off by
 default, and does not grant App permissions or edit any repository files.
-Private repositories need **Contents: read**.
+Private repositories need **Contents: read**, which a new App asks for in the
+same way as the setup inventory above does.
 
 | Check | What it detects | Severity |
 | --- | --- | --- |

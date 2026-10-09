@@ -269,6 +269,37 @@ func TestNotePermissionsNamesAdministrationReadOnlyWhenKennelSettingsAreRequeste
 	}
 }
 
+// Contents read is the permission that lets an App read code, so the list names it
+// when it was requested, and says the App cannot read code only when it was not.
+// With the migration wizard the App holds Contents write, which the list already
+// names, so read is not said twice.
+func TestNotePermissionsNamesContentsReadOnlyWhenKennelFilesAreRequested(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		files     bool
+		migration bool
+		reads     bool
+		cannot    bool
+	}{
+		{"neither", false, false, false, true},
+		{"files asked", true, false, true, false},
+		{"files asked with the wizard", true, true, false, false},
+		{"the wizard alone", false, true, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			i, out := newUnattendedInstaller(t, nil)
+			i.notePermissions(&Plan{GitHub: GitHubPlan{TargetType: store.TargetOrg, KennelFiles: tc.files, Migration: tc.migration}})
+			body := out.String()
+			if got := strings.Contains(body, "contents:read"); got != tc.reads {
+				t.Errorf("mentions contents:read = %v, want %v\n%s", got, tc.reads, body)
+			}
+			if got := strings.Contains(body, "cannot read or change code"); got != tc.cannot {
+				t.Errorf("says the App cannot read code = %v, want %v\n%s", got, tc.cannot, body)
+			}
+		})
+	}
+}
+
 // A repository App holds Administration write already, so the question could
 // change nothing for it. It is not asked, which a test can see because asking
 // needs a terminal and this one has none, and the answer is recorded as no even
@@ -499,7 +530,7 @@ func TestTheReachabilityQuestionIsAskedBeforeTheQuestionsAboutTheApp(t *testing.
 		return -1
 	}
 	reachable := position("checkWebhookReachable")
-	for _, later := range []string{"askGitHubTarget", "askMigrationPermissions", "askKennelSettingsPermission"} {
+	for _, later := range []string{"askGitHubTarget", "askMigrationPermissions", "askKennelSettingsPermission", "askKennelFilesPermission"} {
 		if at := position(later); at < reachable {
 			t.Errorf("%s is asked before checkWebhookReachable: a Skip would throw its answers away", later)
 		}
