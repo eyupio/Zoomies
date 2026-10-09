@@ -9456,7 +9456,7 @@ export interface components {
             latest: components["schemas"]["UpdatesRelease"] | null;
             /** @description What the mode would do about `latest`. Null whenever `latest` is. */
             target: components["schemas"]["UpdatesTarget"] | null;
-            /** @description A sentence or two, in an operator's words, that says what the mode would do and why. It always says something: it is what to show when there is nothing to offer. */
+            /** @description A sentence or two, in an operator's words, that says what happens next and why: the planner's sentence, which is the release rule's own unless an update in flight, a rollout or the helper decides what happens next. It always says something: it is what to show when there is nothing to offer. It moves with the clock only by the hour or the minute of a wait, and never with a heartbeat. */
             reason: string;
             /**
              * Format: date-time
@@ -9466,6 +9466,30 @@ export interface components {
             helper: components["schemas"]["UpdatesHelper"];
             /** @description The controller's latest update attempt, in flight or ended, in every mode: one that was in flight when updating was switched off still ends, and says how. Null when it has never had one. */
             controller: components["schemas"]["UpdatesAttempt"] | null;
+            /** @description The open rollout, or the last one that ended, so that a page can say how it went. Null when there has never been one. */
+            rollout: components["schemas"]["UpdatesRollout"] | null;
+        };
+        UpdatesRollout: {
+            /** @example rol_k3fqz2mx7abcd */
+            id: string;
+            /**
+             * @description The release tag it takes hosts to.
+             * @example v1.3.5
+             */
+            target: string;
+            /**
+             * @description `running` while it moves one host at a time, `halted` after a host's update failed or timed out (nothing moves until an administrator resumes or cancels it), then `done` or `cancelled`.
+             * @enum {string}
+             */
+            state: "running" | "halted" | "done" | "cancelled";
+            /** @description The sentence it halted with, naming the host and the release; empty unless it halted. It never carries the helper's text, so every role reads it. */
+            halted_reason: string;
+            /** @description Hosts it has updated. */
+            done: number;
+            /** @description Hosts it has updated and hosts it would still update. For one that has ended, the hosts it asked. */
+            total: number;
+            /** @description The name of the host being updated now */
+            current: string;
         };
         AgentJoinRequest: {
             protocol_version: number;
