@@ -665,7 +665,7 @@ everybody, marked rather than hidden.
 ### Assistant
 
 Where an administrator connects the model the assistant talks to. A new provider
-starts as **Ollama Cloud** with its address already filled in; **OpenCode Go**,
+starts as **Ollama Cloud** with its address already filled in; **OpenCode Zen**, **OpenCode Go**,
 a local or other OpenAI-compatible server, Anthropic and OpenAI are one choice
 away, and an address or name you have already typed is never overwritten by
 changing the choice. Once the key is entered the **model** is chosen from the

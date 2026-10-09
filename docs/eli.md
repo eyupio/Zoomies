@@ -15,7 +15,7 @@ words, and Eli answers about Zoomies, about GitHub Actions and, if you allow it,
 about your own fleet.
 
 Eli talks to a model **you** choose and pay for: one on your own machine such as
-Ollama, or a hosted one such as Ollama Cloud, OpenCode Go, Anthropic or OpenAI.
+Ollama, or a hosted one such as Ollama Cloud, OpenCode Zen, OpenCode Go, Anthropic or OpenAI.
 Nothing is sent anywhere until somebody asks Eli something.
 
 ## Setting it up
