@@ -52,9 +52,17 @@
     width: 100%;
     justify-content: center;
   }
+  /*
+    The edge is the width, and the frame it sits in is only a cap. Written as
+    min(100%, edge) instead, the percentage has nothing to resolve against
+    while a shrink-to-fit parent (the phone top bar's home link, an
+    inline-flex) measures its content, so the art is taken at the image's own
+    size: the 1254px paw pushed every page past the side of a 360px phone.
+  */
   .art {
     display: block;
-    width: min(100%, var(--edge));
+    width: var(--edge);
+    max-width: 100%;
     aspect-ratio: 1;
   }
   .art img {
