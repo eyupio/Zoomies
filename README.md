@@ -484,8 +484,11 @@ The same list appears in the UI's problems panel. See
 
 ## Requirements
 
-* Linux (amd64 or arm64) for the controller and agents. macOS is supported for
-  running the controller in development.
+* Linux (amd64 or arm64) for the controller and agents. The agent also runs on
+  Windows (x86-64 only), where jobs run as processes rather than in containers
+  and which the [support matrix](https://zoomies.sh/#what-is-qualified) does
+  not yet count as qualified. macOS is supported for running the controller in
+  development.
 * Docker or Podman for the container backends: **rootless preferred**, and the
   installer looks for a rootless socket first. `install.sh` offers to install
   one for you on a Linux host that has neither.

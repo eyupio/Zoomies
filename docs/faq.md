@@ -127,8 +127,9 @@ job Docker compare.
 Linux on x86-64 and arm64 is what the controller, the agents and the runner
 images are built for, and the reference configuration is Linux amd64. macOS
 works for running a controller in development. A Windows host can join as an
-agent and run jobs with the `process` backend (actions/runner's own Windows
-build, as a process on the machine, with no container) which is new in 1.0
+agent, with one PowerShell command from **Hosts → Add a host**, and run jobs
+with the `process` backend (actions/runner's own Windows build, as a process
+on the machine, with no container) which is new in 1.0
 and [not yet qualified](index.md#what-is-qualified): it is built and
 unit-tested, and the first test that runs on a real Windows host is what moves
 it. The [runner image catalogue](naming.md#the-runner-image) is the list of

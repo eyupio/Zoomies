@@ -1649,6 +1649,28 @@ and live destination intact, and restored machine proofs remain unverified.
 See [the transfer design](roadmap/instance-transfer.md). The owner requested
 this work on 9 October 2026; it is the next implementation priority.
 
+### ZF-238: a Windows host joins with one pasted command
+
+Choosing Windows in Hosts, Add a host gives an operator one PowerShell command
+that installs `zoomies.exe`, joins the controller on the `process` backend and
+starts the `zoomies-agent` service, for direct and private connections and for
+the release and `dev` channels, with the same checksum rule as `install.sh`.
+The API returns the Linux and Windows commands together
+(`commands.linux`, `commands.windows`, beside the existing `command`),
+`zoomies hosts join-token create --os windows` prints the same line, and the
+dialog states plainly what a process runner on a machine that keeps its state
+means. Re-running upgrades without enrolling again, `-Force` enrols again, and
+`-Uninstall` says what it leaves behind.
+
+Accept when the command parses as one literal argument per value for hostile
+addresses and tokens, a non-elevated or ARM64 window stops before anything is
+installed, no secret reaches the console or disk beyond the agent's own
+restricted files, and a hosted Windows runner installs, upgrades and removes the
+service against a real controller. This changes nothing about the support
+matrix: the Windows row moves only on the evidence listed in
+[the checklist](roadmap/support-and-measurement.md#windows-evidence-checklist),
+which a maintainer collects on a real Windows 11 machine. Size M.
+
 ## 10. Ordered delivery plan
 
 Consult [progress.md](roadmap/progress.md) before starting; an old

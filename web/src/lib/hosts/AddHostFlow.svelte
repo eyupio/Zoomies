@@ -40,15 +40,24 @@
   import RelativeTime from '$lib/components/RelativeTime.svelte';
   import Select from '$lib/components/Select.svelte';
   import { isLoopbackURL, suggestedControllerURL } from '$lib/addresses';
-  import { AGENT_OWNS_URL } from '$lib/links';
+  import { AGENT_OWNS_URL, SUPPORT_MATRIX_URL } from '$lib/links';
   import { hostMatchesSelector } from '$lib/pools/hostSelector';
   import BackendList from './BackendList.svelte';
+  import {
+    WINDOWS_HOST_SELECTOR,
+    WINDOWS_QUALIFIED,
+    defaultHostOS,
+    isWindowsProcessHost,
+    type HostOS,
+  } from './windows';
   import LabelMapEditor from './LabelMapEditor.svelte';
 
   type Phase = 'describe' | 'run' | 'joined';
   type Minted = JoinToken & {
     token?: string;
     command?: string;
+    /** The same one-liner per operating system; absent from a controller that predates Windows. */
+    commands?: { linux?: string; windows?: string };
     join_command?: string;
     controller_version?: string;
     install_tag?: string;
@@ -168,7 +177,14 @@
 
   const expired = $derived(Boolean(watched && !watched.used_at && watched.usable === false));
   const chosenURL = $derived(controllerURL.trim().replace(/\/+$/, ''));
-  const installCommand = $derived(minted?.command ?? '');
+  /** Which operating system the command is for. Both are minted together, so switching costs nothing. */
+  let hostOS = $state<HostOS>(defaultHostOS());
+  const windowsHost = $derived(hostOS === 'windows');
+  const installCommand = $derived(
+    windowsHost
+      ? (minted?.commands?.windows ?? '')
+      : (minted?.commands?.linux ?? minted?.command ?? ''),
+  );
   /**
    * Why the command could not be pinned to this instance's build, when it
    * could not. Worth its own line rather than a footnote: an operator who is
@@ -321,6 +337,7 @@
       .sort((a, b) => (a.name ?? '').localeCompare(b.name ?? ''));
   });
 
+  const windowsAgent = $derived(isWindowsProcessHost(joinedHost));
   const joinedLabels = $derived(Object.entries(joinedHost?.labels ?? {}));
   const joinedPlatform = $derived([joinedHost?.os, joinedHost?.arch].filter(Boolean).join('/'));
 
@@ -516,11 +533,58 @@
       {#if connection === 'tailcat'}<p class="private-note">
           <ShieldCheck size={18} aria-hidden="true" /> Private connection · Powered by Tailcat
         </p>{/if}
-      <p class="lede">
-        One line, in a shell on that machine. It downloads the Zoomies binary and verifies it, joins
-        this instance with the token, and installs the agent as a service, which is the part that
-        needs root or sudo.
-      </p>
+      <fieldset class="os-options">
+        <legend>Which operating system is the new host?</legend>
+        <div class="os-choices">
+          <label class="os-choice" class:selected={!windowsHost}>
+            <input type="radio" name="host-os" value="linux" bind:group={hostOS} />
+            <span>Linux or macOS</span>
+          </label>
+          <label class="os-choice" class:selected={windowsHost}>
+            <input type="radio" name="host-os" value="windows" bind:group={hostOS} />
+            <span>Windows</span>
+          </label>
+        </div>
+      </fieldset>
+      {#if windowsHost}
+        <p class="lede">
+          Run this in PowerShell as administrator. It downloads the Zoomies binary and verifies it,
+          joins this instance with the token, and installs the agent as a Windows service.
+        </p>
+        <div class="windows-notes">
+          <ul>
+            <li>
+              Jobs run as processes on that machine, not in containers. There is no isolation
+              between a job and the machine beyond the account the agent runs as.
+            </li>
+            <li>
+              Each job gets a fresh work directory, but the machine keeps its state: anything one
+              job installs or changes is still there for the next.
+            </li>
+            <li>
+              Use it only for repositories you trust, and read
+              <a href={AGENT_OWNS_URL} target="_blank" rel="noopener noreferrer"
+                >what the agent owns on a host</a
+              > first.
+            </li>
+            {#if !WINDOWS_QUALIFIED}
+              <li>
+                Windows is not yet qualified: it builds and passes its unit tests on every change,
+                but the project has not yet run a job on a real Windows machine. The
+                <a href={SUPPORT_MATRIX_URL} target="_blank" rel="noopener noreferrer"
+                  >support matrix</a
+                > says what would change that.
+              </li>
+            {/if}
+          </ul>
+        </div>
+      {:else}
+        <p class="lede">
+          One line, in a shell on that machine. It downloads the Zoomies binary and verifies it,
+          joins this instance with the token, and installs the agent as a service, which is the part
+          that needs root or sudo.
+        </p>
+      {/if}
       <p class="fine">
         What the agent will own on that machine, its service, its work directory, the containers it
         labels, its pools' caches and the one daemon-wide thing it does, pruning unused Docker
@@ -547,9 +611,23 @@
             </div>
           </dl>
         {/if}
-        <pre class="mono"><code>{installCommand}</code></pre>
+        {#if installCommand}
+          <pre class="mono"><code>{installCommand}</code></pre>
+        {:else}
+          <p class="fine" role="alert">
+            This controller is too old to offer a Windows command. Upgrade it, or download the
+            Windows binary from the releases page and run <code class="mono"
+              >zoomies agent join</code
+            > as shown under "The binary is already installed".
+          </p>
+        {/if}
         <div class="command-actions">
-          <CopyButton value={installCommand} label="Copy the install command" size="md" showLabel />
+          <CopyButton
+            value={installCommand}
+            label={windowsHost ? 'Copy the PowerShell command' : 'Copy the install command'}
+            size="md"
+            showLabel
+          />
           <span class="fine">
             The token in it is shown once, only its hash is stored, and works once.
           </span>
@@ -691,6 +769,22 @@
             your runners answer to and how many of them there are.
           </p>
           <Button variant="primary" href="/pools/new" iconAfter={ArrowRight}>Create a pool</Button>
+        {:else if windowsAgent}
+          <p>
+            No pool can place runners here yet. This is a Windows host and it offers only the
+            <span class="mono">process</span> backend, so a pool must use that backend and a host
+            selector of
+            <code class="mono">{WINDOWS_HOST_SELECTOR}</code>. Without the selector, runners for a
+            Linux pool would wait for a host that can never run them.
+          </p>
+          <p class="fine">
+            From the command line:
+            <code class="mono"
+              >zoomies pools create --name windows --labels windows --installation &lt;id&gt;
+              --backend process --host-selector {WINDOWS_HOST_SELECTOR}</code
+            >
+          </p>
+          <Button variant="primary" href="/pools/new" iconAfter={ArrowRight}>Create a pool</Button>
         {:else}
           <p>
             No pool can place runners here yet. Each one needs a backend this host offers and the
@@ -710,6 +804,50 @@
 </div>
 
 <style>
+  .os-options {
+    border: 0;
+    padding: 0;
+    margin: 0;
+  }
+  .os-options legend {
+    font-weight: 600;
+    margin-bottom: var(--z-space-2);
+  }
+  .os-choices {
+    display: flex;
+    gap: var(--z-space-3);
+    flex-wrap: wrap;
+  }
+  .os-choice {
+    display: inline-flex;
+    align-items: center;
+    gap: var(--z-space-2);
+    padding: var(--z-space-3) var(--z-space-4);
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    cursor: pointer;
+  }
+  .os-choice.selected {
+    border-color: var(--z-accent);
+    background: var(--z-accent-subtle);
+  }
+  /* Keyboard focus only, as the connection choice does above. */
+  .os-choice:has(input:focus-visible) {
+    outline: var(--z-focus-width) solid var(--z-focus-colour);
+    outline-offset: var(--z-focus-offset);
+  }
+  .windows-notes {
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    background: var(--z-surface-sunken);
+    padding: var(--z-space-3) var(--z-space-4);
+  }
+  .windows-notes ul {
+    margin: 0;
+    padding-left: var(--z-space-4);
+    display: grid;
+    gap: var(--z-space-2);
+  }
   .connection-options {
     border: 0;
     padding: 0;

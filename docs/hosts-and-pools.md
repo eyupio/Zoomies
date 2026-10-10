@@ -1535,22 +1535,54 @@ hatch if you want a machine to answer for an architecture it does not have.
 
 **A Windows host.** The agent runs on Windows with the `process` backend:
 actions/runner's own `win-x64` build, started as a process on the machine, no
-container. Download `zoomies_windows_amd64.exe` from the release, and from an
-elevated PowerShell prompt:
+container. In **Hosts → Add a host**, choose **Windows**, copy the command and
+paste it into PowerShell opened as administrator. Direct and private
+([Tailcat](private-hosts.md)) connections both work:
+
+```powershell
+& ([scriptblock]::Create((irm https://zoomies.sh/install.ps1))) -Mode agent -Controller 'https://zoomies.example.com' -JoinToken 'zoojoin_...'
+```
+
+The script needs Windows PowerShell 5.1 or PowerShell 7 and later on x86-64 (there
+is no ARM64 Windows build), and refuses to start in a window that is not
+elevated, because it installs a service and it does not elevate itself while
+the command holds a token. It asks once, downloads
+`zoomies_windows_amd64.exe` for the controller's own channel, checks it against
+the release's `checksums.txt`, installs it to `%ProgramFiles%\Zoomies`, puts that
+folder on the machine `PATH`, runs `zoomies agent join` on the `process`
+backend, and confirms the service is running and starts automatically.
+`-Version` takes `latest`, a release such as `v1.4.0`, or `dev`; `-Yes` skips the
+question for a script.
+
+Run the same command again on an enrolled machine and it upgrades: it stops
+the service, replaces the binary and starts it again, and keeps the host's
+credentials, so the host does not become a second one. `-Force` enrols again
+with a new token (the old host stays on the controller as an offline host until
+you delete it). `-Uninstall` removes the service, the install folder and the
+`PATH` entry, and says what it leaves behind: the host's credentials, configuration
+and log under `%ProgramData%\zoomies`, which it tells you how to delete.
+
+`join` writes its configuration and credentials under `%ProgramData%\zoomies`,
+restricts that folder to SYSTEM and Administrators, registers `zoomies-agent`
+with the service manager so the host comes back after a reboot, and starts it;
+the service appends its log to `%ProgramData%\zoomies\zoomies-agent.log`, since
+a service has no journal. `sc.exe query zoomies-agent` is `systemctl status
+zoomies-agent`. The host reports `os=windows`, so a pool selects it with
+`--host-selector os=windows` and needs no image: there is no Windows runner
+image, and the pool's `runner_version` picks the actions/runner release the
+agent downloads and verifies. Without the selector a pool's runners wait for a
+host that matches, and a Windows host offers only the `process` backend.
+
+The binary is not code-signed yet, so Microsoft Defender SmartScreen or another
+endpoint policy can warn about or block a copy downloaded in a browser. The
+installer fetches it from PowerShell instead and checks its checksum, but this has not
+yet been tried on a managed machine with a strict policy. If you would rather do it by hand,
+download
+`zoomies_windows_amd64.exe` from the release and, from an elevated prompt:
 
 ```powershell
 .\zoomies.exe agent join https://zoomies.example.com --token zoojoin_... --backend process
 ```
-
-`join` writes its configuration and credentials under `%ProgramData%\zoomies`,
-registers `zoomies-agent` with the service manager so the host comes back after
-a reboot, and starts it; the service appends its log to
-`%ProgramData%\zoomies\zoomies-agent.log`, since a service has no journal.
-`sc.exe query zoomies-agent` is `systemctl status zoomies-agent`. The host
-reports `os=windows`, so a pool selects it with `--host-selector os=windows`
-and needs no image: there is no Windows runner image, and the pool's
-`runner_version` picks the actions/runner release the agent downloads and
-verifies.
 
 What a Windows pool does not have is a container, and so it does not have the
 ephemeral guarantee the rest of this page assumes: a job gets a fresh work
