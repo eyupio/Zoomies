@@ -32,6 +32,9 @@ type Server struct {
 	Status  int
 	Body    string
 	NoUsage bool
+	// ModelsStatus, when set, is what the model list alone answers with, for a
+	// gateway that serves completions and nothing else.
+	ModelsStatus int
 	// Models, when set, is what the model list answers with, in the order given;
 	// otherwise it lists Model alone.
 	Models []string
@@ -68,6 +71,15 @@ func (s *Server) refuse(w http.ResponseWriter) bool {
 		return false
 	}
 	w.WriteHeader(s.Status)
+	fmt.Fprint(w, s.Body)
+	return true
+}
+
+func (s *Server) refuseModels(w http.ResponseWriter) bool {
+	if s.ModelsStatus == 0 {
+		return s.refuse(w)
+	}
+	w.WriteHeader(s.ModelsStatus)
 	fmt.Fprint(w, s.Body)
 	return true
 }
@@ -119,7 +131,7 @@ func NewOpenAI(t testing.TB) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, r *http.Request) {
 		s.record(r)
-		if s.refuse(w) {
+		if s.refuseModels(w) {
 			return
 		}
 		ids := s.Models
@@ -181,7 +193,7 @@ func NewAnthropic(t testing.TB) *Server {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/models", func(w http.ResponseWriter, r *http.Request) {
 		s.record(r)
-		if s.refuse(w) {
+		if s.refuseModels(w) {
 			return
 		}
 		ids := s.Models

@@ -211,3 +211,18 @@ func TestPatchingWithoutABaseURLDoesNotRecheckTheStoredOne(t *testing.T) {
 	h.do(request{method: http.MethodPatch, path: assistantProviders + "/" + id, cookie: cookie, body: map[string]any{"enabled": false}}).mustStatus(t, http.StatusOK, "disabling with the switch off")
 	h.do(request{method: http.MethodPatch, path: assistantProviders + "/" + id, cookie: cookie, body: map[string]any{"base_url": srv.URL + "/v1"}}).mustStatus(t, http.StatusUnprocessableEntity, "re-saving the address with the switch off")
 }
+
+// Review minor: the key box is the one place a secret belongs. An address
+// with a username and password in it would be saved and rendered back on
+// the card, so it is refused where it is typed.
+func TestABaseURLWithCredentialsInItIsRefused(t *testing.T) {
+	h, cookie := assistantAdmin(t, func(c *config.Config) { c.Assistant.AllowPrivateProvider = true })
+	srv := assistanttest.NewOpenAI(t)
+	body := providerBody(srv, "Ollama")
+	body["base_url"] = strings.Replace(srv.URL, "http://", "http://user:hunter2@", 1) + "/v1"
+	resp := h.do(request{method: http.MethodPost, path: assistantProviders, cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusUnprocessableEntity, "an address carrying credentials")
+	if !strings.Contains(string(resp.body), `"base_url"`) || strings.Contains(string(resp.body), "hunter2") {
+		t.Errorf("the refusal does not name the field, or echoes the password: %s", resp.body)
+	}
+}

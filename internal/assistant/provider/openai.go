@@ -6,6 +6,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -153,7 +154,7 @@ func (p *OpenAICompatible) do(ctx context.Context, method, path string, body []b
 	if err != nil {
 		return nil, fmt.Errorf("reaching the provider: %w", err)
 	}
-	if err := StatusError(resp); err != nil {
+	if err := StatusError(resp, p.cfg.APIKey != ""); err != nil {
 		resp.Body.Close()
 		return nil, err
 	}
@@ -258,14 +259,20 @@ func newOpenAIDecoder() Decoder {
 }
 
 // Check implements assistant.Provider: the model list says the address and
-// the key are right, and one token of completion says the model answers.
+// the key are right, and one token of completion says the model answers. A
+// gateway that serves completions and no model list answers the list with a
+// 404, which says nothing about the address or the key, so that one status
+// is left for the completion to judge.
 func (p *OpenAICompatible) Check(ctx context.Context) (assistant.CheckResult, error) {
 	start := time.Now()
 	resp, err := p.do(ctx, http.MethodGet, "/models", nil)
-	if err != nil {
+	var he *HTTPError
+	if err != nil && !(errors.As(err, &he) && he.Status == http.StatusNotFound) {
 		return assistant.CheckResult{}, err
 	}
-	resp.Body.Close()
+	if resp != nil {
+		resp.Body.Close()
+	}
 	reported, err := completeOneToken(ctx, func(ctx context.Context) (assistant.Stream, error) {
 		return p.chat(ctx, assistant.Request{Messages: []assistant.Message{{Role: assistant.RoleUser, Content: "Say OK."}}}, 1)
 	})

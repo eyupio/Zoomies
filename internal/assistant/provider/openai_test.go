@@ -190,3 +190,34 @@ func TestOpenAICompatiblePassesTheContract(t *testing.T) {
 		return NewOpenAICompatible(Config{BaseURL: assistanttest.NewOpenAI(t).URL, Model: "m"})
 	})
 }
+
+// Review minor: some gateways serve chat completions and nothing else, so a
+// 404 from the model list must not fail the check; the one-token completion
+// is what says whether the provider answers. A refused key on the list is
+// still a refusal.
+func TestOpenAICompatibleCheckSurvivesAGatewayWithNoModelList(t *testing.T) {
+	srv := assistanttest.NewOpenAI(t)
+	srv.ModelsStatus = 404
+	res, err := NewOpenAICompatible(Config{BaseURL: srv.URL, Model: "m"}).Check(context.Background())
+	if err != nil {
+		t.Fatalf("a 404 on /models failed the check: %v", err)
+	}
+	if res.Model != "m" {
+		t.Errorf("result %+v", res)
+	}
+	srv.ModelsStatus, srv.Body = 401, `{"error":{"message":"nope"}}`
+	if _, err := NewOpenAICompatible(Config{BaseURL: srv.URL, Model: "m", APIKey: "k"}).Check(context.Background()); err == nil || !strings.Contains(err.Error(), "refused the key") {
+		t.Errorf("a 401 on /models: %v", err)
+	}
+}
+
+// Review minor: a 401 with no key configured should send a person to add a
+// key, not to rotate one they never set.
+func TestOpenAICompatibleSaysAKeyIsNeededWhenNoneIsConfigured(t *testing.T) {
+	srv := assistanttest.NewOpenAI(t)
+	srv.Status, srv.Body = 401, `{"error":{"message":"missing key"}}`
+	_, err := NewOpenAICompatible(Config{BaseURL: srv.URL, Model: "m"}).Check(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "needs an API key") {
+		t.Errorf("err %v", err)
+	}
+}

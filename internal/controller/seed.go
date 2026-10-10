@@ -1711,10 +1711,29 @@ const demoAssistantProviderName = "Demo model (built in)"
 // network, as the default, with a check that passed, so the Assistant page
 // opens on something usable and the announcement can say the assistant
 // talks to nothing outside this machine.
+//
+// The seed guard looks at installations, hosts and users, not at this table,
+// so a database that holds this row and none of the demo's pools (a seed that
+// stopped half way, or one from a build that seeded only the assistant) is
+// seeded again. The row is found by name and reused rather than created, so
+// that second seed does not fail on the name being taken.
 func (c *Controller) seedAssistantProvider(ctx context.Context, now time.Time) error {
-	p := &store.AssistantProvider{Name: demoAssistantProviderName, Kind: "fake", Model: "demo", Enabled: true}
-	if err := c.st.CreateAssistantProvider(ctx, p); err != nil {
+	rows, err := c.st.ListAssistantProviders(ctx)
+	if err != nil {
 		return fmt.Errorf("seeding the assistant provider: %w", err)
+	}
+	var p *store.AssistantProvider
+	for _, row := range rows {
+		if row.Name == demoAssistantProviderName && row.OwnerID == "" {
+			p = row
+			break
+		}
+	}
+	if p == nil {
+		p = &store.AssistantProvider{Name: demoAssistantProviderName, Kind: "fake", Model: "demo", Enabled: true}
+		if err := c.st.CreateAssistantProvider(ctx, p); err != nil {
+			return fmt.Errorf("seeding the assistant provider: %w", err)
+		}
 	}
 	if err := c.st.SetDefaultAssistantProvider(ctx, p.ID); err != nil {
 		return err

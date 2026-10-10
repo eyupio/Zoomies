@@ -15,10 +15,13 @@ var lookupIP = func(ctx context.Context, host string) ([]netip.Addr, error) {
 }
 
 // The ranges that count as local beyond what netip answers itself. They
-// mirror internal/config/egress.go's list, kept here rather than imported
-// because this package may not depend on config (purity_test.go), and the
-// two lists guard different promises: that one refuses an address being
-// saved, this one refuses bytes leaving.
+// are kept here rather than imported from internal/config/egress.go because
+// this package may not depend on config (purity_test.go), and the two lists
+// guard different promises: that one refuses an address being saved, this
+// one refuses bytes leaving. They are not the same list on purpose: the
+// NAT64 and 6to4 ranges egress.go refuses are addresses that get translated
+// to a public one on the way out, which is the opposite of local, so a
+// local-only dialer is right to let them through to the public-address rule.
 var localPrefixes = []netip.Prefix{
 	netip.MustParsePrefix("0.0.0.0/8"),
 	netip.MustParsePrefix("100.64.0.0/10"),

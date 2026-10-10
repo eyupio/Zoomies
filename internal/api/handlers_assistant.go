@@ -91,6 +91,10 @@ func (s *Server) validateAssistantProvider(r *http.Request, p *store.AssistantPr
 		u, err := url.Parse(p.BaseURL)
 		if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			errs = append(errs, fieldError{"base_url", "that is not an HTTP URL; the scheme is what decides whether the connection is encrypted, so it has to be there"})
+		} else if u.User != nil {
+			// The address is saved in clear and shown on the card; the key box is
+			// the one place a secret belongs. The message never echoes the URL.
+			errs = append(errs, fieldError{"base_url", "the address carries a username or password; leave those out and put the key in the API key field, which is sealed"})
 		} else if f := config.CheckProviderURL(p.BaseURL, s.cfg().Assistant.AllowPrivateProvider); checkAddress && f != nil {
 			errs = append(errs, fieldError{"base_url", f.Title + ". " + f.Fix})
 		}
@@ -221,6 +225,13 @@ func (s *Server) handleCreateAssistantProvider(w http.ResponseWriter, r *http.Re
 	}
 	if in.APIKey != nil && strings.TrimSpace(*in.APIKey) != "" {
 		if !s.sealAssistantKey(w, r, p.ID, *in.APIKey) {
+			// The caller was told the create failed, so a row that exists without
+			// the key it was given would be a surprise on the next load: a card
+			// that looks saved and cannot answer. Take it back; a second failure
+			// here is logged rather than reported, the response is already sent.
+			if err := s.ctrl.Store().DeleteAssistantProvider(r.Context(), p.ID); err != nil {
+				s.log.Warn("removing the provider whose key could not be saved", "id", p.ID, "err", err)
+			}
 			return
 		}
 	}
@@ -448,7 +459,11 @@ func (s *Server) handleDefaultAssistantProvider(w http.ResponseWriter, r *http.R
 		s.fail(w, r, "choosing the default provider", err)
 		return
 	}
-	fresh, _ := s.ctrl.Store().GetAssistantProvider(r.Context(), row.ID)
+	fresh, err := s.ctrl.Store().GetAssistantProvider(r.Context(), row.ID)
+	if err != nil {
+		s.internal(w, r, "reading the assistant provider back", err)
+		return
+	}
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "assistant.provider.default", "assistant_provider", row.ID, map[string]any{"name": row.Name})
 	writeJSON(w, http.StatusOK, s.assistantView(r, fresh))
 }

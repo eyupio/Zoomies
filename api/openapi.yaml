@@ -12294,7 +12294,7 @@ components:
         key_configured: { type: boolean, description: A key is sealed on the row. The key itself never leaves this process. }
         enabled: { type: boolean }
         is_default: { type: boolean }
-        local: { type: boolean, description: The address names this machine or a private network. }
+        local: { type: boolean, description: The address, as typed, names this machine or a private network. A hostname is not looked up. }
         fleet_access:
           type: boolean
           description: >-

@@ -9342,7 +9342,7 @@ export interface components {
             key_configured: boolean;
             enabled: boolean;
             is_default: boolean;
-            /** @description The address names this machine or a private network. */
+            /** @description The address */
             local: boolean;
             /** @description The assistant may read this fleet through the provider. The personal provider's owner chooses this; administrators choose it for installation providers. Off until enabled: what the tools return is sent to the provider, which for a hosted one leaves this network. */
             fleet_access: boolean;
