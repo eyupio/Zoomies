@@ -6,6 +6,7 @@
   import IconButton from '$lib/components/IconButton.svelte';
   import ConversationView from './ConversationView.svelte';
   import EliAvatar from './EliAvatar.svelte';
+  import { movable } from './movable';
   import { eli } from './eli.svelte';
   import { contextPrompt } from './prompts';
   import { layers, lockScroll, pageInert, trapFocus } from '$lib/keys';
@@ -113,8 +114,13 @@
 
 {#if !eli.open}
   <div class="launcher" data-side={side}>
-    <Button onclick={launch} ariaExpanded={false} ariaControls="eli-widget"
-      ><EliAvatar size={24} /> Ask Eli</Button
+    <button
+      class="launch"
+      onclick={launch}
+      aria-label="Ask Eli"
+      title="Ask Eli"
+      aria-expanded="false"
+      aria-controls="eli-widget"><EliAvatar size={56} /></button
     >
   </div>
 {:else}
@@ -129,6 +135,7 @@
     aria-label="Eli assistant"
     tabindex="-1"
     bind:this={panel}
+    use:movable={!modal}
     onkeydown={(event) => {
       if (event.key === 'Escape' && layers.top()?.kind === 'dialog') {
         event.stopPropagation();
@@ -137,16 +144,23 @@
     }}
   >
     <header>
-      <div class="identity">
+      <button
+        type="button"
+        class="identity"
+        data-drag-handle
+        disabled={modal}
+        aria-label="Move Eli panel using arrow keys or drag"
+        title="Drag me around, or use arrow keys"
+      >
         <EliAvatar size={32} />
         <div>
-          <h2>Eli</h2>
-          <p>
+          <span class="name">Eli</span>
+          <span class="subtitle">
             {#if answering}Answers from <strong>{answering.name}</strong>, {answering.model}{:else}Your
-              fleet assistant{/if}
-          </p>
+              fleet companion. All ears.{/if}
+          </span>
         </div>
-      </div>
+      </button>
       <div class="tools">
         <IconButton
           icon={Trash2}
@@ -192,6 +206,7 @@
           disabled={full}
           onclick={() => {
             side = 'left';
+            panel?.dispatchEvent(new Event('eli-place'));
             remember();
           }}
         />
@@ -202,6 +217,7 @@
           disabled={full}
           onclick={() => {
             side = 'right';
+            panel?.dispatchEvent(new Event('eli-place'));
             remember();
           }}
         />
@@ -270,6 +286,15 @@
 {/if}
 
 <style>
+  .launch {
+    display: flex;
+    padding: 0;
+    border: 0;
+    border-radius: var(--z-radius-full);
+    background: var(--z-surface-raised);
+    box-shadow: var(--z-shadow-lg);
+    cursor: pointer;
+  }
   .launcher {
     position: fixed;
     right: var(--z-space-5);
@@ -336,21 +361,40 @@
     align-items: center;
     gap: var(--z-space-2);
   }
-  h2,
+  .name,
   p {
     margin: 0;
   }
-  h2 {
+  .name {
     font-size: var(--z-text-base);
     font-weight: var(--z-weight-semibold);
   }
   .identity {
     min-width: 0;
+    padding: 0;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+    text-align: left;
+    cursor: grab;
+    touch-action: none;
+    user-select: none;
+  }
+  .identity:active {
+    cursor: grabbing;
+  }
+  .identity:disabled {
+    cursor: default;
+  }
+  .name,
+  .subtitle {
+    display: block;
   }
   .identity > div {
     min-width: 0;
   }
-  .identity p {
+  .identity .subtitle {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
@@ -358,7 +402,7 @@
   .tools {
     flex-shrink: 0;
   }
-  .identity p,
+  .identity .subtitle,
   footer {
     font-size: var(--z-text-xs);
     color: var(--z-text-muted);
