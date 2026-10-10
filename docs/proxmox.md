@@ -242,7 +242,7 @@ completion. Interrupted template imports can be retried; setup resumes only a VM
 marked as belonging to that setup and refuses to change an unrelated guest.
 
 For a direct network connection or credentials you manage yourself, choose
-**Configure connection manually**. The tables and terminal command below describe
+**Configure connection manually**. The table and terminal command below describe
 that alternative.
 
 | Setting | What it means |
