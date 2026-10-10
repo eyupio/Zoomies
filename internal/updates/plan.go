@@ -149,6 +149,13 @@ type Snapshot struct {
 	// Fenced says the controller may not act: it is fenced for recovery or does
 	// not hold the database's lease.
 	Fenced bool
+	// HostGraceUntil holds back the time-out of hosts' attempts until this
+	// instant, and the zero time holds back nothing. The controller sets it when
+	// it stops being fenced: it timed nothing out while fenced, and an agent
+	// whose report it held sends it again on its next beat, so a time-out in the
+	// moment the fence lifts would close the attempt first and lose the helper's
+	// sentence. The controller's own attempt has no agent to wait for.
+	HostGraceUntil time.Time
 	// Controller is the controller's open attempt, or nil.
 	Controller *Attempt
 	// ControllerEnded is the controller's recent attempts that have ended, in any
@@ -342,6 +349,9 @@ func (p *planner) timeOuts() {
 		reason := fmt.Sprintf("The controller's update to %s did not finish within 90 minutes, so it is recorded as timed out.", tagOr(a.To, "a new release"))
 		p.timedOut[a.ID] = reason
 		p.act(Action{Kind: ActionTimeOut, AttemptID: a.ID, Reason: reason})
+	}
+	if p.s.Now.Before(p.s.HostGraceUntil) {
+		return
 	}
 	for _, h := range p.hosts {
 		if a := hostAttempt(h); a != nil && p.expired(a) {

@@ -50,7 +50,7 @@ func (c *Controller) updatesSnapshot(ctx context.Context, cfg config.Updates, he
 	pic := &updatesPicture{}
 	s := updates.Snapshot{
 		Now: c.Now(), Mode: updateModeOf(cfg.Mode), Soak: cfg.Soak, Running: version.Version,
-		GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Fenced: !c.mayAct(),
+		GOOS: runtime.GOOS, GOARCH: runtime.GOARCH, Fenced: !c.mayAct(), HostGraceUntil: c.hostGraceUntil(),
 	}
 	if state := c.latestRelease(); state != nil {
 		s.Releases = state.Releases

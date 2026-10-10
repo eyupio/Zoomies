@@ -385,6 +385,9 @@ func (c *Controller) applyUpdateTaskResult(ctx context.Context, hostID string, t
 func (c *Controller) noteHostUpdate(ctx context.Context, h *store.Host, rep *agent.UpdateReport) (held bool) {
 	if !c.mayAct() {
 		if rep != nil {
+			// So that the pass after the fence lifts gives the agent a beat to send
+			// it again, however briefly the fence stood.
+			c.updates.fenceSeen.Store(true)
 			c.warnReportHeld(h, "this controller is fenced or does not hold the lease, so it records nothing until it may act again", nil)
 		}
 		return rep != nil
@@ -544,6 +547,9 @@ func (c *Controller) hostAttemptOutcome(a store.UpdateAttempt, h *store.Host) (s
 	}
 	if state, text, ended := hostReportOutcome(a, h.Version, nil); ended {
 		return state, text, true
+	}
+	if c.Now().Before(c.hostGraceUntil()) {
+		return "", "", false
 	}
 	return c.updateOutcome(a)
 }
