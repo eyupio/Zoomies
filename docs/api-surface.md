@@ -455,7 +455,7 @@ fenced controller is not restarted by its own runtime.
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/transfers/preparation` | process operator | Drain progress: busy and remaining runners, cleanup, jobs and machine operations; ready when fenced. |
+| GET | `/api/v1/transfers/preparation` | process operator | Drain progress: busy and remaining runners, cleanup, jobs on this fleet's runners and machine operations, each named with its host under `waiting`, and a `summary` sentence; ready when fenced. The same document is the `transfer.updated` event. |
 | POST | `/api/v1/transfers/preparation` | process operator | One-click preparation: pause demand, let busy jobs finish, drain idle runners, and fence after cleanup. Saved pool settings remain intact. |
 | DELETE | `/api/v1/transfers/preparation` | process operator | Cancel before the fence; saved pools resume. Once fenced, use the explicit recovery action after checking that no destination is running. |
 | POST | `/api/v1/transfers/export` | process operator | Download a mandatory passphrase-encrypted complete instance, with fleet secrets under a disposable transfer key. Requires a drained and fenced source. |
@@ -618,7 +618,7 @@ flowchart LR
 `problems.updated` · `stats` · `audit` · `webhook.delivery` ·
 `provider.updated` · `provider.deleted` · `machine.updated` ·
 `machine.deleted` · `kennel.updated` · `kennel.deleted` · `kennel.summary` ·
-`updates.updated` · `heartbeat` · `resync`
+`updates.updated` · `transfer.updated` · `heartbeat` · `resync`
 
 Every frame but `heartbeat` and `resync` carries an `id` of the form
 `<epoch>.<sequence>`, where the epoch names one run of the controller. A client
@@ -668,6 +668,10 @@ client ever has to poll or ask the operator to reload:
   is one repository's `GET` shape and `kennel.deleted` carries `{ "id": … }`.
   `updates.updated` is `GET /updates` whole, sent when it changes, because nothing
   writes a row when a soak ends and the sentence in it moves with the clock.
+  `transfer.updated` is `GET /transfers/preparation` whole, sent when it changes
+  and only to process operators, because a runner confirmed gone or a job
+  finishing moves every count in it without any row saying "the transfer
+  moved"; nothing is computed while no transfer is being prepared.
 * **An operator's change is announced by the handler that made it.** Creating,
   editing, enabling, disabling or deleting a pool; editing, cordoning, clearing
   the throttle on or deleting a host; adding, editing or removing an

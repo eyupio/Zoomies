@@ -2,9 +2,12 @@ package controller
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/eyupio/zoomies/internal/agent"
+	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -180,5 +183,127 @@ func TestPreparationCancelsOnlyMachineReservationsThatNeverIssuedACall(t *testin
 	row, err = h.st.GetMachine(h.ctx, issued.ID)
 	if err != nil || row.State != store.MachinePlanned || row.OpID == "" {
 		t.Fatal("issued reservation changed", err)
+	}
+}
+
+// Every count in a transfer's preparation moves as runners are confirmed gone
+// and jobs finish, and no row says "the transfer moved": the page an operator
+// watches while the fleet drains was the one page that sat still until it was
+// reloaded. A pass sends the preparation when it changes, in the shape
+// GET /transfers/preparation returns, with the sentence that says what is
+// happening and whether any of it needs them.
+func TestTransferPreparationIsSentToThePageAsItMoves(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	sub := h.listen(events.KindTransfer)
+	pass := func(doing string) {
+		t.Helper()
+		if err := h.c.Reconcile(h.ctx); err != nil {
+			t.Fatalf("Reconcile %s: %v", doing, err)
+		}
+	}
+
+	// Nothing is being prepared, so a pass has nothing to say and reads
+	// nothing to say it.
+	pass("with no transfer")
+	nothingFor(t, sub)
+
+	r := h.runnerRow(pool, host, store.RunnerIdle)
+	if _, err := h.c.PrepareTransfer(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The click itself is announced, before any pass.
+	first := nextOfKind(t, sub, events.KindTransfer)
+	if first["draining"] != true || first["live_runners"] != float64(1) {
+		t.Errorf("first frame = %v, want draining with one live runner", first)
+	}
+	if summary, _ := first["summary"].(string); !strings.HasPrefix(summary, "Preparing: 1 idle runner being withdrawn.") {
+		t.Errorf("first frame summary = %q", summary)
+	}
+
+	// The runner is withdrawn and removed; nobody has confirmed it gone yet.
+	for _, state := range []store.RunnerState{store.RunnerDraining, store.RunnerRemoved} {
+		if _, err := h.st.TransitionRunner(h.ctx, r.ID, state, "withdrawn"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	pass("after the runner was removed")
+	cleanup := nextOfKind(t, sub, events.KindTransfer)
+	if cleanup["pending_cleanup"] != float64(1) || cleanup["cleanup_awaiting_host"] != float64(1) {
+		t.Errorf("frame after removal = %v, want one runner awaiting its host", cleanup)
+	}
+	waits, _ := cleanup["waiting"].([]any)
+	if len(waits) != 1 {
+		t.Fatalf("frame after removal names %d waits, want the one runner: %v", len(waits), cleanup["waiting"])
+	}
+	wait, _ := waits[0].(map[string]any)
+	if wait["kind"] != "cleanup" || wait["name"] != r.Name || wait["host"] != "vm-1" || wait["host_healthy"] != true {
+		t.Errorf("the wait = %v, want the runner on vm-1", wait)
+	}
+	if detail, _ := wait["detail"].(string); !strings.Contains(detail, "vm-1 to confirm it is gone") {
+		t.Errorf("the wait's detail = %q", detail)
+	}
+	if summary, _ := cleanup["summary"].(string); !strings.Contains(summary, "Nothing needs you yet") {
+		t.Errorf("summary with a healthy host = %q, want it to say nothing is needed", summary)
+	}
+
+	// Nothing has moved, so nothing is said.
+	pass("with nothing changed")
+	nothingFor(t, sub)
+
+	// The host goes quiet. Nothing is written anywhere, and the sentence has
+	// to change: nobody but that host can confirm its runner gone.
+	h.advance(2 * store.HeartbeatTimeout)
+	pass("after the host fell silent")
+	silent := nextOfKind(t, sub, events.KindTransfer)
+	if summary, _ := silent["summary"].(string); !strings.Contains(summary, "Host vm-1 has stopped sending heartbeats") {
+		t.Errorf("summary with a silent host = %q, want it to name vm-1", summary)
+	}
+
+	// Both sides confirm, and the pass that finds the fleet drained raises the
+	// fence and says so.
+	if _, err := h.st.ConfirmRunnerCleanup(h.ctx, r.ID, true); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.st.RecordRegistrationDeleted(h.ctx, r.ID); err != nil {
+		t.Fatal(err)
+	}
+	pass("after cleanup was confirmed")
+	ready := nextOfKind(t, sub, events.KindTransfer)
+	if ready["ready"] != true || len(ready["waiting"].([]any)) != 0 {
+		t.Errorf("frame after cleanup = %v, want ready with nothing waiting", ready)
+	}
+	if summary, _ := ready["summary"].(string); !strings.HasPrefix(summary, "Ready to export.") {
+		t.Errorf("summary when ready = %q", summary)
+	}
+}
+
+// A runner withdrawn while idle ran no job, and until now nothing asked its
+// host about it again if the one report of its removal was lost: the row sat
+// at "awaiting cleanup" with nothing on the host, and a transfer behind it
+// never finished preparing. After a grace the host is asked again.
+func TestAFinishedRunnerNobodyConfirmedGoneIsAskedAboutAgain(t *testing.T) {
+	h := newHarness(t)
+	_, pool, host := h.fleet()
+	r := h.runnerRow(pool, host, store.RunnerIdle)
+	for _, state := range []store.RunnerState{store.RunnerDraining, store.RunnerRemoved} {
+		if _, err := h.st.TransitionRunner(h.ctx, r.ID, state, "withdrawn"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	for _, task := range h.tasksFor(host.ID) {
+		if task.Kind == agent.TaskRemoveRunner && task.RunnerID == r.ID {
+			t.Fatal("the host was asked inside the grace, while it may still be keeping the container for its logs")
+		}
+	}
+	h.advance(hostCleanupGrace + time.Minute)
+	if err := h.c.Reconcile(h.ctx); err != nil {
+		t.Fatal(err)
+	}
+	if task := h.taskOfKind(host.ID, agent.TaskRemoveRunner); task.RunnerID != r.ID {
+		t.Fatalf("the remove task is for %q, want %q", task.RunnerID, r.ID)
 	}
 }

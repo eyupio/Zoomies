@@ -73,6 +73,10 @@ func (c *Controller) publishDerived(ctx context.Context) {
 		c.sendUpdates(status)
 	}
 
+	// A transfer's preparation is the same again: every count in it moves as
+	// runners are confirmed gone and jobs finish, and no row says so.
+	c.sendTransfer(ctx)
+
 	c.publishHostChanges(ctx)
 	c.publishMachineChanges(ctx)
 }
