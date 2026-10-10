@@ -12,6 +12,7 @@
   actually changes.
 -->
 <script lang="ts">
+  import AskEli from '$lib/assistant/AskEli.svelte';
   import RunnerInsights from '$lib/insights/RunnerInsights.svelte';
   import { CircleSlash, TriangleAlert, Trash2, Unplug } from '@lucide/svelte';
   import { ApiError, getRunner, getRunnerTimeline } from '$lib/api/client';
@@ -233,6 +234,25 @@
       Drain
     </Button>
     <Button variant="danger" icon={Trash2} onclick={() => ask('delete')}>Delete</Button>
+  {/if}
+  {#if runner}
+    <AskEli
+      context={{
+        kind: 'runner',
+        title: runner.name || runner.id || 'Runner',
+        facts: {
+          'Runner ID': runner.id,
+          State: liveState,
+          Pool: runner.pool_name,
+          Host: runner.host_name,
+          Failure: failureMessage || runner.message,
+        },
+        question:
+          liveState === 'failed'
+            ? 'Help me diagnose this runner failure and plan a safe recovery.'
+            : 'Explain this runner state and what I should check next.',
+      }}
+    />
   {/if}
 </PageHeader>
 

@@ -1,4 +1,5 @@
 <script lang="ts">
+  import AskEli from '$lib/assistant/AskEli.svelte';
   import { checkHostHealth, getHost, revokeHostCheck } from '$lib/api/client';
   import { events } from '$lib/api/sse';
   import type { Host } from '$lib/api/types';
@@ -493,6 +494,28 @@
       </div>
     {/if}
   {/snippet}
+  {#if host}
+    <AskEli
+      context={{
+        kind: 'host',
+        title: host.name || id,
+        facts: {
+          'Host ID': host.id,
+          Health: summary.label,
+          Healthy: host.healthy,
+          Capacity: host.capacity,
+          Free: host.free,
+          'CPU usage (%)': host.usage?.cpu_percent,
+          'Available memory (MB)': host.usage?.memory_available_mb,
+          'CPU admission held': host.usage?.cpu_held,
+          'I/O wait (%)': host.usage?.io_wait_percent,
+          'Sample received at': host.usage?.sampled_at,
+        },
+        question:
+          'Help me assess this host, investigate possible overload or health issues, and decide what to check next.',
+      }}
+    />
+  {/if}
 </PageHeader>
 {#if error}<ErrorState {error} onretry={refresh} />
 {:else if loading && !host}<Skeleton />

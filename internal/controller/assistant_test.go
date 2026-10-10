@@ -34,7 +34,8 @@ func TestOpeningAProviderHonoursLocalOnly(t *testing.T) {
 		t.Fatalf("a loopback provider with local-only off: %+v", check)
 	}
 	c.UpdateConfig(func(cfg *config.Config) { cfg.Assistant.LocalOnly = true })
-	public := &store.AssistantProvider{Name: "hosted", Kind: "openai", BaseURL: "", Model: "m"}
+	// A literal public address keeps this assertion independent of external DNS.
+	public := &store.AssistantProvider{Name: "hosted", Kind: "openai", BaseURL: "https://8.8.8.8/v1", Model: "m"}
 	check = c.CheckAssistantProvider(context.Background(), public)
 	if check.OK || !strings.Contains(check.Error, "local-only") {
 		t.Errorf("a hosted provider with local-only on: %+v", check)
