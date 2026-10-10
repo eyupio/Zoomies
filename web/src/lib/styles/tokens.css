@@ -397,6 +397,9 @@
   /* Eli sits above every other layer, the palette included: an operator reads a
      problem in a drawer and asks about it at the same moment. */
   --z-layer-assistant: 90;
+  /* The circular dog button's edge: the one size the toast stack must clear,
+     because both sit in the bottom-right corner. */
+  --z-eli-launcher: 3.5rem;
 
   color-scheme: light;
 }

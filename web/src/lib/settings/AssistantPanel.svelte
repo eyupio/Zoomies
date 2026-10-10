@@ -142,7 +142,7 @@
 </script>
 
 <PageHeader
-  title="Assistant"
+  title="Eli AI Assistant"
   subtitle="Your model for Eli conversations and PR repairs. Automatic repairs use an installation provider."
 >
   <Button icon={Plus} onclick={() => ((editing = null), (formOpen = true))}>Add a provider</Button>
