@@ -609,6 +609,12 @@ type joinTokenItem struct {
 	// Token and Command come back exactly once, from the create call.
 	Token   string `json:"token"`
 	Command string `json:"command"`
+	// Commands is the same one-liner per operating system. A controller from
+	// before Windows support leaves it empty.
+	Commands struct {
+		Linux   string `json:"linux"`
+		Windows string `json:"windows"`
+	} `json:"commands"`
 }
 
 type installationItem struct {
