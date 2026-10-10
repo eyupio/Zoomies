@@ -4,19 +4,28 @@
 # advertised before its exact-version libxml2 dependency was available.
 # Refresh metadata before retrying; only the final attempt permits an older
 # compatible candidate. Never skip broken/missing packages or signature checks.
-# Usage: runner-dnf.sh [install options...] <packages...>
+# Usage: runner-dnf.sh [upgrade] [options...] [packages...]
 set -eu
 
-[ "$#" -gt 0 ] || { echo "runner-dnf.sh: no packages named" >&2; exit 64; }
+command=install
+if [ "${1:-}" = upgrade ]; then
+  command=upgrade
+  shift
+fi
+
+if [ "$command" = install ] && [ "$#" -eq 0 ]; then
+  echo "runner-dnf.sh: no packages named" >&2
+  exit 64
+fi
 
 attempt=1
 while :; do
   case "$attempt" in
-    1) if dnf install -y "$@"; then exit 0; fi ;;
-    2) if dnf --refresh install -y "$@"; then exit 0; fi ;;
+    1) if dnf "$command" -y "$@"; then exit 0; fi ;;
+    2) if dnf --refresh "$command" -y "$@"; then exit 0; fi ;;
     3)
       echo "runner-dnf.sh: trying compatible available versions; all requested packages remain required" >&2
-      if dnf --refresh --nobest install -y "$@"; then exit 0; fi
+      if dnf --refresh --nobest "$command" -y "$@"; then exit 0; fi
       echo "runner-dnf.sh: dnf install failed 3 times; giving up" >&2
       exit 1
       ;;

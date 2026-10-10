@@ -18,6 +18,13 @@ case "$DNF_TEST_CASE" in
   success) exit 0 ;;
   refresh) [ "$1" = --refresh ] ;;
   skew) [ "$1" = --refresh ] && [ "$2" = --nobest ] ;;
+  toolchain)
+    if grep -qx upgrade "$DNF_TEST_DIR/args-$count"; then
+      grep -q -- --refresh "$DNF_TEST_DIR/args-$count" && exit 0
+      exit 1
+    fi
+    exit 0
+    ;;
   missing) exit 1 ;;
   *) exit 99 ;;
 esac
@@ -26,7 +33,18 @@ cat > "$scratch/bin/sleep" <<'EOF'
 #!/bin/sh
 echo "$1" >> "$DNF_TEST_DIR/delays"
 EOF
-chmod +x "$scratch/bin/dnf" "$scratch/bin/sleep"
+REAL_GREP=$(command -v grep)
+export REAL_GREP
+cat > "$scratch/bin/grep" <<'EOF'
+#!/bin/sh
+if [ "$1" = -q ] && [ "$2" = '^ID=fedora' ]; then exit 1; fi
+exec "$REAL_GREP" "$@"
+EOF
+cat > "$scratch/bin/git" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$scratch/bin/dnf" "$scratch/bin/sleep" "$scratch/bin/grep" "$scratch/bin/git"
 export PATH="$scratch/bin:$PATH"
 
 for scenario in success refresh skew missing; do
@@ -70,3 +88,30 @@ sh "$root/deploy/runner-dnf.sh" > "$scratch/output" 2>&1 || result=$?
 [ "$result" -eq 64 ]
 [ ! -f "$scratch/count" ]
 echo 'ok: empty package list rejected before invoking dnf'
+
+rm -f "$scratch/count" "$scratch/delays" "$scratch"/args-*
+export DNF_TEST_CASE=toolchain
+sh "$root/deploy/runner-toolchain.sh" dnf > "$scratch/output" 2>&1
+upgrade_attempts=0
+for args in "$scratch"/args-*; do
+  if grep -qx upgrade "$args"; then
+    upgrade_attempts=$((upgrade_attempts + 1))
+    if [ "$upgrade_attempts" -eq 1 ]; then
+      [ "$(sed -n '1p' "$args")" = upgrade ]
+    else
+      [ "$(sed -n '1p' "$args")" = --refresh ]
+      [ "$(sed -n '2p' "$args")" = upgrade ]
+    fi
+  fi
+done
+[ "$upgrade_attempts" -eq 2 ]
+found_compilers=false
+for args in "$scratch"/args-*; do
+  if grep -qx gcc "$args"; then
+    grep -qx gcc-c++ "$args"
+    grep -qx make "$args"
+    found_compilers=true
+  fi
+done
+[ "$found_compilers" = true ]
+echo 'ok: RPM base upgrade retries before compiler package installation'

@@ -58,11 +58,13 @@ case "${family}" in
         || dnf config-manager --set-enabled powertools 2>/dev/null \
         || echo "runner-toolchain.sh: no CRB or PowerTools repository to enable; continuing" >&2
     fi
-    # "Development Tools" is the RPM world's build-essential; the rest are the
-    # -devel packages whose Debian names differ enough to be worth listing.
-    dnf group install -y --setopt=install_weak_deps=False development-tools \
-      || dnf group install -y --setopt=install_weak_deps=False "Development Tools"
+    # The pinned base can carry glibc from a different repository revision than
+    # the devel packages, and glibc-devel requires an exact match.
+    "$(dirname "$0")/runner-dnf.sh" upgrade
+    # Keep compiler packages in the retry helper: Rocky group installs can fail
+    # while repository versions are briefly out of sync.
     "$(dirname "$0")/runner-dnf.sh" --allowerasing --setopt=install_weak_deps=False \
+      gcc gcc-c++ make \
       pkgconf-pkg-config cmake autoconf automake libtool patch file gettext \
       python3 python3-pip python3-devel python3-setuptools \
       nodejs npm \
