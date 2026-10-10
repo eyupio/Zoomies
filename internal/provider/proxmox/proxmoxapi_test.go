@@ -882,3 +882,19 @@ func TestALoopbackEndpointExplainsWhyItCannotBeVerified(t *testing.T) {
 		t.Errorf("remedy for a named node is wrong: %q", remedy)
 	}
 }
+
+// Proxmox can answer the any_bridge filter with nothing for a restricted token
+// on a node whose vmbr0 root sees fine. Reporting that bridge missing sent an
+// operator to fix a setting that was already right.
+func TestBridgesAreFoundWhenTheFilteredListComesBackEmpty(t *testing.T) {
+	f := newFakePVE(t, nil)
+	f.anyBridgeEmpty = true
+
+	got, err := f.client(t).Bridges(context.Background(), "pve-1")
+	if err != nil {
+		t.Fatalf("Bridges: %v", err)
+	}
+	if len(got) != 2 || got[0].Iface != "vmbr0" {
+		t.Fatalf("bridges = %+v, want vmbr0 and vmbr1 from the unfiltered list", got)
+	}
+}
