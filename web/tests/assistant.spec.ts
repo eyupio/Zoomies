@@ -1,5 +1,5 @@
 /**
- * Settings: Assistant. The demo ships with a built-in model, and this adds a
+ * Settings: Eli AI Assistant. The demo ships with a built-in model, and this adds a
  * local one on top of it, so the three things the page promises get a test:
  * a private address is refused until its switch is on, a key is never shown
  * again once saved, and removing a provider takes its name typed out.
@@ -35,7 +35,7 @@ async function allowPrivate(page: Page, on: boolean | null): Promise<void> {
 }
 
 test('the demo model is the default and its check reads on the card', async ({ page }) => {
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   const card = page.getByRole('article', { name: 'Demo model (built in)' });
   await expect(card).toBeVisible();
   await expect(card.getByText('Default', { exact: true })).toBeVisible();
@@ -46,7 +46,7 @@ test('a private address is refused until the switch is on, the key is never show
   page,
 }) => {
   await allowPrivate(page, false);
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   await page.getByRole('button', { name: 'Add a provider' }).first().click();
   const form = dialog(page, 'Add a provider');
   await form.getByRole('textbox', { name: 'Name' }).fill('Local Ollama');
@@ -93,7 +93,7 @@ test('the demo model answers a question typed on the page, and the next one carr
     asked.push(route.request().postDataJSON());
     await route.continue();
   });
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   await openEli(page);
   await expect(page.getByText(/Answers from .*Demo model \(built in\)/)).toBeVisible();
 
@@ -122,7 +122,7 @@ test('the demo model answers a question typed on the page, and the next one carr
 test('a credential or an email address in a question is hidden from the model, and Eli says so', async ({
   page,
 }) => {
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   await openEli(page);
   const token = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
   const message = page.getByRole('textbox', { name: 'Message' });
@@ -165,7 +165,7 @@ test('Eli says hello, offers things to ask, and a click asks one', async ({ page
     asked.push(route.request().postDataJSON());
     await route.continue();
   });
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   await openEli(page);
   await expect(page.getByText("Hi, I'm Eli")).toBeVisible();
   const starters = page.getByRole('list', { name: 'Things to ask' }).getByRole('button');
@@ -207,7 +207,7 @@ test('an answer is drawn from its Markdown, and what is not Markdown is never ru
       ),
     }),
   );
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   await openEli(page);
   await page.getByRole('textbox', { name: 'Message' }).fill('hello');
   await page.getByRole('button', { name: 'Send' }).click();
@@ -252,7 +252,7 @@ test('a failed answer can be asked again, and the second one replaces it', async
       body: answerStream('Back again.'),
     });
   });
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   await openEli(page);
   await page.getByRole('textbox', { name: 'Message' }).fill('hello');
   await page.getByRole('button', { name: 'Send' }).click();
@@ -273,7 +273,7 @@ test('a refused question says why where the answer would have been', async ({ pa
       }),
     }),
   );
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   await openEli(page);
   await page.getByRole('textbox', { name: 'Message' }).fill('hello');
   await page.getByRole('button', { name: 'Send' }).click();
@@ -289,7 +289,7 @@ test('a refused question says why where the answer would have been', async ({ pa
 test('Ollama Cloud, OpenCode Zen and OpenCode Go are in the provider list and fill in their addresses', async ({
   page,
 }) => {
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   await page.getByRole('button', { name: 'Add a provider' }).first().click();
   const form = dialog(page, 'Add a provider');
   const provider = form.getByLabel('Provider', { exact: true });
@@ -327,7 +327,7 @@ test('the model is chosen from the provider’s own list once it has been loaded
     asked.push(route.request().postDataJSON());
     await route.fulfill({ json: { items: ['model-a', 'model-b'] } });
   });
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   await page.getByRole('button', { name: 'Add a provider' }).first().click();
   const form = dialog(page, 'Add a provider');
 
@@ -386,7 +386,7 @@ test('Eli says it cannot see the fleet until an administrator allows it, and the
   await goto(page, '/pools', 'Pools');
   await openEli(page);
   await expect(page.getByText(/Eli cannot see this fleet through Demo model/)).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Settings, Assistant' })).toBeVisible();
+  await expect(page.getByRole('link', { name: 'Settings, Eli AI Assistant' })).toBeVisible();
 
   try {
     await fleetAccess(page, true);
@@ -417,7 +417,7 @@ test('a provider says on its card that Eli may read the fleet through it, and th
   page,
 }) => {
   await fleetAccess(page, false);
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   const card = page.getByRole('article', { name: 'Demo model (built in)' });
   await expect(card.getByText('Eli can read the fleet')).toHaveCount(0);
 
@@ -453,7 +453,7 @@ test('a provider says on its card that Eli may read the fleet through it, and th
   }
 });
 
-/** The list the Assistant page draws its cards from: the signed-in person's own. */
+/** The list the Eli AI Assistant page draws its cards from: the signed-in person's own. */
 const PERSONAL_PROVIDERS = '/api/v1/assistant/personal/providers';
 
 test('a provider card keeps its long kind label inside the card on a narrow screen', async ({
@@ -474,7 +474,7 @@ test('a provider card keeps its long kind label inside the card on a narrow scre
     route.fulfill({ json: { ...list, items } }),
   );
   await page.setViewportSize({ width: 390, height: 800 });
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   const card = page.getByRole('article').first();
   const badge = card.locator('.badge', { hasText: 'OpenAI-compatible server' });
   await expect(badge).toBeVisible();
@@ -482,8 +482,8 @@ test('a provider card keeps its long kind label inside the card on a narrow scre
   expect(badgeBox!.x + badgeBox!.width).toBeLessThanOrEqual(cardBox!.x + cardBox!.width);
 });
 
-test('the card on the Assistant page opens Eli', async ({ page }) => {
-  await goto(page, '/settings/assistant', 'Assistant');
+test('the card on the Eli AI Assistant page opens Eli', async ({ page }) => {
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   await expect(page.getByRole('heading', { name: 'Eli', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Open Eli' }).click();
   await expect(page.getByRole('dialog', { name: 'Eli assistant' })).toBeVisible();
@@ -492,7 +492,7 @@ test('the card on the Assistant page opens Eli', async ({ page }) => {
 test('a Claude subscription is added with no address and no key, tested, and Eli answers through it', async ({
   page,
 }) => {
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   await page.getByRole('button', { name: 'Add a provider' }).first().click();
   const form = dialog(page, 'Add a provider');
   await form.getByLabel('Provider', { exact: true }).selectOption('claude-code');
@@ -576,7 +576,7 @@ test('somebody else’s Claude subscription is on the list, marked, and can be r
     });
     await route.fulfill({ json: body });
   });
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
 
   const card = page.getByRole('article', { name: 'Alice’s Claude' });
   await expect(card.getByText('alice’s subscription')).toBeVisible();
@@ -595,7 +595,7 @@ for (const tool of [
   test(`${tool.bin} is added with no address, no key and no list of models, and Eli answers through it`, async ({
     page,
   }) => {
-    await goto(page, '/settings/assistant', 'Assistant');
+    await goto(page, '/settings/assistant', 'Eli AI Assistant');
     await page.getByRole('button', { name: 'Add a provider' }).first().click();
     const form = dialog(page, 'Add a provider');
     await form.getByLabel('Provider', { exact: true }).selectOption(tool.preset);
@@ -704,7 +704,7 @@ test('changing the personal default updates an already open Eli panel', async ({
   isMobile,
 }) => {
   test.skip(isMobile, 'The mobile panel deliberately keeps the settings behind it inert.');
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   const res = await page.request.post('/api/v1/assistant/personal/providers', {
     data: { name: 'Another model', kind: 'fake', model: 'demo' },
   });
@@ -738,7 +738,7 @@ test('Eli has a circular launcher and can roam without leaving the viewport', as
   isMobile,
 }) => {
   test.skip(isMobile, 'Phones use the full-screen conversation.');
-  await goto(page, '/settings/assistant', 'Assistant');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
   const launcher = page.getByRole('button', { name: 'Ask Eli' });
   const circle = await launcher.boundingBox();
   expect(circle!.width).toBe(circle!.height);

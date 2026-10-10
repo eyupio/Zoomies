@@ -142,7 +142,7 @@
               fleet yet, so for anything about yours, use Ask Eli to share displayed details or
               paste what I need.
             {/if}
-            Request code changes through PR repairs in Assistant settings.
+            Request code changes through PR repairs in Eli AI Assistant settings.
           </p>
           {#if answering}
             <ul class="starters" aria-label="Things to ask">

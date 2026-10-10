@@ -841,7 +841,7 @@ limits above apply.
 on, the assistant's dialer refuses any connection that resolves to a public
 address, after resolving it, so nothing the assistant is told can leave this
 machine or the LAN whatever a provider row says. A hosted provider cannot be
-reached while it is on, and the Assistant settings page says so beside it.
+reached while it is on, and the Eli AI Assistant settings page says so beside it.
 
 ### `provider.insecure_skip_verify: true`
 

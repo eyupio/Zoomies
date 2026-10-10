@@ -60,7 +60,7 @@ export const SETTINGS_GROUPS: readonly SettingsGroup[] = [
     pages: [
       {
         id: 'assistant',
-        label: 'Assistant',
+        label: 'Eli AI Assistant',
         description: 'Your Eli providers, GitHub account and PR repairs.',
         icon: MessageSquare,
         needs: 'viewer',

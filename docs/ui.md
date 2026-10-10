@@ -697,9 +697,9 @@ everybody, marked rather than hidden.
 ![Settings: the section's rail beside the Users page, listing one administrator](screenshots/settings-dark.webp#only-dark){ .zoomies-shot }
 ![Settings: the section's rail beside the Users page, listing one administrator](screenshots/settings-light.webp#only-light){ .zoomies-shot }
 
-### Assistant
+### Eli AI Assistant
 
-Each user connects their own API provider in **Settings, Assistant**. Administrators
+Each user connects their own API provider in **Settings, Eli AI Assistant**. Administrators
 also manage installation providers for unattended repairs and can add their own
 Claude, ChatGPT or GitHub Copilot subscription through the controller’s vendor tool.
 Existing API providers stay in the installation scope after an upgrade.
