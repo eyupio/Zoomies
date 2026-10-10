@@ -137,10 +137,10 @@ func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instr
 				}
 				f, err := reader.ReadFile(ctx, name)
 				if err != nil {
-					return Plan{}, err
+					return Plan{}, fmt.Errorf("Eli needed to read `%s` and could not: %w. Point Eli at a smaller change, or fix that file by hand.", name, err)
 				}
 				if len(f.Content) > MaxFileBytes || !utf8.ValidString(f.Content) || strings.ContainsRune(f.Content, 0) {
-					return Plan{}, fmt.Errorf("a requested source file is too large or is not text")
+					return Plan{}, fmt.Errorf("Eli needed to read `%s`, but it is larger than %d KiB or is not plain text. Point Eli at a smaller change, or fix that file by hand.", name, MaxFileBytes/1024)
 				}
 				sourceBytes += len(f.Content)
 				if sourceBytes > MaxSourceBytes {

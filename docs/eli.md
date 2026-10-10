@@ -283,7 +283,9 @@ requester access. The commit has the original PR head as its parent, preserves
 file modes and uses a non-force branch update. A concurrent push stops publication.
 Eli never merges the PR or bypasses branch protection.
 
-The bot posts progress and watches check runs and commit statuses on its commit.
+The bot posts progress as a single comment that it edits in place, with a
+heading for each stage (sniffing around, fetched a fix, checks passed, got
+stuck), and watches check runs and commit statuses on its commit.
 It reports checks passed, checks failed, a newer PR head, or unverified after an
 hour without complete results. Reported checks are not a guarantee that every
 branch-protection requirement is satisfied. Automatic repair will not start

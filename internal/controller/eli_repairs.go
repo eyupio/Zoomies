@@ -268,11 +268,34 @@ func (c *Controller) repairLoop(ctx context.Context) {
 		}
 	}
 }
+
+// repairHeading gives each stage of a repair its own face, so a thread of Eli's
+// updates reads as one dog doing something rather than a log. The state is the
+// repair's, not the text's: the wording of a message can change without the
+// heading drifting.
+func repairHeading(state string) string {
+	switch state {
+	case "working":
+		return "### 🐕 Eli is sniffing around"
+	case "checking":
+		return "### 🦴 Eli fetched a fix"
+	case "succeeded":
+		return "### 🎾 Good dog: the checks passed"
+	case "checks_failed":
+		return "### 🐾 Eli's fix did not pass the checks"
+	case "failed", "blocked":
+		return "### 🐶 Eli got stuck"
+	case "superseded", "unverified":
+		return "### 🐕‍🦺 Eli lost the scent"
+	}
+	return "### 🐶 Eli"
+}
+
 func (c *Controller) repairNotice(ctx context.Context, client github.RepairClient, r *store.EliRepair, text string) {
 	if r.PullNumber <= 0 {
 		return
 	}
-	text = "**Eli PR repair**\n\n" + text + "\n\nRepair `" + r.ID + "`. Eli does not merge this PR.\n<!-- zoomies-eli-repair:" + r.ID + " -->"
+	text = repairHeading(r.State) + "\n\n" + text + "\n\n<sub>Repair `" + r.ID + "`. Eli fetches fixes but never merges: that part stays with you. Ask again with `@eli fix`.</sub>\n<!-- zoomies-eli-repair:" + r.ID + " -->"
 	id, err := client.RepairComment(ctx, r.Repo, r.PullNumber, r.CommentID, text)
 	if err != nil {
 		c.log.Warn("could not update Eli's PR comment", "repair", r.ID)

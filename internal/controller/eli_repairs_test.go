@@ -324,3 +324,20 @@ func TestLinkedCommentCannotSpendTheBudgetAfterRepositoryAccessIsRemoved(t *test
 		t.Fatal("current collaborator was not admitted")
 	}
 }
+
+// A thread of Eli's updates is read top to bottom by someone deciding whether to
+// trust the push, so every stage a repair can be in needs a heading of its own
+// and none may fall back to the bare name.
+func TestEveryRepairStageHasItsOwnHeading(t *testing.T) {
+	seen := map[string]string{}
+	for _, state := range []string{"working", "checking", "succeeded", "checks_failed", "failed", "superseded"} {
+		h := repairHeading(state)
+		if h == repairHeading("") {
+			t.Errorf("state %q has no heading of its own", state)
+		}
+		if other, dup := seen[h]; dup {
+			t.Errorf("states %q and %q share the heading %q", state, other, h)
+		}
+		seen[h] = state
+	}
+}
