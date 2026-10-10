@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 3.8 · 10 October 2026 · derived from the owner's
+Version 3.9 · 10 October 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md),
 reconciled against `main` at `6d12a72` on 6 September, at `9a80b31`
 on 19 September and at `88c41f6` on 8 October, when the owner set a new primary target, withdrew the
@@ -1568,6 +1568,53 @@ constants named in `auto-pools.md`.
 
 Depends on ZF-226. Size S.
 
+### ZF-239: a shared Eli App, as a relay for mentions
+
+**Classification: new; L; proposed 10 October; started 10 October.**
+Today every install creates its own GitHub App, so `/eli fix` is recognised
+from its text and the comments and commits come from whatever the operator
+named their App. This package adds an optional second kind of App, one Eli
+that many operators install, run as a relay that carries only `issue_comment`
+mentions and short-lived installation tokens. The operator's own App stays the
+default and stays the only App that registers runners and scales the fleet.
+[decision 0012](roadmap/decisions/0012-a-shared-eli-app-is-a-relay-for-mentions-and-nothing-else.md)
+is the design and the threat model.
+
+Five slices, in order:
+
+1. **The shared matcher. Delivered, 10 October (#842).** `internal/prrepair/mention`
+   decides what a mention is, imports the standard library only (a test
+   enforces it), and is the one table of cases both halves will use. It also
+   gained `/eli` and `/zoomies`, which notify nobody, beside the `@` forms.
+2. **The controller's side, with no network. Next.** `Installation.Kind`
+   (`own`, the default, or `shared`) with its migration; a token-source
+   interface in `clientCache`, so a `shared` installation gets its tokens from
+   a source instead of signing an App JWT with a sealed key; and an in-memory
+   fake relay that implements it. Nothing above the token source changes:
+   `RepairClient`, the worker, the policy and the budget see an ordinary
+   client. Acceptance: an `own` installation behaves exactly as before, a
+   `shared` one runs a full repair against the fake, and a test shows the
+   controller holds no private key for it. No behaviour change for anyone.
+3. **`zoomies relay`.** The webhook edge, bindings, the inbox the controller
+   polls outbound, and the lease and token endpoints, with the App key behind
+   a signing interface and a local-key fake. The edge is a pure package that
+   takes a delivery and returns an envelope or a refusal, and may not import
+   `internal/store`.
+4. **Pairing,** in Settings and `zoomies init`, through GitHub's device flow.
+5. **The hosted deployment,** its runbook, the retention statement and the
+   App's public listing.
+
+**Not authorised: slices 3 to 5.** They need the owner to answer the four
+questions at the end of the decision record (who operates the relay and under
+what domain, whether `eli` is available as the App slug, the retention
+periods, and whether a refused mention is explained to the maintainer), and to
+rule on delivery rule 15: a relay the project operates is a hosted service, and
+rule 15 says no page names one. Either that rule is amended for this package,
+or the relay ships only as something an operator can run themselves. Slices 1
+and 2 touch neither.
+
+Depends on ZF-235 for Eli's repair worker. Size L.
+
 ## 9. Kept for the day somebody asks
 
 Nothing here is authorised by planning alone. Each starts when a fleet
@@ -1700,6 +1747,8 @@ every package in section 8 was re-read on 19 September against the code.
 | 15 | ZF-233 the skills | The pinned reference matches the binary; a smoke test in two agents is recorded |
 | 16 | ZF-234 the documentation | `mkdocs build --strict` passes; every new route and command is on its page |
 | 17 | ZF-235 the assistant, slice by slice, after an owner decision to start | Each slice's acceptance in the design's section 9 |
+| 18 | ZF-239 slice 2, the controller's side of a shared App, with no network | An `own` installation is unchanged; a `shared` one completes a repair against the fake relay and holds no private key |
+| - | ZF-239 slices 3 to 5, the relay itself | After the owner's answers and a ruling on delivery rule 15 |
 | - | ZF-215, ZF-212, ZF-403's rotation, and section 9 | When a fleet asks |
 
 **Keep one stream moving.** The primary target's packages are a chain
@@ -1740,6 +1789,13 @@ remaining dependency. Do not invent live runs, elapsed observation, benchmark
 results or user feedback; do not wait for them either.
 
 ## 13. Change record
+
+* **10 October 2026: Version 3.9:** ZF-239 added: a shared Eli GitHub App as a
+  relay for `/eli` and `@eli` mentions, from decision 0012. Slice 1, the shared
+  mention matcher, is delivered (#842). Slice 2, the controller's side with no
+  network, is authorised and listed as row 18 of section 10. Slices 3 to 5, the
+  relay itself, are not authorised until the owner answers the decision's four
+  questions and rules on delivery rule 15.
 
 * **10 October 2026: Version 3.8:** ZF-232 moved from section 8 to section 6:
   updating from the web UI is delivered, in eleven pull requests and the Part 6
