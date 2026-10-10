@@ -259,7 +259,8 @@ On a pull request, a linked maintainer can comment:
 Commands must begin a line outside a quote or code block. Only new comments by
 human users trigger a repair. Edited comments, ordinary issues, bots and
 unlinked users do not. Both triggers use the existing signed webhook endpoint.
-The App's actual GitHub account may have a different name; command recognition
+The App's own GitHub handle (for example `@zoomies-eyupio2`, the name GitHub
+autocompletes) works too, once Zoomies has learned the App's slug. Recognition
 uses the comment text and does not require GitHub mention notification routing.
 
 ## What a repair does

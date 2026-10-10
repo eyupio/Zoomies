@@ -15,9 +15,26 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-var repairMention = regexp.MustCompile(`(?i)^@(eli|zoomies)(?:\[bot\])?\s+(fix|repair)\b(.*)$`)
+// repairHandles are the names a comment can call Eli by without any set-up.
+var repairHandles = []string{"eli", "zoomies"}
 
-func repairCommand(body string) (string, bool) {
+// repairMention builds the pattern for a comment that starts a repair. The App's
+// own slug is accepted as well: it is the one name GitHub autocompletes and
+// links, so people who pick the bot from the suggestion list would otherwise
+// type a command that silently does nothing.
+func repairMention(appSlug string) *regexp.Regexp {
+	names := make([]string, 0, len(repairHandles)+1)
+	for _, h := range repairHandles {
+		names = append(names, regexp.QuoteMeta(h))
+	}
+	if slug := strings.TrimSpace(appSlug); slug != "" {
+		names = append(names, regexp.QuoteMeta(slug))
+	}
+	return regexp.MustCompile(`(?i)^@(` + strings.Join(names, "|") + `)(?:\[bot\])?\s+(fix|repair)\b(.*)$`)
+}
+
+func repairCommand(body, appSlug string) (string, bool) {
+	mention := repairMention(appSlug)
 	fenced := false
 	for _, line := range strings.Split(body, "\n") {
 		line = strings.TrimSpace(line)
@@ -28,7 +45,7 @@ func repairCommand(body string) (string, bool) {
 		if fenced || strings.HasPrefix(line, ">") {
 			continue
 		}
-		if match := repairMention.FindStringSubmatch(line); len(match) > 0 {
+		if match := mention.FindStringSubmatch(line); len(match) > 0 {
 			return strings.TrimSpace(match[2] + match[3]), true
 		}
 	}
@@ -92,7 +109,7 @@ func (c *Controller) enqueueRepairWebhook(ctx context.Context, inst *store.Insta
 		if err := json.Unmarshal(body, &p); err != nil {
 			return errMalformedDelivery
 		}
-		command, ok := repairCommand(p.Comment.Body)
+		command, ok := repairCommand(p.Comment.Body, inst.AppSlug)
 		if !ok || p.Action != "created" || p.Issue.PullRequest == nil || p.Comment.ID <= 0 || p.Issue.Number <= 0 || p.Comment.User.Type != "User" || p.Sender.ID != p.Comment.User.ID {
 			return nil
 		}
