@@ -79,9 +79,16 @@ class Eli {
     else this.show();
   }
 
+  /**
+   * Start a fresh conversation about what the operator is looking at. An answer
+   * about one problem carried into the next would be read against the wrong
+   * context, so an earlier thread, and any reply still streaming into it, is
+   * dropped first.
+   */
   ask(context: EliContext): void {
     this.returnFocus =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    this.newConversation();
     this.pending.push(structuredClone($state.snapshot(context)));
     this.open = true;
   }

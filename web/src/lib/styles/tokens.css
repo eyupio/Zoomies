@@ -394,6 +394,9 @@
   --z-layer-dialog: 60;
   --z-layer-toast: 70;
   --z-layer-palette: 80;
+  /* Eli sits above every other layer, the palette included: an operator reads a
+     problem in a drawer and asks about it at the same moment. */
+  --z-layer-assistant: 90;
 
   color-scheme: light;
 }

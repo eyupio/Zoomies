@@ -21,7 +21,7 @@ Chat sends nothing until somebody asks Eli something. Enabled automatic repair p
 
 ## Setting it up
 
-Under **Settings, Assistant**, add a provider, choose its model from the list the
+Under **Settings, Eli AI Assistant**, add a provider, choose its model from the list the
 provider gives, test it, and make it the default. Eli then appears in the corner of
 every page for signed-in users with a personal provider. Press <kbd>E</kbd> from anywhere that is not a box
 to type in, or press **Ask Eli**. <kbd>Esc</kbd> puts the panel away.
@@ -176,7 +176,7 @@ name can do is mislead an answer: check what you act on.
 
 ## If it is not there
 
-* **No answer.** Choose an enabled personal default provider in **Settings, Assistant**.
+* **No answer.** Choose an enabled personal default provider in **Settings, Eli AI Assistant**.
 * **"Eli cannot see this fleet through ..."** The provider's fleet switch is off.
 * **A provider error.** The text says what the provider answered; **Test** on its
   card sends one short prompt and says which part failed. A model that does not
@@ -191,7 +191,7 @@ account and no key.
 
 ## Personal conversations and PR repairs
 
-Eli uses your configured model provider. In Settings, Assistant, add a personal
+Eli uses your configured model provider. In Settings, Eli AI Assistant, add a personal
 provider, test it and make it your default. Its key is encrypted at rest and
 never returned to the browser. Each account has its own providers and default.
 Administrators manage installation providers separately. Existing API providers remain installation-owned after an upgrade; existing subscription providers retain their owner.
@@ -227,7 +227,7 @@ installation provider removes repository policies that reference it.
 
 ## Set up PR repairs
 
-1. Add an installation provider under Settings, Assistant, Installation providers.
+1. Add an installation provider under Settings, Eli AI Assistant, Installation providers.
 2. Open Repository repair policies. Choose a repository, its GitHub installation
    and provider, then enable repairs. Automatic repairs are a separate opt-in.
 3. Set the attempt budget, from 1 to 50 per rolling 24 hours. Explicit and
@@ -238,7 +238,7 @@ installation provider removes repository policies that reference it.
    link it. Zoomies resolves and records the numeric GitHub ID. A login rename
    never assigns another person's key to a requester.
 5. Each requester confirms **Allow this GitHub account to request repairs using
-   my provider** on their own Assistant settings page, and chooses an enabled
+   my provider** on their own Eli AI Assistant settings page, and chooses an enabled
    personal default provider. Administrators cannot confirm on their behalf.
    Changing a link clears this confirmation.
 
@@ -291,7 +291,7 @@ another attempt on an Eli commit. A maintainer can request another attempt.
 
 Queued work survives restart. A repair interrupted during publication has an
 uncertain outcome, so it is marked interrupted and never replayed automatically.
-Inspect the PR before asking again. Settings, Assistant shows repair history;
+Inspect the PR before asking again. Settings, Eli AI Assistant shows repair history;
 ordinary users see their own requests and administrators see the whole history.
 
 Model-generated fixes still need review. The limits constrain cost and the
