@@ -1276,6 +1276,34 @@ func TestAHostCardOffersTheCommandThatWorksOnItsPlatform(t *testing.T) {
 	}
 }
 
+// The two other places that send a person to update a host by hand must not
+// name a command a Windows host cannot run: the card of an agent that has not
+// said its version, and the refusal of a rollout no host can take.
+func TestAWindowsHostIsNeverSentToACommandItCannotRun(t *testing.T) {
+	withVersion(t, "1.3.5")
+	h := newHarness(t)
+	h.inMode("manual")
+	host := &store.Host{Name: "win-1", Capacity: 2, Backends: store.StringSlice{"process"}, Labels: store.StringMap{},
+		OS: "windows", Arch: "amd64", LastHeartbeat: h.c.Now()}
+	if err := h.st.CreateHost(h.ctx, host); err != nil {
+		t.Fatalf("CreateHost: %v", err)
+	}
+	if why := h.view(host.ID).Update.Reason; strings.Contains(why, "zoomies upgrade") || strings.Contains(why, "command") {
+		t.Errorf("a Windows host with no version says %q, want the steps by hand and no command", why)
+	}
+	host.Version = "1.3.4"
+	if err := h.st.SetHostReported(h.ctx, host); err != nil {
+		t.Fatalf("SetHostReported: %v", err)
+	}
+	_, _, err := h.c.StartHostRollout(h.ctx, alice, nil)
+	if !errors.Is(err, ErrUpdateHostCannotUpdate) {
+		t.Fatalf("StartHostRollout = %v, want the refusal that no host can update itself", err)
+	}
+	if strings.Contains(err.Error(), "command on their cards") {
+		t.Errorf("the refusal says %q, want it to send a person to the cards without promising a command", err)
+	}
+}
+
 // heldBeat is the host's agent sending rep, and says whether the controller
 // held it rather than recorded it.
 func (h *harness) heldBeat(host *store.Host, rep *agent.UpdateReport) bool {

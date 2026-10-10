@@ -461,7 +461,7 @@ func (c *Controller) StartHostRollout(ctx context.Context, by UpdateActor, hostI
 		return nil, none, fmt.Errorf("%w: no host asked for runs a release behind %s", ErrUpdateNothingNewer, target)
 	case able == 0:
 		return nil, none, &hostCannotUpdateError{sentence: fmt.Sprintf("No host behind %s can update itself, because none has the update helper installed. "+
-			"Run sudo zoomies updates helper install on each, or update them with the command on their cards.", target)}
+			"Run sudo zoomies updates helper install on each Linux host, or update them by hand as their cards say.", target)}
 	}
 	r := &store.UpdateRollout{Target: target, Trigger: store.UpdateTriggerManual, StartedBy: requestedBy(by), HostIDs: ids}
 	if err := c.st.CreateUpdateRollout(ctx, r); err != nil {

@@ -298,7 +298,9 @@ is no command to copy, and the reason says how to replace the binary by hand. A 
 behind the controller for one of the same reasons (its agent says which on its
 heartbeat; an agent too old to say is known only by an operating system other
 than Linux) shows **Update by command** on its card with the reason and no
-button, and the upgrade command beneath it is the way.
+button, and the upgrade command beneath it is the way. A Windows host shows
+**Update by hand** instead: there is no command for it, and the foot of its card
+gives the steps and links to [upgrading an agent host](#upgrading-an-agent-host).
 
 The same question is asked once more, in the same words, at the end of a fresh
 `zoomies init` and of `zoomies agent join`, once the service is installed (for a

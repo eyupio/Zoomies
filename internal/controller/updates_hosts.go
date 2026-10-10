@@ -123,7 +123,11 @@ func hostCanSelfUpdate(h *store.Host, target string, unsupported updates.HelperU
 	case target == "":
 		return false, "This controller is not running a release, so there is no release to take its hosts to. Install a release on the controller with zoomies upgrade first.", hostGapNone
 	case strings.TrimSpace(h.Version) == "":
-		return false, "This host's agent has not said which version it runs, so Zoomies cannot tell whether " + target + " is newer. Update it on the host with zoomies upgrade.", hostGapNone
+		byHandNow := "Update it on the host with zoomies upgrade."
+		if h.OS == "windows" {
+			byHandNow = byHand(h)
+		}
+		return false, "This host's agent has not said which version it runs, so Zoomies cannot tell whether " + target + " is newer. " + byHandNow, hostGapNone
 	}
 	// Only a release build can be behind. CompareBuilds reads what follows a
 	// hyphen as a pre-release, so a describe build such as 1.3.5-3-gabcdef1,
