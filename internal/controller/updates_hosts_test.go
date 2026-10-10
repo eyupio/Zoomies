@@ -1411,3 +1411,49 @@ func TestAReportTheStoreCouldNotTakeClosesTheAttemptOnTheNextBeat(t *testing.T) 
 		})
 	}
 }
+
+// A store that fails for a while fails on every beat of every host. Logged on
+// each, it would bury the line that says what is wrong with the store; it is
+// logged once per host per window, as a fence is.
+func TestAStoreThatCannotReadAReportIsLoggedOncePerHost(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	a := h.requestHost(host)
+	var logged bytes.Buffer
+	h.c.log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	was := readHostAttempt
+	readHostAttempt = func(*Controller, context.Context, string) ([]store.UpdateAttempt, error) {
+		return nil, errors.New("database is locked")
+	}
+	t.Cleanup(func() { readHostAttempt = was })
+
+	rep := &agent.UpdateReport{ID: a.ID, OK: false, Tag: "v1.3.5", Error: "the download failed", FinishedAt: h.c.Now().UTC()}
+	for i := range 3 {
+		if !h.heldBeat(host, rep) {
+			t.Fatalf("beat %d was answered as recorded", i+1)
+		}
+	}
+	if n := strings.Count(logged.String(), "level=WARN"); n != 1 || !strings.Contains(logged.String(), "database is locked") {
+		t.Errorf("three beats the store could not read logged %d warnings, want one naming the error:\n%s", n, logged.String())
+	}
+}
+
+// What is remembered of when a host's held report was last logged goes with
+// the host, or a controller that sees hosts come and go keeps one entry for
+// every host it has ever held a report for.
+func TestForgettingAHostForgetsWhenItsHeldReportWasLogged(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	a := h.requestHost(host)
+	h.fence("a restore is being checked")
+	h.heldBeat(host, &agent.UpdateReport{ID: a.ID, Tag: "v1.3.5", FinishedAt: h.c.Now().UTC()})
+	h.c.forgetHostUpdates(host.ID)
+	h.c.updates.heldMu.Lock()
+	_, kept := h.c.updates.heldWarned[host.ID]
+	h.c.updates.heldMu.Unlock()
+	if kept {
+		t.Error("the host was forgotten but when its held report was logged was kept")
+	}
+}

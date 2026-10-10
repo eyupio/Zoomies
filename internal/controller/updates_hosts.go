@@ -385,7 +385,7 @@ func (c *Controller) applyUpdateTaskResult(ctx context.Context, hostID string, t
 func (c *Controller) noteHostUpdate(ctx context.Context, h *store.Host, rep *agent.UpdateReport) (held bool) {
 	if !c.mayAct() {
 		if rep != nil {
-			c.warnReportHeld(h, "this controller is fenced or does not hold the lease, so it records nothing until it may act again")
+			c.warnReportHeld(h, "this controller is fenced or does not hold the lease, so it records nothing until it may act again", nil)
 		}
 		return rep != nil
 	}
@@ -393,7 +393,7 @@ func (c *Controller) noteHostUpdate(ctx context.Context, h *store.Host, rep *age
 	if rep != nil {
 		latest, err := readHostAttempt(c, ctx, h.ID)
 		if err != nil {
-			c.log.Warn("could not read a host's update attempt to match the result its agent reported; the agent sends it again on its next beat", "host", h.ID, "error", err)
+			c.warnReportHeld(h, "the host's update attempt could not be read to match the result against", err)
 			return true
 		}
 		if len(latest) == 1 {
@@ -429,9 +429,9 @@ var readHostAttempt = func(c *Controller, ctx context.Context, hostID string) ([
 // seconds for each host would bury the one that says why it is fenced.
 const heldReportWarnEvery = 10 * time.Minute
 
-// warnReportHeld logs that a host's update result was held, at most once per
-// heldReportWarnEvery for each host.
-func (c *Controller) warnReportHeld(h *store.Host, why string) {
+// warnReportHeld logs that a host's update result was held, and why, at most
+// once per heldReportWarnEvery for each host.
+func (c *Controller) warnReportHeld(h *store.Host, why string, err error) {
 	now := c.Now()
 	c.updates.heldMu.Lock()
 	last, seen := c.updates.heldWarned[h.ID]
@@ -444,8 +444,11 @@ func (c *Controller) warnReportHeld(h *store.Host, why string) {
 	}
 	c.updates.heldWarned[h.ID] = now
 	c.updates.heldMu.Unlock()
-	c.log.Warn("did not record the update result a host's agent reported; the agent sends it again until it is recorded",
-		"host", h.ID, "name", h.Name, "reason", why)
+	attrs := []any{"host", h.ID, "name", h.Name, "reason", why}
+	if err != nil {
+		attrs = append(attrs, "error", err)
+	}
+	c.log.Warn("did not record the update result a host's agent reported; the agent sends it again until it is recorded", attrs...)
 }
 
 // hostReportOutcome says whether a host's open attempt has ended, from the
@@ -614,6 +617,9 @@ func (c *Controller) forgetHostUpdates(hostID string) {
 	delete(c.updates.hostLast, hostID)
 	delete(c.updates.hostUnsupported, hostID)
 	c.updates.hostMu.Unlock()
+	c.updates.heldMu.Lock()
+	delete(c.updates.heldWarned, hostID)
+	c.updates.heldMu.Unlock()
 }
 
 // hostUpdateView renders a host's part in updating from what the loop last saw.
