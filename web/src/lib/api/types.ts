@@ -336,6 +336,11 @@ export interface EventPayloads {
   'kennel.summary': KennelOverview;
   /** What an update would take, as `GET /updates` returns it, sent when it changes. */
   'updates.updated': UpdatesStatus;
+  /**
+   * A transfer's preparation, as `GET /transfers/preparation` returns it, sent
+   * to process operators when it changes.
+   */
+  'transfer.updated': Schemas['TransferProgress'];
   heartbeat: unknown;
   /**
    * The first frame on a reconnection whose gap the server could not replay:

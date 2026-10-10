@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/backup"
 	"github.com/eyupio/zoomies/internal/config"
@@ -248,6 +249,18 @@ func transferPreparationRequest(ctx context.Context, e *env, args []string, acti
 		fmt.Fprintln(e.out, "Preparation has not started.")
 		return nil
 	}
+	// The counts first, then the controller's sentence about them, then each
+	// thing in the way with its host: the same three things the page shows.
 	fmt.Fprintf(e.out, "Draining: %d busy runners, %d runners remaining, %d awaiting cleanup, %d running jobs and %d machine operations.\n", progress.BusyRunners, progress.LiveRunners, progress.PendingCleanup, progress.ActiveJobs, progress.MachineOperations)
+	if progress.Summary != "" {
+		fmt.Fprintln(e.out, progress.Summary)
+	}
+	for _, w := range progress.Waiting {
+		since := ""
+		if w.Since != nil {
+			since = fmt.Sprintf(" (since %s ago)", time.Since(*w.Since).Round(time.Minute))
+		}
+		fmt.Fprintf(e.out, "  %-8s %s: %s%s\n", w.Kind, w.Name, w.Detail, since)
+	}
 	return nil
 }

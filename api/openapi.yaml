@@ -6301,7 +6301,7 @@ paths:
       x-zoomies-role: platform
       summary: Drain this instance for transfer
       description: >-
-        Stops new runner and machine demand without changing saved pool settings. Busy jobs finish naturally. Idle runners withdraw safely, cleanup continues, and the recovery fence is raised automatically when no work is in flight. Preparation survives a restart. Requires process operator authority.
+        Stops new runner and machine demand without changing saved pool settings. Busy jobs finish naturally. Idle runners withdraw safely, cleanup continues, and the recovery fence is raised automatically when no work is in flight. Preparation survives a restart. The page follows it in `transfer.updated`. Requires process operator authority.
       responses:
         "202":
           description: Preparation started or already in progress
@@ -10208,15 +10208,79 @@ components:
 
     TransferProgress:
       type: object
-      required: [draining, ready, live_runners, busy_runners, pending_cleanup, active_jobs, machine_operations]
+      description: >-
+        Where preparation stands. The counts are exact; `waiting` names what they count, up to
+        twenty-five of each kind, oldest first; `summary` is the sentence that says what is
+        happening and whether any of it needs the operator. The same document is the payload of
+        the `transfer.updated` event, sent to process operators when it changes.
+      required:
+        [
+          draining,
+          ready,
+          live_runners,
+          busy_runners,
+          pending_cleanup,
+          active_jobs,
+          machine_operations,
+          cleanup_awaiting_host,
+          cleanup_awaiting_github,
+          cleanup_failed,
+          waiting,
+          summary,
+        ]
       properties:
         draining: { type: boolean }
         ready: { type: boolean }
         live_runners: { type: integer }
         busy_runners: { type: integer }
         pending_cleanup: { type: integer }
-        active_jobs: { type: integer }
+        active_jobs:
+          type: integer
+          description: >-
+            Jobs in progress on a runner this fleet still has. A job on GitHub's own runners, or
+            on another fleet's, is not waited for: this controller can neither drain nor hurry it.
         machine_operations: { type: integer }
+        cleanup_awaiting_host:
+          type: integer
+          description: Of the pending cleanup, the runners whose host has not yet confirmed them gone.
+        cleanup_awaiting_github:
+          type: integer
+          description: Of the pending cleanup, the runners whose registration GitHub has not yet confirmed gone.
+        cleanup_failed:
+          type: integer
+          description: Of the pending cleanup, the runners with a cleanup failure recorded on them.
+        waiting:
+          type: array
+          items: { $ref: "#/components/schemas/TransferWait" }
+        summary: { type: string }
+
+    TransferWait:
+      type: object
+      description: One thing preparation is waiting for, with the sentence that says what and where.
+      required: [kind, id, name, host_healthy, host_confirmed, registration_confirmed, detail]
+      properties:
+        kind:
+          type: string
+          enum: [runner, cleanup, job, machine]
+          description: >-
+            `runner` is a runner still live, `cleanup` one removed or failed but not yet confirmed
+            gone, `job` one in progress on this fleet, `machine` a provider operation in flight.
+        id: { type: string }
+        name: { type: string }
+        repo: { type: string, description: The repository a job belongs to. }
+        state: { type: string, description: "The runner's or machine's state, as its own page shows it." }
+        host_id: { type: string }
+        host: { type: string, description: The host a runner or job is on. }
+        host_healthy:
+          type: boolean
+          description: >-
+            Whether that host has sent a heartbeat lately. A removed runner is confirmed gone by
+            its host, and nobody else can do it for an agent that has stopped talking.
+        host_confirmed: { type: boolean, description: The host has seen the workload gone. }
+        registration_confirmed: { type: boolean, description: GitHub has seen the registration gone. }
+        error: { type: string, description: "The cleanup failure recorded on the runner, if any." }
+        since: { type: string, format: date-time, description: When the wait began. }
+        detail: { type: string }
 
     TransferInfo:
       type: object

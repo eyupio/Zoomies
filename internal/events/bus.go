@@ -65,6 +65,13 @@ const (
 	// soak ends with no row written, so nothing but the pass that notices could
 	// announce it.
 	KindUpdates Kind = "updates.updated"
+	// KindTransfer is an instance transfer's preparation, in the shape
+	// GET /transfers/preparation returns. Computed and sent when it changes,
+	// as updates.updated is: a runner confirmed gone or a job finishing moves
+	// the counts without any row saying "the transfer moved", and the page
+	// an operator watches while the fleet drains is the one that should not
+	// need reloading.
+	KindTransfer Kind = "transfer.updated"
 	// KindHeartbeat is an empty keep-alive so that proxies do not close an
 	// idle SSE connection.
 	KindHeartbeat Kind = "heartbeat"
