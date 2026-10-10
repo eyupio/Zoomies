@@ -68,6 +68,18 @@
     animation: turn 6s var(--z-ease) infinite;
     animation-delay: calc(var(--phase) * -6s);
   }
+  /* The trend line rises a touch now and then; the bolt fills with a soft
+     charge that fades again. Both say "more" without saying "look here". */
+  [data-motion='lift'] :global(.standard-icon) {
+    animation: lift 3.2s var(--z-ease) infinite;
+    animation-delay: calc(var(--phase) * -3.2s);
+  }
+  [data-motion='charge'] :global(.standard-icon) {
+    fill: currentColor;
+    fill-opacity: 0;
+    animation: charge 2.2s ease-in-out infinite;
+    animation-delay: calc(var(--phase) * -2.2s);
+  }
   [data-motion='trace'] :global(.standard-icon) {
     opacity: 0.4;
   }
@@ -97,6 +109,21 @@
       transform: rotate(180deg);
     }
   }
+  @keyframes lift {
+    0%,
+    70%,
+    100% {
+      transform: translateY(0);
+    }
+    82% {
+      transform: translateY(-1.5px);
+    }
+  }
+  @keyframes charge {
+    50% {
+      fill-opacity: 0.3;
+    }
+  }
   @keyframes pulse {
     from {
       stroke-dashoffset: 69;
@@ -111,6 +138,7 @@
     .off-status-icon :global(svg) {
       animation: none !important;
       opacity: 1;
+      fill-opacity: 0;
     }
     .off-status-icon :global(.trace-pulse) {
       display: none;
