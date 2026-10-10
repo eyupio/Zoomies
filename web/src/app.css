@@ -59,6 +59,8 @@ table[data-managed-table='true'] .managed-table-heading {
 tr > *:last-child .managed-table-resizer {
   right: 0;
 }
+/* Drawn at rest, so the handle can be found without a hover; accent while the
+   column or the handle is under the pointer, or the keyboard is on the handle. */
 .managed-table-resizer::after {
   content: '';
   position: absolute;
@@ -67,11 +69,11 @@ tr > *:last-child .managed-table-resizer {
   left: 50%;
   width: var(--z-border-width);
   background: var(--z-border-strong);
-  opacity: 0;
 }
 .managed-table-heading:hover .managed-table-resizer::after,
+.managed-table-resizer:hover::after,
 .managed-table-resizer:focus-visible::after {
-  opacity: 1;
+  background: var(--z-accent);
 }
 /* The column in the air, and the one it would land on. The native drag
    protocol drew both for us; the gesture that replaced it draws its own. */
@@ -82,8 +84,7 @@ tr > *:last-child .managed-table-resizer {
   box-shadow: inset var(--z-focus-width) 0 var(--z-focus-colour);
 }
 /* Read by a finger: the heading takes the touch height the rest of the product
-   uses, both controls grow into it, and the resize handle stops waiting for a
-   hover that will never come. See the same block in DataGrid.svelte. */
+   uses, and both controls grow into it. See the same block in DataGrid.svelte. */
 @media (pointer: coarse) {
   table[data-managed-table='true'] .managed-table-heading {
     height: var(--z-control-touch);
@@ -95,9 +96,6 @@ tr > *:last-child .managed-table-resizer {
   .managed-table-resizer {
     right: calc(-1 * var(--z-space-3));
     width: var(--z-space-6);
-  }
-  .managed-table-resizer::after {
-    opacity: 1;
   }
 }
 @media (max-width: 768px) {
