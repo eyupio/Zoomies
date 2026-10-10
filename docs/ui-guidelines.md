@@ -39,7 +39,13 @@ Off draws each state with a Lucide icon from the state map in
 `web/src/lib/status.ts`. Runner, workflow and queue icons sit in a compact
 24px tile, with an 18px glyph, a slightly firmer stroke and the state's subtle
 background and border. This keeps their weight and alignment consistent while
-labels and tooltips carry the meaning. **An icon names a state, never an action**: the
+labels and tooltips carry the meaning. A state still in progress moves a
+little, chosen by glyph so the same glyph moves the same way on a runner, a
+job or a machine: being set up turns, work executing sends one pulse along its
+trace, being accepted breathes, and finishing turns its hourglass over now and
+then. Everything waiting or finished holds still, so a page of idle runners is
+a calm one and a failure never draws the eye by moving, and reduced motion
+stops all of it. **An icon names a state, never an action**: the
 Queue's Run now, Pause, Resume and Delete carry Zap, Pause, Play and the bin,
 Re-run a turning arrow, and the Runners page's Drain the slashed circle, so a
 status drawn with one of them beside those buttons reads as something to press.
