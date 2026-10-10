@@ -208,11 +208,26 @@ func (s *Store) queryUpdateAttempts(ctx context.Context, query string, args ...a
 // returns how many went. An open attempt is never pruned however old: it is
 // the only record that something is in flight, and the controller's timeout
 // closes it, after which it ages like any other.
-func (s *Store) PruneUpdateAttempts(ctx context.Context, before time.Time) (int, error) {
+//
+// A failed or timed-out attempt to one of keepFailedTo is kept too. Those are
+// the failures that hand a machine to an operator, and losing them to age
+// would have the planner ask the machine a third time. Which releases are
+// still in question is the caller's to say: the store knows no release rules.
+func (s *Store) PruneUpdateAttempts(ctx context.Context, before time.Time, keepFailedTo []string) (int, error) {
+	keep := "0"
+	args := []any{UpdateRequested, ms(before)}
+	if len(keepFailedTo) > 0 {
+		keep = `state IN (?, ?) AND to_version IN (` + strings.TrimSuffix(strings.Repeat("?, ", len(keepFailedTo)), ", ") + `)`
+		args = append(args, UpdateFailed, UpdateTimedOut)
+		for _, tag := range keepFailedTo {
+			args = append(args, tag)
+		}
+	}
+	args = append(args, pruneRowBatch)
 	n, err := pruneInBatches(ctx, pruneRowBatch, pruneMaxBatches, func(ctx context.Context) (int64, error) {
 		res, err := s.exec(ctx, `DELETE FROM update_attempts WHERE id IN
-			(SELECT id FROM update_attempts WHERE state <> ? AND finished_at < ? LIMIT ?)`,
-			UpdateRequested, ms(before), pruneRowBatch)
+			(SELECT id FROM update_attempts WHERE state <> ? AND finished_at < ? AND NOT (`+keep+`) LIMIT ?)`,
+			args...)
 		if err != nil {
 			return 0, err
 		}

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/eyupio/zoomies/internal/agent"
@@ -122,7 +123,11 @@ func hostCanSelfUpdate(h *store.Host, target string, unsupported updates.HelperU
 	case target == "":
 		return false, "This controller is not running a release, so there is no release to take its hosts to. Install a release on the controller with zoomies upgrade first.", hostGapNone
 	case strings.TrimSpace(h.Version) == "":
-		return false, "This host's agent has not said which version it runs, so Zoomies cannot tell whether " + target + " is newer. Update it on the host with zoomies upgrade.", hostGapNone
+		byHandNow := "Update it on the host with zoomies upgrade."
+		if h.OS == "windows" {
+			byHandNow = byHand(h)
+		}
+		return false, "This host's agent has not said which version it runs, so Zoomies cannot tell whether " + target + " is newer. " + byHandNow, hostGapNone
 	}
 	// Only a release build can be behind. CompareBuilds reads what follows a
 	// hyphen as a pre-release, so a describe build such as 1.3.5-3-gabcdef1,
@@ -130,19 +135,19 @@ func hostCanSelfUpdate(h *store.Host, target string, unsupported updates.HelperU
 	// button would take it back. The planner keeps the same gate of its own.
 	if _, ok := updates.TargetTag(h.Version); !ok {
 		return false, "This host runs the build " + reportedVersion(h.Version) + ", which is not a release build, so Zoomies cannot tell whether " +
-			target + " is newer. Update it on the host with the command below.", hostGapNone
+			target + " is newer. " + byHand(h), hostGapNone
 	}
 	switch version.CompareBuilds(h.Version, target) {
 	case version.SkewNone, version.SkewAhead:
 		return false, "This host already runs " + target + " or a later release, so there is nothing to update.", hostGapNone
 	case version.SkewDiffers:
 		return false, "This host runs the build " + reportedVersion(h.Version) + ", which is not a release build, so Zoomies cannot tell whether " +
-			target + " is newer. Update it on the host with the command below.", hostGapNone
+			target + " is newer. " + byHand(h), hostGapNone
 	}
 	selfUpdates := h.Supports(agent.FeatureSelfUpdate)
 	if !selfUpdates && unsupported != "" {
 		return false, "The update helper cannot be installed on this host: " + helperUnsupportedWhy(unsupported, "its agent") +
-			". Update it on the host with the command below.", hostGapHelperImpossible
+			". " + byHand(h), hostGapHelperImpossible
 	}
 	if mode == updates.ModeOff {
 		return false, modeOffForHosts, hostGapNone
@@ -152,6 +157,25 @@ func hostCanSelfUpdate(h *store.Host, target string, unsupported updates.HelperU
 			"Run sudo zoomies updates helper install there, or update it with the command below.", hostGapHelperMissing
 	}
 	return true, "This host runs " + reportedVersion(h.Version) + " and can be updated to " + target + ".", hostGapNone
+}
+
+// byHand is the end of a card's sentence that sends a person to update the
+// host on the host itself. On Windows there is no command at the foot of the
+// card to point at (see hostUpgrade), only the steps.
+func byHand(h *store.Host) string {
+	if h.OS == "windows" {
+		return "Update it by hand on the host, with the steps at the foot of this card."
+	}
+	return "Update it on the host with the command below."
+}
+
+// byHandOnCard is what the foot of a host's card holds for updating it by
+// hand, for a sentence that points at it from elsewhere.
+func byHandOnCard(h *store.Host) string {
+	if h.OS == "windows" {
+		return "steps"
+	}
+	return "command"
 }
 
 // hostBehind says whether a host runs a release build older than target: the
@@ -345,27 +369,34 @@ func (c *Controller) applyUpdateTaskResult(ctx context.Context, hostID string, t
 	default:
 		text = cutAt("The agent on "+name+" did not hand the request to its update helper: "+said, maxHelperSentence)
 	}
-	c.closeHostAttempt(ctx, latest[0], store.UpdateFailed, text)
+	_, _ = c.closeHostAttempt(ctx, latest[0], store.UpdateFailed, text)
 }
 
 // noteHostUpdate is what a heartbeat says about the host's open attempt: the
 // host running the release, which is the only proof of success, or the helper's
-// answer relayed by the agent.
+// answer relayed by the agent. It says whether a report the beat carried was
+// held rather than recorded, which the answer passes on so that the agent sends
+// it again instead of taking it as delivered.
 //
 // The open attempt is the one the loop last saw, so a beat with nothing to say
 // reads nothing. A beat that carries a result reads the store instead, because
-// the agent sends a result until a beat has been answered and not again: one
+// the agent sends a result until a beat has been answered without it held: one
 // matched against a stale picture would be lost.
-func (c *Controller) noteHostUpdate(ctx context.Context, h *store.Host, rep *agent.UpdateReport) {
+func (c *Controller) noteHostUpdate(ctx context.Context, h *store.Host, rep *agent.UpdateReport) (held bool) {
 	if !c.mayAct() {
-		return
+		if rep != nil {
+			c.warnReportHeld(h, "this controller is fenced or does not hold the lease, so it records nothing until it may act again", nil)
+		}
+		return rep != nil
 	}
 	a, ok := c.hostAttempt(h.ID)
 	if rep != nil {
-		latest, err := c.st.ListUpdateAttempts(ctx, store.UpdateScopeHost, h.ID, 1)
+		latest, err := readHostAttempt(c, ctx, h.ID)
 		if err != nil {
-			c.log.Warn("could not read a host's update attempt to match the result its agent reported", "host", h.ID, "error", err)
-		} else if len(latest) == 1 {
+			c.warnReportHeld(h, "the host's update attempt could not be read to match the result against", err)
+			return true
+		}
+		if len(latest) == 1 {
 			a, ok = latest[0], true
 		}
 	}
@@ -374,15 +405,50 @@ func (c *Controller) noteHostUpdate(ctx context.Context, h *store.Host, rep *age
 		// agent relays whatever its update folder holds, which can be a result
 		// for an attempt already closed, or for the controller itself where the
 		// two share a folder.
-		return
+		return false
 	}
 	state, text, ended := hostReportOutcome(a, h.Version, rep)
 	if !ended {
-		return
+		return false
 	}
-	if c.closeHostAttempt(ctx, a, state, text) {
+	closed, err := c.closeHostAttempt(ctx, a, state, text)
+	if closed {
 		c.publishHost(h)
 	}
+	return rep != nil && err != nil
+}
+
+// readHostAttempt is a host's latest attempt from the store. It is a variable
+// so that a test can make the read fail once.
+var readHostAttempt = func(c *Controller, ctx context.Context, hostID string) ([]store.UpdateAttempt, error) {
+	return c.st.ListUpdateAttempts(ctx, store.UpdateScopeHost, hostID, 1)
+}
+
+// heldReportWarnEvery is how often one host's held report is logged. A fenced
+// controller holds it on every beat until it may act, and a line every few
+// seconds for each host would bury the one that says why it is fenced.
+const heldReportWarnEvery = 10 * time.Minute
+
+// warnReportHeld logs that a host's update result was held, and why, at most
+// once per heldReportWarnEvery for each host.
+func (c *Controller) warnReportHeld(h *store.Host, why string, err error) {
+	now := c.Now()
+	c.updates.heldMu.Lock()
+	last, seen := c.updates.heldWarned[h.ID]
+	if seen && now.Sub(last) < heldReportWarnEvery {
+		c.updates.heldMu.Unlock()
+		return
+	}
+	if c.updates.heldWarned == nil {
+		c.updates.heldWarned = make(map[string]time.Time)
+	}
+	c.updates.heldWarned[h.ID] = now
+	c.updates.heldMu.Unlock()
+	attrs := []any{"host", h.ID, "name", h.Name, "reason", why}
+	if err != nil {
+		attrs = append(attrs, "error", err)
+	}
+	c.log.Warn("did not record the update result a host's agent reported; the agent sends it again until it is recorded", attrs...)
 }
 
 // hostReportOutcome says whether a host's open attempt has ended, from the
@@ -443,14 +509,16 @@ func reportedVersion(s string) string {
 
 // closeHostAttempt ends a host's open attempt, takes its task back, and brings
 // what the loop knows up to date so that the card rendered next says so. It
-// says whether this call was the one that closed it.
-func (c *Controller) closeHostAttempt(ctx context.Context, a store.UpdateAttempt, state, text string) bool {
-	if !c.finishUpdateAttempt(ctx, a, state, text) {
-		return false
+// says whether this call was the one that closed it, and the store's error
+// when the ending could not be written.
+func (c *Controller) closeHostAttempt(ctx context.Context, a store.UpdateAttempt, state, text string) (bool, error) {
+	closed, err := c.recordUpdateEnding(ctx, a, state, text)
+	if !closed {
+		return false, err
 	}
 	c.withdrawHostUpdate(a)
 	c.lookAtHostUpdates(ctx)
-	return true
+	return true, nil
 }
 
 // keepHostUpdateGoing is what a pass does for a host's attempt that has not
@@ -549,6 +617,9 @@ func (c *Controller) forgetHostUpdates(hostID string) {
 	delete(c.updates.hostLast, hostID)
 	delete(c.updates.hostUnsupported, hostID)
 	c.updates.hostMu.Unlock()
+	c.updates.heldMu.Lock()
+	delete(c.updates.heldWarned, hostID)
+	c.updates.heldMu.Unlock()
 }
 
 // hostUpdateView renders a host's part in updating from what the loop last saw.

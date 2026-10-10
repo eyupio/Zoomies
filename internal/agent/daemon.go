@@ -886,7 +886,7 @@ func (a *Agent) heartbeat(ctx context.Context) error {
 		a.expireBoosts(ctx)
 		return err
 	}
-	if update != nil {
+	if update != nil && !resp.UpdateHeld {
 		a.markUpdateDelivered(delivery)
 	}
 	a.mu.Lock()

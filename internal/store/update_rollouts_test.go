@@ -250,6 +250,64 @@ func TestPruneSparesAnOpenRollout(t *testing.T) {
 	}
 }
 
+// A person's cancel is what stops auto starting the same rollout again. If
+// age took that row, the next pass would start the rollout they cancelled, so
+// the newest rollout a person cancelled for each release outlives the window.
+// An older cancel of the same release, the planner's own and a finished one
+// age as before.
+func TestPruneKeepsTheNewestCancelByAPersonForEachRelease(t *testing.T) {
+	ctx := context.Background()
+	s, clock := rolloutStore(t)
+
+	end := func(target, by string) *UpdateRollout {
+		t.Helper()
+		r := newRollout()
+		r.Target = target
+		mustCreateRollout(t, s, r)
+		clock.at = clock.at.Add(time.Minute)
+		var ok bool
+		var err error
+		switch by {
+		case "":
+			ok, err = s.FinishUpdateRollout(ctx, r.ID, RolloutCancelled)
+		case "done":
+			ok, err = s.FinishUpdateRollout(ctx, r.ID, RolloutDone)
+		default:
+			ok, err = s.CancelUpdateRollout(ctx, r.ID, by)
+		}
+		if err != nil || !ok {
+			t.Fatalf("ending the rollout = %v, %v", ok, err)
+		}
+		return r
+	}
+	firstCancel := end("v1.3.5", "usr_1")
+	byPlanner := end("v1.3.5", "")
+	lastCancel := end("v1.3.5", "usr_2")
+	done := end("v1.3.4", "done")
+	otherRelease := end("v1.3.4", "usr_1")
+	// A cancel that a later rollout to the same release has since ended is no
+	// longer the last word on it: kept, it would become the newest ended rollout
+	// again once the later one was pruned, and stop auto by itself.
+	overtakenCancel := end("v1.3.3", "usr_1")
+	overtakenBy := end("v1.3.3", "done")
+
+	clock.at = updateAttemptsNow.Add(200 * 24 * time.Hour)
+	n, err := s.PruneUpdateRollouts(ctx, updateAttemptsNow.Add(100*24*time.Hour))
+	if err != nil || n != 5 {
+		t.Fatalf("PruneUpdateRollouts = %d, %v, want the older cancel, the planner's, the overtaken cancel and the two finished ones", n, err)
+	}
+	for _, r := range []*UpdateRollout{lastCancel, otherRelease} {
+		if _, err := rolloutByID(s, r.ID); err != nil {
+			t.Errorf("the newest cancel by a person of %s was pruned: %v", r.Target, err)
+		}
+	}
+	for _, r := range []*UpdateRollout{firstCancel, byPlanner, done, overtakenCancel, overtakenBy} {
+		if _, err := rolloutByID(s, r.ID); !errors.Is(err, sql.ErrNoRows) {
+			t.Errorf("rollout %s to %s survived the prune: %v", r.ID, r.Target, err)
+		}
+	}
+}
+
 // Attempts are what a rollout is made of, and the page that explains a
 // rollout lists them, so each remembers which one asked for it. A lone button
 // press has none.

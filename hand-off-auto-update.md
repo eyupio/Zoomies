@@ -22,18 +22,12 @@ runs a real update through the helper's systemd units.
 
 Recorded while the feature was built; check each before relying on it.
 
-* Once retention prunes both failed attempts of one release, the two-failures cap
-  for that release starts again, and once it prunes a rollout a person cancelled,
-  `auto` may start that release's rollout again.
-* A fenced controller, or a failed store read, drops a host's report; the attempt
-  then times out at 90 minutes.
 * Why the helper can never be installed on a host is kept in memory only, so it
   is lost until the host's next heartbeat after a controller restart.
 * A Docker daemon with user-namespace remapping, and a service that runs as root,
   show their helper as missing rather than unsupported.
 * With the mode `off`, a host whose last attempt failed shows a disabled **Try
   again** with no reason of its own.
-* A Windows agent's card still shows a `sudo` command.
 * A failed press on a host that belongs to a running rollout halts that rollout,
   on purpose.
 * The update status reads the planner's inputs on every render.

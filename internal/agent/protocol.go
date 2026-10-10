@@ -269,6 +269,13 @@ type HeartbeatResponse struct {
 	// previous boost to its base, so a controller downgrade cannot strand a
 	// job at a stale quota. Older agents ignore this additive field.
 	ElasticCPU []ElasticCPUDirective `json:"elastic_cpu,omitempty"`
+	// UpdateHeld says the controller did not record the Update this beat
+	// carried (it was fenced, or its store failed), so the agent sends it again
+	// on the next beat instead of taking it as delivered. Without it a failed
+	// update would be heard of only at the attempt's time-out. A controller too
+	// old to send it never holds a report, which an agent reads as recorded, as
+	// it always has; an agent too old to read it behaves as before.
+	UpdateHeld bool `json:"update_held,omitempty"`
 	// ElasticMemory is the memory valve's rules for this host: how much it may
 	// lend in all, the floor it must leave free, and a ceiling for each runner
 	// that may be lent to. Unlike ElasticCPU it is not a plan to be carried out

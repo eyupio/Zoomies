@@ -63,6 +63,10 @@ type updatesState struct {
 	// installed on its host, under hostMu. Memory only, like handed: every beat
 	// says it again.
 	hostUnsupported map[string]updates.HelperUnsupported
+	// heldWarned is when each host's held update result was last logged, so a
+	// fenced controller says so once in a while rather than on every beat.
+	heldMu     sync.Mutex
+	heldWarned map[string]time.Time
 }
 
 // updateSight is what the update loop last saw of the things the problems list
@@ -236,7 +240,8 @@ func (c *Controller) ReconcileUpdates(ctx context.Context) error {
 // it takes back the request or the task.
 func (c *Controller) endAttempt(ctx context.Context, a store.UpdateAttempt, state, text string) bool {
 	if a.Scope == store.UpdateScopeHost {
-		return c.closeHostAttempt(ctx, a, state, text)
+		closed, _ := c.closeHostAttempt(ctx, a, state, text)
+		return closed
 	}
 	if !c.finishUpdateAttempt(ctx, a, state, text) {
 		return false
@@ -433,13 +438,25 @@ func (c *Controller) withdrawRequest(a store.UpdateAttempt) {
 // was this call that closed it: the store keeps the first ending, so a pass and
 // a button racing count one.
 func (c *Controller) finishUpdateAttempt(ctx context.Context, a store.UpdateAttempt, state, text string) bool {
-	closed, err := c.st.FinishUpdateAttempt(ctx, a.ID, state, text)
+	closed, _ := c.recordUpdateEnding(ctx, a, state, text)
+	return closed
+}
+
+// finishAttemptInStore is the store's FinishUpdateAttempt. It is a variable so
+// that a test can make the write fail once.
+var finishAttemptInStore = (*store.Store).FinishUpdateAttempt
+
+// recordUpdateEnding is finishUpdateAttempt for a caller that must tell an
+// attempt that was already closed from a write that failed: a host's report is
+// sent again only when the store could not take it.
+func (c *Controller) recordUpdateEnding(ctx context.Context, a store.UpdateAttempt, state, text string) (bool, error) {
+	closed, err := finishAttemptInStore(c.st, ctx, a.ID, state, text)
 	if err != nil {
 		c.log.Warn("could not record how an update attempt ended; the next pass will try again", "attempt", a.ID, "error", err)
-		return false
+		return false, err
 	}
 	if !closed {
-		return false
+		return false, nil
 	}
 	// The planner moves on from an ended attempt, and should not wait ten
 	// seconds to.
@@ -451,7 +468,7 @@ func (c *Controller) finishUpdateAttempt(ctx context.Context, a store.UpdateAtte
 		c.log.Warn("an update attempt did not succeed", "attempt", a.ID, "scope", a.Scope, "host", a.HostID,
 			"to", a.ToVersion, "state", state, "reason", text)
 	}
-	return true
+	return true, nil
 }
 
 // renderUpdates is UpdatesView. It is a variable so that a test can make the

@@ -11,14 +11,45 @@
  * Pure, so each state is a table row in a test and not a timing in a browser.
  */
 import type { Host } from '../api/types';
+import { UPGRADING_AGENT_URL } from '../links';
 
 export type HostUpdateBlock = NonNullable<Host['update']>;
 export type HostUpdateState = HostUpdateBlock['state'];
 
 type HostFields = Pick<
   Host,
-  'name' | 'id' | 'version' | 'version_skew' | 'upgrade_version' | 'embedded' | 'update'
+  | 'name'
+  | 'id'
+  | 'version'
+  | 'version_skew'
+  | 'upgrade_version'
+  | 'upgrade_command'
+  | 'embedded'
+  | 'update'
 >;
+
+/**
+ * The badge for a host that is updated on the host itself. The controller sends
+ * a command only where one works; a Windows agent has none (Windows has no sudo
+ * and zoomies upgrade knows no Windows service), so its card says "by hand"
+ * rather than promise a command that is not there.
+ */
+function byHandLabel(host: Pick<Host, 'upgrade_command'>): string {
+  return host.upgrade_command ? 'Update by command' : 'Update by hand';
+}
+
+/**
+ * Where the steps for updating a host by hand are, or empty when the card has a
+ * command to copy, which is the way. Only a Windows agent is sent no command
+ * for a reason the page explains; an unpublished controller build has its own
+ * note and no published steps to link to.
+ */
+export function byHandLink(
+  host: Pick<Host, 'os' | 'upgrade_command' | 'embedded' | 'upgrade_note'>,
+): string {
+  if (host.embedded || host.upgrade_command || !host.upgrade_note) return '';
+  return host.os === 'windows' ? UPGRADING_AGENT_URL : '';
+}
 
 export interface SkewFact {
   label: string;
@@ -171,7 +202,7 @@ export function hostUpdateWords(host: HostFields): HostUpdateWords | null {
       // nothing can keep. Said only for a host that is not on the release.
       if (host.version_skew !== 'behind' && host.version_skew !== 'differs') return null;
       return {
-        label: 'Update by command',
+        label: byHandLabel(host),
         tone: 'neutral',
         sentence: update.reason,
         offered: false,
@@ -195,7 +226,7 @@ export function hostUpdateWords(host: HostFields): HostUpdateWords | null {
             live: '',
           }
         : {
-            label: 'Update by command',
+            label: byHandLabel(host),
             tone: 'neutral',
             sentence: update.reason,
             offered: true,
