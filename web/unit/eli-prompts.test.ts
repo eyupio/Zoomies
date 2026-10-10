@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { contextPrompt, followUps } from '../src/lib/assistant/prompts';
+import { contextPrompt, splitFollowUps } from '../src/lib/assistant/prompts';
 
 test('context keeps measured zero and false, omits absent facts, and names the snapshot', () => {
   const prompt = contextPrompt({
@@ -14,50 +14,21 @@ test('context keeps measured zero and false, omits absent facts, and names the s
   assert.match(prompt, /snapshot of displayed facts, not live access/);
 });
 
-test('follow-ups prioritise the question over incidental resource names in its context', () => {
-  const turns = [
-    { role: 'user', content: 'Help me diagnose this runner failure.\nHost: build-1' },
-    { role: 'assistant', content: 'Check the host and runner logs.' },
-  ];
-  const suggestions = followUps(turns);
-  assert.equal(suggestions[0]?.label, 'Trace the failure');
-  const prompt = suggestions[0]!.prompt;
-  const next = followUps([
-    ...turns,
-    { role: 'user', content: prompt },
-    { role: 'assistant', content: 'Collect container logs.' },
-  ]);
-  assert.ok(next.length > 0);
-  assert.ok(next.every((item) => item.prompt !== prompt));
+test('the follow-up block is read out of the answer and never shown', () => {
+  const { text, suggestions } = splitFollowUps(
+    'Check the host.\n\n<follow-ups>\n- Which logs first?\n2. How do I drain it?\nWhich logs first?\n</follow-ups>\n',
+  );
+  assert.equal(text, 'Check the host.');
+  assert.deepEqual(
+    suggestions.map((s) => s.prompt),
+    ['Which logs first?', 'How do I drain it?'],
+  );
 });
 
-test('streaming, failed and empty answers do not suggest a next step', () => {
-  for (const answer of [
-    { content: '', streaming: true },
-    { content: 'partial', error: 'offline' },
-    { content: '' },
-  ]) {
-    assert.deepEqual(
-      followUps([
-        { role: 'user', content: 'Host overloaded' },
-        { role: 'assistant', ...answer },
-      ]),
-      [],
-    );
-  }
-});
-
-test('a long investigation still offers ways to continue after the initial suggestions', () => {
-  const turns: { role: string; content: string }[] = [
-    { role: 'user', content: 'host overload' },
-    { role: 'assistant', content: 'Check host pressure.' },
-  ];
-  for (let i = 0; i < 9; i++) {
-    const suggestion = followUps(turns)[0];
-    assert.ok(suggestion);
-    turns.push(
-      { role: 'user', content: suggestion.prompt },
-      { role: 'assistant', content: 'Check host pressure with the new evidence.' },
-    );
-  }
+test('a half-streamed block or tag is withheld, and an unclosed one suggests nothing', () => {
+  assert.equal(splitFollowUps('Answer.\n\n<follo').text, 'Answer.');
+  assert.equal(splitFollowUps('Use a < b.').text, 'Use a < b.');
+  const open = splitFollowUps('Answer.\n<follow-ups>\nWhy is it');
+  assert.equal(open.text, 'Answer.');
+  assert.deepEqual(open.suggestions, []);
 });

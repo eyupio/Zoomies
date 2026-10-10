@@ -19,100 +19,41 @@ export function contextPrompt(context: EliContext): string {
   return `${context.question ?? 'Help me understand this situation, prioritise checks and suggest safe next steps.'}\n\nContext shared from the ${context.kind} UI: ${context.title}\n${facts}\n\nThese are a snapshot of displayed facts, not live access. Ask for missing evidence and distinguish facts from possible causes.`;
 }
 
-/** Add a topic here to extend the narrative without coupling pages to the chat view. */
-export const NARRATIVES = [
-  {
-    match: /host|cpu|memory|overload|pressure|unhealthy/i,
-    steps: [
-      {
-        label: 'Find the bottleneck',
-        prompt:
-          'For the host issue we are discussing, how can I distinguish CPU, memory and runtime pressure? What evidence should I collect first?',
-      },
-      {
-        label: 'Reduce pressure safely',
-        prompt:
-          'Given the host situation above, suggest a safe sequence to reduce pressure while protecting running jobs. Explain the trade-offs.',
-      },
-      {
-        label: 'Check recovery',
-        prompt:
-          'How should I verify that this host has recovered, and what would show that the underlying issue remains?',
-      },
-    ],
-  },
-  {
-    match: /runner|fail|registration|container|docker/i,
-    steps: [
-      {
-        label: 'Trace the failure',
-        prompt:
-          'For the runner issue above, help me trace the lifecycle and separate the immediate failure from its possible root causes. Which logs or events are needed?',
-      },
-      {
-        label: 'Plan recovery',
-        prompt:
-          'Based on this runner discussion, propose recovery steps in order, including what to check before retrying and any risk to running work.',
-      },
-      {
-        label: 'Prevent recurrence',
-        prompt:
-          'What changes could prevent this runner issue recurring? Tie each recommendation to the evidence in this conversation.',
-      },
-    ],
-  },
-  {
-    match: /queue|pool|label|capacity|schedul/i,
-    steps: [
-      {
-        label: 'Explain placement',
-        prompt:
-          'Using the context above, walk me through which pool and host placement constraints could be blocking this job. What facts are still missing?',
-      },
-      {
-        label: 'Compare options',
-        prompt:
-          'For the queue or capacity issue above, compare the safest options to unblock work, including their trade-offs.',
-      },
-      {
-        label: 'Verify scheduling',
-        prompt: 'What should I observe to confirm that the scheduling issue above is resolved?',
-      },
-    ],
-  },
-];
+const OPEN = '<follow-ups>';
+const CLOSE = '</follow-ups>';
+const MAX_SUGGESTIONS = 3;
 
-export function followUps(
-  turns: readonly { role: string; content: string; error?: string; streaming?: boolean }[],
-): Suggestion[] {
-  const last = turns.at(-1);
-  if (!last || last.role !== 'assistant' || last.error || last.streaming || !last.content)
-    return [];
-  const asked = new Set(turns.filter((turn) => turn.role === 'user').map((turn) => turn.content));
-  const question = [...turns].reverse().find((turn) => turn.role === 'user')?.content ?? '';
-  const topic =
-    NARRATIVES.find((topic) => topic.match.test(question.split('\n')[0] ?? question)) ??
-    NARRATIVES.find((topic) => topic.match.test(last.content));
-  const general = [
-    {
-      label: 'Make a checklist',
-      prompt:
-        'Turn your last answer into a prioritised checklist, using the evidence and constraints from our conversation.',
-    },
-    {
-      label: 'Explain the trade-offs',
-      prompt:
-        'Explain the trade-offs in your last answer and which option best fits the situation we have discussed.',
-    },
-    {
-      label: 'What is missing?',
-      prompt:
-        'What evidence is still missing from our discussion, and how should I collect it safely?',
-    },
-  ];
-  const available = [...(topic?.steps ?? []), ...general]
-    .filter((step) => !asked.has(step.prompt))
-    .slice(0, 3);
-  // A checklist or trade-off can be revisited after new evidence arrives.
-  return available.length ? available : general;
+/**
+ * Split an answer into what the person reads and the next questions the model
+ * proposed. The controller asks the model to end every answer with a
+ * `<follow-ups>` block, one question per line, so the suggestions are about this
+ * conversation and not a fixed list.
+ *
+ * It is safe to call on a half-written answer: the block, and any prefix of its
+ * opening tag at the very end, is withheld so the tag never flashes on screen as
+ * it streams. A block that never closes (the model ran out of room) yields no
+ * suggestions rather than a cut-off question.
+ */
+export function splitFollowUps(raw: string): { text: string; suggestions: Suggestion[] } {
+  const start = raw.indexOf(OPEN);
+  if (start < 0) {
+    for (let n = Math.min(OPEN.length - 1, raw.length); n > 0; n--) {
+      if (raw.endsWith(OPEN.slice(0, n)))
+        return { text: raw.slice(0, -n).trimEnd(), suggestions: [] };
+    }
+    return { text: raw, suggestions: [] };
+  }
+  const text = raw.slice(0, start).trimEnd();
+  const end = raw.indexOf(CLOSE, start);
+  if (end < 0) return { text, suggestions: [] };
+  const seen = new Set<string>();
+  const suggestions: Suggestion[] = [];
+  for (const line of raw.slice(start + OPEN.length, end).split('\n')) {
+    const question = line.replace(/^\s*(?:[-*]|\d+[.)])\s*/, '').trim();
+    if (!question || question.length > 200 || seen.has(question)) continue;
+    seen.add(question);
+    suggestions.push({ label: question, prompt: question });
+    if (suggestions.length === MAX_SUGGESTIONS) break;
+  }
+  return { text, suggestions };
 }

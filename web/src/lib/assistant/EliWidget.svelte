@@ -1,6 +1,6 @@
 <script lang="ts">
   import { onMount, tick } from 'svelte';
-  import { Maximize2, Minimize2, PanelLeft, PanelRight, Trash2, X } from '@lucide/svelte';
+  import { Maximize2, Minimize2, PanelLeft, PanelRight, SquarePen, X } from '@lucide/svelte';
   import { listAssistantProviders } from '$lib/api/client';
   import Button from '$lib/components/Button.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
@@ -163,7 +163,7 @@
       </button>
       <div class="tools">
         <IconButton
-          icon={Trash2}
+          icon={SquarePen}
           label="New conversation"
           disabled={!eli.conversation.turns.length && !eli.pending.length}
           onclick={() => eli.newConversation()}
