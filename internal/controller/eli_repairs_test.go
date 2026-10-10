@@ -14,18 +14,6 @@ import (
 	"time"
 )
 
-func TestRepairMentionsIgnoreQuotesFencesAndUnrelatedNames(t *testing.T) {
-	for _, text := range []string{"> @eli fix this", "```\n@eli fix this\n```", "~~~\n@zoomies repair\n~~~", "someone said @eli fix", "@elizabeth fix", "@eli hello"} {
-		if _, ok := repairCommand(text, ""); ok {
-			t.Errorf("triggered %q", text)
-		}
-	}
-	for _, text := range []string{"@eli fix this PR", "@zoomies fix this issue", "@Eli repair failing tests", "@zoomies[bot] fix"} {
-		if _, ok := repairCommand(text, ""); !ok {
-			t.Errorf("missed %q", text)
-		}
-	}
-}
 func TestRepairAdmissionRequiresLinkedHumanCommentAndDeduplicates(t *testing.T) {
 	h := newHarness(t)
 	inst := h.installation()
@@ -339,21 +327,5 @@ func TestEveryRepairStageHasItsOwnHeading(t *testing.T) {
 			t.Errorf("states %q and %q share the heading %q", state, other, h)
 		}
 		seen[h] = state
-	}
-}
-
-// GitHub autocompletes and links the App's real handle, not "eli", so that is
-// the name people actually type once they pick the bot from the suggestions.
-func TestTheAppsOwnHandleStartsARepair(t *testing.T) {
-	for _, text := range []string{"@zoomies-eyupio2 fix this", "@Zoomies-Eyupio2[bot] repair the test"} {
-		if _, ok := repairCommand(text, "zoomies-eyupio2"); !ok {
-			t.Errorf("%q should start a repair when the App's slug is zoomies-eyupio2", text)
-		}
-		if _, ok := repairCommand(text, ""); ok {
-			t.Errorf("%q should not start a repair when no slug is known", text)
-		}
-	}
-	if _, ok := repairCommand("@zoomies-eyupio22 fix", "zoomies-eyupio2"); ok {
-		t.Error("a longer handle that merely starts with the slug must not match")
 	}
 }

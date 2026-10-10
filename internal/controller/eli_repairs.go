@@ -5,52 +5,16 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
 	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/assistant"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/prrepair"
+	"github.com/eyupio/zoomies/internal/prrepair/mention"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-// repairHandles are the names a comment can call Eli by without any set-up.
-var repairHandles = []string{"eli", "zoomies"}
-
-// repairMention builds the pattern for a comment that starts a repair. The App's
-// own slug is accepted as well: it is the one name GitHub autocompletes and
-// links, so people who pick the bot from the suggestion list would otherwise
-// type a command that silently does nothing.
-func repairMention(appSlug string) *regexp.Regexp {
-	names := make([]string, 0, len(repairHandles)+1)
-	for _, h := range repairHandles {
-		names = append(names, regexp.QuoteMeta(h))
-	}
-	if slug := strings.TrimSpace(appSlug); slug != "" {
-		names = append(names, regexp.QuoteMeta(slug))
-	}
-	return regexp.MustCompile(`(?i)^@(` + strings.Join(names, "|") + `)(?:\[bot\])?\s+(fix|repair)\b(.*)$`)
-}
-
-func repairCommand(body, appSlug string) (string, bool) {
-	mention := repairMention(appSlug)
-	fenced := false
-	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~") {
-			fenced = !fenced
-			continue
-		}
-		if fenced || strings.HasPrefix(line, ">") {
-			continue
-		}
-		if match := mention.FindStringSubmatch(line); len(match) > 0 {
-			return strings.TrimSpace(match[2] + match[3]), true
-		}
-	}
-	return "", false
-}
 func (c *Controller) repairPolicy(ctx context.Context, repo, installation string) (*store.EliRepairPolicy, error) {
 	policies, err := c.st.EliRepairPolicies(ctx)
 	if err != nil {
@@ -109,7 +73,7 @@ func (c *Controller) enqueueRepairWebhook(ctx context.Context, inst *store.Insta
 		if err := json.Unmarshal(body, &p); err != nil {
 			return errMalformedDelivery
 		}
-		command, ok := repairCommand(p.Comment.Body, inst.AppSlug)
+		command, ok := mention.Command(p.Comment.Body, inst.AppSlug)
 		if !ok || p.Action != "created" || p.Issue.PullRequest == nil || p.Comment.ID <= 0 || p.Issue.Number <= 0 || p.Comment.User.Type != "User" || p.Sender.ID != p.Comment.User.ID {
 			return nil
 		}
