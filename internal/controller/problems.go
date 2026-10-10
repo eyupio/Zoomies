@@ -2796,7 +2796,7 @@ func (c *Controller) hostUpdateProblems(ctx context.Context, out *[]Problem) err
 				Title:    fmt.Sprintf("host %s is behind this controller and cannot be updated from here", label),
 				Detail: fmt.Sprintf("its agent runs %s and this controller runs %s, but the update helper cannot be installed on it: %s. "+
 					"Nothing is wrong meanwhile: it places work as normal.", reportedVersion(h.Version), target, helperUnsupportedWhy(cause, "its agent")),
-				Fix:        fmt.Sprintf("update %s by hand with the command on its card.", label),
+				Fix:        fmt.Sprintf("update %s by hand with the %s on its card.", label, byHandOnCard(h)),
 				TargetKind: "host", TargetID: h.ID,
 			})
 			continue

@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -1212,5 +1213,247 @@ func TestWhatIsRememberedOfAnAnswerGoesWithItsAttempt(t *testing.T) {
 	h.pass(h.c)
 	if h.c.handedOver(a.ID) {
 		t.Error("the answer to an attempt that has ended is still remembered")
+	}
+}
+
+// A card offers the way to update its host by hand that works on that host.
+// zoomies upgrade knows systemd and launchd and no Windows service, and Windows
+// has no sudo, so a Windows agent is given the steps by hand and never a sudo
+// line it would paste into a prompt that cannot run it.
+func TestAHostCardOffersTheCommandThatWorksOnItsPlatform(t *testing.T) {
+	for _, tc := range []struct {
+		goos     string
+		sudo     bool
+		mentions string
+	}{
+		{"linux", true, "zoomies upgrade --mode agent"},
+		{"darwin", true, "zoomies upgrade --mode agent"},
+		{"windows", false, "zoomies.exe"},
+	} {
+		t.Run(tc.goos, func(t *testing.T) {
+			withVersion(t, "1.3.5")
+			h := newHarness(t)
+			h.inMode("manual")
+			host := &store.Host{Name: "vm-" + tc.goos, Capacity: 2, Backends: store.StringSlice{"process"}, Labels: store.StringMap{},
+				OS: tc.goos, Arch: "amd64", Version: "1.3.4", LastHeartbeat: h.c.Now()}
+			if err := h.st.CreateHost(h.ctx, host); err != nil {
+				t.Fatalf("CreateHost: %v", err)
+			}
+			view := h.view(host.ID)
+			if tc.goos != "linux" && view.Update.State != HostUpdateUnsupported {
+				t.Errorf("the %s card's update block = %+v, want unsupported", tc.goos, view.Update)
+			}
+			if tc.sudo {
+				if !strings.HasPrefix(view.UpgradeCommand, "sudo ") || !strings.Contains(view.UpgradeCommand, tc.mentions) {
+					t.Errorf("upgrade_command = %q, want the sudo zoomies upgrade line", view.UpgradeCommand)
+				}
+				return
+			}
+			if view.UpgradeCommand != "" {
+				t.Errorf("upgrade_command = %q, want none: Windows has no sudo and zoomies upgrade knows no Windows service", view.UpgradeCommand)
+			}
+			for _, text := range []string{view.UpgradeNote, view.Update.Reason} {
+				if strings.Contains(text, "sudo") || strings.Contains(text, "command below") {
+					t.Errorf("a Windows card says %q, want no sudo and no command below", text)
+				}
+			}
+			if !strings.Contains(view.UpgradeNote, tc.mentions) || !strings.Contains(view.UpgradeNote, "sc.exe") {
+				t.Errorf("upgrade_note = %q, want the steps by hand: replace zoomies.exe and restart the service", view.UpgradeNote)
+			}
+			if view.UpgradeVersion != "1.3.5" {
+				t.Errorf("upgrade_version = %q, want the controller's release, which the steps take it to", view.UpgradeVersion)
+			}
+			ps, err := h.c.Problems(h.ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, p := range ps {
+				if p.TargetID == host.ID && strings.Contains(p.Fix, "command") {
+					t.Errorf("the %s note's fix is %q, want it to point at the steps on the card, there being no command", p.Code, p.Fix)
+				}
+			}
+		})
+	}
+}
+
+// The two other places that send a person to update a host by hand must not
+// name a command a Windows host cannot run: the card of an agent that has not
+// said its version, and the refusal of a rollout no host can take.
+func TestAWindowsHostIsNeverSentToACommandItCannotRun(t *testing.T) {
+	withVersion(t, "1.3.5")
+	h := newHarness(t)
+	h.inMode("manual")
+	host := &store.Host{Name: "win-1", Capacity: 2, Backends: store.StringSlice{"process"}, Labels: store.StringMap{},
+		OS: "windows", Arch: "amd64", LastHeartbeat: h.c.Now()}
+	if err := h.st.CreateHost(h.ctx, host); err != nil {
+		t.Fatalf("CreateHost: %v", err)
+	}
+	if why := h.view(host.ID).Update.Reason; strings.Contains(why, "zoomies upgrade") || strings.Contains(why, "command") {
+		t.Errorf("a Windows host with no version says %q, want the steps by hand and no command", why)
+	}
+	host.Version = "1.3.4"
+	if err := h.st.SetHostReported(h.ctx, host); err != nil {
+		t.Fatalf("SetHostReported: %v", err)
+	}
+	_, _, err := h.c.StartHostRollout(h.ctx, alice, nil)
+	if !errors.Is(err, ErrUpdateHostCannotUpdate) {
+		t.Fatalf("StartHostRollout = %v, want the refusal that no host can update itself", err)
+	}
+	if strings.Contains(err.Error(), "command on their cards") {
+		t.Errorf("the refusal says %q, want it to send a person to the cards without promising a command", err)
+	}
+}
+
+// heldBeat is the host's agent sending rep, and says whether the controller
+// held it rather than recorded it.
+func (h *harness) heldBeat(host *store.Host, rep *agent.UpdateReport) bool {
+	h.t.Helper()
+	resp, err := h.c.Heartbeat(h.ctx, host.ID, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion, Version: "1.3.4", Features: []string{agent.FeatureSelfUpdate}, Update: rep,
+	})
+	if err != nil {
+		h.t.Fatalf("Heartbeat: %v", err)
+	}
+	return resp.UpdateHeld
+}
+
+// A fenced controller records nothing, and the agent marks a result delivered
+// once a beat that carried it is answered. Answered without saying the result
+// was held, a failure reported while fenced is lost and the attempt ends only at
+// its 90-minute time-out, without the helper's sentence. Held, the agent sends
+// it again, and the first beat after the fence lifts closes the attempt.
+func TestAReportAFencedControllerHeldClosesTheAttemptOnTheNextBeat(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	a := h.requestHost(host)
+	var logged bytes.Buffer
+	h.c.log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	rep := &agent.UpdateReport{ID: a.ID, OK: false, Tag: "v1.3.5", From: "1.3.4", Error: "the download failed", FinishedAt: h.c.Now().UTC()}
+
+	h.fence("a restore is being checked")
+	for i := range 3 {
+		if !h.heldBeat(host, rep) {
+			t.Fatalf("beat %d while fenced was answered as recorded; the agent would not send the result again", i+1)
+		}
+	}
+	if got := h.attempt(a.ID); got.State != store.UpdateRequested {
+		t.Fatalf("a fenced controller closed the attempt as %s", got.State)
+	}
+	if n := strings.Count(logged.String(), "did not record the update result"); n != 1 || !strings.Contains(logged.String(), host.ID) {
+		t.Errorf("three held beats logged %d lines naming the host, want one:\n%s", n, logged.String())
+	}
+
+	if err := h.c.Unfence(h.ctx); err != nil {
+		t.Fatalf("Unfence: %v", err)
+	}
+	if h.heldBeat(host, rep) {
+		t.Fatal("the beat after the fence lifted was held, want the result recorded")
+	}
+	if got := h.attempt(a.ID); got.State != store.UpdateFailed || got.Error != "the download failed" {
+		t.Errorf("after the fence lifted the attempt = %s %q, want failed with the helper's sentence", got.State, got.Error)
+	}
+}
+
+// A store that fails for a moment is the same loss by another road: the read
+// that matches the result, or the write that ends the attempt, fails once, the
+// beat is answered, and the result would be gone. Held, the next beat closes it.
+func TestAReportTheStoreCouldNotTakeClosesTheAttemptOnTheNextBeat(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		fault func(t *testing.T)
+	}{
+		{"the read fails once", func(t *testing.T) {
+			was := readHostAttempt
+			failed := false
+			readHostAttempt = func(c *Controller, ctx context.Context, hostID string) ([]store.UpdateAttempt, error) {
+				if !failed {
+					failed = true
+					return nil, errors.New("database is locked")
+				}
+				return was(c, ctx, hostID)
+			}
+			t.Cleanup(func() { readHostAttempt = was })
+		}},
+		{"the write fails once", func(t *testing.T) {
+			was := finishAttemptInStore
+			failed := false
+			finishAttemptInStore = func(st *store.Store, ctx context.Context, id, state, text string) (bool, error) {
+				if !failed {
+					failed = true
+					return false, errors.New("disk I/O error")
+				}
+				return was(st, ctx, id, state, text)
+			}
+			t.Cleanup(func() { finishAttemptInStore = was })
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.hostsCanUpdate()
+			host := h.updatableHost("vm-1")
+			a := h.requestHost(host)
+			rep := &agent.UpdateReport{ID: a.ID, OK: false, Tag: "v1.3.5", From: "1.3.4", Error: "the download failed", FinishedAt: h.c.Now().UTC()}
+
+			tc.fault(t)
+			if !h.heldBeat(host, rep) {
+				t.Fatal("the beat whose result the store could not take was answered as recorded")
+			}
+			if got := h.attempt(a.ID); got.State != store.UpdateRequested {
+				t.Fatalf("after the failure the attempt = %s, want it still open", got.State)
+			}
+			if h.heldBeat(host, rep) {
+				t.Fatal("the next beat was held too, want the result recorded")
+			}
+			if got := h.attempt(a.ID); got.State != store.UpdateFailed || got.Error != "the download failed" {
+				t.Errorf("after the next beat the attempt = %s %q, want failed with the helper's sentence", got.State, got.Error)
+			}
+		})
+	}
+}
+
+// A store that fails for a while fails on every beat of every host. Logged on
+// each, it would bury the line that says what is wrong with the store; it is
+// logged once per host per window, as a fence is.
+func TestAStoreThatCannotReadAReportIsLoggedOncePerHost(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	a := h.requestHost(host)
+	var logged bytes.Buffer
+	h.c.log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	was := readHostAttempt
+	readHostAttempt = func(*Controller, context.Context, string) ([]store.UpdateAttempt, error) {
+		return nil, errors.New("database is locked")
+	}
+	t.Cleanup(func() { readHostAttempt = was })
+
+	rep := &agent.UpdateReport{ID: a.ID, OK: false, Tag: "v1.3.5", Error: "the download failed", FinishedAt: h.c.Now().UTC()}
+	for i := range 3 {
+		if !h.heldBeat(host, rep) {
+			t.Fatalf("beat %d was answered as recorded", i+1)
+		}
+	}
+	if n := strings.Count(logged.String(), "level=WARN"); n != 1 || !strings.Contains(logged.String(), "database is locked") {
+		t.Errorf("three beats the store could not read logged %d warnings, want one naming the error:\n%s", n, logged.String())
+	}
+}
+
+// What is remembered of when a host's held report was last logged goes with
+// the host, or a controller that sees hosts come and go keeps one entry for
+// every host it has ever held a report for.
+func TestForgettingAHostForgetsWhenItsHeldReportWasLogged(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	a := h.requestHost(host)
+	h.fence("a restore is being checked")
+	h.heldBeat(host, &agent.UpdateReport{ID: a.ID, Tag: "v1.3.5", FinishedAt: h.c.Now().UTC()})
+	h.c.forgetHostUpdates(host.ID)
+	h.c.updates.heldMu.Lock()
+	_, kept := h.c.updates.heldWarned[host.ID]
+	h.c.updates.heldMu.Unlock()
+	if kept {
+		t.Error("the host was forgotten but when its held report was logged was kept")
 	}
 }

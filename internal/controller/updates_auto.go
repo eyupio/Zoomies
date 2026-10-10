@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime"
 	"slices"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/config"
@@ -81,15 +82,8 @@ func (c *Controller) updatesSnapshot(ctx context.Context, cfg config.Updates, he
 	// would be taken to now (the hosts' target and the controller's choice) and
 	// the rollouts' steps, not the newest attempts fleet-wide: a host's two
 	// failures must hold however many other attempts are newer.
-	var tags, rollouts []string
-	if target := hostTarget(); target != "" {
-		tags = append(tags, target)
-	}
-	choice := updates.Choose(updates.ChooseInput{Mode: s.Mode, Soak: s.Soak, Now: s.Now, Running: s.Running,
-		Releases: s.Releases, GOOS: s.GOOS, GOARCH: s.GOARCH})
-	if tag := choice.Release.Tag; tag != "" && !slices.Contains(tags, tag) {
-		tags = append(tags, tag)
-	}
+	tags := tagsInQuestion(s)
+	var rollouts []string
 	for _, r := range []*store.UpdateRollout{pic.rollout, pic.last} {
 		if r != nil {
 			rollouts = append(rollouts, r.ID)
@@ -150,6 +144,47 @@ func (c *Controller) updatesSnapshot(ctx context.Context, cfg config.Updates, he
 	s.Hosts = append(s.Hosts, gone...)
 	pic.snap = s
 	return pic, nil
+}
+
+// tagsInQuestion is the releases a machine would be taken to now: the hosts'
+// target and the controller's choice. The planner reads the attempts to them,
+// and the retention pass keeps their failures, so both ask the same question
+// of the same snapshot fields.
+func tagsInQuestion(s updates.Snapshot) []string {
+	var tags []string
+	if target := hostTarget(); target != "" {
+		tags = append(tags, target)
+	}
+	choice := updates.Choose(updates.ChooseInput{Mode: s.Mode, Soak: s.Soak, Now: s.Now, Running: s.Running,
+		Releases: s.Releases, GOOS: s.GOOS, GOARCH: s.GOARCH})
+	if tag := choice.Release.Tag; tag != "" && !slices.Contains(tags, tag) {
+		tags = append(tags, tag)
+	}
+	return tags
+}
+
+// retainedUpdateTags is the releases whose failed attempts the retention pass
+// keeps: tagsInQuestion, read from the settings and releases the snapshot would
+// be made from, and the release the controller's latest attempt was for. The
+// last is there because with updating off no release list is read, so the
+// choice names nothing, and the controller's failures would otherwise age out
+// and the cap restart when updating is turned on again.
+func (c *Controller) retainedUpdateTags(ctx context.Context, now time.Time) ([]string, error) {
+	cfg := c.cfg().Updates
+	s := updates.Snapshot{Now: now, Mode: updateModeOf(cfg.Mode), Soak: cfg.Soak, Running: version.Version,
+		GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	if state := c.latestRelease(); state != nil {
+		s.Releases = state.Releases
+	}
+	tags := tagsInQuestion(s)
+	last, err := c.st.ListUpdateAttempts(ctx, store.UpdateScopeController, "", 1)
+	if err != nil {
+		return nil, fmt.Errorf("reading the controller's latest update attempt: %w", err)
+	}
+	if len(last) == 1 && !slices.Contains(tags, last[0].ToVersion) {
+		tags = append(tags, last[0].ToVersion)
+	}
+	return tags, nil
 }
 
 func rolloutFacts(r *store.UpdateRollout) *updates.Rollout {
@@ -438,7 +473,7 @@ func (c *Controller) StartHostRollout(ctx context.Context, by UpdateActor, hostI
 		return nil, none, fmt.Errorf("%w: no host asked for runs a release behind %s", ErrUpdateNothingNewer, target)
 	case able == 0:
 		return nil, none, &hostCannotUpdateError{sentence: fmt.Sprintf("No host behind %s can update itself, because none has the update helper installed. "+
-			"Run sudo zoomies updates helper install on each, or update them with the command on their cards.", target)}
+			"Run sudo zoomies updates helper install on each Linux host, or update them by hand as their cards say.", target)}
 	}
 	r := &store.UpdateRollout{Target: target, Trigger: store.UpdateTriggerManual, StartedBy: requestedBy(by), HostIDs: ids}
 	if err := c.st.CreateUpdateRollout(ctx, r); err != nil {

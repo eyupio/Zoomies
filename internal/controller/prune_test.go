@@ -235,6 +235,65 @@ func TestPruningTakesOldUpdateAttemptsButNeverAnOpenOne(t *testing.T) {
 	}
 }
 
+// Two failures on the release a host would be taken to hand it to an
+// operator. The retention pass must not count them down to none: it keeps the
+// failures on the hosts' target, and lets one on an older release go.
+func TestPruningKeepsTheFailuresThatHandAHostToAnOperator(t *testing.T) {
+	withVersion(t, "1.3.5")
+	h := newHarness(t)
+	for _, to := range []string{"v1.3.5", "v1.3.5", "v1.3.4"} {
+		a := &store.UpdateAttempt{Scope: store.UpdateScopeHost, HostID: "host_a", ToVersion: to, Trigger: store.UpdateTriggerAuto}
+		if err := h.st.CreateUpdateAttempt(h.ctx, a); err != nil {
+			t.Fatalf("CreateUpdateAttempt: %v", err)
+		}
+		if ok, err := h.st.FinishUpdateAttempt(h.ctx, a.ID, store.UpdateFailed, "no space left on device"); err != nil || !ok {
+			t.Fatalf("FinishUpdateAttempt = %v, %v", ok, err)
+		}
+	}
+
+	h.c.UpdateConfig(func(c *config.Config) { c.Retention = config.Retention{UpdateAttempts: 24 * time.Hour} })
+	h.advance(60 * time.Hour)
+	h.c.prune(h.ctx)
+	got, err := h.st.ListUpdateAttempts(h.ctx, "", "", 10)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("after the window %+v remain (%v), want the two failures on v1.3.5", got, err)
+	}
+	for _, a := range got {
+		if a.ToVersion != "v1.3.5" {
+			t.Errorf("the failure on %s survived the window, want only the target's kept", a.ToVersion)
+		}
+	}
+}
+
+// With updating off the release list is not read, so the planner's choice
+// names nothing. A controller's failures on the release it last tried must
+// still outlive the window, or turning updating back on would find the cap
+// counted down and ask the helper a third time.
+func TestPruningKeepsTheControllersLastFailuresWhileUpdatingIsOff(t *testing.T) {
+	withVersion(t, "1.3.5")
+	h := newHarness(t)
+	h.inMode("off")
+	var failed []string
+	for range 2 {
+		a := &store.UpdateAttempt{Scope: store.UpdateScopeController, ToVersion: "v1.3.6", Trigger: store.UpdateTriggerAuto}
+		if err := h.st.CreateUpdateAttempt(h.ctx, a); err != nil {
+			t.Fatalf("CreateUpdateAttempt: %v", err)
+		}
+		if ok, err := h.st.FinishUpdateAttempt(h.ctx, a.ID, store.UpdateFailed, "the download failed"); err != nil || !ok {
+			t.Fatalf("FinishUpdateAttempt = %v, %v", ok, err)
+		}
+		failed = append(failed, a.ID)
+	}
+
+	h.c.UpdateConfig(func(c *config.Config) { c.Retention = config.Retention{UpdateAttempts: 24 * time.Hour} })
+	h.advance(60 * time.Hour)
+	h.c.prune(h.ctx)
+	got, err := h.st.ListUpdateAttempts(h.ctx, store.UpdateScopeController, "", 10)
+	if err != nil || len(got) != len(failed) {
+		t.Fatalf("after the window with updating off %+v remain (%v), want both failures on v1.3.6", got, err)
+	}
+}
+
 // A halted rollout is a fleet waiting for a person, and the only record that
 // it is. It follows retention.update_attempts once it has ended, like the
 // attempts it was made of, and not before.

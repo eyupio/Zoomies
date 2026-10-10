@@ -39,6 +39,31 @@ export class FrameReads<T> {
     this.#frames += 1;
   }
 
+  /** Take a value that is as new as a frame, such as an action's answer, as a frame. */
+  take(value: T): void {
+    this.took();
+    this.#reader.answer(value);
+  }
+
+  /**
+   * Take the answer of an action that moves the document, as a frame.
+   *
+   * The controller starts a pass as it answers, and that pass's frame can
+   * arrive before the answer does. Taken last, the answer would put the older
+   * picture over the newer one until something else moved. So when a frame
+   * landed while the call was out, the document is read again as well, and the
+   * page ends on whichever is newest. That read is a fresh one: a read already
+   * in flight began before the answer was taken, and its answer is dropped. A
+   * refusal throws, and nothing is taken.
+   */
+  async act(call: () => Promise<T>): Promise<void> {
+    const before = this.#frames;
+    const value = await call();
+    const overtaken = before !== this.#frames;
+    this.take(value);
+    if (overtaken) void this.fresh();
+  }
+
   /**
    * Ask now. A second ask while one is in flight joins it, because the answer
    * it waits for is the same one.

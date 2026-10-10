@@ -1,22 +1,24 @@
 {
   "pack": "Zoomies Media & Brand Pack",
-  "version": "2.1",
-  "date": "2026-09",
-  "assetHierarchy": [
-    "primary full logo",
-    "primary circular dog mark",
-    "small-size paw print and swish"
-  ],
+  "version": "3.0",
+  "date": "2026-10-10",
   "provenance": {
-    "primary": {
-      "status": "exact approved source",
-      "source": "Zoomies_Brand_Pack_v1.zip",
-      "handling": "files copied unchanged"
-    },
-    "pawSwish": {
-      "status": "exact approved source",
-      "source": "attached codex-clipboard PNG",
-      "handling": "original preserved; used only for 16, 32, 48, and 64 px favicon/small-mark derivatives"
-    }
+    "primary": "Owner-selected running spaniel artwork traced into SVG paths. Descriptor removed and lower circular arc repaired at the owner\u2019s request. PNGs rendered from the vectors.",
+    "emblem": "Exact dog paths from the approved full logo, with all lettering, circle and detached speed strokes removed. Centred on a square transparent canvas.",
+    "pawSwish": "Existing owner-supplied paw/swish PNGs preserved unchanged."
+  },
+  "assets": {
+    "logo-black-transparent.png": "db2cc43e48ba31c0777df78c3e9a2a73b807f398583149157833f38459e70ea1",
+    "logo-black-transparent.svg": "901cc886d155e5a7a38527baf707c5d94f29f6117d83a6cb8a0af35962719b33",
+    "logo-white-transparent.png": "d7cc0899361223cf0c245208fddfd5dff385fbbda2aa9071f38073b13221f2a9",
+    "logo-white-transparent.svg": "8c0845f65869c8b150f501c3131ea968cfd63583caaaaee2b40766f0aa4a9bdb",
+    "mark-black-transparent.png": "97d1b545b958394c62f194b39ee027819130c966dedc92f812db2bdaacbb3b79",
+    "mark-black-transparent.svg": "a9d2bd800b95888a98828eeb7e063bd9d994c6f590842e515f797e3d40b4aa9c",
+    "mark-white-transparent.png": "b9dfce1ed8165504daa25aeb768becd4f9cef35645cf4d549e3617bc507711d8",
+    "mark-white-transparent.svg": "7889d3ac7e0213a3814d7b8dbc738414e6ef6fe290002acc4bbbbede2e5a6105",
+    "wordmark-black-transparent.svg": "92c1f28daf6121ab84b39cb4733bd449196ebd2476c0cf638a6295a656e37a53",
+    "wordmark-white-transparent.png": "eb56fb60f783c5ff471d1728bda0341d37dd2748862d65364a0ed9f420c43bfb",
+    "wordmark-white-transparent.svg": "3b0a63ba30e7ce794563bbecd764dff1ccd95e7618b26666d7e289c0d6871e0c",
+    "wordmark-black-transparent.png": "5dd99bbe3fa00ecfe0e9d1b182a0bac11198a70994e676efdf7035afb2f51061"
   }
 }

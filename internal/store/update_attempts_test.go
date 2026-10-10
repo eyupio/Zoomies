@@ -230,7 +230,7 @@ func TestPruneSparesOpenAttempts(t *testing.T) {
 		t.Fatalf("FinishUpdateAttempt = %v, %v", ok, err)
 	}
 
-	n, err := s.PruneUpdateAttempts(ctx, updateAttemptsNow.Add(50*24*time.Hour))
+	n, err := s.PruneUpdateAttempts(ctx, updateAttemptsNow.Add(50*24*time.Hour), nil)
 	if err != nil || n != 1 {
 		t.Fatalf("PruneUpdateAttempts = %d, %v, want the one old finished attempt", n, err)
 	}
@@ -245,6 +245,58 @@ func TestPruneSparesOpenAttempts(t *testing.T) {
 	}
 	if still, err := s.OpenUpdateAttempts(ctx); err != nil || len(still) != 1 || still[0].ID != open.ID {
 		t.Errorf("OpenUpdateAttempts = %+v (%v), want the old open attempt kept", still, err)
+	}
+}
+
+// Two failures on one release hand a machine to an operator. If age took
+// those rows, the planner would count none and ask the host a third time, so a
+// failure on a release still in question outlives the window. Everything else
+// ages as before: a success, and a failure on a release nobody is asking for.
+func TestPruneKeepsTheFailuresOnAReleaseStillInQuestion(t *testing.T) {
+	ctx := context.Background()
+	s, clock := updateAttemptStore(t)
+
+	end := func(a *UpdateAttempt, state string) *UpdateAttempt {
+		t.Helper()
+		mustCreateAttempt(t, s, a)
+		clock.at = clock.at.Add(time.Minute)
+		if ok, err := s.FinishUpdateAttempt(ctx, a.ID, state, "x"); err != nil || !ok {
+			t.Fatalf("FinishUpdateAttempt = %v, %v", ok, err)
+		}
+		return a
+	}
+	failed := end(hostAttempt("host_a"), UpdateFailed)
+	timedOut := end(hostAttempt("host_a"), UpdateTimedOut)
+	succeeded := end(hostAttempt("host_b"), UpdateSucceeded)
+	older := hostAttempt("host_a")
+	older.ToVersion = "v1.3.4"
+	older = end(older, UpdateFailed)
+	ctl := controllerAttempt()
+	ctl.ToVersion = "v1.3.6"
+	ctl = end(ctl, UpdateFailed)
+
+	clock.at = updateAttemptsNow.Add(200 * 24 * time.Hour)
+	n, err := s.PruneUpdateAttempts(ctx, updateAttemptsNow.Add(100*24*time.Hour), []string{"v1.3.5", "v1.3.6"})
+	if err != nil || n != 2 {
+		t.Fatalf("PruneUpdateAttempts = %d, %v, want the success and the failure on v1.3.4", n, err)
+	}
+	left, err := s.ListUpdateAttempts(ctx, "", "", 10)
+	if err != nil {
+		t.Fatalf("ListUpdateAttempts: %v", err)
+	}
+	kept := map[string]bool{}
+	for _, a := range left {
+		kept[a.ID] = true
+	}
+	for _, a := range []*UpdateAttempt{failed, timedOut, ctl} {
+		if !kept[a.ID] {
+			t.Errorf("the %s attempt of %q to %s was pruned, want it kept while its release is in question", a.State, a.Scope, a.ToVersion)
+		}
+	}
+	for _, a := range []*UpdateAttempt{succeeded, older} {
+		if kept[a.ID] {
+			t.Errorf("the %s attempt to %s survived the prune", a.State, a.ToVersion)
+		}
 	}
 }
 

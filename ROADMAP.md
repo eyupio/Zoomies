@@ -2223,3 +2223,7 @@ results or user feedback; do not wait for them either.
   gate. Added the deliberately deferred **ZF-404b** host-stewardship and
   bounded-housekeeping slice; it is not authorised for implementation before
   Gate F.
+
+## Approved logo refresh (10 October 2026)
+
+Apply the owner-selected running spaniel artwork to the app and documentation. Ship transparent black and white full logos and emblems as SVG and PNG, preserving the paw/swish at small sizes.

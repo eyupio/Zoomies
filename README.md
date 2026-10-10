@@ -1,8 +1,8 @@
 <div align="center">
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-master-dark.png">
-  <img src="docs/brand/logo-master-dark.png" alt="Zoomies: a cocker spaniel curling through a circular motion path, above the wordmark" width="260">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-white-transparent.svg">
+  <img src="docs/brand/logo-black-transparent.svg" alt="Zoomies: a running cocker spaniel inside a circular swish, above the wordmark" width="260">
 </picture>
 
 # Give your GitHub Actions runners the Zoomies.

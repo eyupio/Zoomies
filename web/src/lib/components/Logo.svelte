@@ -1,79 +1,41 @@
-<!--
-  The Zoomies logo system.
-
-  The hierarchy has three rungs, and moving down it is a response to less
-  room, not a choice between interchangeable logos:
-
-  * lockup is the unchanged primary full logo, never below 220px wide, and
-    given real room on the screens that open the product -- boot, first run,
-    and the sign-in page's brand panel;
-  * mark above 64px is the original circular dog, the primary standalone mark;
-  * mark at 64px and below is the paw/swish, the official small-size
-    shorthand, which the guide allows from 16px up to exactly that.
-
-  There used to be a fourth rung between them, a head/swish, but it was a
-  reconstruction rather than approved source artwork and it has been taken out
-  of the pack. Everything shown here is artwork the brand owner supplied.
-
-  All artwork is the supplied white reverse on Zoomies Black. Nothing is
-  recoloured, cropped or reconstructed in CSS.
-
-  See docs/brand.md.
--->
+<!-- The full logo and large emblem share the approved running spaniel artwork.
+     The original paw/swish stays legible at navigation sizes. -->
 <script lang="ts">
   interface Props {
-    /** mark: the dog alone. wordmark: the word alone. full: side by side. lockup: stacked, for sign-in. */
     variant?: 'mark' | 'wordmark' | 'full' | 'lockup';
-    /** The mark's edge length in pixels. The wordmark scales with it. */
     size?: number;
-    /** Rendered as the accessible name. Set it to "" inside an already-labelled link. */
     label?: string;
+    inverse?: boolean;
     class?: string;
   }
-
-  const { variant = 'full', size = 24, label = 'Zoomies', class: klass = '' }: Props = $props();
-
-  const markSrc = $derived(size > 64 ? '/brand/mark-white.png' : '/brand/paw-swish-white.png');
-  /* Only the circular dog has a 2x copy; the paw is drawn far larger than it
-     is ever placed, so the browser already has pixels to spare. */
-  const markSrcset = $derived(
-    size > 64 ? '/brand/mark-white.png 1x, /brand/mark-white@2x.png 2x' : undefined,
-  );
-  const wordmarkRatio = 975 / 250;
-  const wordHeight = $derived(Math.round(size * 0.62));
-  const lockupWidth = $derived(Math.max(220, Math.round(size * 3.1)));
+  const {
+    variant = 'full',
+    size = 24,
+    label = 'Zoomies',
+    inverse = false,
+    class: klass = '',
+  }: Props = $props();
+  const asset = $derived(variant === 'lockup' ? 'logo' : size > 64 ? 'mark' : 'paw-swish');
+  const edge = $derived(variant === 'lockup' ? Math.max(220, Math.round(size * 3.1)) : size);
+  const src = (colour: string) =>
+    `/brand/${asset}-${colour}${asset === 'paw-swish' ? '.png' : '-transparent.svg'}`;
 </script>
 
 <span
   class="logo {variant} {klass}"
+  class:inverse
   role={label ? 'img' : undefined}
   aria-label={label || undefined}
   aria-hidden={label ? undefined : 'true'}
 >
-  {#if variant === 'lockup'}
-    <span class="lockup-frame" style="--lockup-width: {lockupWidth}px">
-      <img
-        class="primary"
-        src="/brand/logo-white.png"
-        width={lockupWidth}
-        height={lockupWidth}
-        alt=""
-        decoding="async"
-      />
-    </span>
-  {:else if variant !== 'wordmark'}
-    <span class="chip" style="--chip: {size}px">
-      <img src={markSrc} srcset={markSrcset} width={size} height={size} alt="" decoding="async" />
+  {#if variant !== 'wordmark'}
+    <span class="art" style="--edge: {edge}px">
+      <img class="black" src={src('black')} width={edge} height={edge} alt="" decoding="async" />
+      <img class="white" src={src('white')} width={edge} height={edge} alt="" decoding="async" />
     </span>
   {/if}
-
-  {#if variant !== 'mark' && variant !== 'lockup'}
-    <span
-      class="wordmark"
-      style="--mark-src: url('/brand/wordmark-white.png'); --word-h: {wordHeight}px; --word-w: {Math.round(
-        wordHeight * wordmarkRatio,
-      )}px"
-    ></span>
+  {#if variant === 'full' || variant === 'wordmark'}
+    <span class="wordmark" style="--word-h: {Math.round(size * 0.62)}px"></span>
   {/if}
 </span>
 
@@ -85,56 +47,50 @@
     color: var(--z-text);
     line-height: 0;
   }
-  /*
-    The frame is square and capped at the container rather than fixed, so asking
-    for a bigger lockup on the first-run card, or in the sign-in page's band,
-    cannot push either wider than the phone it is being read on. The artwork keeps its supplied padding -- the
-    brand guide forbids cropping it -- so the frame is deliberately larger than
-    the dog inside it.
-  */
   .logo.lockup {
     display: flex;
     width: 100%;
     justify-content: center;
   }
-  .lockup-frame {
-    display: grid;
-    width: min(100%, var(--lockup-width));
+  .art {
+    display: block;
+    width: min(100%, var(--edge));
     aspect-ratio: 1;
-    place-items: center;
-    border-radius: var(--z-radius-lg);
-    background: var(--z-brand-black);
   }
-  .chip {
-    display: inline-grid;
-    width: var(--chip);
-    height: var(--chip);
-    place-items: center;
-    border-radius: var(--z-radius-md);
-    background: var(--z-mark-chip);
-  }
-  .primary,
-  .chip img {
+  .art img {
     display: block;
     width: 100%;
     height: 100%;
     object-fit: contain;
   }
-
-  /* The wordmark is a mask over currentColor, so it inherits the theme's text
-     colour rather than needing a light and a dark copy. */
+  .art .white {
+    display: none;
+  }
+  :global(:root[data-theme='dark']) .black {
+    display: none;
+  }
+  :global(:root[data-theme='dark']) .white {
+    display: block;
+  }
+  @media (prefers-color-scheme: dark) {
+    :global(:root:not([data-theme='light'])) .black {
+      display: none;
+    }
+    :global(:root:not([data-theme='light'])) .white {
+      display: block;
+    }
+  }
+  .logo.inverse .black {
+    display: none;
+  }
+  .logo.inverse .white {
+    display: block;
+  }
   .wordmark {
     display: block;
-    width: var(--word-w);
     height: var(--word-h);
-    background-color: currentColor;
-    -webkit-mask-image: var(--mark-src);
-    mask-image: var(--mark-src);
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    -webkit-mask-size: contain;
-    mask-size: contain;
-    -webkit-mask-position: left center;
-    mask-position: left center;
+    aspect-ratio: 1128 / 226;
+    background: currentColor;
+    mask: url('/brand/wordmark-black-transparent.svg') left center / contain no-repeat;
   }
 </style>

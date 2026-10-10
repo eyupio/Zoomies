@@ -350,14 +350,23 @@ func (c *Controller) prune(ctx context.Context) {
 			return n, err
 		}},
 		// Only attempts that have finished: an open one is the record that an
-		// update is in flight, and the timeout, not age, closes it.
+		// update is in flight, and the timeout, not age, closes it. A failure on
+		// a release still in question stays too, or age would reset the two
+		// failures that hand a machine to an operator.
 		{"update attempts", r.UpdateAttempts, func(ctx context.Context, before time.Time) (int64, error) {
-			n, err := c.st.PruneUpdateAttempts(ctx, before)
+			// Pruning without knowing what to keep could take the failures it is
+			// meant to keep, so a failed read prunes nothing this pass.
+			keep, err := c.retainedUpdateTags(ctx, now)
+			if err != nil {
+				return 0, err
+			}
+			n, err := c.st.PruneUpdateAttempts(ctx, before, keep)
 			return int64(n), err
 		}},
 		// Rollouts ride the update attempts' window rather than one of their
 		// own, as they are only the grouping of those attempts. An open one
-		// (running or halted) stays however old, for the same reason.
+		// (running or halted) stays however old, for the same reason, and so
+		// does the newest a person cancelled for each release.
 		{"update rollouts", r.UpdateAttempts, func(ctx context.Context, before time.Time) (int64, error) {
 			n, err := c.st.PruneUpdateRollouts(ctx, before)
 			return int64(n), err

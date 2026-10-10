@@ -15,6 +15,7 @@
   import {
     ChevronRight,
     CircleDashed,
+    ExternalLink,
     Gauge,
     Pencil,
     PencilLine,
@@ -38,7 +39,7 @@
   import HostMemoryPool from './HostMemoryPool.svelte';
   import HostUpdateRow from './HostUpdateRow.svelte';
   import ResourceBar from './ResourceBar.svelte';
-  import { hostUpdateWords, skewFact } from './update';
+  import { byHandLink, hostUpdateWords, skewFact } from './update';
 
   interface Props {
     host: Host;
@@ -112,6 +113,7 @@
   // operator's, and stays for everyone who had it.
   const showUpdate = $derived(canAdmin && hostUpdateWords(host) !== null);
   const showUpgrade = $derived(canOperate && !host.embedded && Boolean(host.upgrade_note));
+  const upgradeSteps = $derived(byHandLink(host));
   // What a runner on this host is held to, with whose each figure is. Shown
   // only for a host that has been given a profile: an unprofiled host follows
   // the fleet in everything, which is what the card has always implied, and a
@@ -848,6 +850,15 @@
           </summary>
           <div class="upgrade-body">
             <p>{host.upgrade_note}</p>
+            {#if upgradeSteps}
+              <p>
+                <a href={upgradeSteps} target="_blank" rel="noopener noreferrer">
+                  Updating an agent host by hand
+                  <ExternalLink size={12} aria-hidden="true" />
+                  <span class="sr-only">(opens in a new tab)</span>
+                </a>
+              </p>
+            {/if}
             {#if host.upgrade_command}
               <p>
                 Running runner containers stay in place. The host reports its new version on the

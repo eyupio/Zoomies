@@ -24,6 +24,7 @@ import { events } from '../api/sse';
 import type { SseStatus } from '../api/sse';
 import type { UpdatesStatus } from '../api/types';
 import { FrameReads } from './frame-reads';
+import { updateActions } from './update-actions';
 
 class Updates {
   #status = $state<UpdatesStatus | null>(null);
@@ -39,6 +40,12 @@ class Updates {
     },
     failed: (cause) => (this.#error = cause),
     busy: (loading) => (this.#loading = loading),
+  });
+  #actions = updateActions(this.#reads, {
+    updateController,
+    startRollout: () => startHostRollout(),
+    resumeRollout,
+    cancelRollout,
   });
 
   /** `null` until the controller has answered once. */
@@ -69,12 +76,13 @@ class Updates {
 
   /**
    * Ask the update helper to take the controller to `tag`. The answer is the
-   * status with the attempt in it, and is taken as a frame would be: the
-   * attempt stays open until the controller closes it, and that arrives as a
-   * frame of its own. A refusal throws, with the controller's sentence in it.
+   * status with the attempt in it, and is taken as a frame would be, in order
+   * against the frames (see `FrameReads.act`): the attempt stays open until the
+   * controller closes it, and that arrives as a frame of its own. A refusal
+   * throws, with the controller's sentence in it.
    */
-  async updateController(tag: string): Promise<void> {
-    this.adopt(await updateController(tag));
+  updateController(tag: string): Promise<void> {
+    return this.#actions.updateController(tag);
   }
 
   /**
@@ -83,36 +91,17 @@ class Updates {
    * from a selection could be empty, which the server refuses.
    */
   startRollout(): Promise<void> {
-    return this.#act(() => startHostRollout());
+    return this.#actions.startRollout();
   }
 
   /** Let a halted rollout carry on. A refusal throws, with the controller's sentence in it. */
   resumeRollout(): Promise<void> {
-    return this.#act(resumeRollout);
+    return this.#actions.resumeRollout();
   }
 
   /** End the open rollout. A refusal throws, with the controller's sentence in it. */
   cancelRollout(): Promise<void> {
-    return this.#act(cancelRollout);
-  }
-
-  /**
-   * Take the status a rollout action answered with, as a frame would be.
-   *
-   * The controller starts a pass as it answers, and that pass's frame can
-   * arrive before the answer does: a host asked to update, say, after a status
-   * that has not asked it yet. Taken last, the answer would put the older
-   * picture over the newer one until something else moved. So when a frame
-   * landed while the call was out, the document is read again as well, and the
-   * page ends on whichever is newest. That read is a fresh one: a read already
-   * in flight began before the answer was taken, and its answer is dropped.
-   */
-  async #act(call: () => Promise<UpdatesStatus>): Promise<void> {
-    const before = this.#reads.frames;
-    const status = await call();
-    const overtaken = before !== this.#reads.frames;
-    this.adopt(status);
-    if (overtaken) void this.#reads.fresh();
+    return this.#actions.cancelRollout();
   }
 
   /**
@@ -125,9 +114,7 @@ class Updates {
 
   /** Take a frame from the stream, which is the newest thing there is. */
   adopt(status: UpdatesStatus): void {
-    this.#reads.took();
-    this.#status = status;
-    this.#error = null;
+    this.#reads.take(status);
   }
 
   /**

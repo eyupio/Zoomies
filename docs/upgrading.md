@@ -298,7 +298,9 @@ is no command to copy, and the reason says how to replace the binary by hand. A 
 behind the controller for one of the same reasons (its agent says which on its
 heartbeat; an agent too old to say is known only by an operating system other
 than Linux) shows **Update by command** on its card with the reason and no
-button, and the upgrade command beneath it is the way.
+button, and the upgrade command beneath it is the way. A Windows host shows
+**Update by hand** instead: there is no command for it, and the foot of its card
+gives the steps and links to [upgrading an agent host](#upgrading-an-agent-host).
 
 The same question is asked once more, in the same words, at the end of a fresh
 `zoomies init` and of `zoomies agent join`, once the service is installed (for a
@@ -373,7 +375,9 @@ never asked, and its card says why and keeps the command. A host is always taken
 to the release its **controller** runs, never to the newest release, so an agent
 is never ahead of its controller ([version skew](#version-skew)). An update has
 worked when the host's heartbeat reports that release, not when the task is
-answered.
+answered. The agent repeats the helper's answer on its heartbeats until the
+controller has recorded it, so an answer that arrives while the controller is
+fenced, or cannot write its database, is recorded on the first beat after.
 
 **Update** on a host's card updates that host. **Update N hosts** on the Hosts
 page, or `zoomies updates apply --hosts`, starts a *rollout* of every host behind
@@ -408,10 +412,9 @@ helper beside the controller is not installed, it waits, and updates no host
 either, because no host may go ahead of its controller. Where that helper can
 never be installed (see above), the controller is left to a person and hosts
 follow the release it runs. A rollout cancelled by hand is not started again for
-the same release, for as long as its record is kept: once
-`retention.update_attempts` (90 days by default, 24 hours at the least) prunes
-it, `auto` may start that release's rollout again, so keep the retention long if
-you rely on a cancel. Switching to `manual` cancels a rollout `auto` started, and
+the same release, however short `retention.update_attempts` is: a rollout a
+person cancelled is kept when older history is pruned, for as long as no later
+rollout to that release has ended. Switching to `manual` cancels a rollout `auto` started, and
 switching to `off` cancels any open rollout; an update a helper is already
 running finishes either way, and is recorded.
 
@@ -433,7 +436,10 @@ release it had, raises `controller.update_failed` or `host.update_failed` (see
 [Problem codes](problem-codes.md)), with the helper's own sentence for the
 `platform` role on Settings → Updates or the host's card, and in a rollout halts it. After a failure Zoomies waits 30
 minutes before it tries that machine again by itself, and after two failures of
-one release it leaves that release on that machine to a person. The helper keeps its
+one release it leaves that release on that machine to a person. Those failures
+are kept while that release is still the one the machine would be taken to (for
+the controller, also while it is the release it last tried, which covers the mode
+`off`), so `retention.update_attempts` never counts them back down. The helper keeps its
 own count as well, in `/var/lib/zoomies-update`, where the service cannot reset
 it.
 
@@ -1034,7 +1040,8 @@ whose jobs are short it costs a few minutes.
 On a Windows host the same sequence is `zoomies hosts drain`, replace
 `zoomies.exe` in place, then `sc.exe stop zoomies-agent` and
 `sc.exe start zoomies-agent` from an elevated prompt, and `zoomies hosts
-uncordon`. A Windows agent runs the `process` backend, so the runner release it
+uncordon`. A Windows host's card gives these steps in place of a command, since
+`zoomies upgrade` knows no Windows service. A Windows agent runs the `process` backend, so the runner release it
 downloads is pinned by the pool's `runner_version` and the digests in the
 binary, and an agent behind the controller's release may not know a digest the
 controller's default asks for; upgrade the agent first on that platform.
