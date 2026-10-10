@@ -406,11 +406,18 @@ func (pf *preflight) checkBridge(ctx context.Context, node string) {
 			return
 		}
 	}
+	fix := "use a bridge that exists on every node this provider places on."
+	if len(bridges) == 0 {
+		// A node always has a bridge to offer, so none at all is the token's
+		// view and not the node's: say so rather than blaming the setting.
+		fix = fmt.Sprintf("the node has bridges this token cannot list; grant it Sys.Audit on /nodes/%s (pveum acl modify /nodes/%s --tokens '%s' --roles <role with Sys.Audit>), then check again.",
+			node, node, pf.client.tokenID)
+	}
 	pf.add(config.Finding{
 		Code: "proxmox.bridge_missing", Severity: config.SeverityError, Setting: SettingBridge,
 		Title:  fmt.Sprintf("node %s has no bridge called %q", node, want),
 		Detail: "a machine built there would have no network and could never enrol. It offers " + join(bridgeNames(bridges)) + ".",
-		Fix:    "use a bridge that exists on every node this provider places on.",
+		Fix:    fix,
 	})
 }
 

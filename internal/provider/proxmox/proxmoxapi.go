@@ -1052,7 +1052,10 @@ func (c *Client) Bridges(ctx context.Context, node string) ([]NetworkInterface, 
 	// reporting a bridge missing that is plainly there.
 	var all []NetworkInterface
 	if err := c.do(ctx, call{op: "list the network interfaces on " + node, ref: node, verb: http.MethodGet, path: path}, &all); err != nil {
-		return out, nil
+		// Not swallowed: an empty answer here that is really a refusal (the
+		// token lacks Sys.Audit on the node) would be reported as a missing
+		// bridge, and the operator would be sent to fix a setting that is right.
+		return nil, err
 	}
 	for _, n := range all {
 		if n.Type == "bridge" || n.Type == "OVSBridge" {

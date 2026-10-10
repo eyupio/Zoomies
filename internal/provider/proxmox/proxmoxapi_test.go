@@ -898,3 +898,18 @@ func TestBridgesAreFoundWhenTheFilteredListComesBackEmpty(t *testing.T) {
 		t.Fatalf("bridges = %+v, want vmbr0 and vmbr1 from the unfiltered list", got)
 	}
 }
+
+// When the filtered list is empty and the full one is refused, the refusal is
+// the answer. Treating it as "no bridges" blamed a setting that was right.
+func TestARefusedNetworkListIsReportedNotTakenForNoBridges(t *testing.T) {
+	f := newFakePVE(t, nil)
+	f.anyBridgeEmpty, f.networkForbidden = true, true
+
+	got, err := f.client(t).Bridges(context.Background(), "pve-1")
+	if err == nil {
+		t.Fatalf("Bridges = %+v with no error, want the refusal", got)
+	}
+	if kind := provider.KindOf(err); kind != provider.FailurePermission {
+		t.Errorf("kind = %q, want %q", kind, provider.FailurePermission)
+	}
+}

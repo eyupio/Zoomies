@@ -75,10 +75,13 @@ type fakePVE struct {
 	// anyBridgeEmpty makes the type=any_bridge filter answer nothing, as a
 	// restricted token's does, while the unfiltered list still has the bridge.
 	anyBridgeEmpty bool
-	perms          Permissions
-	errors         []injected
-	stalls         []injected
-	seq            int
+	// networkForbidden refuses the unfiltered list, as a token without Sys.Audit
+	// on the node is refused.
+	networkForbidden bool
+	perms            Permissions
+	errors           []injected
+	stalls           []injected
+	seq              int
 
 	agentSilent    bool
 	ambiguousClone bool
@@ -407,6 +410,10 @@ func (f *fakePVE) routes() map[string]http.HandlerFunc {
 			list, ok := f.bridges[r.PathValue("node")]
 			if !ok {
 				writeFailure(w, http.StatusNotFound, "no such node")
+				return
+			}
+			if f.networkForbidden && r.URL.Query().Get("type") == "" {
+				writeFailure(w, http.StatusForbidden, "Permission check failed (/nodes/"+r.PathValue("node")+", Sys.Audit)")
 				return
 			}
 			if f.anyBridgeEmpty && r.URL.Query().Get("type") == "any_bridge" {
