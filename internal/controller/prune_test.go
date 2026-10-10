@@ -241,7 +241,6 @@ func TestPruningTakesOldUpdateAttemptsButNeverAnOpenOne(t *testing.T) {
 func TestPruningKeepsTheFailuresThatHandAHostToAnOperator(t *testing.T) {
 	withVersion(t, "1.3.5")
 	h := newHarness(t)
-	var onTarget []*store.UpdateAttempt
 	for _, to := range []string{"v1.3.5", "v1.3.5", "v1.3.4"} {
 		a := &store.UpdateAttempt{Scope: store.UpdateScopeHost, HostID: "host_a", ToVersion: to, Trigger: store.UpdateTriggerAuto}
 		if err := h.st.CreateUpdateAttempt(h.ctx, a); err != nil {
@@ -249,9 +248,6 @@ func TestPruningKeepsTheFailuresThatHandAHostToAnOperator(t *testing.T) {
 		}
 		if ok, err := h.st.FinishUpdateAttempt(h.ctx, a.ID, store.UpdateFailed, "no space left on device"); err != nil || !ok {
 			t.Fatalf("FinishUpdateAttempt = %v, %v", ok, err)
-		}
-		if to == "v1.3.5" {
-			onTarget = append(onTarget, a)
 		}
 	}
 
