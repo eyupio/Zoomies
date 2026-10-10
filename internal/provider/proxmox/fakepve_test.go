@@ -78,6 +78,9 @@ type fakePVE struct {
 	// networkForbidden refuses the unfiltered list, as a token without Sys.Audit
 	// on the node is refused.
 	networkForbidden bool
+	// noBridgesVisible answers every network listing with nothing and no
+	// refusal, as a token without SDN.Use on the local network zone is.
+	noBridgesVisible bool
 	perms            Permissions
 	errors           []injected
 	stalls           []injected
@@ -411,6 +414,9 @@ func (f *fakePVE) routes() map[string]http.HandlerFunc {
 			if !ok {
 				writeFailure(w, http.StatusNotFound, "no such node")
 				return
+			}
+			if f.noBridgesVisible {
+				list = nil
 			}
 			if f.networkForbidden && r.URL.Query().Get("type") == "" {
 				writeFailure(w, http.StatusForbidden, "Permission check failed (/nodes/"+r.PathValue("node")+", Sys.Audit)")

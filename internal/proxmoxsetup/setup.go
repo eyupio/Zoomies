@@ -23,7 +23,13 @@ import (
 	"github.com/tailscale/tailcat"
 )
 
-const ProviderPrivileges = "Sys.Audit VM.Clone VM.Allocate VM.Audit VM.Config.Disk VM.Config.CPU VM.Config.Memory VM.Config.Network VM.Config.Options VM.PowerMgmt VM.GuestAgent.Unrestricted Datastore.Audit Datastore.AllocateSpace"
+// LocalNetworkPath is where Proxmox keeps permissions for the node's own
+// bridges. A token needs SDN.Use there to see a bridge and to attach a machine
+// to it, which is a different thing from being able to read the node: root sees
+// vmbr0 where a token without it is shown no bridges at all.
+const LocalNetworkPath = "/sdn/zones/localnetwork"
+
+const ProviderPrivileges = "Sys.Audit SDN.Use VM.Clone VM.Allocate VM.Audit VM.Config.Disk VM.Config.CPU VM.Config.Memory VM.Config.Network VM.Config.Options VM.PowerMgmt VM.GuestAgent.Unrestricted Datastore.Audit Datastore.AllocateSpace"
 
 var bridgeName = regexp.MustCompile(`^[A-Za-z0-9._-]{1,32}$`)
 
@@ -186,6 +192,9 @@ func Prepare(ctx context.Context, h Host, dir, key string) (*Connection, error) 
 			return nil, errors.New("proxmox setup: cannot grant the dedicated Proxmox user its provider permissions")
 		}
 	}
+	// Best effort: a Proxmox without the local network zone has no such path, and
+	// needs no grant on it. Whether it was needed is what the later check says.
+	_, _ = h.Run(ctx, "pveum", "acl", "modify", LocalNetworkPath, "--users", user, "--roles", role)
 	raw, err := h.Run(ctx, "pveum", "user", "token", "add", user, tokenName, "--privsep", "1", "--output-format", "json")
 	if err != nil {
 		// A crashed first attempt may have created a token whose secret was
@@ -223,6 +232,7 @@ func GrantToken(ctx context.Context, h Host, tokenID, role string) error {
 			return errors.New("proxmox setup: cannot grant the dedicated Proxmox token its provider permissions")
 		}
 	}
+	_, _ = h.Run(ctx, "pveum", "acl", "modify", LocalNetworkPath, "--tokens", tokenID, "--roles", role)
 	return nil
 }
 

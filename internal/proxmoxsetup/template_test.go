@@ -199,7 +199,7 @@ func TestVerifyAccessSavesNothingForATokenThatCannotDoTheWork(t *testing.T) {
 		}
 		return nil
 	})
-	if err != nil || len(granted) != 2 || !strings.Contains(strings.Join(granted, "\n"), "acl modify /nodes/pve --tokens zoomies-abc@pve!provider-1 --roles Zoomies-abc") {
+	if err != nil || len(granted) != 4 || !strings.Contains(strings.Join(granted, "\n"), "acl modify /nodes/pve --tokens zoomies-abc@pve!provider-1 --roles Zoomies-abc") || !strings.Contains(strings.Join(granted, "\n"), "acl modify /sdn/zones/localnetwork --tokens zoomies-abc@pve!provider-1 --roles Zoomies-abc") {
 		t.Fatalf("a repairable token: err=%v grants=%v", err, granted)
 	}
 

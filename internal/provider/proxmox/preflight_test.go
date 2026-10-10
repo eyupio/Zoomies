@@ -456,3 +456,22 @@ func TestSetupCheckSaysSoWhenTheTokenSeesNoStorage(t *testing.T) {
 		t.Fatalf("want exactly one storage finding, got %d in %+v", n, got)
 	}
 }
+
+// The real case on a 9.x node: root sees vmbr0, and the token is answered with an
+// empty list and no refusal, because it holds no SDN.Use on the local network
+// zone. The finding has to name that grant, not the node's Sys.Audit.
+func TestSetupCheckNamesSDNUseWhenTheTokenIsShownNoBridges(t *testing.T) {
+	f := newFakePVE(t, nil)
+	f.SetPermissions(setupPermissions())
+	f.noBridgesVisible = true
+	got := SetupCheck(context.Background(), f.client(t), SetupAnswers{Node: "pve-1", Bridge: "vmbr0", TemplateID: 9000, TemplateNode: "pve-1"})
+	var text string
+	for _, finding := range got {
+		text += finding.Title + " " + finding.Detail + " " + finding.Fix + "\n"
+	}
+	for _, want := range []string{"SDN.Use", "/sdn/zones/localnetwork"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the findings do not mention %q:\n%s", want, text)
+		}
+	}
+}
