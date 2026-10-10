@@ -28,6 +28,9 @@ export interface Turn {
   hidden?: string;
   /** The provider stopped the answer at its output ceiling before the model had finished. */
   cut?: boolean;
+  /** Who answered and the ceiling in force, so a cut answer can offer to raise it. */
+  providerId?: string;
+  outputLimit?: number;
   /** Questions the model proposed to ask next, once the answer is complete. */
   suggestions?: Suggestion[];
   error?: string;
@@ -106,6 +109,8 @@ export class Conversation {
             answer.fleetAccess = frame.fleetAccess;
             answer.hidden = hiddenNote(frame.redacted.credentials, frame.redacted.emails);
             answer.cut = frame.cut;
+            answer.providerId = frame.providerId;
+            answer.outputLimit = frame.outputLimit;
           } else answer.error = frame.message || 'The model stopped answering.';
         },
         controller.signal,
@@ -127,6 +132,17 @@ export class Conversation {
   /** Ask the last question again, replacing the answer that failed. */
   async retry(): Promise<void> {
     if (this.busy || !this.failed) return;
+    await this.resend();
+  }
+
+  /**
+   * Ask the last question again, replacing its answer, whatever that answer was:
+   * after the provider's limit was raised, the cut answer is the one to replace.
+   */
+  async resend(): Promise<void> {
+    if (this.busy) return;
+    const last = this.turns[this.turns.length - 1];
+    if (last?.role !== 'assistant') return;
     this.turns.pop();
     const question = this.turns.pop();
     if (question?.role === 'user') await this.send(question.content, question.context);

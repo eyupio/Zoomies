@@ -176,10 +176,13 @@ a hostile name can do is mislead an answer: check what you act on.
 ## Limits
 
 * One question may take at most six rounds of looking and twelve tool calls.
-* Each round may write at most 8,192 tokens, thinking included. A model that
-  reaches that ceiling is stopped by its provider, and Eli says so under the
-  answer rather than showing what arrived as the whole of it: a thinking model
-  at high effort can spend the ceiling on reasoning and send no words at all.
+* Each round may write at most the provider's **output limit**, 8,192 tokens
+  unless its form says otherwise (1,024 to 65,536), thinking included. A model
+  that reaches it is stopped by its provider, and Eli says so under the answer,
+  naming the provider and the limit, with a button that raises the limit on
+  your own provider and asks again: a thinking model at high effort can spend
+  the ceiling on reasoning and send no words at all. Lowering the provider's
+  reasoning effort is the cheaper cure.
 * A conversation is at most 40 messages, 8 KiB each and 32 KiB in all.
 * The conversation lives in your browser and is gone when you reload. The
   controller keeps nothing between questions.

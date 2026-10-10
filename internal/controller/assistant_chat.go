@@ -23,6 +23,11 @@ const (
 	assistantChatMaxMessageBytes = 8 << 10
 	assistantChatMaxTotalBytes   = 32 << 10
 	assistantChatMaxTokens       = 8192
+	// AssistantOutputTokensMin and Max bound what a provider row may ask for
+	// in one round: below the floor a thinking model cannot answer at all, and
+	// the ceiling is a cost a person should raise on purpose, not by a typo.
+	AssistantOutputTokensMin = 1024
+	AssistantOutputTokensMax = 65536
 	// assistantChatTimeout bounds a whole answer, not the wait for its first word:
 	// a local model on modest hardware is slow, and an answer that has not ended
 	// in this long is not one the person is still reading.
@@ -246,6 +251,17 @@ func (c *Controller) personalChatProvider(ctx context.Context, id string, owner 
 	return nil, ErrAssistantNoModel
 }
 
+// AssistantOutputLimit is how much a provider's model may write in one round:
+// what its row asks for, or the controller's default when the row says nothing.
+// It is said on the done frame, so a cut answer can tell the person what to
+// raise and on which provider.
+func AssistantOutputLimit(row *store.AssistantProvider) int {
+	if row.MaxOutputTokens > 0 {
+		return row.MaxOutputTokens
+	}
+	return assistantChatMaxTokens
+}
+
 // StartAssistantChat opens the answer to a conversation. Everything that can be
 // refused is refused here, before any stream exists, so the caller can answer
 // with a status and not with a stream that opens and fails.
@@ -290,7 +306,7 @@ func (c *Controller) StartAssistantChat(ctx context.Context, in AssistantChatReq
 		Model:     row.Model,
 		System:    assistantSystemPrompt,
 		Messages:  messages,
-		MaxTokens: assistantChatMaxTokens,
+		MaxTokens: AssistantOutputLimit(row),
 	}
 	// The administrator decides, per provider, whether the fleet may be read
 	// through it. Off, the model is not told there are tools and is not given any.
@@ -313,7 +329,7 @@ func (c *Controller) StartAssistantChat(ctx context.Context, in AssistantChatReq
 		shown = "its default model"
 	}
 	chat := &AssistantChat{
-		Provider: row.Name, ProviderID: row.ID, Model: shown,
+		Provider: row.Name, ProviderID: row.ID, Model: shown, OutputLimit: AssistantOutputLimit(row),
 		FleetAccess: len(req.Tools) > 0,
 		redacted:    hidden,
 		provider:    p, req: req, box: in.Tools, allowed: allowed, cancel: cancel,

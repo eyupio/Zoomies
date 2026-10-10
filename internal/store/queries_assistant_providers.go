@@ -26,6 +26,10 @@ type AssistantProvider struct {
 	// for the provider's default. It is the provider's to interpret: a thinking
 	// model at its default effort can spend an answer's whole room on reasoning.
 	ReasoningEffort string
+	// MaxOutputTokens is how much the model may write in one round, thinking
+	// included, or zero for the controller's default. The right number is the
+	// model's, and the cost of the room is the provider's price.
+	MaxOutputTokens int
 	// OwnerID is the account a provider belongs to, and empty for one that is
 	// shared by every administrator. Set when it is created and never changed.
 	OwnerID       string
@@ -35,7 +39,7 @@ type AssistantProvider struct {
 	UpdatedAt     time.Time
 }
 
-const assistantProviderCols = `id, name, kind, base_url, model, key_enc, enabled, is_default, fleet_access, reasoning_effort, owner_id,
+const assistantProviderCols = `id, name, kind, base_url, model, key_enc, enabled, is_default, fleet_access, reasoning_effort, max_output_tokens, owner_id,
 	last_check, last_checked_at, created_at, updated_at`
 
 func scanAssistantProvider(sc interface{ Scan(...any) error }) (*AssistantProvider, error) {
@@ -44,7 +48,7 @@ func scanAssistantProvider(sc interface{ Scan(...any) error }) (*AssistantProvid
 	var created, updated int64
 	var check sql.NullString
 	var checked sql.NullInt64
-	if err := sc.Scan(&p.ID, &p.Name, &p.Kind, &p.BaseURL, &p.Model, &p.KeyEnc, &enabled, &isDefault, &fleetAccess, &p.ReasoningEffort, &p.OwnerID,
+	if err := sc.Scan(&p.ID, &p.Name, &p.Kind, &p.BaseURL, &p.Model, &p.KeyEnc, &enabled, &isDefault, &fleetAccess, &p.ReasoningEffort, &p.MaxOutputTokens, &p.OwnerID,
 		&check, &checked, &created, &updated); err != nil {
 		return nil, err
 	}
@@ -95,9 +99,9 @@ func (s *Store) CreateAssistantProvider(ctx context.Context, p *AssistantProvide
 	now := s.Now()
 	p.CreatedAt, p.UpdatedAt = now, now
 	_, err := s.exec(ctx, `INSERT INTO assistant_providers
-		(id, name, kind, base_url, model, enabled, is_default, fleet_access, reasoning_effort, owner_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), boolInt(p.FleetAccess), p.ReasoningEffort, p.OwnerID, ms(now), ms(now))
+		(id, name, kind, base_url, model, enabled, is_default, fleet_access, reasoning_effort, max_output_tokens, owner_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), boolInt(p.FleetAccess), p.ReasoningEffort, p.MaxOutputTokens, p.OwnerID, ms(now), ms(now))
 	return wrapWrite(err)
 }
 
@@ -109,8 +113,8 @@ func (s *Store) CreateAssistantProvider(ctx context.Context, p *AssistantProvide
 func (s *Store) UpdateAssistantProvider(ctx context.Context, p *AssistantProvider) error {
 	now := s.Now()
 	res, err := s.exec(ctx, `UPDATE assistant_providers
-		SET name=?, kind=?, base_url=?, model=?, enabled=?, fleet_access=?, reasoning_effort=?, updated_at=? WHERE id=?`,
-		p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), boolInt(p.FleetAccess), p.ReasoningEffort, ms(now), p.ID)
+		SET name=?, kind=?, base_url=?, model=?, enabled=?, fleet_access=?, reasoning_effort=?, max_output_tokens=?, updated_at=? WHERE id=?`,
+		p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), boolInt(p.FleetAccess), p.ReasoningEffort, p.MaxOutputTokens, ms(now), p.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}

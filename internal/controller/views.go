@@ -2095,6 +2095,9 @@ type AssistantProviderView struct {
 	// ReasoningEffort is how hard the model is told to think, in the provider's
 	// words, or empty for its default.
 	ReasoningEffort string `json:"reasoning_effort"`
+	// MaxOutputTokens is how much the model may write in one round, or zero
+	// for the controller's default.
+	MaxOutputTokens int `json:"max_output_tokens"`
 	// Subscription is a provider that is somebody's own subscription, used through
 	// the vendor's own tool on this machine. Owner says whose, and OwnedByYou whether
 	// the person asking is the one who may use it. Usable is the same question for
@@ -2113,7 +2116,7 @@ func (c *Controller) AssistantProviderView(p *store.AssistantProvider) Assistant
 	v := AssistantProviderView{
 		ID: p.ID, OwnerID: p.OwnerID, Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, Model: p.Model,
 		KeyConfigured: len(p.KeyEnc) > 0, Enabled: p.Enabled, IsDefault: p.IsDefault,
-		Local: assistantAddressIsLocal(p.BaseURL), FleetAccess: p.FleetAccess, ReasoningEffort: p.ReasoningEffort,
+		Local: assistantAddressIsLocal(p.BaseURL), FleetAccess: p.FleetAccess, ReasoningEffort: p.ReasoningEffort, MaxOutputTokens: p.MaxOutputTokens,
 		Subscription: assistant.Subscription(assistant.Kind(p.Kind)),
 		Usable:       p.OwnerID == "",
 		CreatedAt:    p.CreatedAt, UpdatedAt: p.UpdatedAt,

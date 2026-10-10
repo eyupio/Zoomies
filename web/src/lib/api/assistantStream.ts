@@ -22,6 +22,9 @@ export type ChatFrame =
       redacted: { credentials: number; emails: number };
       /** The provider stopped the answer at its output ceiling, not because the model had finished. */
       cut: boolean;
+      /** The provider that answered, and the ceiling in force, so a cut answer can say what to raise. */
+      providerId: string;
+      outputLimit: number;
     }
   | { kind: 'error'; message: string };
 
@@ -91,6 +94,8 @@ function parseBlock(block: string): ChatFrame | undefined {
           emails: wholeCount(redacted['emails']),
         },
         cut: payload['cut'] === true,
+        providerId: text('provider_id'),
+        outputLimit: wholeCount(payload['output_limit']),
       };
     }
     case 'error':

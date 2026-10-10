@@ -3157,9 +3157,11 @@ export interface paths {
          *     every round when the assistant looked at the fleet), `tool` frames with
          *     `{"name", "status"}` as it looks (`running`, then `done` or `failed`), and a final
          *     `done` frame with the provider's name and the model, `fleet_access` (whether the
-         *     fleet could be read through this provider), the `tools` it used and `cut` (true when
+         *     fleet could be read through this provider), the `tools` it used, `cut` (true when
          *     the provider stopped the answer at its output ceiling before the model had
-         *     finished, which a thinking model can reach with no words sent), or an `error`
+         *     finished, which a thinking model can reach with no words sent), and `provider_id`
+         *     with `output_limit`, the provider that answered and the ceiling in force, so a
+         *     cut answer can say what to raise, or an `error`
          *     frame with a `message` if the answer failed after it began (the status had gone
          *     out with the first byte by then).
          *
@@ -3361,9 +3363,11 @@ export interface paths {
          *     reporting read-only fleet lookups when enabled, and a final `done` frame with
          *     the provider's name, model, `fleet_access`, `tools`, `redacted` (how many
          *     `credentials` and `emails` were replaced with a marker before the model saw the
-         *     latest question and what the tools returned) and `cut` (true when the provider
+         *     latest question and what the tools returned), `cut` (true when the provider
          *     stopped the answer at its output ceiling before the model had finished, which a
-         *     thinking model can reach with no words sent), or an `error` frame with a
+         *     thinking model can reach with no words sent), and `provider_id` with
+         *     `output_limit`, the provider that answered and the ceiling in force, so a cut
+         *     answer can say what to raise, or an `error` frame with a
          *     `message` if the answer failed after it began (the status had gone out with the
          *     first byte by then).
          *
@@ -9396,6 +9400,8 @@ export interface components {
              * @enum {string}
              */
             reasoning_effort: "" | "none" | "low" | "medium" | "high";
+            /** @description How much the model may write in one round of a chat, thinking included, as the request's `max_tokens`; 0 is the controller's default of 8,192. From 1,024 to 65,536. A thinking model's reasoning counts against it, and an answer that reaches it is reported as cut, with this provider and the limit in force, so the person can raise it. Refused on the subscription kinds, whose tool decides. */
+            max_output_tokens: number;
             /** @description Somebody's own subscription, used through the vendor's own tool on the controller's machine. Such a provider belongs to the person who added it. */
             subscription: boolean;
             /** @description The username a personal provider belongs to. */
@@ -9482,6 +9488,8 @@ export interface components {
              * @enum {string}
              */
             reasoning_effort?: "" | "none" | "low" | "medium" | "high";
+            /** @description How much the model may write in one round, from 1,024 to 65,536, or 0 for the controller's default of 8,192. Refused with a `max_output_tokens` field error on a subscription kind, whose tool decides, rather than ignored. */
+            max_output_tokens?: number;
             /** @description Sealed with the instance key and never returned. An empty string leaves the stored key alone, so a form with a blank key box does not erase it. */
             api_key?: string;
         };

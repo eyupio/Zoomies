@@ -63,6 +63,8 @@
   let fleetAccess = $state(false);
   /** How hard the model should think, in the provider's words; empty is its default. */
   let reasoningEffort = $state('');
+  /** How much the model may write in one round; empty is the controller's default. */
+  let maxOutputTokens = $state('');
 
   let kinds = $state<readonly { kind: AssistantProviderKind; default_base_url: string }[]>([]);
   // The provider's own list of models, once it has been asked. Empty means not
@@ -97,6 +99,7 @@
       enabled = r ? r.enabled : true;
       fleetAccess = r ? r.fleet_access : false;
       reasoningEffort = r ? (r.reasoning_effort ?? '') : '';
+      maxOutputTokens = r && r.max_output_tokens ? String(r.max_output_tokens) : '';
       errors = {};
       refusal = '';
       tested = '';
@@ -169,6 +172,7 @@
       apiKey = '';
       fleetAccess = false;
       reasoningEffort = '';
+      maxOutputTokens = '';
       if (model.trim() === '') model = after.defaultModel ?? '';
       if (after.listsModels) void loadModels();
       return;
@@ -186,6 +190,7 @@
       enabled,
       fleet_access: fleetAccess,
       reasoning_effort: reasoningEffort,
+      max_output_tokens: maxOutputTokens.trim() === '' ? 0 : Number(maxOutputTokens),
     };
     // Absent leaves the sealed key alone; a new provider sends what it has.
     if (apiKey !== '' || !editing) body.api_key = apiKey;
@@ -359,6 +364,26 @@
             // The key is the last thing the list needs; ask when it has been typed.
             if (apiKey !== '' && models.length === 0) void loadModels();
           }}
+        />
+      </Field>
+    {/if}
+
+    {#if !subscription}
+      <Field
+        id="assistant-max-output-tokens"
+        label="Output limit"
+        hint="How much the model may write in one round, thinking included, from 1,024 to 65,536 tokens. Empty is 8,192. A thinking model's reasoning counts against it; an answer that reaches it is reported as cut, with a button to raise this."
+        error={errors.max_output_tokens}
+      >
+        <Input
+          id="assistant-max-output-tokens"
+          type="number"
+          inputmode="numeric"
+          min={1024}
+          max={65536}
+          step={1024}
+          placeholder="8192"
+          bind:value={maxOutputTokens}
         />
       </Field>
     {/if}

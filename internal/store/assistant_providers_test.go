@@ -198,3 +198,28 @@ func TestAProvidersReasoningEffortIsKeptWithTheRow(t *testing.T) {
 		t.Errorf("created with an effort, read back %q", got.ReasoningEffort)
 	}
 }
+
+// How much the model may write in one round is the provider's to keep, and a
+// row that never said is zero, which the controller reads as its default.
+func TestAProvidersOutputLimitIsKeptWithTheRow(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	p := seedAssistantProvider(t, s, "DeepSeek")
+	if got, _ := s.GetAssistantProvider(ctx, p.ID); got.MaxOutputTokens != 0 {
+		t.Fatalf("a new row's limit = %d", got.MaxOutputTokens)
+	}
+	p.MaxOutputTokens = 16384
+	if err := s.UpdateAssistantProvider(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetAssistantProvider(ctx, p.ID); got.MaxOutputTokens != 16384 {
+		t.Errorf("after update, limit = %d", got.MaxOutputTokens)
+	}
+	q := &AssistantProvider{Name: "Created", Kind: "openai", Model: "m", Enabled: true, MaxOutputTokens: 4096}
+	if err := s.CreateAssistantProvider(ctx, q); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.GetAssistantProvider(ctx, q.ID); got.MaxOutputTokens != 4096 {
+		t.Errorf("created with a limit, read back %d", got.MaxOutputTokens)
+	}
+}

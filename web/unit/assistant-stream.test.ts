@@ -24,17 +24,29 @@ test('the frames of an answer are read in order', () => {
       tools: [],
       redacted: { credentials: 0, emails: 0 },
       cut: false,
+      providerId: '',
+      outputLimit: 0,
     },
   ]);
 });
 
 // A provider that stopped the answer at its output ceiling says so on the done
 // frame, so the page can say it rather than show silence as a finished answer.
-test('a done frame says when the answer was cut', () => {
+test('a done frame says when the answer was cut, on which provider, and at what limit', () => {
   const p = new FrameParser();
-  const [got] = p.push(frame('done', { provider: 'Ollama', model: 'llama3', cut: true }));
+  const [got] = p.push(
+    frame('done', {
+      provider: 'Ollama',
+      model: 'llama3',
+      cut: true,
+      provider_id: 'asp_1',
+      output_limit: 8192,
+    }),
+  );
   assert.equal(got?.kind, 'done');
   assert.equal(got?.kind === 'done' && got.cut, true);
+  assert.equal(got?.kind === 'done' && got.providerId, 'asp_1');
+  assert.equal(got?.kind === 'done' && got.outputLimit, 8192);
 });
 
 test('a frame cut anywhere by the network is read once it is whole', () => {
@@ -54,6 +66,10 @@ test('a frame cut anywhere by the network is read once it is whole', () => {
           tools: [],
           redacted: { credentials: 0, emails: 0 },
           cut: false,
+          providerId: '',
+          outputLimit: 0,
+          providerId: '',
+          outputLimit: 0,
         },
       ],
       `cut at ${cut}`,
@@ -110,6 +126,8 @@ test('a look at the fleet is a frame, and the end says which tools were used', (
       tools: ['fleet_status', 'list_jobs'],
       redacted: { credentials: 0, emails: 0 },
       cut: false,
+      providerId: '',
+      outputLimit: 0,
     },
   ]);
 });
@@ -129,6 +147,8 @@ test('the end says how many credentials and email addresses were hidden, and not
     tools: [],
     redacted: { credentials: 2, emails: 1 },
     cut: false,
+    providerId: '',
+    outputLimit: 0,
   });
   for (const odd of [
     undefined,

@@ -109,6 +109,15 @@
           title="Sent as reasoning_effort on every request; the provider reads the word."
         />
       {/if}
+      {#if provider.max_output_tokens}
+        <Badge
+          tone="neutral"
+          label={`Writes up to ${provider.max_output_tokens.toLocaleString()} tokens`}
+          size="sm"
+          dot={false}
+          title="How much the model may write in one round, thinking included."
+        />
+      {/if}
       {#if !provider.enabled}
         <Badge
           tone="neutral"

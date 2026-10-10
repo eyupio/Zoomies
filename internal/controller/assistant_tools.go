@@ -88,6 +88,9 @@ type AssistantChat struct {
 	Model      string
 	// FleetAccess is whether Eli was offered the fleet's tools in this chat.
 	FleetAccess bool
+	// OutputLimit is how much the model may write in one round of this chat,
+	// so a cut answer can say what to raise.
+	OutputLimit int
 
 	provider assistant.Provider
 	req      assistant.Request

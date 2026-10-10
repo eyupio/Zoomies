@@ -116,7 +116,7 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 			send("done", map[string]any{
 				"provider": chat.Provider, "model": chat.Model, "fleet_access": chat.FleetAccess, "tools": chat.ToolsUsed(),
 				"redacted": map[string]int{"credentials": hidden.Credentials, "emails": hidden.Emails},
-				"cut":      ev.Cut,
+				"cut":      ev.Cut, "provider_id": chat.ProviderID, "output_limit": chat.OutputLimit,
 			})
 			return
 		case ev.Delta != "":
