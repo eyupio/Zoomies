@@ -20,6 +20,7 @@
   import CopyButton from '$lib/components/CopyButton.svelte';
   import type { Conversation } from './conversation.svelte';
   import EliAvatar from './EliAvatar.svelte';
+  import EliThinking from './EliThinking.svelte';
   import Markdown from './Markdown.svelte';
   import { followUps } from './prompts';
   import { toolLabel } from './tools';
@@ -130,8 +131,9 @@
       {#if conversation.turns.length === 0}
         <div class="hello">
           <EliAvatar size={48} />
-          <p class="title">Hi, I'm Eli</p>
+          <p class="title">Hi, I'm Eli. Your fleet's best friend.</p>
           <p class="sub">
+            Big ears, little paws, a nose for tricky questions.
             {#if fleetAccess}
               Ask me about Zoomies, GitHub Actions or this fleet. I can look at its runners, jobs,
               pools and hosts, and I only read in this chat.
@@ -204,10 +206,7 @@
               {#if turn.content}
                 <Markdown source={turn.content} />
               {:else if turn.streaming}
-                <p class="thinking">
-                  <span class="dots" aria-hidden="true"><i></i><i></i><i></i></span>
-                  <span class="sr-only">Eli is thinking</span>
-                </p>
+                <EliThinking />
               {/if}
               {#if turn.error}
                 <p class="error" role="alert">{turn.error}</p>
@@ -506,46 +505,6 @@
   }
   @media (prefers-reduced-motion: reduce) {
     .looks :global(.spin) {
-      animation: none;
-    }
-  }
-
-  .thinking {
-    display: flex;
-    align-items: center;
-    height: var(--z-leading-base);
-  }
-  .dots {
-    display: inline-flex;
-    gap: var(--z-space-1);
-  }
-  .dots i {
-    width: 6px;
-    height: 6px;
-    background: var(--z-text-subtle);
-    border-radius: var(--z-radius-full);
-    animation: bounce 1.1s var(--z-ease) infinite;
-  }
-  .dots i:nth-child(2) {
-    animation-delay: 0.15s;
-  }
-  .dots i:nth-child(3) {
-    animation-delay: 0.3s;
-  }
-  @keyframes bounce {
-    0%,
-    60%,
-    100% {
-      opacity: 0.35;
-      transform: translateY(0);
-    }
-    30% {
-      opacity: 1;
-      transform: translateY(-3px);
-    }
-  }
-  @media (prefers-reduced-motion: reduce) {
-    .dots i {
       animation: none;
     }
   }

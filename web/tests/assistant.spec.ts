@@ -673,3 +673,38 @@ test('changing the personal default updates an already open Eli panel', async ({
     });
   }
 });
+
+test('Eli has a circular launcher and can roam without leaving the viewport', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'Phones use the full-screen conversation.');
+  await goto(page, '/settings/assistant', 'Assistant');
+  const launcher = page.getByRole('button', { name: 'Ask Eli' });
+  const circle = await launcher.boundingBox();
+  expect(circle!.width).toBe(circle!.height);
+  await openEli(page);
+  const panel = page.getByRole('dialog', { name: 'Eli assistant' });
+  const handle = panel.getByRole('button', { name: 'Move Eli panel using arrow keys or drag' });
+  const before = await panel.boundingBox();
+  await handle.focus();
+  await handle.press('ArrowLeft');
+  await expect.poll(async () => (await panel.boundingBox())!.x).toBe(before!.x - 10);
+  const grip = await handle.boundingBox();
+  await page.mouse.move(grip!.x + 20, grip!.y + 20);
+  await page.mouse.down();
+  await page.mouse.move(30, 40, { steps: 8 });
+  await page.mouse.up();
+  await expect.poll(async () => (await panel.boundingBox())!.x).toBeLessThan(before!.x - 10);
+  await page.setViewportSize({ width: 800, height: 600 });
+  await expect
+    .poll(async () => {
+      const rect = (await panel.boundingBox())!;
+      return (
+        rect.x >= 0 && rect.y >= 0 && rect.x + rect.width <= 801 && rect.y + rect.height <= 601
+      );
+    })
+    .toBe(true);
+  await panel.getByRole('button', { name: 'Place Eli on the right' }).click();
+  await expect.poll(async () => (await panel.boundingBox())!.x).toBeGreaterThan(100);
+});

@@ -1312,7 +1312,12 @@ Playwright suite asserts on, so the picture and the tests stay honest together.
 
 ### Eli's contextual assistant
 
-Every user can open Eli from any page. The panel offers Compact, Default
+Every user can open Eli from the circular dog button on any page. Drag the
+identity in the panel header to move it, or focus it and use arrow keys (Shift
+for larger steps). The panel stays within the viewport when moved or resized;
+left and right placement reset its position. Thinking includes dog zoomies and
+rotating playful quotes, with animations disabled for reduced motion.
+The panel offers Compact, Default
 and Expanded sizes, left or right placement, manual corner resizing and a
 full-screen view. Size and side are browser preferences. A phone uses the whole
 screen. Minimising or navigating preserves the conversation and draft; a reload,
