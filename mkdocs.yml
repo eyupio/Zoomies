@@ -1,10 +1,10 @@
 # The zoomies.sh site.
 #
 # It publishes the docs that already live in docs/ rather than a second copy of
-# them, so the website cannot drift from the repository. install.sh is copied to
-# the site root by the deploy workflow, again from the one in the repository
-# root, so `curl -fsSL https://zoomies.sh/install.sh | sh` and the file a
-# contributor edits are the same file.
+# them, so the website cannot drift from the repository. install.sh and
+# install.ps1 are copied to the site root by the deploy workflow, again from the
+# ones in the repository root, so `curl -fsSL https://zoomies.sh/install.sh | sh`
+# and the file a contributor edits are the same file.
 
 site_name: Zoomies
 site_url: https://zoomies.sh/

@@ -401,7 +401,7 @@ run it again, that is your call to make.
 | `hosts uncordon <host-id>` | Let it accept runners again. |
 | `hosts drain <host-id> [--yes]` | Cordon it, then drain every runner on it, so it empties as its jobs finish. The order matters: draining an uncordoned host means the scheduler puts fresh runners on it while the old ones are still going. Each runner gets five minutes to finish what it is on; a longer job is stopped, which is what makes the host actually empty. A runner that is busy is only drained with `--yes`; without it that runner is refused and the host stays cordoned. |
 | `hosts delete <host-id>` | Forget it. Refused while it has live runners, unless `--force`. |
-| `hosts join-token create` | Mint a single-use join token: `--ttl` (`15m`), `--capacity` (`2`), `--labels`, `--controller`. Shown once; only its hash is stored. |
+| `hosts join-token create` | Mint a single-use join token: `--ttl` (`15m`), `--capacity` (`2`), `--labels`, `--controller`, `--os` (`linux`, `windows` or `all`). Shown once; only its hash is stored. |
 
 ### `zoomies updates`
 

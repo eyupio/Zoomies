@@ -142,7 +142,7 @@ jobs:
               # exercised by the upgrade test. No Go test reads it, and no
               # binary or image carries it: the site serves it, and the site's
               # own workflow rebuilds when it changes.
-              install.sh|connect-proxmox.sh|test/install/*|test/upgrade/*) installer=true ;;
+              install.sh|install.ps1|connect-proxmox.sh|test/install/*|test/upgrade/*) installer=true ;;
               # Prose, and the workflows. internal/docs tests the problem-code
               # table, the README, the workflows and the roadmap against the
               # code, and internal/naming the image table; those two packages
@@ -543,7 +543,7 @@ jobs:
     name: Windows
     runs-on: windows-latest
     needs: [changes]
-    if: github.event.action != 'closed' && needs.changes.outputs.go == 'true'
+    if: github.event.action != 'closed' && (needs.changes.outputs.go == 'true' || needs.changes.outputs.installer == 'true')
     timeout-minutes: 60
     defaults:
       run:
@@ -571,6 +571,26 @@ jobs:
       # own; the test proves it holds across processes.
       - name: The database lock holds between processes
         run: go test -count=1 -run TestTheDatabaseLock ./internal/store/
+      # install.ps1 is what the Add a host dialog tells a Windows operator to
+      # paste, so it gets the same three checks install.sh does: lint, unit
+      # tests, and one real run. Pester ships on the runner image; the analyzer
+      # is pinned so a new rule cannot fail a change that did not touch the script.
+      - name: install.ps1 lint and unit tests
+        shell: pwsh
+        run: |
+          Install-Module PSScriptAnalyzer -RequiredVersion 1.23.0 -Force -Scope CurrentUser
+          $findings = foreach ($file in 'install.ps1', 'test/install/install.Tests.ps1', 'test/install/windows-smoke.ps1') {
+            Invoke-ScriptAnalyzer -Path $file -Settings test/install/PSScriptAnalyzerSettings.psd1
+          }
+          $findings | Format-Table RuleName, ScriptName, Line, Message -AutoSize -Wrap
+          if ($findings) { throw "PSScriptAnalyzer found $(@($findings).Count) problem(s)" }
+          Invoke-Pester -Path test/install/install.Tests.ps1 -CI -Output Detailed
+      # The Windows leg of the end-to-end claim: the script, run elevated against a
+      # real controller built from this commit, registers and starts the service,
+      # upgrades without enrolling again, and uninstalls.
+      - name: install.ps1 joins a controller, upgrades and uninstalls
+        shell: pwsh
+        run: ./test/install/windows-smoke.ps1 -Binary ./zoomies.exe
 
   upgrade:
     name: Upgrade

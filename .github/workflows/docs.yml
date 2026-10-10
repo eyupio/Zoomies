@@ -1,9 +1,9 @@
 name: Website
 
 # Publishes zoomies.sh from the docs that live in docs/, so the site cannot
-# drift from the repository, and serves install.sh from the site root -- copied
-# from the one in the repository root, so the script people curl and the script
-# a contributor edits are the same file.
+# drift from the repository, and serves install.sh and install.ps1 from the site
+# root -- copied from the ones in the repository root, so the script people curl
+# (or irm) and the script a contributor edits are the same file.
 
 on:
   push:
@@ -14,6 +14,7 @@ on:
       - "hooks/**"
       - "mkdocs.yml"
       - "install.sh"
+      - "install.ps1"
       - "connect-proxmox.sh"
       - ".github/workflows/docs.yml"
   pull_request:
@@ -24,6 +25,7 @@ on:
       - "hooks/**"
       - "mkdocs.yml"
       - "install.sh"
+      - "install.ps1"
       - "connect-proxmox.sh"
       - ".github/workflows/docs.yml"
   # The header names the latest release, resolved when the site is built
@@ -153,6 +155,8 @@ jobs:
           cp install.sh site/install.sh
           # A courtesy alias, because people type both.
           cp install.sh site/install
+          # The same for Windows: `irm https://zoomies.sh/install.ps1`.
+          cp install.ps1 site/install.ps1
           # The provider wizard's short Proxmox command fetches this one.
           cp connect-proxmox.sh site/connect-proxmox.sh
           # The custom domain. Without this file Pages serves the repo path.
@@ -179,6 +183,9 @@ jobs:
 
       - name: The published install.sh is byte-identical to the repository's
         run: cmp install.sh site/install.sh
+
+      - name: The published install.ps1 is byte-identical to the repository's
+        run: cmp install.ps1 site/install.ps1
 
       - name: It is still valid POSIX sh after publishing
         run: dash -n site/install.sh
