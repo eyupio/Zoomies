@@ -202,6 +202,19 @@
     display: flex;
     flex-wrap: wrap;
     gap: var(--z-space-2);
+    min-width: 0;
+    max-width: 100%;
+  }
+  /* A kind's label can be longer than the card ("OpenAI-compatible server
+     (Ollama, LM Studio, vLLM, OpenRouter)"), and a badge is one unbreakable
+     line of fixed height, so it spilled out of the card. Here it may wrap and
+     grow instead. */
+  .badges :global(.badge) {
+    max-width: 100%;
+    height: auto;
+    min-height: var(--z-space-4);
+    white-space: normal;
+    overflow-wrap: anywhere;
   }
   .meta {
     display: flex;
