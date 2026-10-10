@@ -65,6 +65,24 @@ func TestTheNewFieldsAreOmittedFromOlderShapes(t *testing.T) {
 	if strings.Contains(string(beat), `"update"`) {
 		t.Errorf("a heartbeat with no update to report carries the key: %s", beat)
 	}
+
+	// The answer grows update_held, which an older agent has never heard of: a
+	// controller holding nothing sends no key, and one holding a report sends a
+	// key the older agent's decoder passes over.
+	answer, err := json.Marshal(HeartbeatResponse{OK: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(answer), `"update_held"`) {
+		t.Errorf("an answer that holds nothing carries the key: %s", answer)
+	}
+	var older struct {
+		OK       bool `json:"ok"`
+		Cordoned bool `json:"cordoned"`
+	}
+	if err := json.Unmarshal([]byte(`{"ok":true,"cordoned":false,"update_held":true}`), &older); err != nil || !older.OK {
+		t.Errorf("an older agent decoding an answer that holds its report got %+v, %v", older, err)
+	}
 }
 
 func TestAnUpdateReportRoundTripsOnAHeartbeat(t *testing.T) {
