@@ -664,7 +664,8 @@ everybody, marked rather than hidden.
 
 ### Assistant
 
-Where an administrator connects the model the assistant talks to. A new provider
+Where each user connects their personal model. Administrators also configure
+installation providers for automatic PR repairs. A new provider
 starts as **Ollama Cloud** with its address already filled in; **OpenCode Go**,
 a local or other OpenAI-compatible server, Anthropic and OpenAI are one choice
 away, and an address or name you have already typed is never overwritten by
@@ -683,7 +684,15 @@ in a new tab) and never as markup the page runs. The view follows an answer as i
 arrives and stops following when you scroll up to read, with a **Latest** button
 to return. **Stop** ends an answer, **Try again** asks a failed one a second time,
 and **New conversation** clears the page. Eli cannot see the fleet yet and says
-so; the conversation lives in the page and is gone when you leave it.
+so. Ask Eli buttons share displayed host, runner or problem facts when requested.
+The floating widget follows you between pages, with one-click size presets and
+left or right placement. Follow-on prompts continue the current topic. The
+conversation lives in memory and is cleared on sign-out.
+
+The same settings page links your GitHub account, asks you to confirm personal
+provider use and shows PR repair history. Administrators configure repository
+policies and automatic repair budgets. See [Eli conversations and PR repairs](eli.md)
+for setup, GitHub permissions and repair limits.
 
 ### Backups
 

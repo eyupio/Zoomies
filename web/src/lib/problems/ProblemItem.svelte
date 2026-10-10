@@ -3,6 +3,7 @@
   and a way to get to the thing it is about.
 -->
 <script lang="ts">
+  import AskEli from '$lib/assistant/AskEli.svelte';
   import { Clock, Layers, Undo2, Wrench, X } from '@lucide/svelte';
   import type { Problem } from '$lib/api/types';
   import { kennelListHref } from '$lib/kennel/pages';
@@ -203,6 +204,18 @@
         </span>
       </p>
     {/if}
+    <AskEli
+      context={{
+        kind: 'problem',
+        title: problem.title,
+        facts: {
+          Code: problem.code,
+          Detail: problem.detail,
+          'Suggested fix': problem.fix,
+          Setting: problem.setting,
+        },
+      }}
+    />
     <p class="meta">
       <code>{problem.code}</code>
       {#if problem.setting}<code>{problem.setting}</code>{/if}

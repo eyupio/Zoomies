@@ -62,6 +62,7 @@ type AssistantChatMessage struct {
 type AssistantChatRequest struct {
 	// ProviderID names the provider to ask, or is empty for the default.
 	ProviderID string
+	OwnerID    string
 	Messages   []AssistantChatMessage
 }
 
@@ -133,7 +134,7 @@ func ValidateAssistantChat(in []AssistantChatMessage) ([]assistant.Message, erro
 
 // chatProvider is the provider a chat is for: the one named, or the default.
 // A disabled provider is not one to answer, whichever way it was asked for.
-func (c *Controller) chatProvider(ctx context.Context, id string) (*store.AssistantProvider, error) {
+func (c *Controller) chatProvider(ctx context.Context, id string, owner string) (*store.AssistantProvider, error) {
 	if id != "" {
 		row, err := c.st.GetAssistantProvider(ctx, id)
 		if errors.Is(err, store.ErrNotFound) {
@@ -142,7 +143,7 @@ func (c *Controller) chatProvider(ctx context.Context, id string) (*store.Assist
 		if err != nil {
 			return nil, err
 		}
-		if !row.Enabled {
+		if !row.Enabled || row.OwnerID != owner {
 			return nil, ErrAssistantNoModel
 		}
 		return row, nil
@@ -152,7 +153,7 @@ func (c *Controller) chatProvider(ctx context.Context, id string) (*store.Assist
 		return nil, err
 	}
 	for _, row := range rows {
-		if row.IsDefault && row.Enabled {
+		if row.IsDefault && row.Enabled && row.OwnerID == owner {
 			return row, nil
 		}
 	}
@@ -170,7 +171,7 @@ func (c *Controller) StartAssistantChat(ctx context.Context, in AssistantChatReq
 	if err != nil {
 		return nil, err
 	}
-	row, err := c.chatProvider(ctx, in.ProviderID)
+	row, err := c.chatProvider(ctx, in.ProviderID, in.OwnerID)
 	if err != nil {
 		return nil, err
 	}

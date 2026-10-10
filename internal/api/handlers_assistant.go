@@ -95,6 +95,9 @@ func (s *Server) handleListAssistantProviders(w http.ResponseWriter, r *http.Req
 	}
 	items := make([]controller.AssistantProviderView, 0, len(rows))
 	for _, row := range rows {
+		if row.OwnerID != s.assistantOwner(r) {
+			continue
+		}
 		items = append(items, s.ctrl.AssistantProviderView(row))
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"items": items})
@@ -109,7 +112,7 @@ func (s *Server) handleAssistantProviderKinds(w http.ResponseWriter, r *http.Req
 }
 
 func (s *Server) handleGetAssistantProvider(w http.ResponseWriter, r *http.Request) {
-	row, err := s.ctrl.Store().GetAssistantProvider(r.Context(), chiURLParam(r, "id"))
+	row, err := s.ownedAssistantProvider(r, chiURLParam(r, "id"))
 	if err != nil {
 		s.fail(w, r, "reading the assistant provider", err)
 		return
@@ -122,7 +125,7 @@ func (s *Server) handleCreateAssistantProvider(w http.ResponseWriter, r *http.Re
 	if !decode(w, r, &in) {
 		return
 	}
-	p := &store.AssistantProvider{Enabled: true}
+	p := &store.AssistantProvider{Enabled: true, OwnerID: s.assistantOwner(r)}
 	in.apply(p)
 	if errs := s.validateAssistantProvider(p, true); len(errs) > 0 {
 		unprocessable(w, "this provider cannot be created as described", errs)
@@ -148,7 +151,7 @@ func (s *Server) handleCreateAssistantProvider(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Server) handleUpdateAssistantProvider(w http.ResponseWriter, r *http.Request) {
-	row, err := s.ctrl.Store().GetAssistantProvider(r.Context(), chiURLParam(r, "id"))
+	row, err := s.ownedAssistantProvider(r, chiURLParam(r, "id"))
 	if err != nil {
 		s.fail(w, r, "reading the assistant provider", err)
 		return
@@ -205,7 +208,7 @@ type deleteAssistantProviderRequest struct {
 }
 
 func (s *Server) handleDeleteAssistantProvider(w http.ResponseWriter, r *http.Request) {
-	row, err := s.ctrl.Store().GetAssistantProvider(r.Context(), chiURLParam(r, "id"))
+	row, err := s.ownedAssistantProvider(r, chiURLParam(r, "id"))
 	if err != nil {
 		s.fail(w, r, "reading the assistant provider", err)
 		return
@@ -227,7 +230,7 @@ func (s *Server) handleDeleteAssistantProvider(w http.ResponseWriter, r *http.Re
 }
 
 func (s *Server) handleCheckAssistantProvider(w http.ResponseWriter, r *http.Request) {
-	row, err := s.ctrl.Store().GetAssistantProvider(r.Context(), chiURLParam(r, "id"))
+	row, err := s.ownedAssistantProvider(r, chiURLParam(r, "id"))
 	if err != nil {
 		s.fail(w, r, "reading the assistant provider", err)
 		return
@@ -255,7 +258,7 @@ func (s *Server) handleCheckAssistantDraft(w http.ResponseWriter, r *http.Reques
 	if in.ID != nil && *in.ID != "" {
 		// The Edit dialog's Test: the draft is the saved row with the form's
 		// fields over it, so a blank key box means the key the row holds.
-		row, err := s.ctrl.Store().GetAssistantProvider(r.Context(), *in.ID)
+		row, err := s.ownedAssistantProvider(r, *in.ID)
 		if err != nil {
 			s.fail(w, r, "reading the assistant provider", err)
 			return
@@ -291,7 +294,7 @@ func (s *Server) handleAssistantModels(w http.ResponseWriter, r *http.Request) {
 	}
 	draft := &store.AssistantProvider{Enabled: true}
 	if in.ID != nil && *in.ID != "" {
-		row, err := s.ctrl.Store().GetAssistantProvider(r.Context(), *in.ID)
+		row, err := s.ownedAssistantProvider(r, *in.ID)
 		if err != nil {
 			s.fail(w, r, "reading the assistant provider", err)
 			return
@@ -331,7 +334,7 @@ func (s *Server) handleAssistantModels(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) handleDefaultAssistantProvider(w http.ResponseWriter, r *http.Request) {
-	row, err := s.ctrl.Store().GetAssistantProvider(r.Context(), chiURLParam(r, "id"))
+	row, err := s.ownedAssistantProvider(r, chiURLParam(r, "id"))
 	if err != nil {
 		s.fail(w, r, "reading the assistant provider", err)
 		return
@@ -344,4 +347,34 @@ func (s *Server) handleDefaultAssistantProvider(w http.ResponseWriter, r *http.R
 	view := s.ctrl.AssistantProviderView(fresh)
 	s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "assistant.provider.default", "assistant_provider", row.ID, map[string]any{"name": row.Name})
 	writeJSON(w, http.StatusOK, view)
+}
+
+// A personal provider's scope comes from authentication and routing, never from its JSON body.
+func (s *Server) assistantOwner(r *http.Request) string {
+	if s.cfg().Security.DisableAuth {
+		return ""
+	}
+	if strings.Contains(r.URL.Path, "/assistant/personal/") {
+		return Identity(r.Context()).UserID
+	}
+	return ""
+}
+func (s *Server) requirePersonalAssistantOwner(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if Identity(r.Context()).UserID == "" && !s.cfg().Security.DisableAuth {
+			writeError(w, http.StatusForbidden, errorEnvelope{Error: errorBody{Code: codeForbidden, Message: "Personal Eli providers require a credential owned by a user."}})
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+func (s *Server) ownedAssistantProvider(r *http.Request, id string) (*store.AssistantProvider, error) {
+	row, err := s.ctrl.Store().GetAssistantProvider(r.Context(), id)
+	if err != nil {
+		return nil, err
+	}
+	if row.OwnerID != s.assistantOwner(r) {
+		return nil, store.ErrNotFound
+	}
+	return row, nil
 }

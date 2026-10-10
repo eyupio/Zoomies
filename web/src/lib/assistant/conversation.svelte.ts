@@ -9,11 +9,13 @@
  */
 import { ApiError, streamAssistantChat } from '$lib/api/client';
 import { supportHint } from '$lib/errors';
+import type { EliContext } from './prompts';
 
 export interface Turn {
   id: number;
   role: 'user' | 'assistant';
   content: string;
+  context?: EliContext;
   /** Who answered, once the answer says: the provider and the model. */
   by?: string;
   tokens?: string;
@@ -28,6 +30,7 @@ function failure(cause: unknown): string {
 export class Conversation {
   turns = $state<Turn[]>([]);
   busy = $state(false);
+  draft = $state('');
   #controller: AbortController | undefined;
   #next = 0;
 
@@ -37,7 +40,7 @@ export class Conversation {
     return last?.role === 'assistant' && !!last.error;
   }
 
-  async send(text: string): Promise<void> {
+  async send(text: string, context?: EliContext): Promise<void> {
     const question = text.trim();
     if (!question || this.busy) return;
     // What was said before is what the model is told it said: a turn that failed
@@ -45,7 +48,7 @@ export class Conversation {
     const history = this.turns
       .filter((t) => t.content && !t.error)
       .map((t) => ({ role: t.role, content: t.content }));
-    this.turns.push({ id: this.#next++, role: 'user', content: question });
+    this.turns.push({ id: this.#next++, role: 'user', content: question, context });
     this.turns.push({ id: this.#next++, role: 'assistant', content: '', streaming: true });
     const answer = this.turns[this.turns.length - 1]!;
     this.busy = true;
@@ -82,7 +85,7 @@ export class Conversation {
     if (this.busy || !this.failed) return;
     this.turns.pop();
     const question = this.turns.pop();
-    if (question?.role === 'user') await this.send(question.content);
+    if (question?.role === 'user') await this.send(question.content, question.context);
   }
 
   stop(): void {
@@ -94,5 +97,6 @@ export class Conversation {
     this.#controller = undefined;
     this.busy = false;
     this.turns = [];
+    this.draft = '';
   }
 }

@@ -10,6 +10,7 @@ import (
 // API key sealed with the instance key and is never rendered; LastCheck is
 // the JSON the last check returned, which the controller writes and reads.
 type AssistantProvider struct {
+	OwnerID       string
 	ID            string
 	Name          string
 	Kind          string
@@ -24,7 +25,7 @@ type AssistantProvider struct {
 	UpdatedAt     time.Time
 }
 
-const assistantProviderCols = `id, name, kind, base_url, model, key_enc, enabled, is_default,
+const assistantProviderCols = `id, owner_id, name, kind, base_url, model, key_enc, enabled, is_default,
 	last_check, last_checked_at, created_at, updated_at`
 
 func scanAssistantProvider(sc interface{ Scan(...any) error }) (*AssistantProvider, error) {
@@ -33,7 +34,7 @@ func scanAssistantProvider(sc interface{ Scan(...any) error }) (*AssistantProvid
 	var created, updated int64
 	var check sql.NullString
 	var checked sql.NullInt64
-	if err := sc.Scan(&p.ID, &p.Name, &p.Kind, &p.BaseURL, &p.Model, &p.KeyEnc, &enabled, &isDefault,
+	if err := sc.Scan(&p.ID, &p.OwnerID, &p.Name, &p.Kind, &p.BaseURL, &p.Model, &p.KeyEnc, &enabled, &isDefault,
 		&check, &checked, &created, &updated); err != nil {
 		return nil, err
 	}
@@ -84,9 +85,9 @@ func (s *Store) CreateAssistantProvider(ctx context.Context, p *AssistantProvide
 	now := s.Now()
 	p.CreatedAt, p.UpdatedAt = now, now
 	_, err := s.exec(ctx, `INSERT INTO assistant_providers
-		(id, name, kind, base_url, model, enabled, is_default, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`,
-		p.ID, p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), ms(now), ms(now))
+		(id, owner_id, name, kind, base_url, model, enabled, is_default, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+		p.ID, p.OwnerID, p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), ms(now), ms(now))
 	return wrapWrite(err)
 }
 
@@ -119,7 +120,7 @@ func (s *Store) SetAssistantProviderKey(ctx context.Context, id string, enc []by
 // in one transaction, so no reader ever sees two or none in between.
 func (s *Store) SetDefaultAssistantProvider(ctx context.Context, id string) error {
 	return s.tx(ctx, func(tx *sql.Tx) error {
-		if _, err := tx.ExecContext(ctx, `UPDATE assistant_providers SET is_default=0 WHERE is_default=1 AND id<>?`, id); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE assistant_providers SET is_default=0 WHERE is_default=1 AND owner_id=(SELECT owner_id FROM assistant_providers WHERE id=?) AND id<>?`, id, id); err != nil {
 			return err
 		}
 		res, err := tx.ExecContext(ctx, `UPDATE assistant_providers SET is_default=1 WHERE id=?`, id)

@@ -28,6 +28,7 @@
   import TopBar from '$lib/shell/TopBar.svelte';
   import Bootstrap from './routes/Bootstrap.svelte';
   import Login from './routes/Login.svelte';
+  import EliWidget from '$lib/assistant/EliWidget.svelte';
   import { upgrade } from '$lib/state/upgrade.svelte';
 
   let paletteOpen = $state(false);
@@ -213,6 +214,7 @@
   <NavMenu bind:open={navMenuOpen} />
   <CommandPalette bind:open={paletteOpen} />
   <ProblemsDrawer />
+  {#if session.can('viewer')}<EliWidget />{/if}
   <ShortcutSheet bind:open={shortcutsOpen} />
 {/if}
 

@@ -4884,7 +4884,7 @@ paths:
         ending in the person's question, and send it again with the next one. Only
         `user` and `assistant` messages are accepted. The model is told what Zoomies
         is and that it cannot see this fleet or change anything; no tool is offered
-        and no fleet data is attached.
+        and no fleet data is attached automatically. UI Ask Eli actions include a snapshot of the displayed facts in the user message.
 
         Everything that can be refused is refused before the stream opens: a conversation
         that is empty, too long or does not end in a user message is a 422 naming the
@@ -5134,6 +5134,384 @@ paths:
             application/json:
               schema: { $ref: "#/components/schemas/AssistantProvider" }
         "404": { $ref: "#/components/responses/NotFound" }
+
+  /assistant/personal/chat:
+    post:
+      operationId: personalAssistantChat
+      tags: [assistant]
+      summary: Personal provider, Ask the assistant's model a question
+      description: |
+        Answers a conversation as a `text/event-stream`: `delta` frames carrying
+        `{"text": ...}` as the model writes, one `usage` frame with
+        `{"input_tokens", "output_tokens"}` when the provider reports them, and a final
+        `done` frame with the provider's name and the model, or an `error` frame with a
+        `message` if the answer failed after it began (the status had gone out with the
+        first byte by then).
+
+        The controller keeps nothing between requests: send the conversation so far,
+        ending in the person's question, and send it again with the next one. Only
+        `user` and `assistant` messages are accepted. The model is told what Zoomies
+        is and that it cannot see this fleet or change anything; no tool is offered
+        and no fleet data is attached automatically. UI Ask Eli actions include a snapshot of the displayed facts in the user message.
+
+        Everything that can be refused is refused before the stream opens: a conversation
+        that is empty, too long or does not end in a user message is a 422 naming the
+        message; an instance with no enabled provider, or a named one that is not, is a
+        409; a model that would not answer at all (the address was refused, the key was
+        wrong) is a 502 with code `assistant.provider_failed`.
+      x-zoomies-role: viewer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssistantChatRequest" }
+      responses:
+        "200":
+          description: The answer, as it is written
+          content:
+            text/event-stream:
+              schema: { type: string }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "502":
+          description: The model would not answer. The code is `assistant.provider_failed` and the message says why in words that never carry the request or the key.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /assistant/personal/providers:
+    get:
+      operationId: personalListAssistantProviders
+      tags: [assistant]
+      summary: Personal provider, List the assistant's providers
+      description: >-
+        One row per model the assistant may talk to. The key is never in the response and
+        has no field it could be in: `key_configured` says one is sealed on the row.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: "#/components/schemas/AssistantProvider" }
+    post:
+      operationId: personalCreateAssistantProvider
+      tags: [assistant]
+      summary: Personal provider, Add a provider
+      description: >-
+        The key is sealed with the instance key before the row is written. A base URL on
+        this machine or a private network is refused unless `assistant.allow_private_provider`
+        is on; the 422 names the switch.
+      x-zoomies-role: viewer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssistantProviderInput" }
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantProvider" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /assistant/personal/providers/check:
+    post:
+      operationId: personalCheckAssistantDraft
+      tags: [assistant]
+      summary: Personal provider, Test a provider before saving it
+      description: >-
+        Runs the check against the body as a form has it, with the key the form holds, so a
+        key need not be saved to be tested. Nothing is written. A check that fails is still
+        a 200: the verdict is in the body.
+      x-zoomies-role: viewer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssistantProviderInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantProviderCheck" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /assistant/personal/providers/models:
+    post:
+      operationId: personalListAssistantModels
+      tags: [assistant]
+      summary: Personal provider, List the models a provider serves
+      description: >-
+        Asks the provider, as the body has it, which models it serves, with the key the form
+        holds (or the saved row's, when `id` names one and the key is blank), so the Add form
+        can offer a list and not a box to type a spelling into. The model need not be chosen
+        yet. Nothing is written. A provider that would not answer is a 502 with code
+        `assistant.provider_failed`; one that has no list to give is a 409, and its model is
+        typed.
+      x-zoomies-role: viewer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssistantProviderInput" }
+      responses:
+        "200":
+          description: The model names, sorted and without repeats
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items]
+                properties:
+                  items:
+                    type: array
+                    items: { type: string }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+        "502":
+          description: The provider would not answer. The code is `assistant.provider_failed`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ErrorEnvelope" }
+
+  /assistant/personal/providers/kinds:
+    get:
+      operationId: personalListAssistantProviderKinds
+      tags: [assistant]
+      summary: Personal provider, The kinds of provider a person may add
+      description: >-
+        Each kind with the address a hosted one has, or an empty string for the kind whose
+        address has to be typed.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items:
+                      type: object
+                      required: [kind, default_base_url]
+                      properties:
+                        kind: { $ref: "#/components/schemas/AssistantProviderKind" }
+                        default_base_url: { type: string }
+
+  /assistant/personal/providers/{id}:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    get:
+      operationId: personalGetAssistantProvider
+      tags: [assistant]
+      summary: Personal provider, One provider
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantProvider" }
+        "404": { $ref: "#/components/responses/NotFound" }
+    patch:
+      operationId: personalUpdateAssistantProvider
+      tags: [assistant]
+      summary: Personal provider, Change a provider
+      description: >-
+        Every field is optional and independent. An empty or absent `api_key` leaves the
+        sealed key alone; a non-empty one replaces it. The default is not changed here.
+      x-zoomies-role: viewer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/AssistantProviderInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantProvider" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    delete:
+      operationId: personalDeleteAssistantProvider
+      tags: [assistant]
+      summary: Personal provider, Remove a provider
+      description: >-
+        The body carries the provider's name, typed to confirm; a name that does not match
+        is a 409 and nothing is removed. Removing the default leaves no default.
+      x-zoomies-role: viewer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name: { type: string }
+      responses:
+        "204": { description: Removed }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/Conflict" }
+
+  /assistant/personal/providers/{id}/check:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: personalCheckAssistantProvider
+      tags: [assistant]
+      summary: Personal provider, Test a provider
+      description: >-
+        Runs the provider's check and one token of completion, and records the result on
+        the row, so the page shows it after a reload and not only in the tab that pressed
+        Test. A check that fails is still a 200; `ok` and `error` say so. Audited, because
+        it uses the key.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantProviderCheck" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /assistant/personal/providers/{id}/default:
+    parameters: [{ $ref: "#/components/parameters/PathID" }]
+    post:
+      operationId: personalSetDefaultAssistantProvider
+      tags: [assistant]
+      summary: Personal provider, Make this the provider that answers
+      description: One provider is the default at a time; this one becomes it and the previous one stops being it, in one write.
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/AssistantProvider" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /assistant/repairs:
+    get:
+      operationId: listEliRepairs
+      tags: [assistant]
+      summary: List repair history visible to the caller
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EliRepairList" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+    post:
+      operationId: requestEliRepair
+      tags: [assistant]
+      summary: Request a repair using the caller’s personal provider
+      x-zoomies-role: viewer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EliRepairRequest" }
+      responses:
+        "202":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EliRepair" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /assistant/repairs/settings:
+    get:
+      operationId: getEliRepairSettings
+      tags: [assistant]
+      summary: Read account links and administrator repository policies
+      x-zoomies-role: viewer
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EliRepairSettings" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /assistant/repairs/consent:
+    put:
+      operationId: setEliRepairConsent
+      tags: [assistant]
+      summary: Confirm the caller's GitHub link for personal provider use
+      x-zoomies-role: viewer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [github_user_id, enabled]
+              properties:
+                github_user_id: { type: integer }
+                enabled: { type: boolean }
+      responses:
+        "204": { description: Personal consent recorded }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /assistant/repairs/policy:
+    put:
+      operationId: setEliRepairPolicy
+      tags: [assistant]
+      summary: Configure a repository’s installation provider and repair budget
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EliRepairPolicy" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EliRepairPolicy" }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /assistant/repairs/identity:
+    put:
+      operationId: setEliIdentity
+      tags: [assistant]
+      summary: Verify and link a user’s GitHub numeric identity
+      x-zoomies-role: admin
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EliIdentityInput" }
+      responses:
+        "200":
+          description: OK
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EliIdentity" }
+        "204": { description: Account link removed }
+        "409": { $ref: "#/components/responses/Conflict" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
 
   /machines:
     get:
@@ -11780,9 +12158,10 @@ components:
 
     AssistantProvider:
       type: object
-      required: [id, name, kind, base_url, model, key_configured, enabled, is_default, local, created_at, updated_at]
+      required: [id, owner_id, name, kind, base_url, model, key_configured, enabled, is_default, local, created_at, updated_at]
       properties:
         id: { type: string }
+        owner_id: { type: string, description: User ID for a personal provider; empty for an installation provider. }
         name: { type: string }
         kind: { $ref: "#/components/schemas/AssistantProviderKind" }
         base_url: { type: string, description: Empty for a hosted kind means the kind's own address. }
@@ -11794,6 +12173,86 @@ components:
         last_check: { $ref: "#/components/schemas/AssistantProviderCheck" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
+
+    EliIdentity:
+      type: object
+      required: [user_id, github_user_id, github_login, confirmed]
+      properties:
+        user_id: { type: string }
+        github_user_id: { type: integer }
+        github_login: { type: string }
+        confirmed: { type: boolean }
+
+    EliIdentityInput:
+      type: object
+      required: [user_id, github_login, installation_id, repo]
+      properties:
+        user_id: { type: string }
+        github_login: { type: string }
+        installation_id: { type: string }
+        repo: { type: string }
+
+    EliRepairPolicy:
+      type: object
+      required: [repo, installation_id, provider_id, enabled, automatic, allow_workflows, daily_limit]
+      properties:
+        repo: { type: string }
+        installation_id: { type: string }
+        provider_id: { type: string }
+        enabled: { type: boolean }
+        automatic: { type: boolean }
+        allow_workflows: { type: boolean }
+        daily_limit: { type: integer }
+
+    EliRepairRequest:
+      type: object
+      required: [repo, pull_number, instruction]
+      properties:
+        repo: { type: string }
+        pull_number: { type: integer }
+        instruction: { type: string }
+
+    EliRepair:
+      type: object
+      required: [id, installation_id, repo, head_sha, commit_sha, user_id, github_login, provider_id, trigger, state, message, pull_number, job_id, run_id, github_user_id, comment_id, created_at, updated_at]
+      properties:
+        id: { type: string }
+        installation_id: { type: string }
+        repo: { type: string }
+        head_sha: { type: string }
+        commit_sha: { type: string }
+        user_id: { type: string }
+        github_login: { type: string }
+        provider_id: { type: string }
+        trigger: { type: string }
+        state: { type: string }
+        message: { type: string }
+        pull_number: { type: integer }
+        job_id: { type: integer }
+        run_id: { type: integer }
+        github_user_id: { type: integer }
+        comment_id: { type: integer }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    EliRepairList:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/EliRepair" }
+
+    EliRepairSettings:
+      type: object
+      required: [identities, policies]
+      properties:
+        identities:
+          type: array
+          items: { $ref: "#/components/schemas/EliIdentity" }
+        policies:
+          type: array
+          items: { $ref: "#/components/schemas/EliRepairPolicy" }
 
     AssistantProviderInput:
       type: object

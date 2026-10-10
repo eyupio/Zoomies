@@ -1169,7 +1169,7 @@ export async function streamAssistantChat(
 ): Promise<void> {
   let response: Response;
   try {
-    response = await fetch(`${BASE}/assistant/chat`, {
+    response = await fetch(`${BASE}/assistant/personal/chat`, {
       method: 'POST',
       credentials: 'same-origin',
       headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
@@ -1201,32 +1201,83 @@ export async function streamAssistantChat(
   }
 }
 
+export type AssistantScope = 'personal' | 'installation';
+const assistantProvidersPath = (scope: AssistantScope) =>
+  scope === 'installation' ? '/assistant/providers' : '/assistant/personal/providers';
+
 /** The models a provider, as a form has it, says it serves. Nothing is saved. */
-export const listAssistantModels = (body: Body<'listAssistantModels'>, signal?: AbortSignal) =>
-  api.post<Result<'listAssistantModels'>>('/assistant/providers/models', { body, signal });
+export const listAssistantModels = (
+  body: Body<'listAssistantModels'>,
+  signal?: AbortSignal,
+  scope: AssistantScope = 'personal',
+) =>
+  api.post<Result<'listAssistantModels'>>(`${assistantProvidersPath(scope)}/models`, {
+    body,
+    signal,
+  });
 
-export const listAssistantProviders = (signal?: AbortSignal) =>
-  api.get<Result<'listAssistantProviders'>>('/assistant/providers', { signal });
+export const listAssistantProviders = (signal?: AbortSignal, scope: AssistantScope = 'personal') =>
+  api.get<Result<'listAssistantProviders'>>(`${assistantProvidersPath(scope)}`, { signal });
 
-export const listAssistantProviderKinds = (signal?: AbortSignal) =>
-  api.get<Result<'listAssistantProviderKinds'>>('/assistant/providers/kinds', { signal });
+export const listAssistantProviderKinds = (
+  signal?: AbortSignal,
+  scope: AssistantScope = 'personal',
+) =>
+  api.get<Result<'listAssistantProviderKinds'>>(`${assistantProvidersPath(scope)}/kinds`, {
+    signal,
+  });
 
-export const createAssistantProvider = (body: Body<'createAssistantProvider'>) =>
-  api.post<Result<'createAssistantProvider'>>('/assistant/providers', { body });
+export const createAssistantProvider = (
+  body: Body<'createAssistantProvider'>,
+  scope: AssistantScope = 'personal',
+) => api.post<Result<'createAssistantProvider'>>(`${assistantProvidersPath(scope)}`, { body });
 
-export const updateAssistantProvider = (id: string, body: Body<'updateAssistantProvider'>) =>
-  api.patch<Result<'updateAssistantProvider'>>(`/assistant/providers/${enc(id)}`, { body });
+export const updateAssistantProvider = (
+  id: string,
+  body: Body<'updateAssistantProvider'>,
+  scope: AssistantScope = 'personal',
+) =>
+  api.patch<Result<'updateAssistantProvider'>>(`${assistantProvidersPath(scope)}/${enc(id)}`, {
+    body,
+  });
 
 /** The name typed to confirm travels in the body; a mismatch is a 409. */
-export const deleteAssistantProvider = (id: string, name: string) =>
-  api.del<Result<'deleteAssistantProvider'>>(`/assistant/providers/${enc(id)}`, { body: { name } });
+export const deleteAssistantProvider = (
+  id: string,
+  name: string,
+  scope: AssistantScope = 'personal',
+) =>
+  api.del<Result<'deleteAssistantProvider'>>(`${assistantProvidersPath(scope)}/${enc(id)}`, {
+    body: { name },
+  });
 
 /** Test a provider that has not been saved, with the key the form holds. */
-export const checkAssistantDraft = (body: Body<'checkAssistantDraft'>) =>
-  api.post<Result<'checkAssistantDraft'>>('/assistant/providers/check', { body });
+export const checkAssistantDraft = (
+  body: Body<'checkAssistantDraft'>,
+  scope: AssistantScope = 'personal',
+) => api.post<Result<'checkAssistantDraft'>>(`${assistantProvidersPath(scope)}/check`, { body });
 
-export const checkAssistantProvider = (id: string) =>
-  api.post<Result<'checkAssistantProvider'>>(`/assistant/providers/${enc(id)}/check`, {});
+export const checkAssistantProvider = (id: string, scope: AssistantScope = 'personal') =>
+  api.post<Result<'checkAssistantProvider'>>(
+    `${assistantProvidersPath(scope)}/${enc(id)}/check`,
+    {},
+  );
 
-export const setDefaultAssistantProvider = (id: string) =>
-  api.post<Result<'setDefaultAssistantProvider'>>(`/assistant/providers/${enc(id)}/default`, {});
+export const setDefaultAssistantProvider = (id: string, scope: AssistantScope = 'personal') =>
+  api.post<Result<'setDefaultAssistantProvider'>>(
+    `${assistantProvidersPath(scope)}/${enc(id)}/default`,
+    {},
+  );
+
+export const listEliRepairs = () => api.get<Result<'listEliRepairs'>>('/assistant/repairs');
+export const getEliRepairSettings = () =>
+  api.get<Result<'getEliRepairSettings'>>('/assistant/repairs/settings');
+export const requestEliRepair = (body: Body<'requestEliRepair'>) =>
+  api.post<Result<'requestEliRepair'>>('/assistant/repairs', { body });
+export const setEliRepairPolicy = (body: Body<'setEliRepairPolicy'>) =>
+  api.put<Result<'setEliRepairPolicy'>>('/assistant/repairs/policy', { body });
+export const setEliIdentity = (body: Body<'setEliIdentity'>) =>
+  api.put<Result<'setEliIdentity'>>('/assistant/repairs/identity', { body });
+
+export const setEliRepairConsent = (body: Body<'setEliRepairConsent'>) =>
+  api.put('/assistant/repairs/consent', { body });

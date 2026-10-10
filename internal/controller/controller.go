@@ -624,6 +624,7 @@ func (c *Controller) Start(ctx context.Context) error {
 	c.spawn("background", loopCtx, c.backgroundLoop)
 	c.spawn("enrichment", loopCtx, c.enrichmentLoop)
 	c.spawn("ai-context", loopCtx, c.aiContextLoop)
+	c.spawn("eli-repairs", loopCtx, c.repairLoop)
 	// Its own loop, for the reason the AI Context loop has one: a pass of reads
 	// from GitHub is slow, and reconcileMu is held for a whole scheduling pass.
 	// It runs whether or not Kennel Club is on, and does nothing while it is not,

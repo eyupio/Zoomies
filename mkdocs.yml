@@ -175,6 +175,7 @@ nav:
       - Kennel Club: kennel-club.md
       - Troubleshooting: troubleshooting.md
       - A job stuck in the queue: queued-job.md
+  - Eli conversations and PR repairs: eli.md
   - AI Context for assistants: ai-context.md
   - Other ways in:
       - Command line: cli.md

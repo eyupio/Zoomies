@@ -2080,6 +2080,7 @@ func machineTimeline(m *store.Machine) []MachineTimelineEntry {
 // this machine or a private network, which is what the page shows beside
 // the local-only switch.
 type AssistantProviderView struct {
+	OwnerID       string                  `json:"owner_id"`
 	ID            string                  `json:"id"`
 	Name          string                  `json:"name"`
 	Kind          string                  `json:"kind"`
@@ -2097,7 +2098,7 @@ type AssistantProviderView struct {
 // AssistantProviderView renders one row.
 func (c *Controller) AssistantProviderView(p *store.AssistantProvider) AssistantProviderView {
 	v := AssistantProviderView{
-		ID: p.ID, Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, Model: p.Model,
+		ID: p.ID, OwnerID: p.OwnerID, Name: p.Name, Kind: p.Kind, BaseURL: p.BaseURL, Model: p.Model,
 		KeyConfigured: len(p.KeyEnc) > 0, Enabled: p.Enabled, IsDefault: p.IsDefault,
 		Local:     assistantAddressIsLocal(p.BaseURL),
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,

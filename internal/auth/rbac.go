@@ -115,6 +115,8 @@ const (
 // are admin: which model answers, and with what key, is the administrator's
 // until the step-up slice makes it cost more than an admin session.
 const (
+	// ActionAssistantOwn grants only the owner-scoped personal endpoints.
+	ActionAssistantOwn   Action = "assistant.own"
 	ActionAssistantRead  Action = "assistant.read"
 	ActionAssistantWrite Action = "assistant.write"
 	// ActionAssistantChat is asking the default model a question. It is admin
@@ -311,6 +313,7 @@ var actionRoles = map[Action]store.Role{
 	ActionWebhooksRead: store.RoleViewer,
 	ActionWebhooksTest: store.RoleOperator,
 
+	ActionAssistantOwn:   store.RoleViewer,
 	ActionAssistantRead:  store.RoleAdmin,
 	ActionAssistantWrite: store.RoleAdmin,
 	ActionAssistantChat:  store.RoleAdmin,

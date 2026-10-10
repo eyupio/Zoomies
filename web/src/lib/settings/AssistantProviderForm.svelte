@@ -16,6 +16,7 @@
     listAssistantProviderKinds,
     updateAssistantProvider,
   } from '$lib/api/client';
+  import type { AssistantScope } from '$lib/api/client';
   import type { AssistantProvider, AssistantProviderKind } from '$lib/api/types';
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -35,13 +36,20 @@
 
   interface Props {
     open?: boolean;
+    scope?: AssistantScope;
     /** The provider being edited, or null when one is being added. */
     editing?: AssistantProvider | null;
     onsaved: () => void;
     onclose: () => void;
   }
 
-  let { open = $bindable(false), editing = null, onsaved, onclose }: Props = $props();
+  let {
+    open = $bindable(false),
+    editing = null,
+    scope = 'personal',
+    onsaved,
+    onclose,
+  }: Props = $props();
 
   let name = $state('');
   let kind = $state<AssistantProviderKind>('openai_compatible');
@@ -81,7 +89,7 @@
     modelsNote = '';
     // Editing a provider that already has what it needs: its list is one look away.
     if (r) void loadModels();
-    void listAssistantProviderKinds()
+    void listAssistantProviderKinds(undefined, scope)
       .then((result) => (kinds = result.items ?? []))
       .catch(() => (kinds = []));
   });
@@ -162,7 +170,7 @@
     loadingModels = true;
     modelsNote = '';
     try {
-      const result = await listAssistantModels(draft());
+      const result = await listAssistantModels(draft(), undefined, scope);
       models = result.items ?? [];
       modelsNote = models.length === 0 ? 'The provider listed no models; type the name.' : '';
     } catch (cause) {
@@ -180,7 +188,7 @@
     refusal = '';
     tested = '';
     try {
-      const result = await checkAssistantDraft(draft());
+      const result = await checkAssistantDraft(draft(), scope);
       tested = checkSummary(result);
       if (result.ok) toasts.success('It answers', tested);
     } catch (cause) {
@@ -196,10 +204,10 @@
     refusal = '';
     try {
       if (editing) {
-        await updateAssistantProvider(editing.id, draft());
+        await updateAssistantProvider(editing.id, draft(), scope);
         toasts.success('Saved', `${name.trim()} is as the form has it.`);
       } else {
-        await createAssistantProvider(draft());
+        await createAssistantProvider(draft(), scope);
         toasts.success('Added', `${name.trim()} can be tested and set as the default.`);
       }
       onsaved();

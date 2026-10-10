@@ -32,7 +32,7 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	req := controller.AssistantChatRequest{ProviderID: in.ProviderID}
+	req := controller.AssistantChatRequest{ProviderID: in.ProviderID, OwnerID: s.assistantOwner(r)}
 	for _, m := range in.Messages {
 		req.Messages = append(req.Messages, controller.AssistantChatMessage{Role: m.Role, Content: m.Content})
 	}

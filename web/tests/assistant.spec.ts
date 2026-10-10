@@ -73,7 +73,7 @@ test('the demo model answers a question typed on the page, and the next one carr
   page,
 }) => {
   const asked: Array<{ messages: Array<{ role: string; content: string }> }> = [];
-  await page.route('**/api/v1/assistant/chat', async (route) => {
+  await page.route('**/api/v1/assistant/personal/chat', async (route) => {
     asked.push(route.request().postDataJSON());
     await route.continue();
   });
@@ -114,7 +114,7 @@ function answerStream(markdown: string): string {
 
 test('Eli says hello, offers things to ask, and a click asks one', async ({ page }) => {
   const asked: Array<{ messages: Array<{ role: string; content: string }> }> = [];
-  await page.route('**/api/v1/assistant/chat', async (route) => {
+  await page.route('**/api/v1/assistant/personal/chat', async (route) => {
     asked.push(route.request().postDataJSON());
     await route.continue();
   });
@@ -135,7 +135,7 @@ test('Eli says hello, offers things to ask, and a click asks one', async ({ page
 test('an answer is drawn from its Markdown, and what is not Markdown is never run', async ({
   page,
 }) => {
-  await page.route('**/api/v1/assistant/chat', (route) =>
+  await page.route('**/api/v1/assistant/personal/chat', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'text/event-stream',
@@ -187,7 +187,7 @@ test('an answer is drawn from its Markdown, and what is not Markdown is never ru
 
 test('a failed answer can be asked again, and the second one replaces it', async ({ page }) => {
   let calls = 0;
-  await page.route('**/api/v1/assistant/chat', (route) => {
+  await page.route('**/api/v1/assistant/personal/chat', (route) => {
     calls++;
     if (calls === 1)
       return route.fulfill({
@@ -214,7 +214,7 @@ test('a failed answer can be asked again, and the second one replaces it', async
 });
 
 test('a refused question says why where the answer would have been', async ({ page }) => {
-  await page.route('**/api/v1/assistant/chat', (route) =>
+  await page.route('**/api/v1/assistant/personal/chat', (route) =>
     route.fulfill({
       status: 502,
       contentType: 'application/json',
@@ -267,7 +267,7 @@ test('the model is chosen from the provider’s own list once it has been loaded
   page,
 }) => {
   const asked: Array<Record<string, unknown>> = [];
-  await page.route('**/api/v1/assistant/providers/models', async (route) => {
+  await page.route('**/api/v1/assistant/personal/providers/models', async (route) => {
     asked.push(route.request().postDataJSON());
     await route.fulfill({ json: { items: ['model-a', 'model-b'] } });
   });
@@ -288,4 +288,60 @@ test('the model is chosen from the provider’s own list once it has been loaded
   // Changing provider forgets a list that was another provider's.
   await form.getByLabel('Provider', { exact: true }).selectOption('opencode-go');
   await expect(form.getByRole('textbox', { name: 'Model' })).toBeVisible();
+});
+
+test('Eli keeps drafts and history through layout changes, minimisation and navigation', async ({
+  page,
+  isMobile,
+}) => {
+  await goto(page, '/runners', 'Runners');
+  await page.getByRole('button', { name: 'Ask Eli', exact: true }).click();
+  const panel = page.getByRole('dialog', { name: 'Eli assistant' });
+  await expect(panel).toBeVisible();
+  const message = panel.getByRole('textbox', { name: 'Message' });
+  await expect(message).toBeEnabled();
+  await message.fill('Help me diagnose a runner failure');
+  if (!isMobile) {
+    await panel.getByRole('button', { name: 'Expanded', exact: true }).click();
+    await panel.getByRole('button', { name: 'Place Eli on the left' }).click();
+    await expect(message).toHaveValue('Help me diagnose a runner failure');
+    await panel.getByRole('button', { name: 'Full screen' }).click();
+    await expect(message).toHaveValue('Help me diagnose a runner failure');
+    await panel.getByRole('button', { name: 'Restore panel' }).click();
+  }
+  await panel.getByRole('button', { name: 'Minimise Eli' }).click();
+  await page.getByRole('button', { name: 'Ask Eli', exact: true }).click();
+  await expect(message).toHaveValue('Help me diagnose a runner failure');
+  await message.press('Enter');
+  await expect(panel.getByRole('article', { name: 'Eli' })).toContainText(
+    'The built-in model heard:',
+  );
+  await panel.getByRole('button', { name: 'Trace the failure' }).click();
+  await expect(panel.getByRole('article', { name: 'You' })).toHaveCount(2);
+  await expect(panel.getByRole('button', { name: 'Trace the failure' })).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Minimise Eli' }).click();
+  await page.getByRole('link', { name: 'Pools', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Ask Eli', exact: true }).click();
+  await expect(panel.getByRole('article', { name: 'You' })).toHaveCount(2);
+  await panel.getByRole('button', { name: 'Minimise Eli' }).click();
+  await expect(page.getByRole('button', { name: 'Ask Eli', exact: true })).toBeFocused();
+});
+
+test('a runner contextual action asks Eli with its displayed snapshot', async ({ page }) => {
+  const asked: Array<{ messages: Array<{ role: string; content: string }> }> = [];
+  await page.route('**/api/v1/assistant/personal/chat', async (route) => {
+    asked.push(route.request().postDataJSON());
+    await route.continue();
+  });
+  await goto(page, '/runners', 'Runners');
+  await page.locator('main a[href^="/runners/"]').first().click();
+  await page.getByTitle('Share these displayed details with Eli and ask for guidance').click();
+  const panel = page.getByRole('dialog', { name: 'Eli assistant' });
+  await expect(panel.getByRole('article', { name: 'Eli' })).toContainText(
+    'The built-in model heard:',
+  );
+  expect(asked).toHaveLength(1);
+  expect(asked[0]!.messages[0]!.content).toContain('Context shared from the runner UI:');
+  expect(asked[0]!.messages[0]!.content).toContain('State:');
+  await expect(panel.getByText(/^Shared runner:/)).toBeVisible();
 });

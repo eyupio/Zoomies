@@ -3,7 +3,7 @@
 
   This is the first way to use a provider once it is set up: a conversation the
   page holds in memory and sends whole with each question. The controller keeps
-  nothing, so closing the page ends it. Eli cannot see the fleet yet and says so.
+  nothing; the shared conversation lasts until this browser reloads. Eli cannot see the fleet yet and says so.
 
   An answer is drawn from Markdown by our own renderer, which makes elements and
   never injects HTML: what a model writes is not markup the page should trust.
@@ -11,7 +11,7 @@
 <script lang="ts">
   import { Trash2 } from '@lucide/svelte';
   import type { AssistantProvider } from '$lib/api/types';
-  import { Conversation } from '$lib/assistant/conversation.svelte';
+  import { eli } from '$lib/assistant/eli.svelte';
   import ConversationView from '$lib/assistant/ConversationView.svelte';
   import Button from '$lib/components/Button.svelte';
 
@@ -20,7 +20,7 @@
   }
   let { providers }: Props = $props();
 
-  const conversation = new Conversation();
+  const conversation = eli.conversation;
   const answering = $derived(providers.find((p) => p.is_default && p.enabled));
 </script>
 
@@ -30,17 +30,15 @@
       <h3 id="assistant-chat">Ask Eli</h3>
       {#if answering}
         <p class="who">
-          Answers from <strong>{answering.name}</strong>, {answering.model}. Eli cannot see this
-          fleet yet, and cannot change anything.
+          Answers from <strong>{answering.name}</strong>, {answering.model}. Investigate the
+          evidence you share here. Request code changes through PR repairs below.
         </p>
       {:else}
         <p class="who">Add a provider, test it and make it the default to ask Eli something.</p>
       {/if}
     </div>
     {#if conversation.turns.length > 0}
-      <Button variant="ghost" icon={Trash2} onclick={() => conversation.clear()}
-        >New conversation</Button
-      >
+      <Button variant="ghost" icon={Trash2} onclick={() => eli.reset()}>New conversation</Button>
     {/if}
   </header>
 
