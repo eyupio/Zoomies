@@ -47,8 +47,11 @@ test('Appearance persists the style across runners, workflows and queue', async 
       await expect(mark).toHaveAttribute('data-cue', cues[state ?? 'unknown']!);
     }
     await expect(page.locator('svg[data-style="cute"]')).toHaveCount(0);
+    // A mark holds Lucide icons as nested SVGs, so count the marks, not every svg.
     if (path === '/workflows')
-      await expect(page.locator('.avatars.pack').first().locator('svg')).toHaveCount(3);
+      await expect(
+        page.locator('.avatars.pack').first().locator('svg[data-style="standard"]'),
+      ).toHaveCount(3);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await expect
       .poll(() =>

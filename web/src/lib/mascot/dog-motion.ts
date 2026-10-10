@@ -1,19 +1,3 @@
-export type DogMotion =
-  'zoomies' | 'orbit' | 'sniff' | 'trot' | 'wave' | 'settle' | 'wait' | 'sad' | 'sleep' | 'puzzled';
-export type DogCue =
-  | 'none'
-  | 'work'
-  | 'boost'
-  | 'maximum'
-  | 'ready'
-  | 'search'
-  | 'hello'
-  | 'pause'
-  | 'rest'
-  | 'error'
-  | 'gone'
-  | 'question';
-
 /** A stable offset keeps rows and workflow packs from moving in lockstep. */
 export function dogPhase(seed: string): number {
   let hash = 2166136261;

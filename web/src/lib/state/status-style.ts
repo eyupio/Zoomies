@@ -14,7 +14,11 @@ export const DEFAULT_STATUS_STYLE: StatusStyle = 'off';
 export const STATUS_STYLE_OPTIONS = [
   { value: 'off', label: 'Off', name: 'Plain status names and icons' },
   { value: 'cute', label: 'Cute', name: 'Zoomies words and the original animated dog' },
-  { value: 'standard', label: 'Standard', name: 'Zoomies words and playful line-drawn dogs' },
+  {
+    value: 'standard',
+    label: 'Standard',
+    name: 'Zoomies words and the dog icon with its paw prints',
+  },
 ] as const;
 
 export function isStatusStyle(value: unknown): value is StatusStyle {

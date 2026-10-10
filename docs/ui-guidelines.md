@@ -26,7 +26,7 @@ Appearance → **Zoomies vocabulary** offers three choices:
 | --- | --- | --- |
 | Off (default) | Plain state names | Standard Lucide status icon |
 | Cute | Zoomies dog-park vocabulary | Original animated avatar |
-| Standard | Zoomies dog-park vocabulary | Playful line-drawn dog with a distinct gesture and persistent cue per state |
+| Standard | Zoomies dog-park vocabulary | The dog icon and paw prints, with a gesture and a persistent cue glyph per state |
 
 The choice stays in this browser. A browser that has never chosen (a new
 install, or one whose saved preferences were cleared) starts on Off. Existing
@@ -62,14 +62,20 @@ One glyph also means one thing wherever it appears:
 | `IterationCcw` | another attempt asked for | a re-run requested on a job's timeline |
 | `Zap`, `TrendingUp`, `TrendingDown` | CPU lent at maximum, lent, taken back | elastic CPU on a busy or idle runner |
 
-Standard is a line-drawn dog moved by CSS alone. Busy runners trot,
-extra zoomies scoot from side to side, and maximum zoomies chase a faster circle.
-Idle dogs look patiently around, provisioning dogs sniff, registering dogs wave,
-throttled dogs wait, and draining dogs settle down. Failed dogs look sad, removed
-dogs sleep and unknown dogs tilt their heads; these three states stay still.
-A small persistent cue distinguishes every state, including a single or double
-chevron for the two boost levels, pause bars for throttling and a cross for
-failure. Labels, colours and tooltips keep their existing status meaning.
+Standard is the same `Dog` icon as Eli's avatar with two `PawPrint` marks
+under it, in one SVG per runner, moved by CSS alone: each state's gesture is a
+set of keyframes for those marks, so there is no drawing to keep. Busy runners
+trot on alternating paws, extra zoomies scoot from side to side, and maximum
+zoomies chase a faster circle, both leaving paw prints. Idle dogs look patiently
+around, provisioning dogs sniff along a trail, registering dogs wave a paw,
+throttled dogs wait, and draining dogs settle down. Failed dogs hang their
+heads, removed dogs lie low and unknown dogs tilt their heads; these three
+states stay still. The glyph in the corner is the cue, and it is the icon Off
+draws for the same state (`Activity`, `CircleDot`, `Hourglass`, `CircleX` and
+so on, with `TrendingUp` and `Zap` for the two boost levels), so one glyph
+keeps one meaning across the styles; throttled, which Off has no glyph for,
+wears a `Turtle` rather than a pause, since pause is a button on the Queue.
+Labels, colours and tooltips keep their existing status meaning.
 
 Each runner ID seeds its timing so rows and workflow packs do not move together.
 Reduced motion disables every animation while retaining the expression and cue.

@@ -245,10 +245,12 @@
       opacity: 0;
     }
   }
+  /* Important because a routine's own rule outranks a plain reset here: a
+     media query adds no specificity of its own. */
   @media (prefers-reduced-motion: reduce) {
     .dog,
     .paw {
-      animation: none;
+      animation: none !important;
     }
   }
 </style>

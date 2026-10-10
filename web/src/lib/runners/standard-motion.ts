@@ -1,4 +1,21 @@
-import { dogPhase, type DogMotion, type DogCue } from '../mascot/dog-motion';
+import { dogPhase } from '../mascot/dog-motion';
+
+/** The gestures StandardStatusIcon draws; the last three hold a pose. */
+export type DogMotion =
+  'trot' | 'zoomies' | 'orbit' | 'wait' | 'sniff' | 'wave' | 'settle' | 'sad' | 'sleep' | 'puzzled';
+/** The glyph in the icon's corner, which stays when motion is off. */
+export type DogCue =
+  | 'work'
+  | 'boost'
+  | 'maximum'
+  | 'ready'
+  | 'search'
+  | 'hello'
+  | 'pause'
+  | 'rest'
+  | 'error'
+  | 'gone'
+  | 'question';
 
 const STATES = [
   'busy',
@@ -35,10 +52,15 @@ export function standardMotion(state: string, seed: string) {
     ? (state as StandardMotionState)
     : 'unknown';
   const animation = MOTIONS[known];
+  const phase = dogPhase(seed);
+  const duration = animation.duration + phase * 0.15;
   return {
     state: known,
     ...animation,
-    duration: animation.duration + dogPhase(seed) * 0.15,
+    duration,
+    // A negative delay starts each runner partway through its lap, so a page
+    // of busy dogs never bobs in unison.
+    phase: -phase * duration,
     still: ['failed', 'removed', 'unknown'].includes(known),
   };
 }
