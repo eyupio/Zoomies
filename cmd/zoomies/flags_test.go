@@ -371,3 +371,49 @@ func TestTokensPurgeSendsWhoseTokensToTake(t *testing.T) {
 		})
 	}
 }
+
+func TestJoinTokenCreatePrintsTheWindowsCommandOnRequest(t *testing.T) {
+	const linux = "curl -fsSL https://zoomies.sh/install.sh | sh -s -- --join-token 'zoojoin_x'"
+	const windows = "& ([scriptblock]::Create((irm https://zoomies.sh/install.ps1))) -Mode agent -JoinToken 'zoojoin_x'"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"id": "jt_1", "token": "zoojoin_x", "command": linux,
+			"commands":   map[string]string{"linux": linux, "windows": windows},
+			"expires_at": time.Now().Add(time.Hour).UTC().Format(time.RFC3339),
+		})
+	}))
+	defer srv.Close()
+
+	for _, tc := range []struct {
+		os            string
+		wantLinux     bool
+		wantWindows   bool
+		wantAdminHint bool
+	}{
+		{"linux", true, false, false},
+		{"windows", false, true, true},
+		{"all", true, true, true},
+	} {
+		e, out, errOut := newTestEnv(t)
+		code := dispatch(context.Background(), e, []string{"hosts", "join-token", "create", "--url", srv.URL, "--os", tc.os})
+		if code != exitOK {
+			t.Fatalf("--os %s: exit code = %d\n%s", tc.os, code, errOut)
+		}
+		if got := strings.Contains(out.String(), "install.sh"); got != tc.wantLinux {
+			t.Errorf("--os %s: linux command present = %v\n%s", tc.os, got, out)
+		}
+		if got := strings.Contains(out.String(), "install.ps1"); got != tc.wantWindows {
+			t.Errorf("--os %s: windows command present = %v\n%s", tc.os, got, out)
+		}
+		if got := strings.Contains(out.String(), "as administrator"); got != tc.wantAdminHint {
+			t.Errorf("--os %s: administrator hint present = %v\n%s", tc.os, got, out)
+		}
+	}
+
+	e, _, errOut := newTestEnv(t)
+	if code := dispatch(context.Background(), e, []string{"hosts", "join-token", "create", "--url", srv.URL, "--os", "beos"}); code != exitUsage {
+		t.Fatalf("an unknown --os exit code = %d, want %d\n%s", code, exitUsage, errOut)
+	}
+}

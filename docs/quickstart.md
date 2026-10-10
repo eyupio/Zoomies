@@ -385,6 +385,22 @@ curl -fsSL https://zoomies.sh/install.sh | sh -s -- \
   --join-token zoojoin_...
 ```
 
+On a Windows machine, choose **Windows** on that page instead. It hands you a
+PowerShell command to paste into a window opened as administrator:
+
+```powershell
+& ([scriptblock]::Create((irm https://zoomies.sh/install.ps1))) -Mode agent -Controller 'https://zoomies.example.com' -JoinToken 'zoojoin_...'
+```
+
+It checks it is on Windows PowerShell 5.1 or 7 and later, on x86-64, and in an
+elevated window, then asks once before it downloads the binary, checks it
+against the release's checksums, installs it, joins and starts the
+`zoomies-agent` service. Nothing is installed if any of that fails. To read it
+before you run it, save it with `irm https://zoomies.sh/install.ps1 -OutFile
+install.ps1` and run `.\install.ps1` with the same parameters. Windows is not
+yet [qualified](index.md#what-is-qualified); [the Windows worked
+shape](hosts-and-pools.md#worked-shapes) says what runs where.
+
 Leave the page open. It watches for the host and says the moment it has
 joined: what the machine is, which backends it offers, and which pools can
 place runners on it. If the binary is already on that machine, the same page

@@ -22,7 +22,7 @@ machine once you know where it fits.
 | A mini PC or an old desktop, x86-64 Linux | Most Linux jobs, on every [runner image](naming.md#the-runner-image) | Its cores and memory are shared between its runners, each with a guaranteed slice, see [how big a runner is](hosts-and-pools.md#how-big-a-runner-is-and-how-many-there-are) |
 | An arm64 board or server running 64-bit Linux | Native arm64 builds and tests | Every runner image is published for arm64; a pool can select arm64 hosts without any labelling |
 | A Proxmox VE server | Runner hosts made and removed as pools need them | Zoomies can [rent virtual machines from Proxmox](proxmox.md) through its provider contract |
-| A spare Windows PC | Windows jobs, as processes on the machine | The Windows agent is [not yet qualified](index.md#what-is-qualified) on real hardware |
+| A spare Windows PC | Windows jobs, as processes on the machine | One PowerShell command from **Hosts → Add a host** joins it. The Windows agent is [not yet qualified](index.md#what-is-qualified) on real hardware |
 
 macOS is not on the list: there is no macOS runner image.
 

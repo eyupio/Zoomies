@@ -26,9 +26,12 @@ Still deciding which machines to use, or where the controller should run?
 1. Open **Hosts → Add a host** and choose **Private connection · Tailcat**.
 2. Leave capacity on **Automatic**, or choose a limit. Add any labels your pools
    select, such as `location=home` or `arch=arm64`.
-3. Select **Get the command**, then copy and run it on the intended machine.
-   The installer detects the machine and runtime and installs the Zoomies agent
-   service. The existing supported native agent platforms and backends apply.
+3. Select **Get the command**, choose the machine's operating system, then copy
+   and run it on the intended machine. On Linux and macOS the installer detects
+   the machine and runtime and installs the Zoomies agent service; on Windows
+   the command is for PowerShell opened as administrator, and works the same
+   way with a private connection. The existing supported native agent platforms
+   and backends apply.
 4. Leave the page open. It recognises the enrolment and shows the host and
    matching pools. On the Hosts page, **Tailcat host** identifies its private
    connection; the separate health badge tells you whether the agent is live.

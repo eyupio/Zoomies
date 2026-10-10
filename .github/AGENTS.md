@@ -21,6 +21,9 @@ has a CI job that diffs them:
   `internal/naming`.
 * `install.sh` at the repo root is copied verbatim to the site root; the script
   people `curl` is the script a contributor edits. Do not create a second copy.
+  `install.ps1` is published the same way and is held to the same rule; the
+  Windows job in `ci.yml` lints it, runs its Pester tests and installs it for
+  real (`test/install/`).
 * The app shell must stay under **200 KB gzipped** (`web/vite.config.ts`
   enforces it, the number is documented in `docs/ui-guidelines.md`). Route chunks
   are excluded, so move weight to a lazily loaded route rather than raising the

@@ -574,13 +574,22 @@ type joinTokenResponse struct {
 // cost the operator.
 type createJoinTokenResponse struct {
 	joinTokenResponse
-	Token             string `json:"token"`
-	Command           string `json:"command"`
-	JoinCommand       string `json:"join_command"`
-	ControllerVersion string `json:"controller_version"`
-	InstallTag        string `json:"install_tag,omitempty"`
+	Token   string `json:"token"`
+	Command string `json:"command"`
+	// Commands holds the one-liner per operating system. Command stays as the
+	// Linux and macOS form so that a client written before Windows existed
+	// keeps working.
+	Commands          joinCommands `json:"commands"`
+	JoinCommand       string       `json:"join_command"`
+	ControllerVersion string       `json:"controller_version"`
+	InstallTag        string       `json:"install_tag,omitempty"`
 	// VersionNote is empty when the command installs a matching agent.
 	VersionNote string `json:"version_note,omitempty"`
+}
+
+type joinCommands struct {
+	Linux   string `json:"linux"`
+	Windows string `json:"windows"`
 }
 
 func (s *Server) joinTokenResponse(t *store.JoinToken) joinTokenResponse {
@@ -721,6 +730,10 @@ func (s *Server) handleCreateJoinToken(w http.ResponseWriter, r *http.Request) {
 		joinTokenResponse: s.joinTokenResponse(token),
 		Token:             plaintext,
 		Command:           s.joinCommand(plaintext, controllerURL),
+		Commands: joinCommands{
+			Linux:   s.joinCommand(plaintext, controllerURL),
+			Windows: s.joinCommandWindows(plaintext, controllerURL),
+		},
 		JoinCommand:       "zoomies agent join " + shellArgument(s.joinControllerURL(controllerURL)) + " --token " + shellArgument(plaintext),
 		ControllerVersion: version.Short(),
 		InstallTag:        version.Channel(version.Version),
@@ -799,6 +812,32 @@ func (s *Server) joinCommand(token, controllerURL string) string {
 	// have no repository asset; the command still works and the note says what
 	// it cannot promise instead.
 	return cmd
+}
+
+// joinCommandWindows renders the same one-liner for an elevated PowerShell
+// window. The values are the ones joinCommand uses, chosen by the same code,
+// so a direct address, a Tailcat address and the channel pin behave alike on
+// both operating systems.
+//
+// The script is fetched and turned into a script block rather than piped to
+// iex because a block takes parameters; piping would leave the controller and
+// the token with nowhere to go.
+func (s *Server) joinCommandWindows(token, controllerURL string) string {
+	cmd := "& ([scriptblock]::Create((irm https://zoomies.sh/install.ps1))) -Mode agent -Controller " +
+		powershellArgument(s.joinControllerURL(controllerURL)) + " -JoinToken " + powershellArgument(token)
+	if tag, ok := version.InstallTag(version.Version); ok {
+		return cmd + " -Version " + powershellArgument(tag)
+	}
+	return cmd
+}
+
+// powershellArgument keeps a URL or credential one literal argument in
+// PowerShell: single quotes do not expand anything, and a quote inside is
+// written twice. Line breaks are dropped because a pasted multi-line command
+// would run its second line on its own.
+func powershellArgument(value string) string {
+	value = strings.NewReplacer("\r", "", "\n", "").Replace(value)
+	return "'" + strings.ReplaceAll(value, "'", "''") + "'"
 }
 
 // shellArgument keeps a URL or credential one literal argument when the

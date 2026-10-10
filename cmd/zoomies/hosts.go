@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -404,8 +405,10 @@ func joinTokenCreate(ctx context.Context, e *env, args []string) error {
 	fs.Var(labels, "labels", "labels for the new host, e.g. arch=arm64")
 	connection := fs.String("connection", "direct", "how the host connects: direct or tailcat (private encrypted connection)")
 	controllerURL := fs.String("controller", "", "the address the new host should join on, when it is not server.external_url")
+	osName := fs.String("os", "linux", "which command to print: linux (also macOS), windows (for an elevated PowerShell window) or all")
 	fs.example(
 		"zoomies hosts join-token create",
+		"zoomies hosts join-token create --os windows",
 		"zoomies hosts join-token create --ttl 1h --capacity 8 --labels arch=arm64",
 		"zoomies hosts join-token create --controller https://zoomies.internal:8443",
 		"zoomies hosts join-token create --connection tailcat",
@@ -415,6 +418,11 @@ func joinTokenCreate(ctx context.Context, e *env, args []string) error {
 	}
 	if err := fs.noMoreArgs(); err != nil {
 		return err
+	}
+	switch *osName {
+	case "linux", "windows", "all":
+	default:
+		return usagef("hosts join-token create", "--os %q is not one of linux, windows or all", *osName)
 	}
 	client, err := cf.client()
 	if err != nil {
@@ -441,8 +449,20 @@ func joinTokenCreate(ctx context.Context, e *env, args []string) error {
 		return p.emit(raw)
 	}
 
-	fmt.Fprintf(e.out, "Run this on the new host, within %s:\n\n  %s\n\n",
-		compactDuration(time.Until(token.ExpiresAt)), token.Command)
+	within := compactDuration(time.Until(token.ExpiresAt))
+	windows := token.Commands.Windows
+	if *osName != "linux" && windows == "" {
+		return errors.New("this controller does not offer a Windows command yet; upgrade it, or run `zoomies agent join <controller-url> --token <token>` on the Windows host")
+	}
+	switch *osName {
+	case "windows":
+		fmt.Fprintf(e.out, "Run this in PowerShell as administrator on the new host, within %s:\n\n  %s\n\n", within, windows)
+	case "all":
+		fmt.Fprintf(e.out, "On Linux or macOS, run this on the new host, within %s:\n\n  %s\n\n", within, token.Command)
+		fmt.Fprintf(e.out, "On Windows, run this in PowerShell as administrator instead:\n\n  %s\n\n", windows)
+	default:
+		fmt.Fprintf(e.out, "Run this on the new host, within %s:\n\n  %s\n\n", within, token.Command)
+	}
 	fmt.Fprintf(e.out, "token     %s\n", token.Token)
 	fmt.Fprintf(e.out, "expires   %s\n", token.ExpiresAt.Local().Format(time.RFC3339))
 	fmt.Fprintf(e.out, "capacity  %s\n", strconv.Itoa(token.Capacity))

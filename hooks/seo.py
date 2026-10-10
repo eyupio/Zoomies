@@ -156,6 +156,7 @@ def on_post_build(config):
         "",
         f"- [Repository]({config['repo_url']}): the Go controller, the Svelte UI and these docs.",
         f"- [install.sh]({site_url}/install.sh): the one-line installer, byte-identical to the one in the repository.",
+        f"- [install.ps1]({site_url}/install.ps1): the Windows installer, run from an elevated PowerShell window; byte-identical to the one in the repository.",
         f"- [OpenAPI document]({config['repo_url']}/blob/main/api/openapi.yaml): the REST contract both clients are generated from.",
         f"- [Catalog of problem codes and checks]({site_url}/catalog.json): every code Zoomies can raise, with what to do and how to see it worked, as JSON; its schema is beside it at catalog.schema.json.",
         "",

@@ -6,6 +6,17 @@ import { SETUP_TOKEN_FILE } from './tests/support/fixtures';
  * `zoomies controller` against a temporary SQLite database with auth disabled
  * on loopback, so what they exercise is the same code an operator runs.
  */
+/**
+ * Playwright's desktop profile calls itself Windows, and Add a host now starts
+ * on the command for the operating system the browser reports. The suite's
+ * operator is on Linux, so the profile says so; the specs that are about
+ * Windows (hosts-windows.spec.ts) set the platform they want themselves.
+ */
+const desktopChrome = {
+  ...devices['Desktop Chrome'],
+  userAgent:
+    'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36',
+};
 const PORT = 8099;
 /**
  * The first-run project gets its own controller, because it needs the opposite
@@ -66,7 +77,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      use: { ...devices['Desktop Chrome'] },
+      use: { ...desktopChrome },
       testIgnore:
         /(^|\/)(first-run|two-step|mcp-oauth|diagnostics|connect|ai-context|status-page|updates|host-update|transfer)\.spec\.ts/,
     },
@@ -80,7 +91,7 @@ export default defineConfig({
     {
       name: 'transfer',
       testMatch: /(^|\/)transfer\.spec\.ts/,
-      use: { ...devices['Desktop Chrome'], baseURL: 'http://127.0.0.1:8093' },
+      use: { ...desktopChrome, baseURL: 'http://127.0.0.1:8093' },
     },
     {
       name: 'transfer-mobile',
@@ -93,27 +104,27 @@ export default defineConfig({
       // on and a real account, so they ride on this controller, after the
       // spec that creates the account.
       testMatch: /(first-run|two-step|mcp-oauth)\.spec\.ts/,
-      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${FIRST_RUN_PORT}` },
+      use: { ...desktopChrome, baseURL: `http://127.0.0.1:${FIRST_RUN_PORT}` },
     },
     {
       name: 'diagnostics',
       testMatch: /diagnostics\.spec\.ts/,
-      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${STUCK_PORT}` },
+      use: { ...desktopChrome, baseURL: `http://127.0.0.1:${STUCK_PORT}` },
     },
     {
       name: 'status',
       testMatch: /status-page\.spec\.ts/,
-      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${STATUS_PORT}` },
+      use: { ...desktopChrome, baseURL: `http://127.0.0.1:${STATUS_PORT}` },
     },
     {
       name: 'connect',
       testMatch: /(connect|ai-context)\.spec\.ts/,
-      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${CONNECT_PORT}` },
+      use: { ...desktopChrome, baseURL: `http://127.0.0.1:${CONNECT_PORT}` },
     },
     {
       name: 'updates',
       testMatch: /(updates|host-update)\.spec\.ts/,
-      use: { ...devices['Desktop Chrome'], baseURL: `http://127.0.0.1:${UPDATES_PORT}` },
+      use: { ...desktopChrome, baseURL: `http://127.0.0.1:${UPDATES_PORT}` },
     },
     {
       name: 'updates-mobile',

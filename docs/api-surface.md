@@ -706,6 +706,17 @@ Omit `controller_url` for private enrolment. The returned `command` and
 returned by token list/get endpoints. Failed tunnel setup returns 422 without
 minting a token. The default `connection` is `direct` for existing clients.
 
+### One command per operating system
+
+The create response carries the same one-liner for each operating system in
+`commands`: `commands.linux` (identical to `command`, and also for macOS) and
+`commands.windows`, which is for a PowerShell window opened as administrator.
+Both are built from the same address, token and release channel, so a direct
+address, a private connection and the pinned version behave alike. Each value is
+single-quoted for its shell, with a quote inside a value doubled in PowerShell and
+closed and reopened in a POSIX shell. `command` stays for clients written before
+Windows was offered, and a controller that predates `commands` leaves it out.
+
 `GET /api/v1/meta` includes the non-secret `tailcat_available` capability flag.
 Host responses and `host.updated` include `connection: "direct" | "tailcat"`,
 observed at enrolment and heartbeat. The tunnel accepts agent endpoints only;
