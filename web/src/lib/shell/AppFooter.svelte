@@ -75,7 +75,15 @@
     display: flex;
     align-items: center;
     justify-content: space-between;
-    gap: var(--z-space-4);
+    /*
+      Wrap, never overflow. Between the phone breakpoint and a comfortably wide
+      window the version, both links and the descriptor are wider than the
+      column, and every one of them refuses to shrink, so the row used to size
+      the whole document and the page scrolled sideways for the sake of a
+      footer. Rows of their own are the honest answer.
+    */
+    flex-wrap: wrap;
+    gap: var(--z-space-2) var(--z-space-4);
     max-width: var(--z-content-max);
     margin: 0 auto;
     padding: var(--z-space-4) var(--z-space-6) var(--z-space-8);
@@ -121,8 +129,10 @@
   }
   .right {
     display: flex;
+    flex-wrap: wrap;
     align-items: center;
-    gap: var(--z-space-4);
+    gap: var(--z-space-1) var(--z-space-4);
+    min-width: 0;
   }
   .docs,
   .credit a {
