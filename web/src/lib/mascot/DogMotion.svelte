@@ -42,9 +42,6 @@
       {#if cue === 'maximum'}<path d="M3 27h13" />{/if}
     </g>
   {/if}
-  {#if motion === 'fetch'}
-    <g class="ball"><circle cx="62" cy="45" r="5" /><path d="M58 42q5 0 7 5" /></g>
-  {/if}
   {#if motion === 'sniff'}
     <g class="scent"
       ><circle cx="57" cy="43" r="1" /><circle cx="64" cy="38" r="1" /><circle
@@ -102,8 +99,7 @@
   .pup,
   .ear,
   .paw,
-  .traveller,
-  .ball {
+  .traveller {
     transform-box: fill-box;
     transform-origin: center;
   }
@@ -120,17 +116,8 @@
   [data-motion='zoomies'] .pup {
     animation-name: dash;
   }
-  [data-motion='fetch'] .pup {
-    animation-name: fetch;
-  }
   [data-motion='sniff'] .pup {
     animation-name: sniff;
-  }
-  [data-motion='pounce'] .pup {
-    animation-name: pounce;
-  }
-  [data-motion='wiggle'] .pup {
-    animation-name: wiggle;
   }
   [data-motion='orbit'] .pup {
     animation-name: orbit;
@@ -147,14 +134,8 @@
   [data-motion='wait'] .pup {
     animation-name: wait;
   }
-  [data-motion='fetch'] .ball {
-    animation: ball var(--period) var(--phase) ease-in-out infinite;
-  }
   [data-motion='sniff'] .scent {
     animation: fade var(--period) var(--phase) ease-in-out infinite;
-  }
-  [data-motion='wiggle'] .ear {
-    animation: ears var(--period) var(--phase) ease-in-out infinite;
   }
   [data-motion='wave'] .right-paw {
     transform-origin: bottom left;
@@ -195,34 +176,6 @@
       transform: translate(-10px, -5px) rotate(8deg);
     }
   }
-  @keyframes fetch {
-    0%,
-    100% {
-      transform: translateX(-12px) rotate(-8deg);
-    }
-    40%,
-    55% {
-      transform: translate(9px, 2px) rotate(12deg);
-    }
-    75% {
-      transform: translate(-4px, -6px) rotate(-6deg);
-    }
-  }
-  @keyframes ball {
-    0%,
-    100% {
-      transform: translateX(-5px);
-    }
-    30% {
-      transform: translate(6px, -12px) rotate(100deg);
-    }
-    55% {
-      transform: translate(6px, 0) rotate(170deg);
-    }
-    75% {
-      transform: translate(-5px, -4px);
-    }
-  }
   @keyframes sniff {
     0%,
     100% {
@@ -237,21 +190,6 @@
     }
     80% {
       transform: translate(-3px, 0) rotate(-10deg);
-    }
-  }
-  @keyframes pounce {
-    0%,
-    100% {
-      transform: translateY(0);
-    }
-    25% {
-      transform: translateY(4px) scale(1.08, 0.88);
-    }
-    55% {
-      transform: translateY(-10px) scale(0.95, 1.05) rotate(-8deg);
-    }
-    75% {
-      transform: translateY(2px) scale(1.06, 0.94);
     }
   }
   @keyframes wiggle {
@@ -315,15 +253,6 @@
     }
     45% {
       transform: translateY(-10px) rotate(15deg);
-    }
-  }
-  @keyframes ears {
-    20%,
-    50% {
-      transform: rotate(-12deg);
-    }
-    35% {
-      transform: rotate(12deg);
     }
   }
   @keyframes settle {

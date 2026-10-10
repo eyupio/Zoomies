@@ -792,12 +792,13 @@ test('thinking varies its quotes and routines, respects reduced motion and stops
   try {
     await expect(thinking).toBeVisible();
     const quote = await thinking.locator('p').innerText();
-    const motion = await thinking.locator('svg').getAttribute('data-motion');
+    const track = thinking.locator('.track');
+    const motion = await track.getAttribute('data-motion');
     await page.clock.runFor(4500);
     await expect(thinking.locator('p')).not.toHaveText(quote);
-    await expect(thinking.locator('svg')).toHaveAttribute('data-motion', motion!);
+    await expect(track).toHaveAttribute('data-motion', motion!);
     await page.clock.runFor(4500);
-    await expect(thinking.locator('svg')).not.toHaveAttribute('data-motion', motion!);
+    await expect(track).not.toHaveAttribute('data-motion', motion!);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await expect
       .poll(() => thinking.evaluate((node) => node.getAnimations({ subtree: true }).length))

@@ -1,13 +1,5 @@
-export const THINKING_MOTIONS = ['zoomies', 'fetch', 'sniff', 'pounce', 'wiggle', 'orbit'] as const;
 export type DogMotion =
-  | (typeof THINKING_MOTIONS)[number]
-  | 'trot'
-  | 'wave'
-  | 'settle'
-  | 'wait'
-  | 'sad'
-  | 'sleep'
-  | 'puzzled';
+  'zoomies' | 'orbit' | 'sniff' | 'trot' | 'wave' | 'settle' | 'wait' | 'sad' | 'sleep' | 'puzzled';
 export type DogCue =
   | 'none'
   | 'work'

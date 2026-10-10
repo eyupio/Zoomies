@@ -62,7 +62,7 @@ One glyph also means one thing wherever it appears:
 | `IterationCcw` | another attempt asked for | a re-run requested on a job's timeline |
 | `Zap`, `TrendingUp`, `TrendingDown` | CPU lent at maximum, lent, taken back | elastic CPU on a busy or idle runner |
 
-Standard shares Eli's line-drawn dog and CSS motion component. Busy runners trot,
+Standard is a line-drawn dog moved by CSS alone. Busy runners trot,
 extra zoomies scoot from side to side, and maximum zoomies chase a faster circle.
 Idle dogs look patiently around, provisioning dogs sniff, registering dogs wave,
 throttled dogs wait, and draining dogs settle down. Failed dogs look sad, removed
@@ -1246,9 +1246,13 @@ Playwright suite asserts on, so the picture and the tests stay honest together.
 Every user can open Eli from the circular dog button on any page. Drag the
 identity in the panel header to move it, or focus it and use arrow keys (Shift
 for larger steps). The panel stays within the viewport when moved or resized;
-left and right placement reset its position. Thinking cycles through six routines
-(zoomies, fetch, sniffing, pouncing, a happy wiggle and chasing circles) and 24 playful quotes. Quotes change every
-4.5 seconds, routines every 9 seconds, with a varied starting point per answer.
+left and right placement reset its position. Thinking is the avatar's own dog icon
+and two paw prints on a short track, and nothing else moves: each of its six
+routines (zoomies, fetch, sniffing, pouncing, a happy wiggle and chasing circles)
+is a set of keyframes for those three marks, so the picture stays as light as a
+status icon and a new routine needs no drawing. It cycles the routines with 24
+playful quotes. Quotes change every 4.5 seconds, routines every 9 seconds, with a
+varied starting point per answer.
 Avatar hover greetings vary between a tilt, a boop and a wiggle. All animations
 are disabled for reduced motion.
 The panel offers Compact, Default
