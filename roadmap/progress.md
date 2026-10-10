@@ -926,3 +926,17 @@ re-scoped or had never given a row. ROADMAP.md section 10 controls ordering.
 | ZF-403 | Drain and revoke a private host from the UI | existing | `implemented` | - | - | The acceptance is met by merged, tested code: cordon and remove on the host card, `zoomies hosts drain`, join-token revocation, and a host deletion that revokes the agent's credential because the token hash lives on the host row. Follow-on, demand-gated: rotating the shared tunnel identity as one audited platform action. |
 | ZF-404 | What the agent owns on a host, written down | extension; documentation and one default | `implemented` | decision 25 | [PR #436](https://github.com/eyupio/zoomies/pull/436) | The code is non-invasive already (no package upgrade, firewall change, reboot or container, image or volume prune anywhere in the tree); the one exception is the daemon-wide builder-cache prune `agent.docker_build_cache_mb` (default 5120) performs every five minutes, which decision 25 keeps and names. Remaining: the 'what the agent owns' section on the security and private-hosts pages, linked from Add-a-host. **Record, 23 September 2026:** `implemented`: merged in [#436](https://github.com/eyupio/zoomies/pull/436), one "What the agent owns on a host" section in `docs/security.md`, linked from the private-hosts page and the Add-a-host command step, with backend and docs tests pinned to it. |
 | ZF-404b | Opt-in dedicated-host stewardship | new | `blocked` | decision 25; deferred indefinitely | - | Nothing built. Deferred indefinitely in ROADMAP v3.0: the hosts are a fleet's own machines and a platform upgrading or rebooting them is a liability, not a feature. |
+
+## 10 October 2026: approved running spaniel artwork
+
+Updated the app, README, documentation and brand exports to the owner-selected full logo. Black and white SVG paths and transparent PNGs share one source; the emblem retains the same dog paths. Small paw/swish assets remain unchanged. The homepage animation now moves the complete artwork and retains its pause and reduced-motion support.
+
+Validation: Svelte check (zero errors or warnings), both UI builds, Go binary build, documentation build and internal/docs tests passed. Browser checks against the built binary covered About and first-run theme variants, sign-in at 1440px and 390px, image decoding and horizontal overflow. Docs checks covered both themes, animation pause and reduced motion. Refreshed both sign-in documentation screenshots from the running app.
+
+### 10 October 2026: dog-only emblem
+
+Removed the circle and detached speed strokes from the text-free emblem at the owner's request. Preserved the approved dog paths, centred the artwork, and refreshed black/white PNG and SVG copies, avatar exports and provenance hashes. Full logos are unchanged.
+
+### 10 October 2026: simplify the full logo
+
+Removed the descriptor from full-logo and wordmark assets. Repaired the lower-left ring with a constant-width circular arc and clearance behind the artwork. Refreshed runtime copies, email and social exports, downloads and source hashes.
