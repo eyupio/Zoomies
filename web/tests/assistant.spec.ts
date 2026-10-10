@@ -423,6 +423,9 @@ test('a provider says on its card that Eli may read the fleet through it, and th
   }
 });
 
+/** The list the Assistant page draws its cards from: the signed-in person's own. */
+const PERSONAL_PROVIDERS = '/api/v1/assistant/personal/providers';
+
 test('a provider card keeps its long kind label inside the card on a narrow screen', async ({
   page,
 }) => {
@@ -431,13 +434,13 @@ test('a provider card keeps its long kind label inside the card on a narrow scre
   // The list is read up front, the way the other specs read the API, and served
   // back with every provider claiming that kind: the page then draws the label
   // without a real OpenAI-compatible provider, which needs a key to be added.
-  const list = await (await page.request.get('/api/v1/assistant/providers')).json();
+  const list = await (await page.request.get(PERSONAL_PROVIDERS)).json();
   const items = list.items.map((p: Record<string, unknown>) => ({
     ...p,
     kind: 'openai_compatible',
     fleet_access: true,
   }));
-  await page.route('**/api/v1/assistant/providers', (route) =>
+  await page.route(`**${PERSONAL_PROVIDERS}`, (route) =>
     route.fulfill({ json: { ...list, items } }),
   );
   await page.setViewportSize({ width: 390, height: 800 });
