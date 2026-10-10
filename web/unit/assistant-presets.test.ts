@@ -110,3 +110,9 @@ test('exactly the subscription kinds are the ones the page asks nothing of but a
   for (const kind of ['fake', 'openai_compatible', 'anthropic', 'openai'] as const)
     assert.ok(!isSubscriptionKind(kind));
 });
+
+test('a personal default answers before an installation default', () => {
+  const shared = provider({ id: 'shared', is_default: true, owned_by_you: false });
+  const own = provider({ id: 'own', is_default: true, owned_by_you: true });
+  assert.equal(answeringProvider([shared, own])?.id, 'own');
+});

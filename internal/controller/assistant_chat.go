@@ -49,6 +49,8 @@ const assistantToolsSystemPrompt = "You are Eli, the assistant built into Zoomie
 
 // ErrAssistantNoModel is a chat asked of an instance with no enabled provider to
 // answer it, or of a provider that is not one.
+var ErrAssistantSubscriptionRestricted = errors.New("subscription tools on the controller require administrator permission")
+
 var ErrAssistantNoModel = errors.New("no assistant model is set up")
 
 // ErrAssistantNotYours is a chat asked through somebody else's own subscription.
@@ -74,8 +76,11 @@ type AssistantChatMessage struct {
 // AssistantChatRequest is a conversation so far, ending in a question. The
 // controller keeps nothing between requests; the page holds the history.
 type AssistantChatRequest struct {
+	Personal          bool
+	AllowSubscription bool
 	// ProviderID names the provider to ask, or is empty for the default.
 	ProviderID string
+	OwnerID    string
 	Messages   []AssistantChatMessage
 	// UserID is the account asking. A provider that belongs to somebody is used
 	// only by them: it is what Anthropic's terms ask of a subscription.
@@ -170,6 +175,46 @@ func (c *Controller) chatProvider(ctx context.Context, id, userID string) (*stor
 	return nil, ErrAssistantNoModel
 }
 
+// chatProvider is the provider a chat is for: the one named, or the default.
+// A disabled provider is not one to answer, whichever way it was asked for.
+func (c *Controller) personalChatProvider(ctx context.Context, id string, owner string) (*store.AssistantProvider, error) {
+	if id != "" {
+		row, err := c.st.GetAssistantProvider(ctx, id)
+		if errors.Is(err, store.ErrNotFound) {
+			return nil, ErrAssistantNoModel
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !row.Enabled || row.OwnerID != owner {
+			return nil, ErrAssistantNoModel
+		}
+		if assistant.Subscription(assistant.Kind(row.Kind)) {
+			user, e := c.st.GetUser(ctx, owner)
+			if e != nil || user.Disabled || user.Role != store.RoleAdmin {
+				return nil, ErrAssistantNoModel
+			}
+		}
+		return row, nil
+	}
+	rows, err := c.st.ListAssistantProviders(ctx)
+	if err != nil {
+		return nil, err
+	}
+	for _, row := range rows {
+		if row.IsDefault && row.Enabled && row.OwnerID == owner {
+			if assistant.Subscription(assistant.Kind(row.Kind)) {
+				user, e := c.st.GetUser(ctx, owner)
+				if e != nil || user.Disabled || user.Role != store.RoleAdmin {
+					return nil, ErrAssistantNoModel
+				}
+			}
+			return row, nil
+		}
+	}
+	return nil, ErrAssistantNoModel
+}
+
 // StartAssistantChat opens the answer to a conversation. Everything that can be
 // refused is refused here, before any stream exists, so the caller can answer
 // with a status and not with a stream that opens and fails.
@@ -181,9 +226,17 @@ func (c *Controller) StartAssistantChat(ctx context.Context, in AssistantChatReq
 	if err != nil {
 		return nil, err
 	}
-	row, err := c.chatProvider(ctx, in.ProviderID, in.UserID)
+	var row *store.AssistantProvider
+	if in.Personal {
+		row, err = c.personalChatProvider(ctx, in.ProviderID, in.OwnerID)
+	} else {
+		row, err = c.chatProvider(ctx, in.ProviderID, in.UserID)
+	}
 	if err != nil {
 		return nil, err
+	}
+	if in.Personal && assistant.Subscription(assistant.Kind(row.Kind)) && !in.AllowSubscription {
+		return nil, ErrAssistantSubscriptionRestricted
 	}
 	p, err := c.OpenAssistantProvider(row, "")
 	if err != nil {

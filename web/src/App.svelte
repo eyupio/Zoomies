@@ -24,12 +24,12 @@
   import Nav from '$lib/shell/Nav.svelte';
   import NavMenu from '$lib/shell/NavMenu.svelte';
   import { eli } from '$lib/assistant/eli.svelte';
-  import EliWidget from '$lib/assistant/EliWidget.svelte';
   import ProblemsDrawer from '$lib/problems/ProblemsDrawer.svelte';
   import ShortcutSheet from '$lib/shell/ShortcutSheet.svelte';
   import TopBar from '$lib/shell/TopBar.svelte';
   import Bootstrap from './routes/Bootstrap.svelte';
   import Login from './routes/Login.svelte';
+  import EliWidget from '$lib/assistant/EliWidget.svelte';
   import { upgrade } from '$lib/state/upgrade.svelte';
 
   let paletteOpen = $state(false);
@@ -91,8 +91,7 @@
     feed.start();
   });
 
-  // Whether there is an Eli to ask is the controller's to say, and only to an
-  // administrator. Signing out forgets the conversation, so the next person on
+  // Each account's provider list is private. Signing out forgets the conversation, so the next person on
   // this tab does not start in the last one's.
   $effect(() => {
     if (authenticated) void eli.refresh();
@@ -224,7 +223,7 @@
   <NavMenu bind:open={navMenuOpen} />
   <CommandPalette bind:open={paletteOpen} />
   <ProblemsDrawer />
-  {#if eli.available}<EliWidget />{/if}
+  {#if session.can('viewer')}<EliWidget />{/if}
   <ShortcutSheet bind:open={shortcutsOpen} />
 {/if}
 

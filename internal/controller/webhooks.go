@@ -154,6 +154,19 @@ func (c *Controller) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 			http.Error(w, "the delivery could not be processed", http.StatusInternalServerError)
 			return
 		}
+		if err := c.enqueueRepairWebhook(ctx, inst, event, body); err != nil {
+			c.recordDelivery(ctx, d, "error", err.Error())
+			http.Error(w, "the repair request could not be queued", http.StatusInternalServerError)
+			return
+		}
+		c.recordDelivery(ctx, d, "accepted", note)
+		w.WriteHeader(http.StatusAccepted)
+	case event == "issue_comment":
+		if err := c.enqueueRepairWebhook(ctx, inst, event, body); err != nil {
+			c.recordDelivery(ctx, d, "error", err.Error())
+			http.Error(w, "the repair request could not be queued", http.StatusInternalServerError)
+			return
+		}
 		c.recordDelivery(ctx, d, "accepted", note)
 		w.WriteHeader(http.StatusAccepted)
 	default:
@@ -162,7 +175,7 @@ func (c *Controller) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 		c.recordDelivery(ctx, d, "accepted", note)
 		writeJSON(w, http.StatusOK, map[string]any{
 			"ok":      true,
-			"message": fmt.Sprintf("Zoomies does not act on %q events; only workflow_job", event),
+			"message": fmt.Sprintf("Zoomies does not act on %q events; supported events are workflow_job and issue_comment", event),
 		})
 	}
 }
