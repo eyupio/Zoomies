@@ -43,6 +43,7 @@ type RepairClient interface {
 	RepairFailures(context.Context, string, RepairPull, int64) ([]string, error)
 	CommitRepair(context.Context, string, RepairPull, prrepair.Plan) (string, error)
 	RepairComment(context.Context, string, int, int64, string) (int64, error)
+	RepairReact(context.Context, string, int64, string) error
 	RepairChecks(context.Context, string, string) (string, error)
 }
 type RepairSource struct {
@@ -348,6 +349,17 @@ func (c *appClient) RepairComment(ctx context.Context, repo string, pull int, id
 	}
 	err = c.repairRequest(ctx, method, endpoint, map[string]string{"body": text}, &out)
 	return out.ID, err
+}
+
+// RepairReact puts a reaction on a comment. GitHub offers a fixed set (there is
+// no paw), and posting the same one twice is not an error, so a redelivered
+// webhook cannot stack them.
+func (c *appClient) RepairReact(ctx context.Context, repo string, commentID int64, content string) error {
+	base, err := repairRepo(repo)
+	if err != nil {
+		return err
+	}
+	return c.repairRequest(ctx, http.MethodPost, fmt.Sprintf("%s/issues/comments/%d/reactions", base, commentID), map[string]string{"content": content}, nil)
 }
 func (c *appClient) RepairChecks(ctx context.Context, repo, sha string) (string, error) {
 	base, err := repairRepo(repo)

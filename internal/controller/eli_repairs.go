@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -250,6 +251,21 @@ func (c *Controller) repairLoop(ctx context.Context) {
 	}
 }
 
+// triggerCommentID is the comment that asked for this repair, read back from the
+// dedup key the webhook wrote. r.CommentID is Eli's own progress comment, so it
+// cannot be used for this.
+func triggerCommentID(r *store.EliRepair) int64 {
+	rest, ok := strings.CutPrefix(r.DedupKey, "comment:"+r.Repo+":")
+	if !ok {
+		return 0
+	}
+	id, err := strconv.ParseInt(rest, 10, 64)
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return id
+}
+
 // repairHeading gives each stage of a repair its own face, so a thread of Eli's
 // updates reads as one dog doing something rather than a log. The state is the
 // repair's, not the text's: the wording of a message can change without the
@@ -390,6 +406,13 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 	}
 	r.ProviderID = provider.ID
 	_ = c.persistEliRepair(ctx, r)
+	// An eyes reaction is the quickest thing to show on the comment that asked,
+	// and it is best effort: a repair never fails because GitHub refused one.
+	if id := triggerCommentID(r); id > 0 {
+		if err := client.RepairReact(ctx, r.Repo, id, "eyes"); err != nil {
+			c.log.Warn("could not react to the repair request", "repair", r.ID)
+		}
+	}
 	c.repairNotice(ctx, client, r, "Investigating this PR using "+provider.Name+". The repair is limited to one commit and will leave normal review in place.")
 	source, err := client.RepairSource(ctx, r.Repo, pull, policy.AllowWorkflows)
 	if err != nil {

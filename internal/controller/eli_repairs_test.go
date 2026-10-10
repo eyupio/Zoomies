@@ -70,6 +70,7 @@ type repairFake struct {
 	onRead         func()
 	unsupportedRun bool
 	noWrite        bool
+	reacted        []int64
 }
 
 func (f *repairFake) RepairActor(context.Context, string, string) (github.RepairActor, error) {
@@ -106,6 +107,13 @@ func (f *repairFake) CommitRepair(_ context.Context, _ string, p github.RepairPu
 }
 func (f *repairFake) RepairComment(context.Context, string, int, int64, string) (int64, error) {
 	return 1, nil
+}
+func (f *repairFake) RepairReact(_ context.Context, _ string, id int64, content string) error {
+	if content != "eyes" {
+		return fmt.Errorf("unexpected reaction %q", content)
+	}
+	f.reacted = append(f.reacted, id)
+	return nil
 }
 func (f *repairFake) RepairChecks(context.Context, string, string) (string, error) {
 	return f.check, nil
@@ -157,7 +165,11 @@ func TestRepairWorkerSelectsTheHybridProviderAndRecordsRealCheckOutcome(t *testi
 					}
 				}
 			}
-			row := &store.EliRepair{DedupKey: trigger, Repo: repo, InstallationID: inst.ID, PullNumber: 1, HeadSHA: "old", RunID: 9, Trigger: actualTrigger, UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
+			dedup := trigger
+			if trigger == "mention" {
+				dedup = "comment:acme/repo:77"
+			}
+			row := &store.EliRepair{DedupKey: dedup, Repo: repo, InstallationID: inst.ID, PullNumber: 1, HeadSHA: "old", RunID: 9, Trigger: actualTrigger, UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
 			h.st.EnqueueEliRepair(h.ctx, row, 5)
 			if trigger == "queued-old" {
 				h.advance(2 * time.Hour)
@@ -196,6 +208,11 @@ func TestRepairWorkerSelectsTheHybridProviderAndRecordsRealCheckOutcome(t *testi
 			}
 			if len(models) != 1 || models[0] != want || row.State != "checking" || fake.commits != 1 {
 				t.Fatalf("models %v repair %+v commits %d", models, row, fake.commits)
+			}
+			// The comment that asked is acknowledged; a repair nobody asked for in a
+			// comment has nothing to react to.
+			if trigger == "mention" && (len(fake.reacted) != 1 || fake.reacted[0] != 77) || trigger == "automatic" && len(fake.reacted) != 0 {
+				t.Fatalf("reactions %v for a %s repair", fake.reacted, trigger)
 			}
 			h.advance(31 * time.Second)
 			h.c.checkEliRepairs(h.ctx)
@@ -327,5 +344,13 @@ func TestEveryRepairStageHasItsOwnHeading(t *testing.T) {
 			t.Errorf("states %q and %q share the heading %q", state, other, h)
 		}
 		seen[h] = state
+	}
+}
+
+func TestTheTriggeringCommentIsReadBackFromTheDedupKey(t *testing.T) {
+	for key, want := range map[string]int64{"comment:acme/repo:77": 77, "comment:other/repo:77": 0, "ui:acme/repo:1:abc:u": 0, "comment:acme/repo:x": 0, "comment:acme/repo:-3": 0, "": 0} {
+		if got := triggerCommentID(&store.EliRepair{Repo: "acme/repo", DedupKey: key}); got != want {
+			t.Errorf("%q gave %d, want %d", key, got, want)
+		}
 	}
 }
