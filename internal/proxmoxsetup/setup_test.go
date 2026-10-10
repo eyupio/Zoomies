@@ -11,6 +11,7 @@ import (
 	"errors"
 	"github.com/tailscale/tailcat"
 	"math/big"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -253,6 +254,29 @@ func TestConnectScriptRefusesIncompleteOrUnsafeArguments(t *testing.T) {
 			out, err := exec.Command("sh", append([]string{script}, args...)...).CombinedOutput()
 			if err == nil || !strings.Contains(string(out), "copy the complete command") {
 				t.Fatalf("accepted: %v %s", err, out)
+			}
+		})
+	}
+}
+
+// A Proxmox certificate lists localhost among its names, and the list's order
+// is not ours to rely on. A provider saved with https://localhost:8006 fails
+// its first check and no CA can fix it, so the endpoint is never a loopback name.
+func TestEndpointHostNeverChoosesALoopbackName(t *testing.T) {
+	ip := func(s string) net.IP { return net.ParseIP(s) }
+	for name, tc := range map[string]struct {
+		cert x509.Certificate
+		want string
+	}{
+		"localhost listed first":             {x509.Certificate{DNSNames: []string{"localhost", "localhost.localdomain", "pve-1.lan"}, IPAddresses: []net.IP{ip("127.0.0.1"), ip("10.0.0.5")}}, "pve-1.lan"},
+		"only loopback names and an address": {x509.Certificate{DNSNames: []string{"localhost"}, IPAddresses: []net.IP{ip("::1"), ip("127.0.0.1"), ip("10.0.0.5")}}, "10.0.0.5"},
+		"a wildcard becomes the node's name": {x509.Certificate{DNSNames: []string{"localhost", "*.example.com"}}, "pve-1.example.com"},
+		"a real name is kept":                {x509.Certificate{DNSNames: []string{"pve.example"}}, "pve.example"},
+		"nothing but loopback":               {x509.Certificate{DNSNames: []string{"localhost"}, IPAddresses: []net.IP{ip("127.0.0.1")}}, ""},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if got := endpointHost(&tc.cert, "pve-1"); got != tc.want {
+				t.Errorf("endpointHost = %q, want %q", got, tc.want)
 			}
 		})
 	}

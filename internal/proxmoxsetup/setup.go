@@ -121,26 +121,10 @@ func Prepare(ctx context.Context, h Host, dir, key string) (*Connection, error) 
 	if name == "" {
 		return nil, errors.New("proxmox setup: the Proxmox host name is empty")
 	}
-	host := ""
-	for _, name := range cert.DNSNames {
-		if !strings.Contains(name, "*") {
-			host = name
-			break
-		}
-	}
+	host := endpointHost(cert, name)
 	if host == "" {
-		for _, dnsName := range cert.DNSNames {
-			if strings.HasPrefix(dnsName, "*.") {
-				host = name + strings.TrimPrefix(dnsName, "*")
-				break
-			}
-		}
-	}
-	if host == "" && len(cert.IPAddresses) > 0 {
-		host = cert.IPAddresses[0].String()
-	}
-	if host == "" {
-		return nil, errors.New("proxmox setup: the Proxmox API certificate needs a DNS name or IP subject alternative name")
+		return nil, errors.New("proxmox setup: the Proxmox API certificate needs a DNS name or IP subject alternative name that is not localhost; " +
+			"give the node a certificate for its real name or address, then rerun setup")
 	}
 	c := &Connection{Name: "proxmox-" + name, Endpoint: "https://" + net.JoinHostPort(host, "8006"), CAPEM: string(ca)}
 	// Prefer the cluster CA across certificate renewal. A custom certificate is
@@ -303,4 +287,38 @@ func DiscoverTemplates(ctx context.Context, h Host) ([]Template, error) {
 	}
 	sort.Slice(templates, func(i, j int) bool { return templates[i].VMID < templates[j].VMID })
 	return templates, nil
+}
+
+// endpointHost picks the name the controller will dial the node by. A Proxmox
+// certificate lists localhost among its names, and the first one in the list
+// is as likely to be that as the node's own, but no name that only means "this
+// machine" can be verified from anywhere else, and it is the wrong thing to
+// save: the provider fails its first check and the CA that was sent along
+// cannot help. So loopback names are never chosen, whatever order they come in.
+func endpointHost(cert *x509.Certificate, node string) string {
+	for _, name := range cert.DNSNames {
+		if !strings.Contains(name, "*") && !loopbackName(name) {
+			return name
+		}
+	}
+	for _, name := range cert.DNSNames {
+		if strings.HasPrefix(name, "*.") && !loopbackName(node+strings.TrimPrefix(name, "*")) {
+			return node + strings.TrimPrefix(name, "*")
+		}
+	}
+	for _, ip := range cert.IPAddresses {
+		if !ip.IsLoopback() && !ip.IsUnspecified() {
+			return ip.String()
+		}
+	}
+	return ""
+}
+
+func loopbackName(name string) bool {
+	name = strings.ToLower(strings.TrimSuffix(name, "."))
+	if name == "localhost" || name == "localhost.localdomain" || strings.HasSuffix(name, ".localhost") {
+		return true
+	}
+	ip := net.ParseIP(name)
+	return ip != nil && ip.IsLoopback()
 }
