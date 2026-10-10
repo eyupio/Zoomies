@@ -26,6 +26,7 @@ const (
 	PrefixProvider     = "prv"
 	// PrefixAssistantProvider names a model the assistant may talk to.
 	PrefixAssistantProvider = "asp"
+	PrefixEliRepair         = "erf"
 	// PrefixProviderSetup names a short-lived Proxmox connection enrolment.
 	PrefixProviderSetup = "pvs"
 	// PrefixBackupRemote names an offsite backup destination kept in the

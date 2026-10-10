@@ -26,6 +26,7 @@ var AssistantFleetTools = []string{
 	"fleet_status", "list_problems", "list_jobs", "get_job", "job_stats",
 	"list_runners", "list_pools", "list_hosts", "host_health", "label_advice",
 	"get_runner_log", "kennel_overview", "kennel_repository", "kennel_findings",
+	"list_providers", "provider_pairings", "list_machines",
 }
 
 // What one question may cost in tools. Eli answers from what it looked at, and a

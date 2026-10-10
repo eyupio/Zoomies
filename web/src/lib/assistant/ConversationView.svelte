@@ -21,6 +21,7 @@
   import type { Conversation } from './conversation.svelte';
   import EliAvatar from './EliAvatar.svelte';
   import Markdown from './Markdown.svelte';
+  import { followUps } from './prompts';
   import { toolLabel } from './tools';
 
   interface Props {
@@ -59,11 +60,11 @@
   ];
   const starters = $derived(fleetAccess ? ABOUT_THE_FLEET : GENERAL);
 
-  let draft = $state('');
   let box = $state<HTMLTextAreaElement | null>(null);
   let scroller = $state<HTMLElement>();
   let atBottom = $state(true);
 
+  const suggestions = $derived(followUps(conversation.turns));
   const last = $derived(conversation.turns[conversation.turns.length - 1]);
   // Changes as an answer grows or finishes (its actions appear), which is what the view follows.
   const growth = $derived(
@@ -102,16 +103,16 @@
   async function ask(text: string): Promise<void> {
     const question = text.trim();
     if (!question || conversation.busy || !answering) return;
-    draft = '';
+    conversation.draft = '';
     atBottom = true;
     void tick().then(fit);
-    await conversation.send(question, answering.id);
+    await conversation.send(question, undefined, answering.id);
   }
 
   function onkeydown(event: KeyboardEvent): void {
     if (event.key === 'Enter' && !event.shiftKey && !event.isComposing) {
       event.preventDefault();
-      void ask(draft);
+      void ask(conversation.draft);
     }
   }
 </script>
@@ -133,11 +134,13 @@
           <p class="sub">
             {#if fleetAccess}
               Ask me about Zoomies, GitHub Actions or this fleet. I can look at its runners, jobs,
-              pools and hosts, and I only read: I never change anything.
+              pools and hosts, and I only read in this chat.
             {:else}
               Ask me about Zoomies, GitHub Actions or running a runner fleet. I cannot see this
-              fleet yet, so for anything about yours, paste what I need.
+              fleet yet, so for anything about yours, use Ask Eli to share displayed details or
+              paste what I need.
             {/if}
+            Request code changes through PR repairs in Assistant settings.
           </p>
           {#if answering}
             <ul class="starters" aria-label="Things to ask">
@@ -156,7 +159,21 @@
       {#each conversation.turns as turn (turn.id)}
         {#if turn.role === 'user'}
           <article class="me" aria-label="You">
-            <p>{turn.content}</p>
+            <p>{turn.context ? turn.content.split('\n\nContext shared from')[0] : turn.content}</p>
+            {#if turn.context}
+              <details class="attachment">
+                <summary>Shared {turn.context.kind}: {turn.context.title}</summary>
+                <dl>
+                  {#each Object.entries(turn.context.facts).filter(([, value]) => value !== undefined && value !== null && value !== '') as [key, value] (key)}
+                    <div>
+                      <dt>{key}</dt>
+                      <dd>{value}</dd>
+                    </div>
+                  {/each}
+                </dl>
+                <p class="name">Snapshot shared when you asked.</p>
+              </details>
+            {/if}
           </article>
         {:else}
           <article class="eli" aria-label="Eli" aria-busy={turn.streaming ? 'true' : undefined}>
@@ -214,6 +231,20 @@
           </article>
         {/if}
       {/each}
+      {#if answering && !conversation.busy && suggestions.length > 0}
+        <div class="next">
+          <p class="name">Continue the conversation</p>
+          <ul class="starters" aria-label="Follow-up questions">
+            {#each suggestions as suggestion (suggestion.prompt)}
+              <li>
+                <button type="button" class="starter" onclick={() => void ask(suggestion.prompt)}
+                  >{suggestion.label}<ArrowUp size={13} aria-hidden="true" /></button
+                >
+              </li>
+            {/each}
+          </ul>
+        </div>
+      {/if}
     </div>
 
     {#if !atBottom && conversation.turns.length > 0}
@@ -227,15 +258,16 @@
     class="composer"
     onsubmit={(event) => {
       event.preventDefault();
-      void ask(draft);
+      void ask(conversation.draft);
     }}
   >
     <div class="field" data-closed={answering ? undefined : ''}>
       <textarea
         bind:this={box}
-        bind:value={draft}
+        bind:value={conversation.draft}
         rows="1"
         aria-label="Message"
+        data-autofocus
         placeholder={answering ? 'Ask Eli anything about Zoomies or GitHub Actions' : closedHint}
         disabled={!answering}
         oninput={fit}
@@ -250,7 +282,12 @@
           <Square size={14} aria-hidden="true" />
         </button>
       {:else}
-        <button type="submit" class="send" aria-label="Send" disabled={!answering || !draft.trim()}>
+        <button
+          type="submit"
+          class="send"
+          aria-label="Send"
+          disabled={!answering || !conversation.draft.trim()}
+        >
           <ArrowUp size={16} aria-hidden="true" />
         </button>
       {/if}
@@ -321,6 +358,16 @@
     padding: 0;
     list-style: none;
   }
+  .next .starters {
+    grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+    margin-top: var(--z-space-2);
+  }
+  .next .starter {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--z-space-2);
+  }
   .starter {
     width: 100%;
     height: 100%;
@@ -354,6 +401,32 @@
     overflow-wrap: anywhere;
   }
 
+  .attachment {
+    margin-top: var(--z-space-2);
+    font-size: var(--z-text-xs);
+  }
+  .attachment summary {
+    cursor: pointer;
+    color: var(--z-accent);
+    overflow-wrap: anywhere;
+  }
+  .attachment dl {
+    margin-block: var(--z-space-2);
+  }
+  .attachment dl div {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--z-space-2);
+    margin-block: var(--z-space-1);
+  }
+  .attachment dt {
+    font-weight: var(--z-weight-semibold);
+  }
+  .attachment dd {
+    margin: 0;
+    overflow-wrap: anywhere;
+    white-space: pre-wrap;
+  }
   .eli {
     display: flex;
     gap: var(--z-space-3);

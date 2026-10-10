@@ -1309,3 +1309,29 @@ the old one is worse than one that is uniformly a release behind. If a shot
 needs the fixture to show something new, change the fixture in
 `internal/controller/seed.go` rather than the image; that is the fleet the
 Playwright suite asserts on, so the picture and the tests stay honest together.
+
+### Eli's contextual assistant
+
+Every user can open Eli from any page. The panel offers Compact, Default
+and Expanded sizes, left or right placement, manual corner resizing and a
+full-screen view. Size and side are browser preferences. A phone uses the whole
+screen. Minimising or navigating preserves the conversation and draft; a reload,
+sign-out or New conversation clears them. Chat uses the owner-scoped personal API and that user’s enabled default
+provider. Installation provider management retains its administrator gate.
+
+`web/src/lib/assistant/AskEli.svelte` is the shared contextual action. Supply an
+`EliContext` with a kind, title, optional question and an explicit map of displayed
+facts. Never pass a whole API object, credentials, environment variables or
+unrequested logs. Clicking the action opens Eli and asks with that snapshot.
+Questions clicked during an answer wait in order and can be discarded. When no
+provider is available, they remain visible until the operator configures one and
+reopens Eli. The model has no live fleet access or mutation tools.
+
+Host and runner details and problem entries use the same action. Add another
+entry point by supplying its own display facts to `AskEli`; it needs no chat
+transport or page-specific event listener. `assistant/prompts.ts` holds the pure
+prompt builder and narrative registry. Add topic patterns and labelled steps
+there to extend follow-ups. Suggestions follow the latest question and answer,
+wait until streaming finishes, omit steps already asked, and keep general ways
+to continue available as new evidence arrives. These are local suggestions,
+not an additional model request.

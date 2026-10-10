@@ -3342,6 +3342,291 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/assistant/personal/chat": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Personal provider, Ask the assistant's model a question
+         * @description Answers a conversation as a `text/event-stream`: `delta` frames carrying
+         *     `{"text": ...}` as the model writes, one `usage` frame with
+         *     `{"input_tokens", "output_tokens"}` when the provider reports them, `tool` frames
+         *     reporting read-only fleet lookups when enabled, and a final `done` frame with
+         *     the provider's name, model, `fleet_access` and `tools`, or an `error` frame with a
+         *     `message` if the answer failed after it began (the status had gone out with the
+         *     first byte by then).
+         *
+         *     The controller keeps nothing between requests: send the conversation so far,
+         *     ending in the person's question, and send it again with the next one. Only
+         *     `user` and `assistant` messages are accepted. The model is told what Zoomies
+         *     is. With `fleet_access` off it has no fleet tools. With it on, it receives the
+         *     fixed read-only tools using the caller's permissions. UI Ask Eli actions include
+         *     a snapshot of displayed facts in the user message. Only the caller's personal
+         *     providers may be selected; installation keys are never a fallback. Controller
+         *     subscription tools additionally require administrator permission.
+         *
+         *     Everything that can be refused is refused before the stream opens: a conversation
+         *     that is empty, too long or does not end in a user message is a 422 naming the
+         *     message; an instance with no enabled provider, or a named one that is not, is a
+         *     409; a model that would not answer at all (the address was refused, the key was
+         *     wrong) is a 502 with code `assistant.provider_failed`.
+         */
+        post: operations["personalAssistantChat"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/personal/providers": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Personal provider, List the assistant's providers
+         * @description One row per model the assistant may talk to. The key is never in the response and has no field it could be in: `key_configured` says one is sealed on the row.
+         */
+        get: operations["personalListAssistantProviders"];
+        put?: never;
+        /**
+         * Personal provider, Add a provider
+         * @description The key is sealed with the instance key before the row is written. A base URL on this machine or a private network is refused unless `assistant.allow_private_provider` is on; the 422 names the switch.
+         */
+        post: operations["personalCreateAssistantProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/personal/providers/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Personal provider, Test a provider before saving it
+         * @description Runs the check against the body as a form has it, with the key the form holds, so a key need not be saved to be tested. Nothing is written. A check that fails is still a 200: the verdict is in the body.
+         */
+        post: operations["personalCheckAssistantDraft"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/personal/providers/models": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Personal provider, List the models a provider serves
+         * @description Asks the provider, as the body has it, which models it serves, with the key the form holds (or the saved row's, when `id` names one and the key is blank), so the Add form can offer a list and not a box to type a spelling into. The model need not be chosen yet. Nothing is written. A provider that would not answer is a 502 with code `assistant.provider_failed`; one that has no list to give is a 409, and its model is typed.
+         */
+        post: operations["personalListAssistantModels"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/personal/providers/kinds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Personal provider, The kinds of provider a person may add
+         * @description Each kind with the address a hosted one has, or an empty string for the kind whose address has to be typed.
+         */
+        get: operations["personalListAssistantProviderKinds"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/personal/providers/{id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        /** Personal provider, One provider */
+        get: operations["personalGetAssistantProvider"];
+        put?: never;
+        post?: never;
+        /**
+         * Personal provider, Remove a provider
+         * @description The body carries the provider's name, typed to confirm; a name that does not match is a 409 and nothing is removed. Removing the default leaves no default.
+         */
+        delete: operations["personalDeleteAssistantProvider"];
+        options?: never;
+        head?: never;
+        /**
+         * Personal provider, Change a provider
+         * @description Every field is optional and independent. An empty or absent `api_key` leaves the sealed key alone; a non-empty one replaces it. The default is not changed here.
+         */
+        patch: operations["personalUpdateAssistantProvider"];
+        trace?: never;
+    };
+    "/assistant/personal/providers/{id}/check": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Personal provider, Test a provider
+         * @description Runs the provider's check and one token of completion, and records the result on the row, so the page shows it after a reload and not only in the tab that pressed Test. A check that fails is still a 200; `ok` and `error` say so. Audited, because it uses the key.
+         */
+        post: operations["personalCheckAssistantProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/personal/providers/{id}/default": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Personal provider, Make this the provider that answers
+         * @description One provider is the default at a time; this one becomes it and the previous one stops being it, in one write.
+         */
+        post: operations["personalSetDefaultAssistantProvider"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List repair history visible to the caller */
+        get: operations["listEliRepairs"];
+        put?: never;
+        /** Request a repair using the caller’s personal provider */
+        post: operations["requestEliRepair"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/settings": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Read account links and administrator repository policies */
+        get: operations["getEliRepairSettings"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/consent": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Confirm the caller's GitHub link for personal provider use */
+        put: operations["setEliRepairConsent"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/policy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Configure a repository’s installation provider and repair budget */
+        put: operations["setEliRepairPolicy"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/assistant/repairs/identity": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Verify and link a user’s GitHub numeric identity */
+        put: operations["setEliIdentity"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/machines": {
         parameters: {
             query?: never;
@@ -9044,6 +9329,8 @@ export interface components {
         };
         AssistantProvider: {
             id: string;
+            /** @description User ID for a personal provider; empty for an installation provider. */
+            owner_id: string;
             name: string;
             kind: components["schemas"]["AssistantProviderKind"];
             /** @description Empty for a hosted kind means the kind's own address. */
@@ -9055,13 +9342,13 @@ export interface components {
             is_default: boolean;
             /** @description The address names this machine or a private network. */
             local: boolean;
-            /** @description The assistant may read this fleet through the provider. An administrator's decision per provider, off until made: what the tools return is sent to the provider, which for a hosted one leaves this network. */
+            /** @description The assistant may read this fleet through the provider. The personal provider's owner chooses this; administrators choose it for installation providers. Off until enabled: what the tools return is sent to the provider, which for a hosted one leaves this network. */
             fleet_access: boolean;
             /** @description Somebody's own subscription, used through the vendor's own tool on the controller's machine. Such a provider belongs to the person who added it. */
             subscription: boolean;
-            /** @description The username it belongs to */
+            /** @description The username a personal provider belongs to. */
             owner?: string;
-            /** @description The person asking is the owner of this subscription. */
+            /** @description The person asking owns this personal provider. */
             owned_by_you: boolean;
             /** @description The person asking may use this provider: it is shared, or it is their own subscription. Anyone else's gets a 403 `assistant.provider_not_yours` where it is used, changed or tested. */
             usable: boolean;
@@ -9070,6 +9357,61 @@ export interface components {
             created_at: string;
             /** Format: date-time */
             updated_at: string;
+        };
+        EliIdentity: {
+            user_id: string;
+            github_user_id: number;
+            github_login: string;
+            confirmed: boolean;
+        };
+        EliIdentityInput: {
+            user_id: string;
+            github_login: string;
+            installation_id: string;
+            repo: string;
+        };
+        EliRepairPolicy: {
+            repo: string;
+            installation_id: string;
+            provider_id: string;
+            enabled: boolean;
+            automatic: boolean;
+            allow_workflows: boolean;
+            daily_limit: number;
+        };
+        EliRepairRequest: {
+            repo: string;
+            pull_number: number;
+            instruction: string;
+        };
+        EliRepair: {
+            id: string;
+            installation_id: string;
+            repo: string;
+            head_sha: string;
+            commit_sha: string;
+            user_id: string;
+            github_login: string;
+            provider_id: string;
+            trigger: string;
+            state: string;
+            message: string;
+            pull_number: number;
+            job_id: number;
+            run_id: number;
+            github_user_id: number;
+            comment_id: number;
+            /** Format: date-time */
+            created_at: string;
+            /** Format: date-time */
+            updated_at: string;
+        };
+        EliRepairList: {
+            items: components["schemas"]["EliRepair"][];
+        };
+        EliRepairSettings: {
+            identities: components["schemas"]["EliIdentity"][];
+            policies: components["schemas"]["EliRepairPolicy"][];
         };
         /** @description Creating, editing and checking a provider take the same body. On a PATCH every field is optional; what is not named is left alone. */
         AssistantProviderInput: {
@@ -15476,6 +15818,463 @@ export interface operations {
                 };
             };
             404: components["responses"]["NotFound"];
+        };
+    };
+    personalAssistantChat: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantChatRequest"];
+            };
+        };
+        responses: {
+            /** @description The answer, as it is written */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": string;
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+            /** @description The model would not answer. The code is `assistant.provider_failed` and the message says why in words that never carry the request or the key. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    personalListAssistantProviders: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: components["schemas"]["AssistantProvider"][];
+                    };
+                };
+            };
+        };
+    };
+    personalCreateAssistantProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantProviderInput"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantProvider"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    personalCheckAssistantDraft: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantProviderInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantProviderCheck"];
+                };
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    personalListAssistantModels: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantProviderInput"];
+            };
+        };
+        responses: {
+            /** @description The model names, sorted and without repeats */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items: string[];
+                    };
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+            /** @description The provider would not answer. The code is `assistant.provider_failed`. */
+            502: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    personalListAssistantProviderKinds: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        items?: {
+                            kind: components["schemas"]["AssistantProviderKind"];
+                            default_base_url: string;
+                        }[];
+                    };
+                };
+            };
+        };
+    };
+    personalGetAssistantProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantProvider"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    personalDeleteAssistantProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    name: string;
+                };
+            };
+        };
+        responses: {
+            /** @description Removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+        };
+    };
+    personalUpdateAssistantProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["AssistantProviderInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantProvider"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    personalCheckAssistantProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantProviderCheck"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    personalSetDefaultAssistantProvider: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description The resource ID, e.g. `pool_k3f9qz2m`. */
+                id: components["parameters"]["PathID"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["AssistantProvider"];
+                };
+            };
+            404: components["responses"]["NotFound"];
+        };
+    };
+    listEliRepairs: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairList"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    requestEliRepair: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EliRepairRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepair"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    getEliRepairSettings: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairSettings"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    setEliRepairConsent: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": {
+                    github_user_id: number;
+                    enabled: boolean;
+                };
+            };
+        };
+        responses: {
+            /** @description Personal consent recorded */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            404: components["responses"]["NotFound"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    setEliRepairPolicy: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EliRepairPolicy"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliRepairPolicy"];
+                };
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    setEliIdentity: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["EliIdentityInput"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EliIdentity"];
+                };
+            };
+            /** @description Account link removed */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            409: components["responses"]["Conflict"];
+            422: components["responses"]["Unprocessable"];
         };
     };
     listMachines: {

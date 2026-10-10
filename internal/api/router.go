@@ -391,7 +391,29 @@ func (s *Server) apiRoutes() chi.Router {
 		})
 		// The assistant's providers: the administrator's, kinds included,
 		// because only the page that adds one asks for them.
+		r.With(s.require(auth.ActionAssistantOwn)).Get("/assistant/repairs", s.handleEliRepairs)
+		r.With(s.require(auth.ActionAssistantOwn)).Get("/assistant/repairs/settings", s.handleEliRepairSettings)
+		r.With(s.require(auth.ActionAssistantOwn), s.requirePersonalAssistantOwner).Put("/assistant/repairs/consent", s.handleEliRepairConsent)
+		r.With(s.require(auth.ActionAssistantOwn), s.requirePersonalAssistantOwner).Post("/assistant/repairs", s.handleRequestEliRepair)
+		r.With(s.require(auth.ActionAssistantWrite)).Put("/assistant/repairs/policy", s.handleSetEliPolicy)
+		r.With(s.require(auth.ActionUsersWrite)).Put("/assistant/repairs/identity", s.handleSetEliIdentity)
 		r.With(s.require(auth.ActionAssistantChat)).Post("/assistant/chat", s.handleAssistantChat)
+		r.Route("/assistant/personal", func(r chi.Router) {
+			r.Use(s.require(auth.ActionAssistantOwn), s.requirePersonalAssistantOwner)
+			r.Post("/chat", s.handleAssistantChat)
+			r.Route("/providers", func(r chi.Router) {
+				r.Get("/", s.handleListAssistantProviders)
+				r.Post("/", s.handleCreateAssistantProvider)
+				r.Post("/check", s.handleCheckAssistantDraft)
+				r.Post("/models", s.handleAssistantModels)
+				r.Get("/kinds", s.handleAssistantProviderKinds)
+				r.Get("/{id}", s.handleGetAssistantProvider)
+				r.Patch("/{id}", s.handleUpdateAssistantProvider)
+				r.Delete("/{id}", s.handleDeleteAssistantProvider)
+				r.Post("/{id}/check", s.handleCheckAssistantProvider)
+				r.Post("/{id}/default", s.handleDefaultAssistantProvider)
+			})
+		})
 		r.Route("/assistant/providers", func(r chi.Router) {
 			r.With(s.require(auth.ActionAssistantRead)).Get("/", s.handleListAssistantProviders)
 			r.With(s.require(auth.ActionAssistantWrite)).Post("/", s.handleCreateAssistantProvider)

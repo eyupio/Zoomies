@@ -14,7 +14,7 @@ const dialog = (page: Page, name: string | RegExp) => page.getByRole('dialog', {
 /** Open Eli from the corner of whatever page this is. */
 async function openEli(page: Page): Promise<void> {
   await page.getByRole('button', { name: 'Ask Eli' }).click();
-  await expect(page.getByRole('dialog', { name: 'Eli' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Eli assistant' })).toBeVisible();
 }
 
 /** Let Eli read the fleet through the demo model, or not. */
@@ -89,7 +89,7 @@ test('the demo model answers a question typed on the page, and the next one carr
   page,
 }) => {
   const asked: Array<{ messages: Array<{ role: string; content: string }> }> = [];
-  await page.route('**/api/v1/assistant/chat', async (route) => {
+  await page.route('**/api/v1/assistant/personal/chat', async (route) => {
     asked.push(route.request().postDataJSON());
     await route.continue();
   });
@@ -131,7 +131,7 @@ function answerStream(markdown: string): string {
 
 test('Eli says hello, offers things to ask, and a click asks one', async ({ page }) => {
   const asked: Array<{ messages: Array<{ role: string; content: string }> }> = [];
-  await page.route('**/api/v1/assistant/chat', async (route) => {
+  await page.route('**/api/v1/assistant/personal/chat', async (route) => {
     asked.push(route.request().postDataJSON());
     await route.continue();
   });
@@ -153,7 +153,7 @@ test('Eli says hello, offers things to ask, and a click asks one', async ({ page
 test('an answer is drawn from its Markdown, and what is not Markdown is never run', async ({
   page,
 }) => {
-  await page.route('**/api/v1/assistant/chat', (route) =>
+  await page.route('**/api/v1/assistant/personal/chat', (route) =>
     route.fulfill({
       status: 200,
       contentType: 'text/event-stream',
@@ -206,7 +206,7 @@ test('an answer is drawn from its Markdown, and what is not Markdown is never ru
 
 test('a failed answer can be asked again, and the second one replaces it', async ({ page }) => {
   let calls = 0;
-  await page.route('**/api/v1/assistant/chat', (route) => {
+  await page.route('**/api/v1/assistant/personal/chat', (route) => {
     calls++;
     if (calls === 1)
       return route.fulfill({
@@ -234,7 +234,7 @@ test('a failed answer can be asked again, and the second one replaces it', async
 });
 
 test('a refused question says why where the answer would have been', async ({ page }) => {
-  await page.route('**/api/v1/assistant/chat', (route) =>
+  await page.route('**/api/v1/assistant/personal/chat', (route) =>
     route.fulfill({
       status: 502,
       contentType: 'application/json',
@@ -293,7 +293,7 @@ test('the model is chosen from the provider’s own list once it has been loaded
   page,
 }) => {
   const asked: Array<Record<string, unknown>> = [];
-  await page.route('**/api/v1/assistant/providers/models', async (route) => {
+  await page.route('**/api/v1/assistant/personal/providers/models', async (route) => {
     asked.push(route.request().postDataJSON());
     await route.fulfill({ json: { items: ['model-a', 'model-b'] } });
   });
@@ -322,17 +322,17 @@ test('Eli is in the corner of every page, opens and closes from the keyboard, an
   await goto(page, '/pools', 'Pools');
   const launcher = page.getByRole('button', { name: 'Ask Eli' });
   await expect(launcher).toBeVisible();
-  await expect(page.getByRole('dialog', { name: 'Eli' })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Eli assistant' })).toHaveCount(0);
 
   // Escape puts it away and gives the keyboard back to the button.
   await openEli(page);
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('dialog', { name: 'Eli' })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Eli assistant' })).toHaveCount(0);
   await expect(launcher).toBeFocused();
 
   // E opens it from anywhere that is not a box to type in, with the box ready.
   await page.keyboard.press('e');
-  await expect(page.getByRole('dialog', { name: 'Eli' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Eli assistant' })).toBeVisible();
   const message = page.getByRole('textbox', { name: 'Message' });
   await expect(message).toBeFocused();
   await message.fill('Does this survive a page change?');
@@ -393,7 +393,7 @@ test('a provider says on its card that Eli may read the fleet through it, and th
 
   let modelListRequests = 0;
   page.on('request', (r) => {
-    if (r.url().endsWith('/assistant/providers/models')) modelListRequests++;
+    if (r.url().endsWith('/assistant/personal/providers/models')) modelListRequests++;
   });
   try {
     await card.getByRole('button', { name: 'Edit' }).click();
@@ -453,7 +453,7 @@ test('the card on the Assistant page opens Eli', async ({ page }) => {
   await goto(page, '/settings/assistant', 'Assistant');
   await expect(page.getByRole('heading', { name: 'Eli', exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Open Eli' }).click();
-  await expect(page.getByRole('dialog', { name: 'Eli' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Eli assistant' })).toBeVisible();
 });
 
 test('a Claude subscription is added with no address and no key, tested, and Eli answers through it', async ({
@@ -492,7 +492,7 @@ test('a Claude subscription is added with no address and no key, tested, and Eli
     await message.fill('hello from the spec');
     // The page names the provider it said would answer, so the controller's choice
     // cannot differ from what the panel promised.
-    const asked = page.waitForRequest((r) => r.url().endsWith('/assistant/chat'));
+    const asked = page.waitForRequest((r) => r.url().endsWith('/assistant/personal/chat'));
     await message.press('Enter');
     const providers = await (await page.request.get('/api/v1/assistant/providers')).json();
     const mine = providers.items.find((p: { kind: string }) => p.kind === 'claude_code');
@@ -519,7 +519,7 @@ test('a Claude subscription is added with no address and no key, tested, and Eli
 test('somebody else’s Claude subscription is on the list, marked, and can be removed but not used', async ({
   page,
 }) => {
-  await page.route('**/api/v1/assistant/providers', async (route) => {
+  await page.route('**/api/v1/assistant/personal/providers', async (route) => {
     if (route.request().method() !== 'GET') return route.continue();
     const res = await route.fetch();
     const body = await res.json();
@@ -609,3 +609,93 @@ for (const tool of [
     }
   });
 }
+
+test('Eli keeps drafts and history through layout changes, minimisation and navigation', async ({
+  page,
+  isMobile,
+}) => {
+  await goto(page, '/runners', 'Runners');
+  await page.getByRole('button', { name: 'Ask Eli', exact: true }).click();
+  const panel = page.getByRole('dialog', { name: 'Eli assistant' });
+  await expect(panel).toBeVisible();
+  const message = panel.getByRole('textbox', { name: 'Message' });
+  await expect(message).toBeEnabled();
+  await message.fill('Help me diagnose a runner failure');
+  if (!isMobile) {
+    await panel.getByRole('button', { name: 'Expanded', exact: true }).click();
+    await panel.getByRole('button', { name: 'Place Eli on the left' }).click();
+    await expect(message).toHaveValue('Help me diagnose a runner failure');
+    await panel.getByRole('button', { name: 'Full screen' }).click();
+    await expect(message).toHaveValue('Help me diagnose a runner failure');
+    await panel.getByRole('button', { name: 'Restore panel' }).click();
+  }
+  await panel.getByRole('button', { name: 'Minimise Eli' }).click();
+  await page.getByRole('button', { name: 'Ask Eli', exact: true }).click();
+  await expect(message).toHaveValue('Help me diagnose a runner failure');
+  await message.press('Enter');
+  await expect(panel.getByRole('article', { name: 'Eli' })).toContainText(
+    'The built-in model heard:',
+  );
+  await panel.getByRole('button', { name: 'Trace the failure' }).click();
+  await expect(panel.getByRole('article', { name: 'You' })).toHaveCount(2);
+  await expect(panel.getByRole('button', { name: 'Trace the failure' })).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Minimise Eli' }).click();
+  await page.getByRole('link', { name: 'Pools', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Ask Eli', exact: true }).click();
+  await expect(panel.getByRole('article', { name: 'You' })).toHaveCount(2);
+  await panel.getByRole('button', { name: 'Minimise Eli' }).click();
+  await expect(page.getByRole('button', { name: 'Ask Eli', exact: true })).toBeFocused();
+});
+
+test('a runner contextual action asks Eli with its displayed snapshot', async ({ page }) => {
+  const asked: Array<{ messages: Array<{ role: string; content: string }> }> = [];
+  await page.route('**/api/v1/assistant/personal/chat', async (route) => {
+    asked.push(route.request().postDataJSON());
+    await route.continue();
+  });
+  await goto(page, '/runners', 'Runners');
+  await page.locator('main a[href^="/runners/"]').first().click();
+  await page.getByTitle('Share these displayed details with Eli and ask for guidance').click();
+  const panel = page.getByRole('dialog', { name: 'Eli assistant' });
+  await expect(panel.getByRole('article', { name: 'Eli' })).toContainText(
+    'The built-in model heard:',
+  );
+  expect(asked).toHaveLength(1);
+  expect(asked[0]!.messages[0]!.content).toContain('Context shared from the runner UI:');
+  expect(asked[0]!.messages[0]!.content).toContain('State:');
+  await expect(panel.getByText(/^Shared runner:/)).toBeVisible();
+});
+
+test('changing the personal default updates an already open Eli panel', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'The mobile panel deliberately keeps the settings behind it inert.');
+  await goto(page, '/settings/assistant', 'Assistant');
+  const res = await page.request.post('/api/v1/assistant/personal/providers', {
+    data: { name: 'Another model', kind: 'fake', model: 'demo' },
+  });
+  expect(res.ok()).toBeTruthy();
+  const added = await res.json();
+  try {
+    await page.reload();
+    await openEli(page);
+    await page
+      .getByRole('article', { name: 'Another model', exact: true })
+      .getByRole('button', { name: 'Set as default' })
+      .click();
+    const panel = page.getByRole('dialog', { name: 'Eli assistant' });
+    await expect(panel.getByText(/Answers from Another model/)).toBeVisible();
+    const asked = page.waitForRequest((r) => r.url().endsWith('/assistant/personal/chat'));
+    await panel.getByRole('textbox', { name: 'Message' }).fill('Use my new default');
+    await panel.getByRole('button', { name: 'Send', exact: true }).click();
+    expect((await asked).postDataJSON().provider_id).toBe(added.id);
+  } finally {
+    const providers = await (await page.request.get('/api/v1/assistant/providers')).json();
+    const demo = providers.items.find((p: { name: string }) => p.name === 'Demo model (built in)');
+    await page.request.post(`/api/v1/assistant/providers/${demo.id}/default`, { data: {} });
+    await page.request.delete(`/api/v1/assistant/personal/providers/${added.id}`, {
+      data: { name: added.name },
+    });
+  }
+});
