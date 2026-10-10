@@ -44,14 +44,17 @@ try {
     Copy-Item $binary (Join-Path $dir 'zoomies_windows_amd64.exe')
     $hash = (Get-FileHash -Algorithm SHA256 (Join-Path $dir 'zoomies_windows_amd64.exe')).Hash.ToLowerInvariant()
     Set-Content -Path (Join-Path $dir 'checksums.txt') -Value "$hash  zoomies_windows_amd64.exe" -Encoding ascii
-    $releaseJob = Start-Job -ArgumentList $site, $releasePort -ScriptBlock {
-        param($site, $port)
+    # $using: hands the job the two values it needs; PSScriptAnalyzer asks for it
+    # (PSUseUsingScopeModifierInNewRunspaces) rather than a param block.
+    $releaseJob = Start-Job -ScriptBlock {
+        $port = $using:releasePort
+        $root = $using:site
         $listener = [Net.HttpListener]::new()
         $listener.Prefixes.Add("http://127.0.0.1:$port/")
         $listener.Start()
         while ($listener.IsListening) {
             $context = $listener.GetContext()
-            $path = Join-Path $site ($context.Request.Url.AbsolutePath.TrimStart('/').Replace('/', '\'))
+            $path = Join-Path $root ($context.Request.Url.AbsolutePath.TrimStart('/').Replace('/', '\'))
             if (Test-Path -LiteralPath $path -PathType Leaf) {
                 $bytes = [IO.File]::ReadAllBytes($path)
                 $context.Response.OutputStream.Write($bytes, 0, $bytes.Length)
