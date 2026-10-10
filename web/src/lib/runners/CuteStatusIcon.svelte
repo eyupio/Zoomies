@@ -1,9 +1,8 @@
 <!-- Original Zoomies cocker spaniel avatar, based on the approved status previews. -->
 <script lang="ts">
-  import { standardMotion } from './standard-motion';
+  import { cuteMotion } from './cute-motion';
   let { state, seed = 'zoomies' }: { state: string; seed?: string } = $props();
-  // Both styles use the same approved cadence and stable per-runner phase.
-  const gait = $derived(standardMotion(state, seed));
+  const gait = $derived(cuteMotion(state, seed));
   const energetic = $derived(['busy', 'zoomies', 'maximum_zoomies'].includes(state));
   // Stable per-runner variation avoids fleet-wide synchronisation and never
   // restarts on CPU sample updates. Motion stays entirely in CSS: no timers.

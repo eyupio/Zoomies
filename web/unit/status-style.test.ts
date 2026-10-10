@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DEFAULT_STATUS_STYLE, resolveStatusStyle } from '../src/lib/state/status-style';
+import { dogPhase } from '../src/lib/mascot/dog-motion';
 import { standardMotion } from '../src/lib/runners/standard-motion';
 
 test('a browser that has never chosen starts on Off, new or reset', () => {
@@ -27,26 +28,21 @@ test('an explicit style wins over the legacy boolean on reload', () => {
   assert.equal(resolveStatusStyle({ statusStyle: 'cute', quirkyStatus: false }), 'cute');
 });
 
-test('maximum zoomies always runs faster than extra zoomies and normal work', () => {
-  const seeds = ['runner-one', 'runner-two', 'workflow-left', 'workflow-right'];
-  for (const seed of seeds) {
+test('more CPU means faster motion for every runner seed', () => {
+  for (const seed of ['runner-one', 'runner-two', 'workflow-left', 'workflow-right']) {
     const maximum = standardMotion('maximum_zoomies', seed);
     const extra = standardMotion('zoomies', seed);
     const busy = standardMotion('busy', seed);
-    assert.ok(maximum.stride < extra.stride && extra.stride < busy.stride);
-    assert.ok(maximum.stride >= 0.56 && maximum.stride < 0.58);
-    assert.ok(extra.stride >= 0.8 && extra.stride < 0.82);
-    assert.ok(busy.stride >= 1.6 && busy.stride < 1.72);
-    assert.ok(busy.walking && !extra.walking && !maximum.walking);
-    assert.ok(maximum.spin >= 10);
-    assert.ok(maximum.spinning && extra.spinning && !busy.spinning);
+    assert.ok(maximum.duration < extra.duration && extra.duration < busy.duration);
     assert.deepEqual(standardMotion('maximum_zoomies', seed), maximum);
   }
-  assert.notEqual(standardMotion('busy', seeds[0]).phase, standardMotion('busy', seeds[1]).phase);
 });
 
-test('waiting and lifecycle states cannot accidentally run or spin', () => {
-  for (const state of [
+test('every state has a distinct persistent cue even when motion is disabled', () => {
+  const states = [
+    'busy',
+    'zoomies',
+    'maximum_zoomies',
     'idle',
     'provisioning',
     'registering',
@@ -55,61 +51,26 @@ test('waiting and lifecycle states cannot accidentally run or spin', () => {
     'failed',
     'removed',
     'unknown',
-  ]) {
-    const motion = standardMotion(state, 'runner');
-    assert.equal(motion.running, false, state);
-    assert.equal(motion.walking, false, state);
-    assert.equal(motion.spinning, false, state);
-    assert.equal(motion.still, ['failed', 'removed', 'unknown'].includes(state), state);
-  }
-  assert.equal(standardMotion('future-state', 'runner').state, 'unknown');
-  assert.equal(standardMotion('future-state', 'runner').still, true);
+  ];
+  const cues = states.map((state) => standardMotion(state, 'runner').cue);
+  assert.equal(new Set(cues).size, states.length);
+  assert.ok(!cues.includes('none'));
+  assert.equal(standardMotion('throttled', 'runner').cue, 'pause');
+  assert.equal(standardMotion('failed', 'runner').cue, 'error');
 });
 
-test('working, about-to-work, waiting and winding-down states keep separate silhouettes', () => {
-  // At 32px in a workflow pack the pose is most of what survives, so a state
-  // must never borrow another group's silhouette. Throttled stands rather than
-  // lies: it is paused and will carry on, not being retired.
-  const groups = {
-    run: ['busy', 'zoomies', 'maximum_zoomies'],
-    stand: ['provisioning', 'throttled'],
-    sit: ['idle', 'registering', 'failed', 'unknown', 'future-state'],
-    lie: ['draining', 'removed'],
-  };
-  for (const [pose, states] of Object.entries(groups))
-    for (const state of states) assert.equal(standardMotion(state, 'runner').pose, pose, state);
+test('terminal and unrecognised states never play a happy animation', () => {
+  for (const state of ['failed', 'removed', 'unknown', 'future-state'])
+    assert.equal(standardMotion(state, 'runner').still, true);
+  assert.deepEqual(standardMotion('future-state', 'runner'), standardMotion('unknown', 'runner'));
+  assert.equal(standardMotion('failed', 'runner').motion, 'sad');
+  assert.equal(standardMotion('removed', 'runner').motion, 'sleep');
 });
 
-test('idle gestures and blinks spread across their whole period, not with the gait', () => {
-  // The gait's phase is under a second; if the gestures shared it, every idle
-  // dog on a page would glance up and blink within the same moment. Phases are
-  // spread at random per seed, not placed, so what holds is that across many
-  // runners they cover the whole cycle and do not follow the gait's phase --
-  // not that any two dogs in a pack are a set distance apart.
-  const dogs = Array.from({ length: 400 }, (_, i) => standardMotion('idle', `run_${i}`));
-  const start = (phase: number, period: number) => -phase / period;
-  for (const [phase, period] of [
-    ['gesturePhase', 'gesture'],
-    ['blinkPhase', 'blink'],
-  ] as const) {
-    const starts = dogs.map((dog) => start(dog[phase], dog[period]));
-    for (const s of starts) assert.ok(s >= 0 && s < 1, `${phase} ${s}`);
-    assert.ok(Math.min(...starts) < 0.1, `${phase} never starts early in its cycle`);
-    assert.ok(Math.max(...starts) > 0.9, `${phase} never starts late in its cycle`);
-    // Measured round the cycle: 0.95 and 0.05 are a tenth apart, not nine.
-    const gaits = dogs.map((dog) => start(dog.phase, dog.stride));
-    let near = 0;
-    let pairs = 0;
-    for (let i = 0; i < dogs.length; i++)
-      for (let j = i + 1; j < dogs.length; j++) {
-        const gait = Math.abs(gaits[i] - gaits[j]);
-        if (Math.min(gait, 1 - gait) > 0.02) continue;
-        pairs++;
-        const d = Math.abs(starts[i] - starts[j]);
-        if (Math.min(d, 1 - d) < 0.12) near++;
-      }
-    // Dogs whose gaits start together should mostly not gesture together;
-    // were the two phases one, every such pair would.
-    assert.ok(pairs > 50 && near / pairs < 0.4, `${phase}: ${near} of ${pairs} in step`);
-  }
+test('runner and workflow seeds spread animation timing across the cycle', () => {
+  const phases = Array.from({ length: 400 }, (_, i) => dogPhase('run_' + i));
+  assert.ok(phases.every((phase) => phase >= 0 && phase < 1));
+  assert.ok(Math.min(...phases) < 0.1);
+  assert.ok(Math.max(...phases) > 0.9);
+  assert.equal(dogPhase('runner'), dogPhase('runner'));
 });

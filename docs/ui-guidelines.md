@@ -26,7 +26,7 @@ Appearance → **Zoomies vocabulary** offers three choices:
 | --- | --- | --- |
 | Off (default) | Plain state names | Standard Lucide status icon |
 | Cute | Zoomies dog-park vocabulary | Original animated avatar |
-| Standard | Zoomies dog-park vocabulary | Slim black cocker spaniel that runs, stands, sits or lies down by state |
+| Standard | Zoomies dog-park vocabulary | Playful line-drawn dog with a distinct gesture and persistent cue per state |
 
 The choice stays in this browser. A browser that has never chosen (a new
 install, or one whose saved preferences were cleared) starts on Off. Existing
@@ -62,88 +62,19 @@ One glyph also means one thing wherever it appears:
 | `IterationCcw` | another attempt asked for | a re-run requested on a job's timeline |
 | `Zap`, `TrendingUp`, `TrendingDown` | CPU lent at maximum, lent, taken back | elastic CPU on a busy or idle runner |
 
-Standard is a solid black English cocker spaniel. Its white is kept small: the
-muzzle, a narrow blaze and the toe tips are a stylisation that keeps the face
-and feet legible at 32px rather than breed marks, and the one white a solid
-cocker is allowed, a fleck under the throat, stays a fleck, so it never reads
-as a penguin's white front. It is built from solid shapes: a domed skull with a
-pronounced stop and a square muzzle, held a little under life size on a longer
-neck so the dog reads as an adult rather than a puppy; a long ear hung at eye
-level from a narrow root, widening below the jaw into lobed, feathered locks;
-and a near-square body (rump to forechest about the height at the withers)
-with a level topline, a deep chest, a tucked-up waist and muscled hindquarters
-whose hock points back. The ear's lobes are the dog's feathering everywhere
-else too: a skirt under the chest and belly that stops short of the tuck-up, a
-fringe down the back of each foreleg, trousers on the hind thighs and a
-feathered tail. The feet are round cat feet with white only in a crescent at
-the toe tips, so they read as paws rather than boots. Seated, it is a slim
-triangle rather than an egg: an upright neck with a nape behind the skull and
-withers below it, a fringed chest standing proud of a straight foreleg, a gap
-under the belly, the haunch drawn as its own mass at the rear, and a feathered
-tail carried clear of the ground. Lying, the hip is the high point of the back
-half and the rump is round. Four silhouettes carry the states, so they can
-still be told apart at 32px: dogs at work run, dogs about to work or held back
-stand, dogs waiting sit, and dogs winding down lie down. Busy runners walk on
-four separately animated legs with a roughly 1.6-second stride. Forelegs fold
-at the elbow; hind legs bend separately at the stifle and hock, keeping the
-paws low during recovery. Extra zoomies uses a roughly 0.8-second gallop and
-trails speed lines; maximum zoomies has a roughly 0.56-second gallop and a
-fourth, longest line. Hind push-off, brief suspension, forepaw landing and
-gathering share the torso's clock, with a forward-carried head, a small flex
-through the back and delayed ear follow-through. Occasionally these dogs
-chase a tight circle on the ground, passing through front, left-facing and
-rear views before running forward again; the speed lines step out during
-the turn. Extra zoomies turns less frequently; normal work does not turn.
-Idle and queued dogs sit and wait, now and then glancing up, twitching an ear or
-wagging, one gesture at a time. Provisioning dogs stand with their nose to the
-ground, snuffling along a scent trail; registering dogs sit on one foreleg and
-hold out the other paw, bent at the elbow and dropped at the wrist, giving it a
-shake now and then. Throttled dogs stand paused mid-step with a forepaw lifted
-and wait patiently, now and then twitching an ear or wagging; draining dogs lie
-heavy-lidded and settle. Failure has a concerned static pose, sitting with its
-head hung forward and low, clear of the chest, its tail tucked forward under the
-haunch until only the tip shows, looking up from under a worried brow, with no
-chest fleck for the muzzle to run into; removed dogs lie asleep with closed eyes
-and an ear fallen forward over the paws. Unknown states sit still, looking back
-over the shoulder with the tail raised, which a waiting dog never does.
-Workflows retain the three-dog pack, which represents one workflow rather than a
-count of its jobs. A run still in hand with a job already failed under it turns
-to the danger tone at once, rather than when GitHub finishes the run: its leader
-takes the failure pose while the companions keep the pose the run's own state
-gives them, so the pack reads as both hurt and still moving. Cute retains its
-original artwork and motion.
+Standard shares Eli's line-drawn dog and CSS motion component. Busy runners trot,
+extra zoomies scoot from side to side, and maximum zoomies chase a faster circle.
+Idle dogs look patiently around, provisioning dogs sniff, registering dogs wave,
+throttled dogs wait, and draining dogs settle down. Failed dogs look sad, removed
+dogs sleep and unknown dogs tilt their heads; these three states stay still.
+A small persistent cue distinguishes every state, including a single or double
+chevron for the two boost levels, pause bars for throttling and a cross for
+failure. Labels, colours and tooltips keep their existing status meaning.
 
-Stable per-runner timing separates gestures across the fleet: each dog's
-glances, wags and blinks start at their own point in the cycle, spread at random
-from its seed rather than tied to its stride, so a page of idle dogs never
-glances up together. Reduced motion stops every animated part in both styles; a
-Standard dog then holds the pose that says what it was doing, mid-stride if it
-was running, with maximum zoomies' extra speed line still telling it from extra
-zoomies, and paw held out if it was registering. The 44px reserved box and
-wrapping labels preserve narrow saved column widths; workflow packs keep their
-existing reserved width. Illustrations are decorative: labels and accessible
-tooltips remain the source of meaning, including lifecycle precedence over
-elastic CPU activity. Standard's `--z-standard-*` tokens are named by role
-rather than value. One outline, grown from the drawing's own shape, traces the
-silhouette alone, never the seams where one black part overlaps another; the
-browser rounds it to whole device pixels, so at row sizes it is a one-pixel
-edge. Of the dog's near side, the ear is the one part a shade off the coat, with
-its locks drawn in the coat's colour, so at 32px it is still an ear rather than
-part of a black shape. Since no line runs between a near leg and a far one, the
-far legs recede by value alone, a clear step off the coat, or a galloping dog's
-folded legs would merge into one black lump under the belly. Apart from the
-face's own lid and brow, the only lighter lines inside the dog are a rim along
-the ear's front edge and along the top of an offered forearm, and a fine crease
-over the haunch, as in the mark's rim light. On light rows the coat is Zoomies
-Black and the outline is the same black, which gives the white muzzle and toes
-an edge. On dark rows Zoomies Black would all but vanish, so the coat lifts just
-far enough to read as a filled shape while still reading as a black dog, the
-outline is only a step lighter, and the far legs sit between the row and the
-coat, so they read as shadowed limbs rather than outlined holes. Neither theme's
-outline depends on the row behind it, so hover and selected rows draw the same
-dog, and every moving part is solid, so limbs and the spin's swish are never
-half transparent.
-Cute keeps its existing `--z-avatar-*` palette.
+Each runner ID seeds its timing so rows and workflow packs do not move together.
+Reduced motion disables every animation while retaining the expression and cue.
+The existing reserved avatar size and workflow pack widths are preserved.
+Cute keeps its existing illustrations and palette; Off keeps plain status icons.
 
 All tokens live in exactly one place: `web/src/lib/styles/tokens.css`, declared
 as CSS custom properties on `:root` and overridden under `[data-theme="dark"]`.
@@ -1315,8 +1246,11 @@ Playwright suite asserts on, so the picture and the tests stay honest together.
 Every user can open Eli from the circular dog button on any page. Drag the
 identity in the panel header to move it, or focus it and use arrow keys (Shift
 for larger steps). The panel stays within the viewport when moved or resized;
-left and right placement reset its position. Thinking includes dog zoomies and
-rotating playful quotes, with animations disabled for reduced motion.
+left and right placement reset its position. Thinking cycles through six routines
+(zoomies, fetch, sniffing, pouncing, a happy wiggle and chasing circles) and 24 playful quotes. Quotes change every
+4.5 seconds, routines every 9 seconds, with a varied starting point per answer.
+Avatar hover greetings vary between a tilt, a boop and a wiggle. All animations
+are disabled for reduced motion.
 The panel offers Compact, Default
 and Expanded sizes, left or right placement, manual corner resizing and a
 full-screen view. Size and side are browser preferences. A phone uses the whole
