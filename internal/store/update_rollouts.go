@@ -160,11 +160,20 @@ func (s *Store) moveUpdateRollout(ctx context.Context, query string, args ...any
 // returns how many went. An open rollout is never pruned however old: it is
 // the only record that the fleet is mid-update, and an operator or the
 // planner ends it, after which it ages like any other.
+//
+// The newest rollout a person cancelled for each release is kept too. It is
+// the record of their decision, which auto honours by not starting a rollout
+// to that release again; pruned, the next pass would start the one they
+// stopped.
 func (s *Store) PruneUpdateRollouts(ctx context.Context, before time.Time) (int, error) {
 	n, err := pruneInBatches(ctx, pruneRowBatch, pruneMaxBatches, func(ctx context.Context) (int64, error) {
 		res, err := s.exec(ctx, `DELETE FROM update_rollouts WHERE id IN
-			(SELECT id FROM update_rollouts WHERE state IN (?, ?) AND finished_at < ? LIMIT ?)`,
-			RolloutDone, RolloutCancelled, ms(before), pruneRowBatch)
+			(SELECT id FROM update_rollouts WHERE state IN (?, ?) AND finished_at < ?
+				AND id NOT IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER
+					(PARTITION BY target ORDER BY finished_at DESC, id DESC) AS newest
+					FROM update_rollouts WHERE state = ? AND cancelled_by <> '') WHERE newest = 1)
+			LIMIT ?)`,
+			RolloutDone, RolloutCancelled, ms(before), RolloutCancelled, pruneRowBatch)
 		if err != nil {
 			return 0, err
 		}

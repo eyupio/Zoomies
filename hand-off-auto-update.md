@@ -22,9 +22,6 @@ runs a real update through the helper's systemd units.
 
 Recorded while the feature was built; check each before relying on it.
 
-* Once retention prunes both failed attempts of one release, the two-failures cap
-  for that release starts again, and once it prunes a rollout a person cancelled,
-  `auto` may start that release's rollout again.
 * A fenced controller, or a failed store read, drops a host's report; the attempt
   then times out at 90 minutes.
 * Why the helper can never be installed on a host is kept in memory only, so it

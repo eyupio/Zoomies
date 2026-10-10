@@ -408,10 +408,9 @@ helper beside the controller is not installed, it waits, and updates no host
 either, because no host may go ahead of its controller. Where that helper can
 never be installed (see above), the controller is left to a person and hosts
 follow the release it runs. A rollout cancelled by hand is not started again for
-the same release, for as long as its record is kept: once
-`retention.update_attempts` (90 days by default, 24 hours at the least) prunes
-it, `auto` may start that release's rollout again, so keep the retention long if
-you rely on a cancel. Switching to `manual` cancels a rollout `auto` started, and
+the same release, however short `retention.update_attempts` is: the newest
+rollout a person cancelled for each release is kept when older history is
+pruned. Switching to `manual` cancels a rollout `auto` started, and
 switching to `off` cancels any open rollout; an update a helper is already
 running finishes either way, and is recorded.
 
@@ -433,7 +432,9 @@ release it had, raises `controller.update_failed` or `host.update_failed` (see
 [Problem codes](problem-codes.md)), with the helper's own sentence for the
 `platform` role on Settings → Updates or the host's card, and in a rollout halts it. After a failure Zoomies waits 30
 minutes before it tries that machine again by itself, and after two failures of
-one release it leaves that release on that machine to a person. The helper keeps its
+one release it leaves that release on that machine to a person. Those failures
+are kept while that release is still the one the machine would be taken to, so
+`retention.update_attempts` never counts them back down. The helper keeps its
 own count as well, in `/var/lib/zoomies-update`, where the service cannot reset
 it.
 

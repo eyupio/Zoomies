@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"runtime"
 	"slices"
+	"time"
 
 	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/config"
@@ -81,15 +82,8 @@ func (c *Controller) updatesSnapshot(ctx context.Context, cfg config.Updates, he
 	// would be taken to now (the hosts' target and the controller's choice) and
 	// the rollouts' steps, not the newest attempts fleet-wide: a host's two
 	// failures must hold however many other attempts are newer.
-	var tags, rollouts []string
-	if target := hostTarget(); target != "" {
-		tags = append(tags, target)
-	}
-	choice := updates.Choose(updates.ChooseInput{Mode: s.Mode, Soak: s.Soak, Now: s.Now, Running: s.Running,
-		Releases: s.Releases, GOOS: s.GOOS, GOARCH: s.GOARCH})
-	if tag := choice.Release.Tag; tag != "" && !slices.Contains(tags, tag) {
-		tags = append(tags, tag)
-	}
+	tags := tagsInQuestion(s)
+	var rollouts []string
 	for _, r := range []*store.UpdateRollout{pic.rollout, pic.last} {
 		if r != nil {
 			rollouts = append(rollouts, r.ID)
@@ -150,6 +144,35 @@ func (c *Controller) updatesSnapshot(ctx context.Context, cfg config.Updates, he
 	s.Hosts = append(s.Hosts, gone...)
 	pic.snap = s
 	return pic, nil
+}
+
+// tagsInQuestion is the releases a machine would be taken to now: the hosts'
+// target and the controller's choice. The planner reads the attempts to them,
+// and the retention pass keeps their failures, so both ask the same question
+// of the same snapshot fields.
+func tagsInQuestion(s updates.Snapshot) []string {
+	var tags []string
+	if target := hostTarget(); target != "" {
+		tags = append(tags, target)
+	}
+	choice := updates.Choose(updates.ChooseInput{Mode: s.Mode, Soak: s.Soak, Now: s.Now, Running: s.Running,
+		Releases: s.Releases, GOOS: s.GOOS, GOARCH: s.GOARCH})
+	if tag := choice.Release.Tag; tag != "" && !slices.Contains(tags, tag) {
+		tags = append(tags, tag)
+	}
+	return tags
+}
+
+// updateTagsInQuestion is tagsInQuestion for a caller with no snapshot to
+// hand, read from the settings and releases the snapshot would be made from.
+func (c *Controller) updateTagsInQuestion(now time.Time) []string {
+	cfg := c.cfg().Updates
+	s := updates.Snapshot{Now: now, Mode: updateModeOf(cfg.Mode), Soak: cfg.Soak, Running: version.Version,
+		GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
+	if state := c.latestRelease(); state != nil {
+		s.Releases = state.Releases
+	}
+	return tagsInQuestion(s)
 }
 
 func rolloutFacts(r *store.UpdateRollout) *updates.Rollout {
