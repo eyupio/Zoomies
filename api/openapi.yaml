@@ -11569,13 +11569,15 @@ components:
             An operator runs it on the host. The controller asks the host's agent to update itself
             instead, with `POST /hosts/{id}/update`, only when `update.can_update` is true; for every
             other host this command is how it is upgraded. Absent for embedded, matching or newer
-            agents, and for unpublished controller builds. Contains no credentials.
+            agents, for unpublished controller builds, and for a Windows agent, which has no sudo
+            and runs a service `zoomies upgrade` does not know; `upgrade_note` gives its steps by
+            hand instead. Contains no credentials.
         upgrade_version:
           type: string
           description: Controller build the upgrade is intended to match.
         upgrade_note:
           type: string
-          description: What the command does, or why no safe published command can be offered.
+          description: What the command does, or why no safe published command can be offered, or for a Windows agent the steps that update it by hand.
         update: { $ref: "#/components/schemas/HostUpdate" }
         healthy: { type: boolean }
         last_heartbeat: { type: string, format: date-time }

@@ -1214,3 +1214,63 @@ func TestWhatIsRememberedOfAnAnswerGoesWithItsAttempt(t *testing.T) {
 		t.Error("the answer to an attempt that has ended is still remembered")
 	}
 }
+
+// A card offers the way to update its host by hand that works on that host.
+// zoomies upgrade knows systemd and launchd and no Windows service, and Windows
+// has no sudo, so a Windows agent is given the steps by hand and never a sudo
+// line it would paste into a prompt that cannot run it.
+func TestAHostCardOffersTheCommandThatWorksOnItsPlatform(t *testing.T) {
+	for _, tc := range []struct {
+		goos     string
+		sudo     bool
+		mentions string
+	}{
+		{"linux", true, "zoomies upgrade --mode agent"},
+		{"darwin", true, "zoomies upgrade --mode agent"},
+		{"windows", false, "zoomies.exe"},
+	} {
+		t.Run(tc.goos, func(t *testing.T) {
+			withVersion(t, "1.3.5")
+			h := newHarness(t)
+			h.inMode("manual")
+			host := &store.Host{Name: "vm-" + tc.goos, Capacity: 2, Backends: store.StringSlice{"process"}, Labels: store.StringMap{},
+				OS: tc.goos, Arch: "amd64", Version: "1.3.4", LastHeartbeat: h.c.Now()}
+			if err := h.st.CreateHost(h.ctx, host); err != nil {
+				t.Fatalf("CreateHost: %v", err)
+			}
+			view := h.view(host.ID)
+			if tc.goos != "linux" && view.Update.State != HostUpdateUnsupported {
+				t.Errorf("the %s card's update block = %+v, want unsupported", tc.goos, view.Update)
+			}
+			if tc.sudo {
+				if !strings.HasPrefix(view.UpgradeCommand, "sudo ") || !strings.Contains(view.UpgradeCommand, tc.mentions) {
+					t.Errorf("upgrade_command = %q, want the sudo zoomies upgrade line", view.UpgradeCommand)
+				}
+				return
+			}
+			if view.UpgradeCommand != "" {
+				t.Errorf("upgrade_command = %q, want none: Windows has no sudo and zoomies upgrade knows no Windows service", view.UpgradeCommand)
+			}
+			for _, text := range []string{view.UpgradeNote, view.Update.Reason} {
+				if strings.Contains(text, "sudo") || strings.Contains(text, "command below") {
+					t.Errorf("a Windows card says %q, want no sudo and no command below", text)
+				}
+			}
+			if !strings.Contains(view.UpgradeNote, tc.mentions) || !strings.Contains(view.UpgradeNote, "sc.exe") {
+				t.Errorf("upgrade_note = %q, want the steps by hand: replace zoomies.exe and restart the service", view.UpgradeNote)
+			}
+			if view.UpgradeVersion != "1.3.5" {
+				t.Errorf("upgrade_version = %q, want the controller's release, which the steps take it to", view.UpgradeVersion)
+			}
+			ps, err := h.c.Problems(h.ctx)
+			if err != nil {
+				t.Fatal(err)
+			}
+			for _, p := range ps {
+				if p.TargetID == host.ID && strings.Contains(p.Fix, "command") {
+					t.Errorf("the %s note's fix is %q, want it to point at the steps on the card, there being no command", p.Code, p.Fix)
+				}
+			}
+		})
+	}
+}

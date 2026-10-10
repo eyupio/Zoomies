@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  byHandLink,
   confirmHostUpdate,
   hostUpdateWords,
   skewFact,
@@ -16,6 +17,8 @@ function host(over: Record<string, unknown> = {}, update: Partial<HostUpdateBloc
     version: '1.2.0',
     version_skew: 'behind' as const,
     upgrade_version: '1.3.0',
+    upgrade_command: "sudo zoomies upgrade --mode agent --version 'v1.3.0'",
+    os: 'linux',
     embedded: false,
     update: {
       state: 'none' as const,
@@ -192,6 +195,26 @@ test('a host the helper can never be installed on says why, draws no button and 
   assert.equal(words?.canPress, false);
   assert.equal(words?.tone, 'neutral');
   assert.doesNotMatch(words?.sentence ?? '', /helper install/);
+});
+
+// zoomies upgrade knows no Windows service and Windows has no sudo, so the
+// controller sends a Windows agent no command. Its card must not promise one:
+// it says the update is by hand and links to the steps.
+test('a Windows host is updated by hand, and its card links to the steps rather than promising a command', () => {
+  const why =
+    'The update helper cannot be installed on this host: its agent runs on an operating system other than Linux, and the update helper is a pair of systemd units, which need Linux. Update it by hand on the host, with the steps at the foot of this card.';
+  const windows = host(
+    { os: 'windows', upgrade_command: undefined, upgrade_note: 'Update this one by hand.' },
+    { state: 'unsupported', can_update: false, reason: why },
+  );
+  assert.equal(hostUpdateWords(windows)?.label, 'Update by hand');
+  assert.match(byHandLink(windows), /\/upgrading\/#upgrading-an-agent-host$/);
+  // A host that has a command to copy needs no link: the command is the way.
+  for (const os of ['linux', 'darwin']) {
+    const other = host({ os }, { state: 'unsupported', can_update: false, reason: why });
+    assert.equal(hostUpdateWords(other)?.label, 'Update by command', os);
+    assert.equal(byHandLink(other), '', os);
+  }
 });
 
 test('a host the helper cannot be installed on has no row once it runs the controller’s release', () => {

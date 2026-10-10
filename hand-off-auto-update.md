@@ -30,7 +30,6 @@ Recorded while the feature was built; check each before relying on it.
   show their helper as missing rather than unsupported.
 * With the mode `off`, a host whose last attempt failed shows a disabled **Try
   again** with no reason of its own.
-* A Windows agent's card still shows a `sudo` command.
 * A failed press on a host that belongs to a running rollout halts that rollout,
   on purpose.
 * The update status reads the planner's inputs on every render.

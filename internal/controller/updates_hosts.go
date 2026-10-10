@@ -130,19 +130,19 @@ func hostCanSelfUpdate(h *store.Host, target string, unsupported updates.HelperU
 	// button would take it back. The planner keeps the same gate of its own.
 	if _, ok := updates.TargetTag(h.Version); !ok {
 		return false, "This host runs the build " + reportedVersion(h.Version) + ", which is not a release build, so Zoomies cannot tell whether " +
-			target + " is newer. Update it on the host with the command below.", hostGapNone
+			target + " is newer. " + byHand(h), hostGapNone
 	}
 	switch version.CompareBuilds(h.Version, target) {
 	case version.SkewNone, version.SkewAhead:
 		return false, "This host already runs " + target + " or a later release, so there is nothing to update.", hostGapNone
 	case version.SkewDiffers:
 		return false, "This host runs the build " + reportedVersion(h.Version) + ", which is not a release build, so Zoomies cannot tell whether " +
-			target + " is newer. Update it on the host with the command below.", hostGapNone
+			target + " is newer. " + byHand(h), hostGapNone
 	}
 	selfUpdates := h.Supports(agent.FeatureSelfUpdate)
 	if !selfUpdates && unsupported != "" {
 		return false, "The update helper cannot be installed on this host: " + helperUnsupportedWhy(unsupported, "its agent") +
-			". Update it on the host with the command below.", hostGapHelperImpossible
+			". " + byHand(h), hostGapHelperImpossible
 	}
 	if mode == updates.ModeOff {
 		return false, modeOffForHosts, hostGapNone
@@ -155,6 +155,25 @@ func hostCanSelfUpdate(h *store.Host, target string, unsupported updates.HelperU
 }
 
 // hostBehind says whether a host runs a release build older than target: the
+// byHand is the end of a card's sentence that sends a person to update the
+// host on the host itself. On Windows there is no command at the foot of the
+// card to point at (see hostUpgrade), only the steps.
+func byHand(h *store.Host) string {
+	if h.OS == "windows" {
+		return "Update it by hand on the host, with the steps at the foot of this card."
+	}
+	return "Update it on the host with the command below."
+}
+
+// byHandOnCard is what the foot of a host's card holds for updating it by
+// hand, for a sentence that points at it from elsewhere.
+func byHandOnCard(h *store.Host) string {
+	if h.OS == "windows" {
+		return "steps"
+	}
+	return "command"
+}
+
 // hosts a rollout to target is for, whether or not each can update itself.
 // hostCanSelfUpdate asks the same of the version, so the two never disagree.
 func hostBehind(h *store.Host, target string) bool {

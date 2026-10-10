@@ -40,6 +40,9 @@ export const AGENT_OWNS_URL = `${SECURITY_URL}#what-the-agent-owns-on-a-host`;
 /** What to do about a controller that GitHub cannot reach: a tunnel, or polling. */
 export const CONTROLLER_PLACEMENT_URL = `${SITE_URL}/home-lab/#where-the-controller-goes`;
 
+/** How to update an agent on its host by hand, where no command can be offered (a Windows agent). */
+export const UPGRADING_AGENT_URL = `${SITE_URL}/upgrading/#upgrading-an-agent-host`;
+
 /** The host name alone, for places that show a link without decoration. */
 export const SITE_HOST = SITE_URL.replace(/^https?:\/\//, '');
 

@@ -1035,7 +1035,8 @@ whose jobs are short it costs a few minutes.
 On a Windows host the same sequence is `zoomies hosts drain`, replace
 `zoomies.exe` in place, then `sc.exe stop zoomies-agent` and
 `sc.exe start zoomies-agent` from an elevated prompt, and `zoomies hosts
-uncordon`. A Windows agent runs the `process` backend, so the runner release it
+uncordon`. A Windows host's card gives these steps in place of a command, since
+`zoomies upgrade` knows no Windows service. A Windows agent runs the `process` backend, so the runner release it
 downloads is pinned by the pool's `runner_version` and the digests in the
 binary, and an agent behind the controller's release may not know a digest the
 controller's default asks for; upgrade the agent first on that platform.

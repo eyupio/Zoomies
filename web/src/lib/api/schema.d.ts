@@ -8756,11 +8756,11 @@ export interface components {
              * @enum {string}
              */
             version_skew?: "behind" | "ahead" | "differs";
-            /** @description Copyable `sudo zoomies upgrade --mode agent --version <tag>` command for an older or different remote agent, targeting the controller's published release or dev channel. An operator runs it on the host. The controller asks the host's agent to update itself instead, with `POST /hosts/{id}/update`, only when `update.can_update` is true; for every other host this command is how it is upgraded. Absent for embedded, matching or newer agents, and for unpublished controller builds. Contains no credentials. */
+            /** @description Copyable `sudo zoomies upgrade --mode agent --version <tag>` command for an older or different remote agent, targeting the controller's published release or dev channel. An operator runs it on the host. The controller asks the host's agent to update itself instead, with `POST /hosts/{id}/update`, only when `update.can_update` is true; for every other host this command is how it is upgraded. Absent for embedded, matching or newer agents, for unpublished controller builds, and for a Windows agent, which has no sudo and runs a service `zoomies upgrade` does not know; `upgrade_note` gives its steps by hand instead. Contains no credentials. */
             upgrade_command?: string;
             /** @description Controller build the upgrade is intended to match. */
             upgrade_version?: string;
-            /** @description What the command does, or why no safe published command can be offered. */
+            /** @description What the command does, or why no safe published command can be offered, or for a Windows agent the steps that update it by hand. */
             upgrade_note?: string;
             update?: components["schemas"]["HostUpdate"];
             healthy?: boolean;
