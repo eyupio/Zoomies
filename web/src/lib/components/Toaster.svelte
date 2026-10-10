@@ -21,9 +21,14 @@
 </div>
 
 <style>
+  /*
+    Beside Eli, not under him: the dog button lives in the same corner, and a
+    toast pinned to it put Dismiss under the one thing on the page that stays
+    clickable above everything else.
+  */
   .toaster {
     position: fixed;
-    right: var(--z-space-4);
+    right: calc(var(--z-space-5) + var(--z-eli-launcher) + var(--z-space-3));
     bottom: var(--z-space-4);
     z-index: var(--z-layer-toast);
     display: flex;
@@ -55,7 +60,12 @@
          confirmation an operator just earned off the right of the screen. */
       right: auto;
       width: calc(var(--z-window-width) - var(--z-space-3) * 2);
-      bottom: calc(var(--z-space-16) + env(safe-area-inset-bottom, 0px));
+      /* Above the dog button as well as the navigation: a phone has no room
+         beside him, so the stack starts where he ends. */
+      bottom: calc(
+        var(--z-space-12) + var(--z-space-4) + var(--z-safe-bottom) + var(--z-eli-launcher) +
+          var(--z-space-2)
+      );
       max-width: none;
     }
   }
