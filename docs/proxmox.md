@@ -338,6 +338,13 @@ not enough if no pool allows it. The same answer is `GET
 the only thing in the way, the controller logs it once, naming the pool, the
 setting and the fix.
 
+Eli and any [MCP client](connect-claude.md#asking-about-providers-and-machines)
+can read the same answers with `provider_pairings`, and the providers and
+machines behind them with `list_providers` and `list_machines`. They answer a
+viewer's question, so they say nothing about `provider.enabled`, which only an
+administrator can read: when nothing there explains a pool that buys nothing,
+that setting, and `provider.paused`, are the next things to look at.
+
 ## What happens when a pool runs out of hosts
 
 ```mermaid
