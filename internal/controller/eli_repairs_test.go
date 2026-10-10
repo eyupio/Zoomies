@@ -14,18 +14,6 @@ import (
 	"time"
 )
 
-func TestRepairMentionsIgnoreQuotesFencesAndUnrelatedNames(t *testing.T) {
-	for _, text := range []string{"> @eli fix this", "```\n@eli fix this\n```", "~~~\n@zoomies repair\n~~~", "someone said @eli fix", "@elizabeth fix", "@eli hello"} {
-		if _, ok := repairCommand(text, ""); ok {
-			t.Errorf("triggered %q", text)
-		}
-	}
-	for _, text := range []string{"@eli fix this PR", "@zoomies fix this issue", "@Eli repair failing tests", "@zoomies[bot] fix"} {
-		if _, ok := repairCommand(text, ""); !ok {
-			t.Errorf("missed %q", text)
-		}
-	}
-}
 func TestRepairAdmissionRequiresLinkedHumanCommentAndDeduplicates(t *testing.T) {
 	h := newHarness(t)
 	inst := h.installation()
@@ -59,7 +47,7 @@ func TestRepairAdmissionRequiresLinkedHumanCommentAndDeduplicates(t *testing.T) 
 		if tc.pr {
 			issue["pull_request"] = map[string]any{}
 		}
-		body, _ := json.Marshal(map[string]any{"action": tc.action, "repository": map[string]any{"full_name": repo}, "issue": issue, "comment": map[string]any{"id": 100, "body": "@eli fix this PR", "user": map[string]any{"id": tc.author, "login": "octo", "type": tc.kind}}, "sender": map[string]any{"id": tc.sender}})
+		body, _ := json.Marshal(map[string]any{"action": tc.action, "repository": map[string]any{"full_name": repo}, "issue": issue, "comment": map[string]any{"id": 100, "body": "/eli fix this PR", "user": map[string]any{"id": tc.author, "login": "octo", "type": tc.kind}}, "sender": map[string]any{"id": tc.sender}})
 		if rec := h.deliver("issue_comment", body, testWebhookSecret); rec.Code != 202 {
 			t.Fatalf("signed delivery: %d %s", rec.Code, rec.Body.String())
 		}
@@ -82,6 +70,7 @@ type repairFake struct {
 	onRead         func()
 	unsupportedRun bool
 	noWrite        bool
+	reacted        []int64
 }
 
 func (f *repairFake) RepairActor(context.Context, string, string) (github.RepairActor, error) {
@@ -118,6 +107,13 @@ func (f *repairFake) CommitRepair(_ context.Context, _ string, p github.RepairPu
 }
 func (f *repairFake) RepairComment(context.Context, string, int, int64, string) (int64, error) {
 	return 1, nil
+}
+func (f *repairFake) RepairReact(_ context.Context, _ string, id int64, content string) error {
+	if content != "eyes" {
+		return fmt.Errorf("unexpected reaction %q", content)
+	}
+	f.reacted = append(f.reacted, id)
+	return nil
 }
 func (f *repairFake) RepairChecks(context.Context, string, string) (string, error) {
 	return f.check, nil
@@ -169,7 +165,11 @@ func TestRepairWorkerSelectsTheHybridProviderAndRecordsRealCheckOutcome(t *testi
 					}
 				}
 			}
-			row := &store.EliRepair{DedupKey: trigger, Repo: repo, InstallationID: inst.ID, PullNumber: 1, HeadSHA: "old", RunID: 9, Trigger: actualTrigger, UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
+			dedup := trigger
+			if trigger == "mention" {
+				dedup = "comment:acme/repo:77"
+			}
+			row := &store.EliRepair{DedupKey: dedup, Repo: repo, InstallationID: inst.ID, PullNumber: 1, HeadSHA: "old", RunID: 9, Trigger: actualTrigger, UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
 			h.st.EnqueueEliRepair(h.ctx, row, 5)
 			if trigger == "queued-old" {
 				h.advance(2 * time.Hour)
@@ -208,6 +208,11 @@ func TestRepairWorkerSelectsTheHybridProviderAndRecordsRealCheckOutcome(t *testi
 			}
 			if len(models) != 1 || models[0] != want || row.State != "checking" || fake.commits != 1 {
 				t.Fatalf("models %v repair %+v commits %d", models, row, fake.commits)
+			}
+			// The comment that asked is acknowledged; a repair nobody asked for in a
+			// comment has nothing to react to.
+			if trigger == "mention" && (len(fake.reacted) != 1 || fake.reacted[0] != 77) || trigger == "automatic" && len(fake.reacted) != 0 {
+				t.Fatalf("reactions %v for a %s repair", fake.reacted, trigger)
 			}
 			h.advance(31 * time.Second)
 			h.c.checkEliRepairs(h.ctx)
@@ -296,7 +301,7 @@ func TestLinkedCommentCannotSpendTheBudgetAfterRepositoryAccessIsRemoved(t *test
 	h.st.CreateUser(h.ctx, user)
 	h.st.SetEliIdentity(h.ctx, store.EliIdentity{UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"})
 	h.st.ConfirmEliIdentity(h.ctx, user.ID, 42, true)
-	body, _ := json.Marshal(map[string]any{"action": "created", "repository": map[string]any{"full_name": repo}, "issue": map[string]any{"number": 1, "pull_request": map[string]any{}}, "comment": map[string]any{"id": 101, "body": "@eli fix this PR", "user": map[string]any{"id": 42, "login": "octo", "type": "User"}}, "sender": map[string]any{"id": 42}})
+	body, _ := json.Marshal(map[string]any{"action": "created", "repository": map[string]any{"full_name": repo}, "issue": map[string]any{"number": 1, "pull_request": map[string]any{}}, "comment": map[string]any{"id": 101, "body": "/eli fix this PR", "user": map[string]any{"id": 42, "login": "octo", "type": "User"}}, "sender": map[string]any{"id": 42}})
 	if err := h.c.enqueueRepairWebhook(h.ctx, inst, "issue_comment", body); err != nil {
 		t.Fatal(err)
 	}
@@ -342,18 +347,10 @@ func TestEveryRepairStageHasItsOwnHeading(t *testing.T) {
 	}
 }
 
-// GitHub autocompletes and links the App's real handle, not "eli", so that is
-// the name people actually type once they pick the bot from the suggestions.
-func TestTheAppsOwnHandleStartsARepair(t *testing.T) {
-	for _, text := range []string{"@zoomies-eyupio2 fix this", "@Zoomies-Eyupio2[bot] repair the test"} {
-		if _, ok := repairCommand(text, "zoomies-eyupio2"); !ok {
-			t.Errorf("%q should start a repair when the App's slug is zoomies-eyupio2", text)
+func TestTheTriggeringCommentIsReadBackFromTheDedupKey(t *testing.T) {
+	for key, want := range map[string]int64{"comment:acme/repo:77": 77, "comment:other/repo:77": 0, "ui:acme/repo:1:abc:u": 0, "comment:acme/repo:x": 0, "comment:acme/repo:-3": 0, "": 0} {
+		if got := triggerCommentID(&store.EliRepair{Repo: "acme/repo", DedupKey: key}); got != want {
+			t.Errorf("%q gave %d, want %d", key, got, want)
 		}
-		if _, ok := repairCommand(text, ""); ok {
-			t.Errorf("%q should not start a repair when no slug is known", text)
-		}
-	}
-	if _, ok := repairCommand("@zoomies-eyupio22 fix", "zoomies-eyupio2"); ok {
-		t.Error("a longer handle that merely starts with the slug must not match")
 	}
 }

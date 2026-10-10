@@ -252,9 +252,13 @@ App workflow permission, and a separate opt-in on the Zoomies policy.
 On a pull request, a linked maintainer can comment:
 
 ```text
-@eli fix the failing test
-@zoomies fix this PR issue
+/eli fix the failing test
+/zoomies fix this PR issue
 ```
+
+Prefer the slash form. `@eli` and `@zoomies` still work, but an at sign notifies
+whichever GitHub user happens to own that name, who is not part of your
+repository, and a slash command notifies nobody.
 
 Commands must begin a line outside a quote or code block. Only new comments by
 human users trigger a repair. Edited comments, ordinary issues, bots and
@@ -284,7 +288,7 @@ requester access. The commit has the original PR head as its parent, preserves
 file modes and uses a non-force branch update. A concurrent push stops publication.
 Eli never merges the PR or bypasses branch protection.
 
-The bot posts progress as a single comment that it edits in place, with a
+When a repair starts, Eli reacts to the comment that asked with 👀, then posts progress as a single comment that it edits in place, with a
 heading for each stage (sniffing around, fetched a fix, checks passed, got
 stuck), and watches check runs and commit statuses on its commit.
 It reports checks passed, checks failed, a newer PR head, or unverified after an

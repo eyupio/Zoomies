@@ -5,52 +5,17 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/eyupio/zoomies/internal/assistant"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/prrepair"
+	"github.com/eyupio/zoomies/internal/prrepair/mention"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-// repairHandles are the names a comment can call Eli by without any set-up.
-var repairHandles = []string{"eli", "zoomies"}
-
-// repairMention builds the pattern for a comment that starts a repair. The App's
-// own slug is accepted as well: it is the one name GitHub autocompletes and
-// links, so people who pick the bot from the suggestion list would otherwise
-// type a command that silently does nothing.
-func repairMention(appSlug string) *regexp.Regexp {
-	names := make([]string, 0, len(repairHandles)+1)
-	for _, h := range repairHandles {
-		names = append(names, regexp.QuoteMeta(h))
-	}
-	if slug := strings.TrimSpace(appSlug); slug != "" {
-		names = append(names, regexp.QuoteMeta(slug))
-	}
-	return regexp.MustCompile(`(?i)^@(` + strings.Join(names, "|") + `)(?:\[bot\])?\s+(fix|repair)\b(.*)$`)
-}
-
-func repairCommand(body, appSlug string) (string, bool) {
-	mention := repairMention(appSlug)
-	fenced := false
-	for _, line := range strings.Split(body, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "```") || strings.HasPrefix(line, "~~~") {
-			fenced = !fenced
-			continue
-		}
-		if fenced || strings.HasPrefix(line, ">") {
-			continue
-		}
-		if match := mention.FindStringSubmatch(line); len(match) > 0 {
-			return strings.TrimSpace(match[2] + match[3]), true
-		}
-	}
-	return "", false
-}
 func (c *Controller) repairPolicy(ctx context.Context, repo, installation string) (*store.EliRepairPolicy, error) {
 	policies, err := c.st.EliRepairPolicies(ctx)
 	if err != nil {
@@ -109,7 +74,7 @@ func (c *Controller) enqueueRepairWebhook(ctx context.Context, inst *store.Insta
 		if err := json.Unmarshal(body, &p); err != nil {
 			return errMalformedDelivery
 		}
-		command, ok := repairCommand(p.Comment.Body, inst.AppSlug)
+		command, ok := mention.Command(p.Comment.Body, inst.AppSlug)
 		if !ok || p.Action != "created" || p.Issue.PullRequest == nil || p.Comment.ID <= 0 || p.Issue.Number <= 0 || p.Comment.User.Type != "User" || p.Sender.ID != p.Comment.User.ID {
 			return nil
 		}
@@ -286,6 +251,21 @@ func (c *Controller) repairLoop(ctx context.Context) {
 	}
 }
 
+// triggerCommentID is the comment that asked for this repair, read back from the
+// dedup key the webhook wrote. r.CommentID is Eli's own progress comment, so it
+// cannot be used for this.
+func triggerCommentID(r *store.EliRepair) int64 {
+	rest, ok := strings.CutPrefix(r.DedupKey, "comment:"+r.Repo+":")
+	if !ok {
+		return 0
+	}
+	id, err := strconv.ParseInt(rest, 10, 64)
+	if err != nil || id <= 0 {
+		return 0
+	}
+	return id
+}
+
 // repairHeading gives each stage of a repair its own face, so a thread of Eli's
 // updates reads as one dog doing something rather than a log. The state is the
 // repair's, not the text's: the wording of a message can change without the
@@ -312,7 +292,7 @@ func (c *Controller) repairNotice(ctx context.Context, client github.RepairClien
 	if r.PullNumber <= 0 {
 		return
 	}
-	text = repairHeading(r.State) + "\n\n" + text + "\n\n<sub>Repair `" + r.ID + "`. Eli fetches fixes but never merges: that part stays with you. Ask again with `@eli fix`.</sub>\n<!-- zoomies-eli-repair:" + r.ID + " -->"
+	text = repairHeading(r.State) + "\n\n" + text + "\n\n<sub>Repair `" + r.ID + "`. 🐾 Zoomies. Eli fetches fixes but never merges: that part stays with you. Ask again with `/eli fix`.</sub>\n<!-- zoomies-eli-repair:" + r.ID + " -->"
 	id, err := client.RepairComment(ctx, r.Repo, r.PullNumber, r.CommentID, text)
 	if err != nil {
 		c.log.Warn("could not update Eli's PR comment", "repair", r.ID)
@@ -426,6 +406,13 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 	}
 	r.ProviderID = provider.ID
 	_ = c.persistEliRepair(ctx, r)
+	// An eyes reaction is the quickest thing to show on the comment that asked,
+	// and it is best effort: a repair never fails because GitHub refused one.
+	if id := triggerCommentID(r); id > 0 {
+		if err := client.RepairReact(ctx, r.Repo, id, "eyes"); err != nil {
+			c.log.Warn("could not react to the repair request", "repair", r.ID)
+		}
+	}
 	c.repairNotice(ctx, client, r, "Investigating this PR using "+provider.Name+". The repair is limited to one commit and will leave normal review in place.")
 	source, err := client.RepairSource(ctx, r.Repo, pull, policy.AllowWorkflows)
 	if err != nil {
