@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "78263e65",
+  "generated_from": "dc78ea2f",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -3792,8 +3792,8 @@
       "category": "configuration",
       "severity": "warning",
       "detection": "static",
-      "detects": "The mode is `manual` or `auto` and `updates.check_interval` is 0, the air-gap switch, so this controller never learns that a release exists and the mode has nothing to act on. Give the check a duration such as `24h`, or set the mode to `off`.",
-      "fix": "The mode is `manual` or `auto` and `updates.check_interval` is 0, the air-gap switch, so this controller never learns that a release exists and the mode has nothing to act on. Give the check a duration such as `24h`, or set the mode to `off`.",
+      "detects": "The mode is `manual` or `auto` and `updates.check_interval` is 0, the air-gap switch, so this controller never learns of a newer release and is never updated from here. In `auto`, hosts whose update helper is installed are still taken to the release the controller runs, once you upgrade it by hand. Give the check a duration such as `24h`, or set the mode to `off`.",
+      "fix": "The mode is `manual` or `auto` and `updates.check_interval` is 0, the air-gap switch, so this controller never learns of a newer release and is never updated from here. In `auto`, hosts whose update helper is installed are still taken to the release the controller runs, once you upgrade it by hand. Give the check a duration such as `24h`, or set the mode to `off`.",
       "verify": null,
       "setting": "updates.mode",
       "docs_html": "https://zoomies.sh/problem-codes/#configuration-the-scheduler-and-the-rest",

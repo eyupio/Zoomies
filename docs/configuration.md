@@ -1187,8 +1187,10 @@ that a project publishing faster than the soak would never be updated by `auto`.
 output, `zoomies config check` and the Settings page all show.
 
 `updates.check_interval` is still the air-gap switch. At `0` the controller never
-learns that a release exists, so a mode other than `off` beside it has nothing to
-act on, and the `updates.mode_without_check` warning says so.
+learns of a newer release, so it is never updated from here, and the
+`updates.mode_without_check` warning says so. Hosts are another matter: in
+`auto`, hosts whose update helper is installed are still taken to the release the
+controller runs once you upgrade it by hand, and in `manual` their buttons work.
 
 An assistant connected over MCP cannot change either setting. `update_settings`
 accepts `updates.check_interval` from this section and refuses `updates.mode` and
