@@ -12762,6 +12762,12 @@ components:
         throttle: { $ref: "#/components/schemas/ThrottleDirective" }
         elastic_cpu: { type: array, items: { $ref: "#/components/schemas/ElasticCPUDirective" }, description: Complete boosted-runner set; omission restores a previous boost to its guarantee. }
         elastic_memory: { $ref: "#/components/schemas/ElasticMemoryDirective" }
+        update_held:
+          type: boolean
+          description: >-
+            The controller did not record the `update` this beat carried (it was fenced, or its
+            store failed), so the agent sends it again on the next beat rather than take it as
+            delivered. Absent from an older controller, which an agent reads as recorded.
     ElasticMemoryDirective:
       type: object
       description: >-

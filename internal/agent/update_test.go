@@ -817,3 +817,39 @@ func TestAnUpdateTaskTheHelperHasAlreadyAnsweredWritesNothing(t *testing.T) {
 		t.Errorf("a result for another attempt stopped the request being written: %v", err)
 	}
 }
+
+// A controller that is fenced, or whose store failed, cannot record the result
+// a beat carried, and says so. Taken as delivered, the result would never be
+// sent again and the attempt would end only at its time-out, with the helper's
+// sentence lost. A beat answered without the result held is the delivery.
+func TestAResultTheControllerHeldIsSentAgainUntilItIsRecorded(t *testing.T) {
+	dir := readyUpdateFolder(t)
+	a, tr, clock := joined(t, withUpdateFolder(dir))
+	finished := clock.Now().Add(-5 * time.Minute)
+	writeJSON(t, filepath.Join(dir, channel.ResultFile), updates.Result{
+		V: updates.WireVersion, ID: "upd_abc123", OK: false, Tag: "v1.3.5", Error: "the download failed",
+		StartedAt: finished.Add(-time.Minute), FinishedAt: finished,
+	})
+	tr.mu.Lock()
+	tr.beatResp = &HeartbeatResponse{OK: true, UpdateHeld: true}
+	tr.mu.Unlock()
+	for i := range 2 {
+		req, err := beatOnce(t, a, tr)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if req.Update == nil || req.Update.ID != "upd_abc123" {
+			t.Fatalf("beat %d after the controller held the result carried %+v, want the result again", i+1, req.Update)
+		}
+	}
+
+	tr.mu.Lock()
+	tr.beatResp = &HeartbeatResponse{OK: true}
+	tr.mu.Unlock()
+	if req, err := beatOnce(t, a, tr); err != nil || req.Update == nil {
+		t.Fatalf("the beat the controller records carried %+v (%v), want the result", req.Update, err)
+	}
+	if req, err := beatOnce(t, a, tr); err != nil || req.Update != nil {
+		t.Errorf("after the controller recorded the result a beat carried %+v (%v), want nothing", req.Update, err)
+	}
+}

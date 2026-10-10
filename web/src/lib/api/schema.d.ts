@@ -9811,6 +9811,8 @@ export interface components {
             /** @description Complete boosted-runner set; omission restores a previous boost to its guarantee. */
             elastic_cpu?: components["schemas"]["ElasticCPUDirective"][];
             elastic_memory?: components["schemas"]["ElasticMemoryDirective"];
+            /** @description The controller did not record the `update` this beat carried (it was fenced, or its store failed), so the agent sends it again on the next beat rather than take it as delivered. Absent from an older controller, which an agent reads as recorded. */
+            update_held?: boolean;
         };
         /** @description The memory valve's rules for one host. Unlike `elastic_cpu` it is not a plan to carry out and replace on the next beat but limits to work within, because a memory limit that is raised cannot be taken back and the agent has to act between two heartbeats. An agent keeps working on the last it was given if the controller goes quiet. Absent means no runner here is lent anything. */
         ElasticMemoryDirective: {

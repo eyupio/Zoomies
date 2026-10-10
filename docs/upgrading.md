@@ -373,7 +373,9 @@ never asked, and its card says why and keeps the command. A host is always taken
 to the release its **controller** runs, never to the newest release, so an agent
 is never ahead of its controller ([version skew](#version-skew)). An update has
 worked when the host's heartbeat reports that release, not when the task is
-answered.
+answered. The agent repeats the helper's answer on its heartbeats until the
+controller has recorded it, so an answer that arrives while the controller is
+fenced, or cannot write its database, is recorded on the first beat after.
 
 **Update** on a host's card updates that host. **Update N hosts** on the Hosts
 page, or `zoomies updates apply --hosts`, starts a *rollout* of every host behind

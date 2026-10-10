@@ -22,8 +22,6 @@ runs a real update through the helper's systemd units.
 
 Recorded while the feature was built; check each before relying on it.
 
-* A fenced controller, or a failed store read, drops a host's report; the attempt
-  then times out at 90 minutes.
 * Why the helper can never be installed on a host is kept in memory only, so it
   is lost until the host's next heartbeat after a controller restart.
 * A Docker daemon with user-namespace remapping, and a service that runs as root,

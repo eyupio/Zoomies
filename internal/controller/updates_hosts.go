@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 	"unicode"
 
 	"github.com/eyupio/zoomies/internal/agent"
@@ -154,7 +155,6 @@ func hostCanSelfUpdate(h *store.Host, target string, unsupported updates.HelperU
 	return true, "This host runs " + reportedVersion(h.Version) + " and can be updated to " + target + ".", hostGapNone
 }
 
-// hostBehind says whether a host runs a release build older than target: the
 // byHand is the end of a card's sentence that sends a person to update the
 // host on the host itself. On Windows there is no command at the foot of the
 // card to point at (see hostUpgrade), only the steps.
@@ -174,6 +174,7 @@ func byHandOnCard(h *store.Host) string {
 	return "command"
 }
 
+// hostBehind says whether a host runs a release build older than target: the
 // hosts a rollout to target is for, whether or not each can update itself.
 // hostCanSelfUpdate asks the same of the version, so the two never disagree.
 func hostBehind(h *store.Host, target string) bool {
@@ -364,27 +365,34 @@ func (c *Controller) applyUpdateTaskResult(ctx context.Context, hostID string, t
 	default:
 		text = cutAt("The agent on "+name+" did not hand the request to its update helper: "+said, maxHelperSentence)
 	}
-	c.closeHostAttempt(ctx, latest[0], store.UpdateFailed, text)
+	_, _ = c.closeHostAttempt(ctx, latest[0], store.UpdateFailed, text)
 }
 
 // noteHostUpdate is what a heartbeat says about the host's open attempt: the
 // host running the release, which is the only proof of success, or the helper's
-// answer relayed by the agent.
+// answer relayed by the agent. It says whether a report the beat carried was
+// held rather than recorded, which the answer passes on so that the agent sends
+// it again instead of taking it as delivered.
 //
 // The open attempt is the one the loop last saw, so a beat with nothing to say
 // reads nothing. A beat that carries a result reads the store instead, because
-// the agent sends a result until a beat has been answered and not again: one
+// the agent sends a result until a beat has been answered without it held: one
 // matched against a stale picture would be lost.
-func (c *Controller) noteHostUpdate(ctx context.Context, h *store.Host, rep *agent.UpdateReport) {
+func (c *Controller) noteHostUpdate(ctx context.Context, h *store.Host, rep *agent.UpdateReport) (held bool) {
 	if !c.mayAct() {
-		return
+		if rep != nil {
+			c.warnReportHeld(h, "this controller is fenced or does not hold the lease, so it records nothing until it may act again")
+		}
+		return rep != nil
 	}
 	a, ok := c.hostAttempt(h.ID)
 	if rep != nil {
-		latest, err := c.st.ListUpdateAttempts(ctx, store.UpdateScopeHost, h.ID, 1)
+		latest, err := readHostAttempt(c, ctx, h.ID)
 		if err != nil {
-			c.log.Warn("could not read a host's update attempt to match the result its agent reported", "host", h.ID, "error", err)
-		} else if len(latest) == 1 {
+			c.log.Warn("could not read a host's update attempt to match the result its agent reported; the agent sends it again on its next beat", "host", h.ID, "error", err)
+			return true
+		}
+		if len(latest) == 1 {
 			a, ok = latest[0], true
 		}
 	}
@@ -393,15 +401,47 @@ func (c *Controller) noteHostUpdate(ctx context.Context, h *store.Host, rep *age
 		// agent relays whatever its update folder holds, which can be a result
 		// for an attempt already closed, or for the controller itself where the
 		// two share a folder.
-		return
+		return false
 	}
 	state, text, ended := hostReportOutcome(a, h.Version, rep)
 	if !ended {
-		return
+		return false
 	}
-	if c.closeHostAttempt(ctx, a, state, text) {
+	closed, err := c.closeHostAttempt(ctx, a, state, text)
+	if closed {
 		c.publishHost(h)
 	}
+	return rep != nil && err != nil
+}
+
+// readHostAttempt is a host's latest attempt from the store. It is a variable
+// so that a test can make the read fail once.
+var readHostAttempt = func(c *Controller, ctx context.Context, hostID string) ([]store.UpdateAttempt, error) {
+	return c.st.ListUpdateAttempts(ctx, store.UpdateScopeHost, hostID, 1)
+}
+
+// heldReportWarnEvery is how often one host's held report is logged. A fenced
+// controller holds it on every beat until it may act, and a line every few
+// seconds for each host would bury the one that says why it is fenced.
+const heldReportWarnEvery = 10 * time.Minute
+
+// warnReportHeld logs that a host's update result was held, at most once per
+// heldReportWarnEvery for each host.
+func (c *Controller) warnReportHeld(h *store.Host, why string) {
+	now := c.Now()
+	c.updates.heldMu.Lock()
+	last, seen := c.updates.heldWarned[h.ID]
+	if seen && now.Sub(last) < heldReportWarnEvery {
+		c.updates.heldMu.Unlock()
+		return
+	}
+	if c.updates.heldWarned == nil {
+		c.updates.heldWarned = make(map[string]time.Time)
+	}
+	c.updates.heldWarned[h.ID] = now
+	c.updates.heldMu.Unlock()
+	c.log.Warn("did not record the update result a host's agent reported; the agent sends it again until it is recorded",
+		"host", h.ID, "name", h.Name, "reason", why)
 }
 
 // hostReportOutcome says whether a host's open attempt has ended, from the
@@ -462,14 +502,16 @@ func reportedVersion(s string) string {
 
 // closeHostAttempt ends a host's open attempt, takes its task back, and brings
 // what the loop knows up to date so that the card rendered next says so. It
-// says whether this call was the one that closed it.
-func (c *Controller) closeHostAttempt(ctx context.Context, a store.UpdateAttempt, state, text string) bool {
-	if !c.finishUpdateAttempt(ctx, a, state, text) {
-		return false
+// says whether this call was the one that closed it, and the store's error
+// when the ending could not be written.
+func (c *Controller) closeHostAttempt(ctx context.Context, a store.UpdateAttempt, state, text string) (bool, error) {
+	closed, err := c.recordUpdateEnding(ctx, a, state, text)
+	if !closed {
+		return false, err
 	}
 	c.withdrawHostUpdate(a)
 	c.lookAtHostUpdates(ctx)
-	return true
+	return true, nil
 }
 
 // keepHostUpdateGoing is what a pass does for a host's attempt that has not

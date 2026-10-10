@@ -2,6 +2,7 @@ package controller
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"log/slog"
@@ -1270,6 +1271,114 @@ func TestAHostCardOffersTheCommandThatWorksOnItsPlatform(t *testing.T) {
 				if p.TargetID == host.ID && strings.Contains(p.Fix, "command") {
 					t.Errorf("the %s note's fix is %q, want it to point at the steps on the card, there being no command", p.Code, p.Fix)
 				}
+			}
+		})
+	}
+}
+
+// heldBeat is the host's agent sending rep, and says whether the controller
+// held it rather than recorded it.
+func (h *harness) heldBeat(host *store.Host, rep *agent.UpdateReport) bool {
+	h.t.Helper()
+	resp, err := h.c.Heartbeat(h.ctx, host.ID, agent.HeartbeatRequest{
+		ProtocolVersion: agent.ProtocolVersion, Version: "1.3.4", Features: []string{agent.FeatureSelfUpdate}, Update: rep,
+	})
+	if err != nil {
+		h.t.Fatalf("Heartbeat: %v", err)
+	}
+	return resp.UpdateHeld
+}
+
+// A fenced controller records nothing, and the agent marks a result delivered
+// once a beat that carried it is answered. Answered without saying the result
+// was held, a failure reported while fenced is lost and the attempt ends only at
+// its 90-minute time-out, without the helper's sentence. Held, the agent sends
+// it again, and the first beat after the fence lifts closes the attempt.
+func TestAReportAFencedControllerHeldClosesTheAttemptOnTheNextBeat(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	a := h.requestHost(host)
+	var logged bytes.Buffer
+	h.c.log = slog.New(slog.NewTextHandler(&logged, &slog.HandlerOptions{Level: slog.LevelWarn}))
+	rep := &agent.UpdateReport{ID: a.ID, OK: false, Tag: "v1.3.5", From: "1.3.4", Error: "the download failed", FinishedAt: h.c.Now().UTC()}
+
+	h.fence("a restore is being checked")
+	for i := range 3 {
+		if !h.heldBeat(host, rep) {
+			t.Fatalf("beat %d while fenced was answered as recorded; the agent would not send the result again", i+1)
+		}
+	}
+	if got := h.attempt(a.ID); got.State != store.UpdateRequested {
+		t.Fatalf("a fenced controller closed the attempt as %s", got.State)
+	}
+	if n := strings.Count(logged.String(), "did not record the update result"); n != 1 || !strings.Contains(logged.String(), host.ID) {
+		t.Errorf("three held beats logged %d lines naming the host, want one:\n%s", n, logged.String())
+	}
+
+	if err := h.c.Unfence(h.ctx); err != nil {
+		t.Fatalf("Unfence: %v", err)
+	}
+	if h.heldBeat(host, rep) {
+		t.Fatal("the beat after the fence lifted was held, want the result recorded")
+	}
+	if got := h.attempt(a.ID); got.State != store.UpdateFailed || got.Error != "the download failed" {
+		t.Errorf("after the fence lifted the attempt = %s %q, want failed with the helper's sentence", got.State, got.Error)
+	}
+}
+
+// A store that fails for a moment is the same loss by another road: the read
+// that matches the result, or the write that ends the attempt, fails once, the
+// beat is answered, and the result would be gone. Held, the next beat closes it.
+func TestAReportTheStoreCouldNotTakeClosesTheAttemptOnTheNextBeat(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		fault func(t *testing.T)
+	}{
+		{"the read fails once", func(t *testing.T) {
+			was := readHostAttempt
+			failed := false
+			readHostAttempt = func(c *Controller, ctx context.Context, hostID string) ([]store.UpdateAttempt, error) {
+				if !failed {
+					failed = true
+					return nil, errors.New("database is locked")
+				}
+				return was(c, ctx, hostID)
+			}
+			t.Cleanup(func() { readHostAttempt = was })
+		}},
+		{"the write fails once", func(t *testing.T) {
+			was := finishAttemptInStore
+			failed := false
+			finishAttemptInStore = func(st *store.Store, ctx context.Context, id, state, text string) (bool, error) {
+				if !failed {
+					failed = true
+					return false, errors.New("disk I/O error")
+				}
+				return was(st, ctx, id, state, text)
+			}
+			t.Cleanup(func() { finishAttemptInStore = was })
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.hostsCanUpdate()
+			host := h.updatableHost("vm-1")
+			a := h.requestHost(host)
+			rep := &agent.UpdateReport{ID: a.ID, OK: false, Tag: "v1.3.5", From: "1.3.4", Error: "the download failed", FinishedAt: h.c.Now().UTC()}
+
+			tc.fault(t)
+			if !h.heldBeat(host, rep) {
+				t.Fatal("the beat whose result the store could not take was answered as recorded")
+			}
+			if got := h.attempt(a.ID); got.State != store.UpdateRequested {
+				t.Fatalf("after the failure the attempt = %s, want it still open", got.State)
+			}
+			if h.heldBeat(host, rep) {
+				t.Fatal("the next beat was held too, want the result recorded")
+			}
+			if got := h.attempt(a.ID); got.State != store.UpdateFailed || got.Error != "the download failed" {
+				t.Errorf("after the next beat the attempt = %s %q, want failed with the helper's sentence", got.State, got.Error)
 			}
 		})
 	}
