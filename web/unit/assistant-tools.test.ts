@@ -16,4 +16,5 @@ test('the provider tools are named for what a person would call them', () => {
 
 test('the catalog is named as what it is, not by its route', () => {
   assert.equal(toolLabel('get_catalog'), 'the catalog of codes and checks');
+  assert.equal(toolLabel('get_usage'), 'usage and cost');
 });

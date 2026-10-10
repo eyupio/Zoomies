@@ -221,6 +221,17 @@ skipped jobs are left out of duration, and the answer says so. Jobs recorded
 before their release was stamped, and jobs no pool here claimed, are the group
 `unknown`. Any viewer may call it.
 
+For what a period cost, ask for `get_usage`. It reads `GET /usage` for the last
+thirty days by pool unless `since` and `until` say otherwise, and returns for
+each pool (or host, installation, repository or workflow, with `key` for one
+row) the jobs queued, started and completed, their outcomes, execution and
+allocated runner seconds, the mean queue wait, the peak concurrency and
+`estimated_cost`, from the rate an administrator set on each pool; Zoomies
+never embeds prices. Cost and allocation are null for the repository and
+workflow groupings, because a runner idles for a pool and never for a
+repository, and the tool says so. Each row's history of buckets is left out
+unless `include_history` is true, so a month's report fits one answer.
+
 `list_jobs` returns a short summary of each job by default, without its steps,
 so a hundred fit in one answer; set `include_steps` when the steps matter. When
 a page comes back full it carries `next`, and passing that as `before` reads the
