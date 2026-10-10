@@ -285,20 +285,25 @@ func TestPruneKeepsTheNewestCancelByAPersonForEachRelease(t *testing.T) {
 	lastCancel := end("v1.3.5", "usr_2")
 	done := end("v1.3.4", "done")
 	otherRelease := end("v1.3.4", "usr_1")
+	// A cancel that a later rollout to the same release has since ended is no
+	// longer the last word on it: kept, it would become the newest ended rollout
+	// again once the later one was pruned, and stop auto by itself.
+	overtakenCancel := end("v1.3.3", "usr_1")
+	overtakenBy := end("v1.3.3", "done")
 
 	clock.at = updateAttemptsNow.Add(200 * 24 * time.Hour)
 	n, err := s.PruneUpdateRollouts(ctx, updateAttemptsNow.Add(100*24*time.Hour))
-	if err != nil || n != 3 {
-		t.Fatalf("PruneUpdateRollouts = %d, %v, want the older cancel, the planner's and the finished one", n, err)
+	if err != nil || n != 5 {
+		t.Fatalf("PruneUpdateRollouts = %d, %v, want the older cancel, the planner's, the overtaken cancel and the two finished ones", n, err)
 	}
 	for _, r := range []*UpdateRollout{lastCancel, otherRelease} {
 		if _, err := rolloutByID(s, r.ID); err != nil {
 			t.Errorf("the newest cancel by a person of %s was pruned: %v", r.Target, err)
 		}
 	}
-	for _, r := range []*UpdateRollout{firstCancel, byPlanner, done} {
+	for _, r := range []*UpdateRollout{firstCancel, byPlanner, done, overtakenCancel, overtakenBy} {
 		if _, err := rolloutByID(s, r.ID); !errors.Is(err, sql.ErrNoRows) {
-			t.Errorf("rollout %s to %s (%s by %q) survived the prune: %v", r.ID, r.Target, r.State, r.CancelledBy, err)
+			t.Errorf("rollout %s to %s survived the prune: %v", r.ID, r.Target, err)
 		}
 	}
 }

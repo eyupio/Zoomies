@@ -412,9 +412,9 @@ helper beside the controller is not installed, it waits, and updates no host
 either, because no host may go ahead of its controller. Where that helper can
 never be installed (see above), the controller is left to a person and hosts
 follow the release it runs. A rollout cancelled by hand is not started again for
-the same release, however short `retention.update_attempts` is: the newest
-rollout a person cancelled for each release is kept when older history is
-pruned. Switching to `manual` cancels a rollout `auto` started, and
+the same release, however short `retention.update_attempts` is: a rollout a
+person cancelled is kept when older history is pruned, for as long as no later
+rollout to that release has ended. Switching to `manual` cancels a rollout `auto` started, and
 switching to `off` cancels any open rollout; an update a helper is already
 running finishes either way, and is recorded.
 
