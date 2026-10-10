@@ -18,9 +18,9 @@
     ]
   },
   "assets": {
-    "primaryLogo": "logo-master-dark.png",
-    "primaryLogoLight": "logo-light-background.png",
-    "circularMark": "mark-dark.png",
+    "primaryLogo": "logo-white-transparent.svg",
+    "primaryLogoLight": "logo-black-transparent.svg",
+    "circularMark": "mark-white-transparent.svg",
     "smallMark": "paw-swish-black.png",
     "githubAvatar": "github-avatar.png",
     "githubSocialPreview": "github-social-preview.png",

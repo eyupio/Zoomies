@@ -114,34 +114,9 @@
       button.hidden = true;
     };
 
-    // Reuse the already-decoded source for every SVG layer. If it fails, the
-    // ordinary accessible logo remains; never replace it with an empty canvas.
-    //
-    // Two things used to fetch a 176 KB file thousands of pixels below the fold
-    // on every visit to the home page. decode() on a lazy image that has not
-    // started loading starts it, and so does an SVG <image> that already has an
-    // address, because SVG ignores loading="lazy". So the layers ship without
-    // one: wait for the browser to load the <img> as the reader approaches,
-    // decode what has arrived, give the layers its address (a cache hit), and
-    // only then swap the static mark for the animated one.
-    const layers = [...root.querySelectorAll("svg image")];
-
-    function loadLayer(layer) {
-      return new Promise((resolve, reject) => {
-        layer.addEventListener("load", resolve, { once: true });
-        layer.addEventListener("error", reject, { once: true });
-        layer.setAttributeNS(
-          "http://www.w3.org/1999/xlink",
-          "xlink:href",
-          image.currentSrc || image.src,
-        );
-      });
-    }
-
     function enhance() {
       image
         .decode()
-        .then(() => Promise.all(layers.map(loadLayer)))
         .then(() => {
           if (!alive) return;
           ready = true;

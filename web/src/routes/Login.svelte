@@ -404,7 +404,7 @@
   {#if !embedded}
     <div class="mark">
       {@render rings('band', 200)}
-      <span class="lockup"><Logo variant="lockup" size={84} label="Zoomies" /></span>
+      <span class="lockup"><Logo inverse variant="lockup" size={84} label="Zoomies" /></span>
     </div>
   {/if}
 

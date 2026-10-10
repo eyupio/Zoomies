@@ -8,20 +8,21 @@ description: >-
 
 # Zoomies brand
 
-<img src="brand/logo-master-dark.png" alt="The Zoomies logo: a black-and-white cocker spaniel curling through a circular motion path, above the Zoomies wordmark and the line SELF-HOSTED GIT RUNNERS" width="360">
+<img class="zoomies-logo zoomies-logo--light" src="../brand/logo-black-transparent.svg" alt="The Zoomies logo: a black-and-white cocker spaniel running inside a circular swish, above the Zoomies wordmark" width="360">
 
-The identity is a fast-moving black-and-white cocker spaniel curling through a
-circular motion path, paired with the Zoomies wordmark. A dog doing zoomies in
+<img class="zoomies-logo zoomies-logo--dark" src="../brand/logo-white-transparent.svg" alt="Zoomies: self-hosted Git runners" width="360">
+
+The identity is a fast-moving black-and-white cocker spaniel running inside a
+circular swish, paired with the Zoomies wordmark. A dog doing zoomies in
 circles is runners executing jobs quickly; that is the whole idea, and it is
 why the mark is never rotated: the circular movement already communicates speed.
 
 Personality: fast, playful, capable, technical, friendly.
 
-**[Branding Guide v2.1](brand/BRANDING_GUIDE.md) is the authority.**
+**[Branding Guide v3.0](brand/BRANDING_GUIDE.md) is the authority.**
 This page records what the product actually does with it, and
 [ui-guidelines.md](ui-guidelines.md) is where the derived design tokens live.
-The older PDF remains in the repository as a historical source, not as current
-guidance. Asset provenance is recorded in
+Asset provenance is recorded in
 [`ASSET_MANIFEST.json`](brand/ASSET_MANIFEST.json).
 
 ## Colour
@@ -31,7 +32,7 @@ logo stays monochrome, always.
 
 | Name | Value | Where it is used |
 | --- | --- | --- |
-| Zoomies Black | `#080808` | The ground the mark sits on, in both themes |
+| Zoomies Black | `#080808` | Dark backgrounds and the sign-in brand panel |
 | White | `#FFFFFF` | Surfaces in the light theme, and the knockout mark |
 | Cool Grey | `#B9BCC2` | Secondary text in the dark theme |
 | Mid Grey | `#666A73` | Secondary text in the light theme |
@@ -66,11 +67,11 @@ available space; it is not a choice between interchangeable logos.
 | `brand/logo-master-dark.png` | Primary full logo on Zoomies Black or another dark ground |
 | `brand/logo-light-background.png` | Primary full logo on white or a very light ground |
 | `brand/logo-white-transparent.png` | Transparent white primary logo on a dark or coloured ground |
-| `brand/mark-dark.png`, `brand/mark-white-transparent.png` | Original circular dog mark where the name is already visible |
+| `brand/mark-dark.png`, `brand/mark-white-transparent.png` | Running spaniel emblem where the name is already visible |
 | `brand/paw-swish-black.png`, `brand/paw-swish-white.png` | Favicons and equivalent tiny UI marks from 16–64px only |
 | `brand/wordmark-dark.png`, `brand/wordmark-white-transparent.png` | The wordmark alone |
-| `brand/github-avatar.png` | Original-dog artwork with safe space for GitHub's circular crop |
-| `brand/github-social-preview.png` | 1280×640 GitHub social preview |
+| `brand/github-avatar.png` | Running spaniel artwork with safe space for GitHub's circular crop |
+| `brand/github-social-preview.png` | 1200×630 GitHub social preview |
 | `brand/social-card.png` | 1200×630 Open Graph sharing image |
 
 The product's own copies live in `web/public/` and are the sizes the app
@@ -78,12 +79,17 @@ actually serves: `favicon.ico` (16/32/48), `favicon-16.png`, `favicon-32.png`,
 `apple-touch-icon.png`, `icon-192.png`, `icon-512.png`, the dedicated
 `maskable-icon-512.png`, and the web UI assets under `brand/`.
 
-`brand/mark-white.png` and its `@2x` copy are the circular dog at the 128px
-minimum and at twice it, which is why that mark can be served at its minimum and
-no larger: those are the sizes in the directory, and enlarging a 256px raster to
-fill a bigger slot is the sort of thing this page tells other people not to do.
+The app serves the full logo and emblem as SVG paths. Black artwork is used
+on light surfaces and white on dark surfaces. The sign-in brand panel stays
+dark and always uses white artwork. Transparent PNG exports are also supplied.
 
-`brand/app-logo.png` is the original-dog GitHub avatar with circular-crop safe
+| Transparent artwork | Formats |
+| --- | --- |
+| `brand/logo-black-transparent`, `brand/logo-white-transparent` | `.svg`, `.png` |
+| `brand/mark-black-transparent`, `brand/mark-white-transparent` | `.svg`, `.png` |
+| `brand/wordmark-black-transparent`, `brand/wordmark-white-transparent` | `.svg` |
+
+`brand/app-logo.png` is the running spaniel GitHub avatar with circular-crop safe
 space. An App manifest cannot carry a logo, so the connect flow hands the
 operator this file and a link to the page that takes it; without it the App
 wears GitHub's grey default and signs every "Set up job" line anonymously.
@@ -134,10 +140,9 @@ one: a badge in different colours on different READMEs is not a brand.
 The full primary logo appears on the sign-in, first-run, boot and connection
 failure screens (the screens that open the product) and it is given room on
 them: 260px on the sign-in page, about 300px on the first-run screen, 250px on
-the two transient ones, and never below the 220px minimum. The holding shape is
-Zoomies Black, and it is capped at the width of whatever contains it, so a phone
+the two transient ones, and never below the 220px minimum. The artwork follows the surface colour and is capped at the width of its container, so a phone
 shrinks the lockup rather than overflowing. The artwork carries its own clear
-space, so the shape is deliberately larger than the dog inside it; that padding
+space, so the canvas is deliberately larger than the dog inside it; that padding
 is part of the supplied file and is not cropped away.
 
 ![The sign-in page: a Zoomies Black panel on the left holding the lockup, a one-line description, three facts and links to zoomies.sh, GitHub and EyUp.io; the form on the right, under the address of the instance being signed in to](screenshots/sign-in-dark.webp#only-dark){ .zoomies-shot }
@@ -164,14 +169,14 @@ its 220px minimum, and the links move below the form in the theme's own
 colours. The first-run screen stays a card. Only the person who has just
 installed the controller ever sees it, and they already know what it is.
 
-The original circular dog carries Settings → About at 128px, its minimum size;
+The running spaniel emblem carries Settings → About at 128px, its minimum size;
 the one identity slot in the signed-in product with room for the primary mark,
 and the page that is about the product rather than about the fleet. The
 paw/swish carries everything up to its 64px maximum: the navbar, where the
 detailed dog does not read clearly, and genuinely tiny placements such as the
 mobile top bar, page footer and command palette.
-Both use the supplied white reverse artwork on a Zoomies Black
-chip, so the artwork is unchanged and remains legible in either theme.
+Both use transparent black artwork in the light theme and white in the dark
+theme. The sign-in panel is always dark and keeps the white full logo.
 
 Once somebody is signed in, the identity is carried in these quieter places:
 
@@ -181,11 +186,10 @@ Once somebody is signed in, the identity is carried in these quieter places:
 | The top bar, on a phone | Paw/swish, because the masthead is not on screen there |
 | The foot of every page | Paw/swish, name, running version and descriptor |
 | The command palette | Paw/swish and name beside the key hints |
-| Settings → About | 128px circular dog beside the name, descriptor and a one-line description of the product |
+| Settings → About | 128px standalone dog beside the name, descriptor and a one-line description of the product |
 
-The descriptor is set in Inter -- small, uppercase, letter-spaced -- rather than
-cropped out of the wordmark artwork, whose own descriptor line is drawn for
-240px and is a smudge at sidebar width.
+The interface descriptor is set separately in Inter: small, uppercase and
+letter-spaced. The logo artwork contains only the dog and Zoomies wordmark.
 
 ### Names from the kennel
 
@@ -206,28 +210,14 @@ branded exactly as one created from the editor is.
 
 ## Animated homepage logo
 
-The homepage animates the original white knockout artwork with four short
-performances: paw-wave greeting, curious head tilt, squirrel-chasing run and a full
-double zoomies spin. Blinking, panting, floppy ears and a wagging tail bring the
-dog to life. The nose stays attached to the muzzle, the front paw covers the
-rear leg, and both lower swish strokes remain separate from the dog.
-The source pixels, wordmark and circular swish are retained. SVG clips articulate
-parts of the dog; this is not a new vector master or a replacement logo download.
+The homepage gives the approved full logo a gentle whole-artwork movement.
+It does not slice or reshape the dog. The old anatomy-specific animation has
+been retired because its clips belong to the previous design.
 
-A shuffled sequence visits each performance once before reshuffling, avoids
-immediate repeats and varies the quiet interval between performances. Every
-performance begins and ends in the same neutral pose, so the logo switches
-without flicker or shifting the page. The wordmark and swish remain still.
-
-Visitors can pause the animation. Reduced-motion preferences and a failed or
-unavailable script leave the original static logo. Motion and its timer pause
-when the logo is off screen or the tab is hidden; Material instant navigation
-cleans up the old controller before attaching the new one.
-
-`docs/brand/animated-logo.html`, `docs/stylesheets/animated-logo.css` and
-`docs/javascripts/animated-logo.js` own this homepage treatment. The approved
-motion exception applies to the articulated dog, not rotation, recolouring or
-distortion of the full brand mark elsewhere.
+The pause control, reduced-motion preference, off-screen pause and instant
+navigation cleanup remain supported. Without JavaScript the logo is static.
+The treatment lives in `overrides/partials/animated-logo.html`,
+`docs/stylesheets/animated-logo.css` and `docs/javascripts/animated-logo.js`.
 
 ## Clear space and minimum sizes
 
@@ -244,7 +234,7 @@ distortion of the full brand mark elsewhere.
 
 * Use the dark master on dark surfaces.
 * Use the white knockout over dark photography or a coloured UI.
-* Use the original circular dog for avatars, touch icons, PWA icons and social artwork.
+* Use the original standalone dog for avatars, touch icons, PWA icons and social artwork.
 * Use the paw/swish only for favicons and equivalent tiny UI marks.
 * Keep every mark's supplied swish and safe padding intact.
 

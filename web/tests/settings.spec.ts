@@ -421,7 +421,7 @@ test('the account menu leads to the pages that are about the person', async ({ p
  * The About page is the product's own identity card, and the two things it
  * says about the product itself are easy to get wrong in opposite directions.
  *
- * The mark: the brand guide ranks the original circular dog above every other
+ * The mark: the brand guide ranks the original standalone dog above every other
  * standalone mark, and the paw/swish stops at 64px, so anything else here is
  * the wrong artwork. 128px is the guide's minimum for the circular mark and
  * the reason this is the slot that carries it.
@@ -434,9 +434,9 @@ test('the About page carries the primary mark and says what Zoomies is', async (
 
   // The mark is decorative, so nothing in the accessibility tree names it and
   // the served file is the only observable that distinguishes one from another.
-  const mark = page.locator('.identity img');
-  await expect(mark).toHaveAttribute('src', '/brand/mark-white.png');
-  await expect(mark).toHaveJSProperty('naturalWidth', 128);
+  const mark = page.locator('.identity img:visible');
+  await expect(mark).toHaveAttribute('src', /\/brand\/mark-(black|white)-transparent\.svg/);
+  await expect(mark).toHaveJSProperty('naturalWidth', 1254);
 
   await expect(
     page.getByText(/lightweight fleet controller for GitHub Actions runners/),
