@@ -515,3 +515,30 @@ func TestEveryReadToolIsOnElisListOrLeftOffOnPurpose(t *testing.T) {
 		}
 	}
 }
+
+// A provider that stops the answer at its output ceiling is said so on the done
+// frame and in the audit row, because a thinking model can spend the whole
+// ceiling on reasoning and send no words, and silence that looks like a
+// finished answer is the worst thing the page can show.
+func TestAnAnswerTheProviderCutSaysSoOnItsDoneFrameAndInTheAudit(t *testing.T) {
+	h, cookie, srv := chatHarness(t)
+	srv.Cut = true
+	resp := h.do(request{method: http.MethodPost, path: assistantChat, cookie: cookie, readStream: true, body: chatBody("user", "Which host should I grow?")})
+	resp.mustStatus(t, http.StatusOK, "asking")
+	var done map[string]any
+	for _, f := range frames(t, resp.body) {
+		if f.kind == "error" {
+			t.Fatalf("a cut answer is not a failure: %v", f.data)
+		}
+		if f.kind == "done" {
+			done = f.data
+		}
+	}
+	if done == nil || done["cut"] != true {
+		t.Errorf("done = %v, want cut true", done)
+	}
+	rows, _, _ := h.st.ListAudit(h.ctx, store.AuditFilter{Actions: []string{"assistant.chat"}}, store.Page{Limit: 1})
+	if len(rows) != 1 || !strings.Contains(rows[0].After, `"outcome":"cut"`) {
+		t.Errorf("audit = %+v, want outcome cut", rows)
+	}
+}

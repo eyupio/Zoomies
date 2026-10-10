@@ -226,3 +226,109 @@ func TestABaseURLWithCredentialsInItIsRefused(t *testing.T) {
 		t.Errorf("the refusal does not name the field, or echoes the password: %s", resp.body)
 	}
 }
+
+// How hard the model thinks is set per provider, because the value is the
+// provider's to interpret and a thinking model at its default effort can spend
+// an answer's whole room on reasoning. It is kept, shown, and sent on every
+// request; a value no provider takes is refused by name, and a kind whose tool
+// has no such setting is refused rather than silently ignored.
+func TestAProvidersReasoningEffortIsKeptShownAndSent(t *testing.T) {
+	h, cookie := assistantAdmin(t, func(c *config.Config) { c.Assistant.AllowPrivateProvider = true })
+	srv := assistanttest.NewOpenAI(t)
+	body := providerBody(srv, "DeepSeek")
+	body["reasoning_effort"] = "low"
+	resp := h.do(request{method: http.MethodPost, path: assistantProviders, cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusCreated, "creating with an effort")
+	view := resp.json(t)
+	if view["reasoning_effort"] != "low" {
+		t.Errorf("view = %v, want reasoning_effort low", view)
+	}
+	id := view["id"].(string)
+	h.do(request{method: http.MethodPost, path: assistantProviders + "/" + id + "/check", cookie: cookie}).mustStatus(t, http.StatusOK, "checking")
+	var sent []any
+	for _, r := range srv.Requests() {
+		if r.Path == "/v1/chat/completions" {
+			sent = append(sent, r.Body["reasoning_effort"])
+		}
+	}
+	if len(sent) == 0 || sent[len(sent)-1] != "low" {
+		t.Errorf("the check did not send the effort: %v", sent)
+	}
+
+	body["reasoning_effort"] = "max"
+	bad := h.do(request{method: http.MethodPost, path: assistantProviders, cookie: cookie, body: body})
+	bad.mustStatus(t, http.StatusUnprocessableEntity, "an effort no provider takes here")
+	if !strings.Contains(string(bad.body), `"reasoning_effort"`) {
+		t.Errorf("the refusal does not name the field: %s", bad.body)
+	}
+
+	patch := h.do(request{method: http.MethodPatch, path: assistantProviders + "/" + id, cookie: cookie, body: map[string]any{"reasoning_effort": ""}})
+	patch.mustStatus(t, http.StatusOK, "clearing it")
+	if patch.json(t)["reasoning_effort"] != "" {
+		t.Errorf("cleared effort still shown: %v", patch.json(t))
+	}
+}
+
+func TestAReasoningEffortIsRefusedOnAKindWhoseToolHasNoSuchSetting(t *testing.T) {
+	h, cookie := assistantAdmin(t, func(c *config.Config) { c.Assistant.AllowPrivateProvider = true })
+	srv := assistanttest.NewAnthropic(t)
+	body := map[string]any{"name": "Claude", "kind": "anthropic", "base_url": srv.URL + "/v1", "model": "m", "api_key": "k", "reasoning_effort": "low"}
+	resp := h.do(request{method: http.MethodPost, path: assistantProviders, cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusUnprocessableEntity, "an effort on a kind that has none")
+	if !strings.Contains(string(resp.body), `"reasoning_effort"`) {
+		t.Errorf("the refusal does not name the field: %s", resp.body)
+	}
+}
+
+// How much the model may write in one round is set per provider, because the
+// right number is the model's and the cost of the room is the provider's price.
+// It is kept, shown, sent as the request's ceiling, and said on the done frame
+// with the provider, so a cut answer can tell the person what to raise and on
+// what. A number outside the bounds is refused by name, and a kind whose tool
+// takes no ceiling is refused rather than silently ignored.
+func TestAProvidersOutputLimitIsKeptSentAndSaidOnTheDoneFrame(t *testing.T) {
+	h, cookie := assistantAdmin(t, func(c *config.Config) { c.Assistant.AllowPrivateProvider = true })
+	srv := assistanttest.NewOpenAI(t)
+	body := providerBody(srv, "DeepSeek")
+	body["max_output_tokens"] = 16384
+	resp := h.do(request{method: http.MethodPost, path: assistantProviders, cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusCreated, "creating with a limit")
+	view := resp.json(t)
+	if view["max_output_tokens"] != float64(16384) {
+		t.Errorf("view = %v, want max_output_tokens 16384", view)
+	}
+	id := view["id"].(string)
+	h.do(request{method: http.MethodPost, path: assistantProviders + "/" + id + "/default", cookie: cookie}).mustStatus(t, http.StatusOK, "making it the default")
+	chat := h.do(request{method: http.MethodPost, path: assistantChat, cookie: cookie, readStream: true, body: chatBody("user", "Which host?")})
+	chat.mustStatus(t, http.StatusOK, "asking")
+	var done map[string]any
+	for _, f := range frames(t, chat.body) {
+		if f.kind == "done" {
+			done = f.data
+		}
+	}
+	if done == nil || done["output_limit"] != float64(16384) || done["provider_id"] != id {
+		t.Errorf("done = %v, want output_limit 16384 and the provider's id", done)
+	}
+	reqs := srv.Requests()
+	if last := reqs[len(reqs)-1].Body; last["max_tokens"] != float64(16384) {
+		t.Errorf("the request's ceiling = %v, want the provider's", last["max_tokens"])
+	}
+
+	body["max_output_tokens"] = 500
+	bad := h.do(request{method: http.MethodPost, path: assistantProviders, cookie: cookie, body: body})
+	bad.mustStatus(t, http.StatusUnprocessableEntity, "a limit below the floor")
+	if !strings.Contains(string(bad.body), `"max_output_tokens"`) {
+		t.Errorf("the refusal does not name the field: %s", bad.body)
+	}
+}
+
+func TestAnOutputLimitIsRefusedOnAKindWhoseToolTakesNone(t *testing.T) {
+	h, cookie := assistantAdmin(t, func(c *config.Config) { c.Assistant.AllowPrivateProvider = true })
+	body := map[string]any{"name": "Claude Code", "kind": "claude_code", "max_output_tokens": 16384}
+	resp := h.do(request{method: http.MethodPost, path: assistantProviders, cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusUnprocessableEntity, "a limit on a tool that takes none")
+	if !strings.Contains(string(resp.body), `"max_output_tokens"`) {
+		t.Errorf("the refusal does not name the field: %s", resp.body)
+	}
+}

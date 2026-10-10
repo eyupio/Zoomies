@@ -42,6 +42,10 @@ type Server struct {
 	// offers a tool of that name, and has no tool's answer in it yet, by calling
 	// it with no arguments. The request after that is answered in words.
 	CallTool string
+	// Cut, when set, ends an answer the way a provider does at its output
+	// ceiling: the OpenAI-protocol server streams reasoning and no words and
+	// finishes with length, the Anthropic one stops with max_tokens.
+	Cut bool
 
 	mu       sync.Mutex
 	requests []Recorded
@@ -164,6 +168,11 @@ func NewOpenAI(t testing.TB) *Server {
 			sse(w, "", chunk(map[string]any{"tool_calls": []any{map[string]any{"index": 0,
 				"function": map[string]any{"arguments": `"ping"}`}}}}, nil))
 			sse(w, "", chunk(map[string]any{}, "tool_calls"))
+		} else if s.Cut {
+			for _, word := range []string{"Thinking", " about it"} {
+				sse(w, "", chunk(map[string]any{"reasoning_content": word}, nil))
+			}
+			sse(w, "", chunk(map[string]any{}, "length"))
 		} else {
 			for _, word := range []string{"Hello", " from", " the", " fake"} {
 				sse(w, "", chunk(map[string]any{"content": word}, nil))
@@ -235,7 +244,11 @@ func NewAnthropic(t testing.TB) *Server {
 			}
 			sse(w, "content_block_stop", map[string]any{"type": "content_block_stop", "index": 0})
 		}
-		delta := map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": "end_turn"}}
+		stop := "end_turn"
+		if s.Cut {
+			stop = "max_tokens"
+		}
+		delta := map[string]any{"type": "message_delta", "delta": map[string]any{"stop_reason": stop}}
 		if !s.NoUsage {
 			delta["usage"] = map[string]any{"output_tokens": 4}
 		}

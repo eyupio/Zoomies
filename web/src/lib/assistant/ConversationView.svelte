@@ -17,8 +17,12 @@
     TriangleAlert,
   } from '@lucide/svelte';
   import { tick } from 'svelte';
+  import { ApiError, updateAssistantProvider } from '$lib/api/client';
   import CopyButton from '$lib/components/CopyButton.svelte';
-  import type { Conversation } from './conversation.svelte';
+  import { formatNumber } from '$lib/format';
+  import { session } from '$lib/state/session.svelte';
+  import type { Conversation, Turn } from './conversation.svelte';
+  import { eli } from './eli.svelte';
   import EliAvatar from './EliAvatar.svelte';
   import EliThinking from './EliThinking.svelte';
   import Markdown from './Markdown.svelte';
@@ -65,6 +69,47 @@
   let atBottom = $state(true);
 
   const last = $derived(conversation.turns[conversation.turns.length - 1]);
+
+  /** The most the limit may be raised to, as the API bounds it. */
+  const LIMIT_CEILING = 65536;
+
+  /** The provider a cut answer came from, when the person may change it: their own, or an installation one as an administrator. */
+  function raisable(turn: Turn): { id: string; scope: 'personal' | 'installation' } | undefined {
+    if (!turn.cut || !turn.providerId || (turn.outputLimit ?? 0) >= LIMIT_CEILING) return undefined;
+    const provider = eli.providers.find((p) => p.id === turn.providerId);
+    if (!provider) return undefined;
+    if (provider.owned_by_you) return { id: provider.id, scope: 'personal' };
+    if (!provider.owner_id && session.can('admin'))
+      return { id: provider.id, scope: 'installation' };
+    return undefined;
+  }
+
+  function nextLimit(turn: Turn): number {
+    return Math.min((turn.outputLimit || 8192) * 2, LIMIT_CEILING);
+  }
+
+  let raising = $state(false);
+
+  /** Double the provider's output limit, as the person, and ask the question again. */
+  async function raise(turn: Turn): Promise<void> {
+    const target = raisable(turn);
+    if (!target || raising || conversation.busy) return;
+    raising = true;
+    try {
+      await updateAssistantProvider(
+        target.id,
+        { max_output_tokens: nextLimit(turn) },
+        target.scope,
+      );
+      await eli.refresh();
+    } catch (cause) {
+      turn.error = cause instanceof ApiError ? cause.message : 'The limit could not be raised.';
+      return;
+    } finally {
+      raising = false;
+    }
+    await conversation.resend();
+  }
   const suggestions = $derived(last?.error || last?.streaming ? [] : (last?.suggestions ?? []));
   // Changes as an answer grows or finishes (its actions appear), which is what the view follows.
   const growth = $derived(
@@ -209,6 +254,26 @@
               {/if}
               {#if turn.hidden}
                 <p class="hidden-note">{turn.hidden}</p>
+              {/if}
+              {#if turn.cut}
+                <p class="hidden-note">
+                  Eli ran out of room: the model reached this provider's output limit of
+                  {formatNumber(turn.outputLimit || 8192)} tokens
+                  {turn.content
+                    ? 'before it finished, so this answer is cut short'
+                    : 'while it was still thinking'}. Lower the provider's reasoning effort under
+                  Settings, Eli AI Assistant, or raise its output limit.
+                  {#if raisable(turn) && turn === last && !conversation.busy}
+                    <button
+                      type="button"
+                      class="retry"
+                      disabled={raising}
+                      onclick={() => void raise(turn)}
+                    >
+                      Raise to {formatNumber(nextLimit(turn))} and ask again
+                    </button>
+                  {/if}
+                </p>
               {/if}
               {#if turn.error}
                 <p class="error" role="alert">{turn.error}</p>

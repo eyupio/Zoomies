@@ -43,6 +43,9 @@ func (c *Controller) OpenAssistantProvider(row *store.AssistantProvider, apiKey 
 		APIKey:    apiKey,
 		Model:     row.Model,
 		LocalOnly: c.cfg().Assistant.LocalOnly,
+		// Empty is the provider's default; the kinds that cannot carry it
+		// never hold one, because the API refuses it on them.
+		ReasoningEffort: row.ReasoningEffort,
 	})
 }
 

@@ -66,12 +66,15 @@ type AssistantToolUse struct {
 	Status string
 }
 
-// AssistantChatEvent is one thing an answer yields.
+// AssistantChatEvent is one thing an answer yields. Cut, on Done, says the
+// provider stopped the answer at its output ceiling, so the page can say so
+// rather than show what arrived as the whole answer.
 type AssistantChatEvent struct {
 	Delta string
 	Tool  *AssistantToolUse
 	Usage *assistant.Usage
 	Done  bool
+	Cut   bool
 	Err   error
 }
 
@@ -85,6 +88,9 @@ type AssistantChat struct {
 	Model      string
 	// FleetAccess is whether Eli was offered the fleet's tools in this chat.
 	FleetAccess bool
+	// OutputLimit is how much the model may write in one round of this chat,
+	// so a cut answer can say what to raise.
+	OutputLimit int
 
 	provider assistant.Provider
 	req      assistant.Request
@@ -104,6 +110,7 @@ type AssistantChat struct {
 	used      []string
 	redacted  redact.Result
 	closing   int
+	cut       bool
 	finished  bool
 }
 
@@ -153,7 +160,7 @@ func (a *AssistantChat) Next(ctx context.Context) (AssistantChatEvent, bool) {
 			// The usage went out last time; the end goes out now.
 			a.closing = 2
 			a.finished = true
-			return AssistantChatEvent{Done: true}, true
+			return AssistantChatEvent{Done: true, Cut: a.cut}, true
 		}
 
 		// A call that was announced is run now, and then reported.
@@ -207,6 +214,13 @@ func (a *AssistantChat) Next(ctx context.Context) (AssistantChatEvent, bool) {
 		case ev.Done:
 			_ = a.stream.Close()
 			a.stream = nil
+			// A round the provider cut at its ceiling is the end of the answer,
+			// said as such: a call collected in it may be half written, and the
+			// model asked again would only run out of room again.
+			if ev.Cut {
+				a.cut = true
+				a.collected = nil
+			}
 			// With no tools on offer, a call is one the model made up, and is dropped
 			// with the words around it kept.
 			if len(a.collected) == 0 || len(a.req.Tools) == 0 {

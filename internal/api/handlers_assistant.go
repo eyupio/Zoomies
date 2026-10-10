@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/assistant"
@@ -29,6 +30,12 @@ type assistantProviderInput struct {
 	// FleetAccess lets the assistant read this fleet through the provider. It
 	// is the administrator's decision per provider, and absent leaves it as it was.
 	FleetAccess *bool `json:"fleet_access"`
+	// ReasoningEffort is how hard the model should think, in the provider's
+	// words; empty is its default. Absent leaves it as it was.
+	ReasoningEffort *string `json:"reasoning_effort"`
+	// MaxOutputTokens is how much the model may write in one round; zero or
+	// absent-on-create is the controller's default. Absent leaves it as it was.
+	MaxOutputTokens *int `json:"max_output_tokens"`
 }
 
 func (in assistantProviderInput) apply(p *store.AssistantProvider) {
@@ -49,6 +56,12 @@ func (in assistantProviderInput) apply(p *store.AssistantProvider) {
 	}
 	if in.FleetAccess != nil {
 		p.FleetAccess = *in.FleetAccess
+	}
+	if in.ReasoningEffort != nil {
+		p.ReasoningEffort = strings.TrimSpace(*in.ReasoningEffort)
+	}
+	if in.MaxOutputTokens != nil {
+		p.MaxOutputTokens = *in.MaxOutputTokens
 	}
 }
 
@@ -97,6 +110,22 @@ func (s *Server) validateAssistantProvider(r *http.Request, p *store.AssistantPr
 			errs = append(errs, fieldError{"base_url", "the address carries a username or password; leave those out and put the key in the API key field, which is sealed"})
 		} else if f := config.CheckProviderURL(p.BaseURL, s.cfg().Assistant.AllowPrivateProvider); checkAddress && f != nil {
 			errs = append(errs, fieldError{"base_url", f.Title + ". " + f.Fix})
+		}
+	}
+	if p.ReasoningEffort != "" {
+		switch {
+		case !slices.Contains(assistant.ReasoningEfforts, p.ReasoningEffort):
+			errs = append(errs, fieldError{"reasoning_effort", "choose none, low, medium or high, or leave it empty for the provider's default; the provider reads the word, so what each does is its own"})
+		case !assistant.SupportsReasoningEffort(kind):
+			errs = append(errs, fieldError{"reasoning_effort", "only a provider that speaks the OpenAI chat protocol can be told how hard to think; leave this empty for this kind"})
+		}
+	}
+	if p.MaxOutputTokens != 0 {
+		switch {
+		case p.MaxOutputTokens < controller.AssistantOutputTokensMin || p.MaxOutputTokens > controller.AssistantOutputTokensMax:
+			errs = append(errs, fieldError{"max_output_tokens", fmt.Sprintf("give a number of tokens from %d to %d, or 0 for the default of %d; a thinking model's reasoning counts against it", controller.AssistantOutputTokensMin, controller.AssistantOutputTokensMax, controller.AssistantOutputLimit(&store.AssistantProvider{}))})
+		case assistant.Subscription(kind):
+			errs = append(errs, fieldError{"max_output_tokens", "a subscription's tool decides how much its model writes; leave this at 0 for this kind"})
 		}
 	}
 	if assistant.Subscription(kind) && p.ID != "" && p.OwnerID == "" {

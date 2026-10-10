@@ -8,7 +8,11 @@ type Config struct {
 	BaseURL string
 	APIKey  string
 	Model   string
-	Client  *http.Client
+	// ReasoningEffort is sent as reasoning_effort on every chat-completion
+	// request when set, the check included, so a model that does not take it
+	// says so under Test and not in the middle of a conversation.
+	ReasoningEffort string
+	Client          *http.Client
 	// Command is the executable a kind that runs one is to run, in place of
 	// looking for it. Empty for every kind that speaks over the network.
 	Command string

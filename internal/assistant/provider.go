@@ -67,11 +67,16 @@ type Usage struct {
 
 // Event is one thing a stream yields: a text delta, a complete tool call,
 // the usage, the end, or an error. An error ends the stream; Done does too.
+// Cut, on the end, says the provider stopped the answer at its output ceiling
+// rather than because the model had finished: a thinking model can spend the
+// whole ceiling on reasoning the adapter never shows and send no words at all,
+// and an end that does not say so makes that silence look like an answer.
 type Event struct {
 	Delta    string
 	ToolCall *ToolCall
 	Usage    *Usage
 	Done     bool
+	Cut      bool
 	Err      error
 }
 

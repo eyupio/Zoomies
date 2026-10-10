@@ -28,6 +28,15 @@ to type in, or press **Ask Eli**. <kbd>Esc</kbd> puts the panel away.
 
 The Ask Eli button opens setup guidance until you have an enabled personal provider; your default answers, or, with none ticked, the first usable one you own. Installation providers remain separate and do not pay for personal chat.
 
+A provider that speaks the OpenAI chat protocol (the OpenAI-compatible and OpenAI
+kinds) can be told how hard its model should think: **Reasoning effort** on the
+provider's form is sent as `reasoning_effort` on every request, the test included,
+so a model that does not take it says so under **Test**. The provider reads the word:
+DeepSeek takes `none`, `low` and `high`, OpenAI `low`, `medium` and `high`. Leave it
+empty for the provider's own default. A thinking model at its default effort can
+spend an answer's whole room on reasoning, which Eli then reports as having run out
+of room, so `low` is the setting for chat.
+
 ### Using your own subscription
 
 An administrator can also add their own plan, used through the vendor's own program on the
@@ -167,6 +176,13 @@ a hostile name can do is mislead an answer: check what you act on.
 ## Limits
 
 * One question may take at most six rounds of looking and twelve tool calls.
+* Each round may write at most the provider's **output limit**, 8,192 tokens
+  unless its form says otherwise (1,024 to 65,536), thinking included. A model
+  that reaches it is stopped by its provider, and Eli says so under the answer,
+  naming the provider and the limit, with a button that raises the limit on
+  your own provider and asks again: a thinking model at high effort can spend
+  the ceiling on reasoning and send no words at all. Lowering the provider's
+  reasoning effort is the cheaper cure.
 * A conversation is at most 40 messages, 8 KiB each and 32 KiB in all.
 * The conversation lives in your browser and is gone when you reload. The
   controller keeps nothing between questions.

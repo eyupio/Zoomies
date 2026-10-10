@@ -221,3 +221,56 @@ func TestOpenAICompatibleSaysAKeyIsNeededWhenNoneIsConfigured(t *testing.T) {
 		t.Errorf("err %v", err)
 	}
 }
+
+// A provider that stops at its output ceiling says so with finish_reason
+// length, and a thinking model spends that ceiling on reasoning the adapter
+// never shows. Without the cut being said, an answer with no words in it looks
+// exactly like a finished one, and the person is shown silence.
+func TestOpenAICompatibleSaysWhenTheProviderCutTheAnswer(t *testing.T) {
+	srv := assistanttest.NewOpenAI(t)
+	srv.Cut = true
+	p := NewOpenAICompatible(Config{BaseURL: srv.URL, Model: "m"})
+	var text strings.Builder
+	var done *assistant.Event
+	for _, e := range drain(t, p, hello()) {
+		text.WriteString(e.Delta)
+		if e.Done {
+			d := e
+			done = &d
+		}
+	}
+	if text.String() != "" {
+		t.Errorf("reasoning reached the page as words: %q", text.String())
+	}
+	if done == nil || !done.Cut {
+		t.Errorf("the end of a cut answer does not say it was cut: %+v", done)
+	}
+}
+
+// A provider told how hard to think is told on every request, the check
+// included, so a model that does not take the setting says so under Test and
+// not in the middle of a conversation. One told nothing is sent nothing: a
+// server that does not know the field may refuse the whole request.
+func TestOpenAICompatibleSendsTheReasoningEffortItWasGiven(t *testing.T) {
+	srv := assistanttest.NewOpenAI(t)
+	drain(t, NewOpenAICompatible(Config{BaseURL: srv.URL, Model: "m", ReasoningEffort: "low"}), hello())
+	if _, err := NewOpenAICompatible(Config{BaseURL: srv.URL, Model: "m", ReasoningEffort: "low"}).Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	drain(t, NewOpenAICompatible(Config{BaseURL: srv.URL, Model: "m"}), hello())
+	var chats []map[string]any
+	for _, r := range srv.Requests() {
+		if r.Path == "/v1/chat/completions" {
+			chats = append(chats, r.Body)
+		}
+	}
+	if len(chats) != 3 {
+		t.Fatalf("chat requests = %d", len(chats))
+	}
+	if chats[0]["reasoning_effort"] != "low" || chats[1]["reasoning_effort"] != "low" {
+		t.Errorf("the effort was not sent on the chat and the check: %v, %v", chats[0]["reasoning_effort"], chats[1]["reasoning_effort"])
+	}
+	if _, sent := chats[2]["reasoning_effort"]; sent {
+		t.Errorf("an effort nobody set was sent: %v", chats[2]["reasoning_effort"])
+	}
+}
