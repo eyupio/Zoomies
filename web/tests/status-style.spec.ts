@@ -29,6 +29,23 @@ test('Appearance persists the style across runners, workflows and queue', async 
     await goto(page, path, title);
     const marks = page.locator('svg[data-style="standard"]');
     await expect(marks.first()).toBeVisible();
+    const cues: Record<string, string> = {
+      busy: 'work',
+      zoomies: 'boost',
+      maximum_zoomies: 'maximum',
+      idle: 'ready',
+      provisioning: 'search',
+      registering: 'hello',
+      throttled: 'pause',
+      draining: 'rest',
+      failed: 'error',
+      removed: 'gone',
+      unknown: 'question',
+    };
+    for (const mark of await marks.all()) {
+      const state = await mark.getAttribute('data-state');
+      await expect(mark).toHaveAttribute('data-cue', cues[state ?? 'unknown']!);
+    }
     await expect(page.locator('svg[data-style="cute"]')).toHaveCount(0);
     if (path === '/workflows')
       await expect(page.locator('.avatars.pack').first().locator('svg')).toHaveCount(3);

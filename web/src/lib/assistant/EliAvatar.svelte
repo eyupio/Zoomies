@@ -4,11 +4,14 @@
 -->
 <script lang="ts">
   import { Dog } from '@lucide/svelte';
+  import { dogPhase } from '$lib/mascot/dog-motion';
+  const id = $props.id();
+  const greeting = ['perk', 'boop', 'waggle'][Math.floor(dogPhase(id) * 3)];
 
   let { size = 28 }: { size?: number } = $props();
 </script>
 
-<span class="avatar" style:--size="{size}px" aria-hidden="true">
+<span class="avatar" data-greeting={greeting} style:--size="{size}px" aria-hidden="true">
   <Dog size={Math.round(size * 0.55)} />
 </span>
 
@@ -36,8 +39,32 @@
       transform: rotate(12deg);
     }
   }
+  .avatar[data-greeting='boop']:hover :global(svg) {
+    animation-name: boop;
+  }
+  .avatar[data-greeting='waggle']:hover :global(svg) {
+    animation-name: waggle;
+  }
+  @keyframes boop {
+    35% {
+      transform: translateY(-4px) scale(1.12);
+    }
+    65% {
+      transform: translateY(1px) scale(0.95);
+    }
+  }
+  @keyframes waggle {
+    20%,
+    60% {
+      transform: rotate(-12deg);
+    }
+    40%,
+    80% {
+      transform: rotate(12deg);
+    }
+  }
   @media (prefers-reduced-motion: reduce) {
-    .avatar:hover :global(svg) {
+    .avatar[data-greeting]:hover :global(svg) {
       animation: none;
     }
   }

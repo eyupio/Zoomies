@@ -767,3 +767,44 @@ test('Eli has a circular launcher and can roam without leaving the viewport', as
   await panel.getByRole('button', { name: 'Place Eli on the right' }).click();
   await expect.poll(async () => (await panel.boundingBox())!.x).toBeGreaterThan(100);
 });
+
+test('thinking varies its quotes and routines, respects reduced motion and stops with the answer', async ({
+  page,
+}) => {
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await page.route('**/api/v1/assistant/personal/chat', async (route) => {
+    await waiting;
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: answerStream('Fetched it.'),
+    });
+  });
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
+  await openEli(page);
+  await page.clock.install();
+  await page.getByRole('textbox', { name: 'Message' }).fill('Take a moment to think');
+  await page.getByRole('button', { name: 'Send', exact: true }).click();
+  const thinking = page.locator('.thinking');
+  try {
+    await expect(thinking).toBeVisible();
+    const quote = await thinking.locator('p').innerText();
+    const motion = await thinking.locator('svg').getAttribute('data-motion');
+    await page.clock.runFor(4500);
+    await expect(thinking.locator('p')).not.toHaveText(quote);
+    await expect(thinking.locator('svg')).toHaveAttribute('data-motion', motion!);
+    await page.clock.runFor(4500);
+    await expect(thinking.locator('svg')).not.toHaveAttribute('data-motion', motion!);
+    await page.emulateMedia({ reducedMotion: 'reduce' });
+    await expect
+      .poll(() => thinking.evaluate((node) => node.getAnimations({ subtree: true }).length))
+      .toBe(0);
+  } finally {
+    release();
+  }
+  await expect(thinking).toHaveCount(0);
+  await expect(page.getByRole('article', { name: 'Eli' })).toContainText('Fetched it.');
+});
