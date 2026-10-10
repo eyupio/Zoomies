@@ -206,5 +206,20 @@ func (s *Server) resolveProviderSetup(w http.ResponseWriter, r *http.Request, in
 	in.Kind, in.Name, in.Endpoint = &kind, &conn.Name, &conn.Endpoint
 	in.Credential, in.CAPEM = &conn.Credential, &conn.CAPEM
 	in.Connection, in.TailcatAddress, in.InsecureSkipVerify = &private, &conn.TailcatAddress, &verify
+	// The form fills in vmbr0 before it sends anything, so a bridge that is
+	// empty or still the default is not an answer the operator gave. One they
+	// chose on the Placement step is never replaced.
+	if conn.Bridge != "" {
+		settings := map[string]string{}
+		if in.Settings != nil {
+			for k, v := range *in.Settings {
+				settings[k] = v
+			}
+		}
+		if current := strings.TrimSpace(settings["bridge"]); current == "" || current == proxmoxsetup.DefaultBridge {
+			settings["bridge"] = conn.Bridge
+			in.Settings = &settings
+		}
+	}
 	return true
 }

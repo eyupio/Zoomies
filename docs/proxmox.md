@@ -232,6 +232,9 @@ free VMID starting at 9100, outside the default runner block. The first build ca
 take several minutes and needs access to `cloud-images.ubuntu.com` and Ubuntu
 package mirrors. Automatic image preparation requires an x86_64 host.
 
+The bridge it chose is also offered to the provider, so a node without `vmbr0` is
+saved with its own bridge; one you pick on the Placement step is never replaced.
+
 Choose the storage and network for clones on the Placement step. Choices
 come from the cluster; anything with one answer is already selected. Review the
 machine shape and limits, then save. The initial maximum is zero, so connecting a

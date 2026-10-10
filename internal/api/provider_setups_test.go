@@ -153,3 +153,43 @@ func TestPrivateListenerOnlyAdmitsProviderCompletion(t *testing.T) {
 		t.Fatalf("private completion must still authenticate its capability: %d", w.Code)
 	}
 }
+
+// The form sends vmbr0 before the operator has chosen anything, so the host's
+// own bridge replaces that default, and never an answer given on purpose.
+func TestProviderSetupSavesTheHostsBridgeUnlessOneWasChosen(t *testing.T) {
+	h := newHarnessWithProviders(t, []provider.Factory{proxmox.NewFactory()})
+	admin, _ := h.user("admin", store.RoleAdmin)
+	cookie := h.session(admin)
+	address := privateAddress(t)
+	h.api.private.node = &tailcat.Server{}
+	h.api.private.address = address
+	defer func() { h.api.private.node = nil }()
+	created := h.do(request{method: "POST", path: "/api/v1/provider-setups", cookie: cookie, body: map[string]any{}})
+	created.mustStatus(t, 201, "create setup")
+	var setup providerSetupView
+	created.into(t, &setup)
+	token := regexp.MustCompile(`--token '([0-9a-f]+)'`).FindStringSubmatch(setup.Command)[1]
+	conn := proxmoxsetup.Connection{Name: "proxmox-pve-1", Endpoint: "https://pve.example:8006", Credential: "zoomies@pve!provider=secret", CAPEM: setupCertificate(t), TailcatAddress: address, Bridge: "vmbr7"}
+	h.do(request{method: "POST", path: "/api/v1/provider-setups/" + setup.ID + "/complete", token: token, body: conn}).mustStatus(t, 204, "complete setup")
+
+	for name, tc := range map[string]struct {
+		settings *map[string]string
+		want     string
+	}{
+		"no settings":      {nil, "vmbr7"},
+		"empty bridge":     {&map[string]string{"bridge": ""}, "vmbr7"},
+		"the form default": {&map[string]string{"bridge": "vmbr0", "storage": "local"}, "vmbr7"},
+		"a chosen bridge":  {&map[string]string{"bridge": "vmbr3"}, "vmbr3"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			in := providerInput{SetupID: &setup.ID, Settings: tc.settings}
+			req := httptest.NewRequest(http.MethodPost, "/api/v1/providers/validate", nil)
+			if !h.api.resolveProviderSetup(httptest.NewRecorder(), req, &in) {
+				t.Fatal("resolveProviderSetup refused a ready setup")
+			}
+			if got := (*in.Settings)["bridge"]; got != tc.want {
+				t.Errorf("bridge = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
