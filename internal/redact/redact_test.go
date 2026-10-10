@@ -115,21 +115,36 @@ func TestResultsAddUp(t *testing.T) {
 	}
 }
 
-// Hostile text cannot make redaction slow: the patterns are linear, and a megabyte
-// of near misses is read in well under a second.
-func TestHostileTextIsRedactedInBoundedTime(t *testing.T) {
-	started := time.Now()
-	for _, in := range []string{
-		strings.Repeat("a", 1<<20),
-		strings.Repeat("sk-", 1<<18),
-		strings.Repeat("password=", 1<<17),
-		strings.Repeat("-----BEGIN PRIVATE KEY-----", 1<<15),
-		strings.Repeat("a@", 1<<18),
-		strings.Repeat("http://a:", 1<<17),
-	} {
-		Text(in)
+// Hostile text cannot make redaction slow in the way that matters: the time taken
+// grows with the size of the text and not faster. It is checked by comparing a text
+// with one eight times its size, which holds on any machine and under the race
+// detector, where a fixed limit on seconds does not.
+func TestHostileTextTakesTimeInProportionToItsSize(t *testing.T) {
+	best := func(in string) time.Duration {
+		d := time.Duration(1<<63 - 1)
+		for i := 0; i < 2; i++ {
+			started := time.Now()
+			Text(in)
+			d = min(d, time.Since(started))
+		}
+		return max(d, 5*time.Millisecond)
 	}
-	if d := time.Since(started); d > 20*time.Second {
-		t.Errorf("took %v", d)
+	for name, unit := range map[string]string{
+		"plain text":              "a",
+		"near misses of a key":    "sk-",
+		"settings with no value":  "password=",
+		"key headers never ended": "-----BEGIN PRIVATE KEY-----",
+		"half an address":         "a@",
+		"half a url":              "http://a:",
+		"quotes never closed":     `token="`,
+	} {
+		small := strings.Repeat(unit, 8<<10/len(unit))
+		large := strings.Repeat(unit, 8*8<<10/len(unit))
+		ts, tl := best(small), best(large)
+		// Linear is eight times; the bound is a good deal more than that so that
+		// noise cannot fail it, and far less than what quadratic would take (64).
+		if tl > 30*ts {
+			t.Errorf("%s: %d bytes took %v and %d bytes took %v", name, len(small), ts, len(large), tl)
+		}
 	}
 }
