@@ -52,7 +52,10 @@ umask 022
 work=$(mktemp -d)
 case_dir=$work
 cleanup() { rm -rf "$work"; }
-trap cleanup EXIT INT TERM
+# Cleaning up from the INT and TERM traps would delete the folder and then let
+# the script carry on in it; exiting runs the EXIT trap, which cleans up once.
+trap cleanup EXIT
+trap 'exit 130' INT TERM
 
 fail() {
     echo "FAIL: $*" >&2
@@ -64,6 +67,7 @@ fail() {
     exit 1
 }
 
+# sha256sum is GNU coreutils, so this check, and `make test-upgrade`, runs on Linux.
 sha_of() { sha256sum "$1" | cut -d' ' -f1; }
 
 # field <file> <json-key>: a top-level value as written, quotes and all. A
