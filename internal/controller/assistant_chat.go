@@ -22,7 +22,7 @@ const (
 	assistantChatMaxMessages     = 40
 	assistantChatMaxMessageBytes = 8 << 10
 	assistantChatMaxTotalBytes   = 32 << 10
-	assistantChatMaxTokens       = 2048
+	assistantChatMaxTokens       = 8192
 	// assistantChatTimeout bounds a whole answer, not the wait for its first word:
 	// a local model on modest hardware is slow, and an answer that has not ended
 	// in this long is not one the person is still reading.

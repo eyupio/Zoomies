@@ -136,3 +136,22 @@ func TestAnthropicSaysAKeyIsNeededWhenNoneIsConfigured(t *testing.T) {
 		t.Errorf("err %v", err)
 	}
 }
+
+// Anthropic says an answer stopped at its ceiling with stop_reason max_tokens;
+// the adapter says it the one way the loop reads, so the page is never shown
+// a half answer as a whole one.
+func TestAnthropicSaysWhenTheProviderCutTheAnswer(t *testing.T) {
+	srv := assistanttest.NewAnthropic(t)
+	srv.Cut = true
+	p := NewAnthropic(Config{BaseURL: srv.URL, Model: "m", APIKey: "k"})
+	var done *assistant.Event
+	for _, e := range drain(t, p, hello()) {
+		if e.Done {
+			d := e
+			done = &d
+		}
+	}
+	if done == nil || !done.Cut {
+		t.Errorf("the end of a cut answer does not say it was cut: %+v", done)
+	}
+}

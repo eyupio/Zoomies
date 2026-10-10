@@ -20,6 +20,8 @@ export type ChatFrame =
       tools: string[];
       /** How many credentials and email addresses were hidden from the model. */
       redacted: { credentials: number; emails: number };
+      /** The provider stopped the answer at its output ceiling, not because the model had finished. */
+      cut: boolean;
     }
   | { kind: 'error'; message: string };
 
@@ -88,6 +90,7 @@ function parseBlock(block: string): ChatFrame | undefined {
           credentials: wholeCount(redacted['credentials']),
           emails: wholeCount(redacted['emails']),
         },
+        cut: payload['cut'] === true,
       };
     }
     case 'error':

@@ -145,6 +145,7 @@ func newAnthropicDecoder() Decoder {
 	}
 	blocks := map[int]*block{}
 	usage := assistant.Usage{}
+	cut := false
 	return func(e ServerEvent) ([]assistant.Event, error) {
 		var frame struct {
 			Type         string `json:"type"`
@@ -158,6 +159,7 @@ func newAnthropicDecoder() Decoder {
 				Type        string `json:"type"`
 				Text        string `json:"text"`
 				PartialJSON string `json:"partial_json"`
+				StopReason  string `json:"stop_reason"`
 			} `json:"delta"`
 			Message *struct {
 				Usage *struct {
@@ -214,6 +216,11 @@ func newAnthropicDecoder() Decoder {
 				return []assistant.Event{{ToolCall: &assistant.ToolCall{ID: b.id, Name: b.name, Arguments: json.RawMessage(args)}}}, nil
 			}
 		case "message_delta":
+			// max_tokens is the provider's ceiling ending the answer, not the
+			// model finishing; the end that follows says so.
+			if frame.Delta != nil && frame.Delta.StopReason == "max_tokens" {
+				cut = true
+			}
 			if frame.Usage != nil {
 				usage.OutputTokens, usage.Reported = frame.Usage.Output, true
 			}
@@ -222,7 +229,7 @@ func newAnthropicDecoder() Decoder {
 				return []assistant.Event{{Usage: &u}}, nil
 			}
 		case "message_stop":
-			return []assistant.Event{{Done: true}}, nil
+			return []assistant.Event{{Done: true, Cut: cut}}, nil
 		}
 		return nil, nil
 	}

@@ -26,6 +26,8 @@ export interface Turn {
   fleetAccess?: boolean;
   /** What was hidden from the model before it answered, in words, or empty. */
   hidden?: string;
+  /** The provider stopped the answer at its output ceiling before the model had finished. */
+  cut?: boolean;
   /** Questions the model proposed to ask next, once the answer is complete. */
   suggestions?: Suggestion[];
   error?: string;
@@ -103,6 +105,7 @@ export class Conversation {
             answer.by = `${frame.provider}, ${frame.model}`;
             answer.fleetAccess = frame.fleetAccess;
             answer.hidden = hiddenNote(frame.redacted.credentials, frame.redacted.emails);
+            answer.cut = frame.cut;
           } else answer.error = frame.message || 'The model stopped answering.';
         },
         controller.signal,

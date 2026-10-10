@@ -406,3 +406,28 @@ func TestEachBlockOfAToolResultIsFencedOnItsOwn(t *testing.T) {
 		t.Errorf("the sentence about the fence is said once for the result, not once per block:\n%s", content)
 	}
 }
+
+// An answer the provider stopped at its output ceiling ends saying so, and a
+// tool call collected in that round is not run: its arguments may be half
+// written. A thinking model can spend the whole ceiling on reasoning and send
+// no words at all, and silence that looks like a finished answer is the worst
+// thing Eli can show.
+func TestAnAnswerTheProviderCutEndsSayingSoAndRunsNoHalfWrittenCall(t *testing.T) {
+	box := &fakeBox{results: map[string]string{"fleet_status": `{}`}}
+	p := &scriptedProvider{rounds: [][]assistant.Event{
+		{{Delta: "Half an"}, call("c1", "fleet_status"), {Done: true, Cut: true}},
+	}}
+	chat := newChat(p, box, "fleet_status")
+	var cut, done bool
+	for _, ev := range drainChat(t, chat) {
+		if ev.Done {
+			done, cut = true, ev.Cut
+		}
+	}
+	if !done || !cut {
+		t.Errorf("the answer did not end saying it was cut: done %v cut %v", done, cut)
+	}
+	if len(box.calls) != 0 || len(p.asked) != 1 {
+		t.Errorf("a call from a cut round was run (%v) or the model was asked again (%d)", box.calls, len(p.asked))
+	}
+}

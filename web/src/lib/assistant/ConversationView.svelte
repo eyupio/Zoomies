@@ -210,6 +210,13 @@
               {#if turn.hidden}
                 <p class="hidden-note">{turn.hidden}</p>
               {/if}
+              {#if turn.cut}
+                <p class="hidden-note">
+                  Eli ran out of room: the model reached its output limit before it finished,
+                  {turn.content ? 'so this answer is cut short' : 'while it was still thinking'}.
+                  Ask again, or ask for less at once.
+                </p>
+              {/if}
               {#if turn.error}
                 <p class="error" role="alert">{turn.error}</p>
               {/if}

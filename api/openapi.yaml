@@ -4893,7 +4893,9 @@ paths:
         every round when the assistant looked at the fleet), `tool` frames with
         `{"name", "status"}` as it looks (`running`, then `done` or `failed`), and a final
         `done` frame with the provider's name and the model, `fleet_access` (whether the
-        fleet could be read through this provider) and the `tools` it used, or an `error`
+        fleet could be read through this provider), the `tools` it used and `cut` (true when
+        the provider stopped the answer at its output ceiling before the model had
+        finished, which a thinking model can reach with no words sent), or an `error`
         frame with a `message` if the answer failed after it began (the status had gone
         out with the first byte by then).
 
@@ -5166,9 +5168,11 @@ paths:
         `{"text": ...}` as the model writes, one `usage` frame with
         `{"input_tokens", "output_tokens"}` when the provider reports them, `tool` frames
         reporting read-only fleet lookups when enabled, and a final `done` frame with
-        the provider's name, model, `fleet_access`, `tools` and `redacted` (how many
+        the provider's name, model, `fleet_access`, `tools`, `redacted` (how many
         `credentials` and `emails` were replaced with a marker before the model saw the
-        latest question and what the tools returned), or an `error` frame with a
+        latest question and what the tools returned) and `cut` (true when the provider
+        stopped the answer at its output ceiling before the model had finished, which a
+        thinking model can reach with no words sent), or an `error` frame with a
         `message` if the answer failed after it began (the status had gone out with the
         first byte by then).
 

@@ -221,3 +221,28 @@ func TestOpenAICompatibleSaysAKeyIsNeededWhenNoneIsConfigured(t *testing.T) {
 		t.Errorf("err %v", err)
 	}
 }
+
+// A provider that stops at its output ceiling says so with finish_reason
+// length, and a thinking model spends that ceiling on reasoning the adapter
+// never shows. Without the cut being said, an answer with no words in it looks
+// exactly like a finished one, and the person is shown silence.
+func TestOpenAICompatibleSaysWhenTheProviderCutTheAnswer(t *testing.T) {
+	srv := assistanttest.NewOpenAI(t)
+	srv.Cut = true
+	p := NewOpenAICompatible(Config{BaseURL: srv.URL, Model: "m"})
+	var text strings.Builder
+	var done *assistant.Event
+	for _, e := range drain(t, p, hello()) {
+		text.WriteString(e.Delta)
+		if e.Done {
+			d := e
+			done = &d
+		}
+	}
+	if text.String() != "" {
+		t.Errorf("reasoning reached the page as words: %q", text.String())
+	}
+	if done == nil || !done.Cut {
+		t.Errorf("the end of a cut answer does not say it was cut: %+v", done)
+	}
+}

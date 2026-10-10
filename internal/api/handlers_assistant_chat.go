@@ -110,9 +110,13 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 			}
 		case ev.Done:
 			hidden := chat.Redactions()
+			if ev.Cut {
+				outcome = "cut"
+			}
 			send("done", map[string]any{
 				"provider": chat.Provider, "model": chat.Model, "fleet_access": chat.FleetAccess, "tools": chat.ToolsUsed(),
 				"redacted": map[string]int{"credentials": hidden.Credentials, "emails": hidden.Emails},
+				"cut":      ev.Cut,
 			})
 			return
 		case ev.Delta != "":

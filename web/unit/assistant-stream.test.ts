@@ -23,8 +23,18 @@ test('the frames of an answer are read in order', () => {
       fleetAccess: false,
       tools: [],
       redacted: { credentials: 0, emails: 0 },
+      cut: false,
     },
   ]);
+});
+
+// A provider that stopped the answer at its output ceiling says so on the done
+// frame, so the page can say it rather than show silence as a finished answer.
+test('a done frame says when the answer was cut', () => {
+  const p = new FrameParser();
+  const [got] = p.push(frame('done', { provider: 'Ollama', model: 'llama3', cut: true }));
+  assert.equal(got?.kind, 'done');
+  assert.equal(got?.kind === 'done' && got.cut, true);
 });
 
 test('a frame cut anywhere by the network is read once it is whole', () => {
@@ -43,6 +53,7 @@ test('a frame cut anywhere by the network is read once it is whole', () => {
           fleetAccess: false,
           tools: [],
           redacted: { credentials: 0, emails: 0 },
+          cut: false,
         },
       ],
       `cut at ${cut}`,
@@ -98,6 +109,7 @@ test('a look at the fleet is a frame, and the end says which tools were used', (
       fleetAccess: true,
       tools: ['fleet_status', 'list_jobs'],
       redacted: { credentials: 0, emails: 0 },
+      cut: false,
     },
   ]);
 });
@@ -116,6 +128,7 @@ test('the end says how many credentials and email addresses were hidden, and not
     fleetAccess: false,
     tools: [],
     redacted: { credentials: 2, emails: 1 },
+    cut: false,
   });
   for (const odd of [
     undefined,
