@@ -10,12 +10,10 @@
     const root = document.querySelector("[data-zoomies-brand]");
     if (!root) return;
     const image = root.querySelector("img");
-    const button = root.querySelector("button");
     const reduced = window.matchMedia("(prefers-reduced-motion: reduce)");
     let alive = true;
     let ready = false;
     let visible = !("IntersectionObserver" in window);
-    let paused = false;
     let timer = null;
     let started = 0;
     let remaining = 500;
@@ -53,12 +51,7 @@
 
     function sync() {
       const running =
-        alive &&
-        ready &&
-        visible &&
-        !document.hidden &&
-        !reduced.matches &&
-        !paused;
+        alive && ready && visible && !document.hidden && !reduced.matches;
       root.dataset.paused = String(!running);
       if (!running && timer !== null) {
         clearTimeout(timer);
@@ -68,16 +61,6 @@
         started = performance.now();
         timer = setTimeout(tick, remaining);
       }
-      button.hidden = !ready || reduced.matches;
-    }
-
-    function toggle() {
-      paused = !paused;
-      button.textContent = paused
-        ? "Resume logo animation"
-        : "Pause logo animation";
-      button.setAttribute("aria-pressed", String(paused));
-      sync();
     }
 
     function motionChange() {
@@ -100,18 +83,15 @@
     observer?.observe(root);
     document.addEventListener("visibilitychange", sync);
     reduced.addEventListener("change", motionChange);
-    button.addEventListener("click", toggle);
     dispose = () => {
       alive = false;
       if (timer !== null) clearTimeout(timer);
       observer?.disconnect();
       document.removeEventListener("visibilitychange", sync);
       reduced.removeEventListener("change", motionChange);
-      button.removeEventListener("click", toggle);
       image.removeEventListener("load", enhance);
       root.classList.remove("is-ready");
       root.removeAttribute("data-gesture");
-      button.hidden = true;
     };
 
     function enhance() {
