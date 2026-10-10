@@ -177,3 +177,35 @@ func TestAConnectionRefusesAnUnsafeBridgeName(t *testing.T) {
 		t.Fatalf("Validate = %v, want a refusal that names the bridge", err)
 	}
 }
+
+func TestVerifyAccessSavesNothingForATokenThatCannotDoTheWork(t *testing.T) {
+	var granted []string
+	h := Host{Run: func(_ context.Context, name string, args ...string) ([]byte, error) {
+		granted = append(granted, name+" "+strings.Join(args, " "))
+		return nil, nil
+	}}
+
+	// Fine as it stands: no grant is made, and nothing is asked of Proxmox.
+	if err := VerifyAccess(context.Background(), h, "zoomies-abc@pve!provider-1", "Zoomies-abc", "pve", func(context.Context) []string { return nil }); err != nil || len(granted) != 0 {
+		t.Fatalf("a healthy token was touched: %v %v", err, granted)
+	}
+
+	// Cured by the one grant it is allowed to make: the second check passes.
+	calls := 0
+	err := VerifyAccess(context.Background(), h, "zoomies-abc@pve!provider-1", "Zoomies-abc", "pve", func(context.Context) []string {
+		calls++
+		if calls == 1 {
+			return []string{"cannot list bridges"}
+		}
+		return nil
+	})
+	if err != nil || len(granted) != 2 || !strings.Contains(strings.Join(granted, "\n"), "acl modify /nodes/pve --tokens zoomies-abc@pve!provider-1 --roles Zoomies-abc") {
+		t.Fatalf("a repairable token: err=%v grants=%v", err, granted)
+	}
+
+	// Not cured: setup stops and says why, naming the command to look further.
+	err = VerifyAccess(context.Background(), h, "zoomies-abc@pve!provider-1", "Zoomies-abc", "pve", func(context.Context) []string { return []string{"cannot list bridges"} })
+	if err == nil || !strings.Contains(err.Error(), "cannot list bridges") || !strings.Contains(err.Error(), "pveum user permissions") || !strings.Contains(err.Error(), "nothing was saved") {
+		t.Fatalf("an unrepaired token: %v", err)
+	}
+}

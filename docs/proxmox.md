@@ -235,6 +235,11 @@ package mirrors. Automatic image preparation requires an x86_64 host.
 The bridge it chose is also offered to the provider, so a node without `vmbr0` is
 saved with its own bridge; one you pick on the Placement step is never replaced.
 
+Before it reports back, the script runs the same check as the **Check** button, on the
+host and as the new API token. If the token cannot do what the provider needs, it
+makes one explicit grant on the node and checks again; if that is not enough it
+stops, says why and saves nothing, so a provider that could not work never appears.
+
 Choose the storage and network for clones on the Placement step. Choices
 come from the cluster; anything with one answer is already selected. Review the
 machine shape and limits, then save. The initial maximum is zero, so connecting a

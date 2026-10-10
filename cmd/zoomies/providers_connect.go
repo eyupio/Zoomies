@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/eyupio/zoomies/internal/gateway"
+	"github.com/eyupio/zoomies/internal/provider/proxmox"
 	"github.com/eyupio/zoomies/internal/proxmoxsetup"
 	"github.com/tailscale/tailcat"
 )
@@ -186,6 +187,12 @@ func providersConnectProxmox(ctx context.Context, e *env, args []string) error {
 	if bridge, err := proxmoxsetup.ActiveBridge(ctx, h, node); err == nil {
 		conn.Bridge = bridge
 	}
+	fmt.Fprintln(e.out, "Checking that the new API token can do everything the provider needs...")
+	if err := proxmoxsetup.VerifyAccess(ctx, h, tokenID, "Zoomies-"+key, node, func(ctx context.Context) []string {
+		return checkTokenLocally(ctx, conn, tokenID, node)
+	}); err != nil {
+		return err
+	}
 	payload, err := json.Marshal(conn)
 	if err != nil {
 		return err
@@ -234,4 +241,39 @@ func providersConnectProxmox(ctx context.Context, e *env, args []string) error {
 		fmt.Fprintf(e.out, "Template VMID %d: %s (node %s)\n", template.VMID, template.Name, template.Node)
 	}
 	return nil
+}
+
+// checkTokenLocally runs the provider's own preflight as the token, against this
+// host's API, verifying the certificate exactly as the controller will. The
+// connection goes to the local port whatever name the endpoint carries, which
+// is only what the certificate is checked against.
+func checkTokenLocally(ctx context.Context, conn *proxmoxsetup.Connection, tokenID, node string) []string {
+	_, secret, _ := strings.Cut(conn.Credential, "=")
+	c, err := proxmox.New(proxmox.Options{
+		Endpoint: conn.Endpoint, TokenID: tokenID, Secret: secret, CAPEM: conn.CAPEM,
+		DialContext: func(ctx context.Context, network, _ string) (net.Conn, error) {
+			return (&net.Dialer{Timeout: 10 * time.Second}).DialContext(ctx, network, "127.0.0.1:8006")
+		},
+	})
+	if err != nil {
+		return []string{err.Error()}
+	}
+	answers := proxmox.SetupAnswers{Node: node, Bridge: conn.Bridge}
+	for _, t := range conn.Templates {
+		if answers.TemplateID == 0 || t.Name == proxmoxsetup.TemplateName {
+			answers.TemplateID, answers.TemplateNode = t.VMID, t.Node
+		}
+	}
+	var out []string
+	for _, f := range proxmox.SetupCheck(ctx, c, answers) {
+		line := f.Title
+		if f.Detail != "" {
+			line += ": " + f.Detail
+		}
+		if f.Fix != "" {
+			line += " Fix: " + f.Fix
+		}
+		out = append(out, line)
+	}
+	return out
 }
