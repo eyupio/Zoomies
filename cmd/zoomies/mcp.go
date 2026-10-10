@@ -32,7 +32,7 @@ func runMCP(ctx context.Context, e *env, args []string) error {
 			"it offers read-only tools and nothing else.")
 	cf := registerClientFlags(fs, false)
 	allowAdmin := fs.Bool("allow-admin", false, "with --allow-actions, also offer edit_host, clear_host_throttle, get_settings and update_settings; the token must be an administrator's")
-	allowActions := fs.Bool("allow-actions", false, "also offer rerun_job, drain_runner, update_pool, update_host and apply_remedy; the token's role must permit them too")
+	allowActions := fs.Bool("allow-actions", false, "also offer rerun_job, drain_runner, update_pool, update_host, apply_remedy and context_publish; the token's role must permit them too")
 	fs.example(
 		"zoomies mcp --url https://zoomies.example.com",
 		"claude mcp add zoomies -e ZOOMIES_URL=https://zoomies.example.com -e ZOOMIES_TOKEN=zoo_... -- zoomies mcp",

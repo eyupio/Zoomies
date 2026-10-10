@@ -2,12 +2,14 @@ package api
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"mime/multipart"
 	"net/http"
 	"testing"
 
 	"github.com/eyupio/zoomies/internal/backup"
+	"github.com/eyupio/zoomies/internal/events"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -85,5 +87,39 @@ func TestAPortableUploadUsesDestinationKeyAndStagesOnlyAfterSourceStop(t *testin
 	installs, err := dest.st.ListInstallations(dest.ctx)
 	if err != nil || len(installs) != 0 {
 		t.Fatal("staging changed the live fleet", err)
+	}
+}
+
+// The preparation names runners, hosts and jobs that only the process
+// operator may read from the route, so the stream says it to that audience
+// and to nobody below it: a fleet administrator with the Overview open is not
+// told what the platform is moving.
+func TestTransferPreparationFramesReachOnlyTheProcessOperator(t *testing.T) {
+	h := newHarness(t)
+	admin, _ := h.user("fleet-admin", store.RoleAdmin)
+	operator := operatorCookie(h)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	asAdmin, _ := h.openStream(t, ctx, "/api/v1/events", h.session(admin), nil)
+	asOperator, _ := h.openStream(t, ctx, "/api/v1/events", operator, nil)
+	for _, frames := range []<-chan sseFrame{asAdmin, asOperator} {
+		await(t, frames, "the opening comment", func(f sseFrame) bool { return f.comment != "" })
+	}
+
+	h.do(request{method: http.MethodPost, path: "/api/v1/transfers/preparation", cookie: operator}).mustStatus(t, http.StatusAccepted, "prepare")
+	isTransfer := func(f sseFrame) bool { return f.event == string(events.KindTransfer) }
+	frame := await(t, asOperator, "the operator's preparation frame", isTransfer)
+	var p store.TransferProgress
+	if err := json.Unmarshal([]byte(frame.data), &p); err != nil || !p.Draining || p.Summary == "" {
+		t.Fatalf("the frame is not the preparation the route returns: %s (%v)", frame.data, err)
+	}
+
+	// The same click was audited, and the audit frame reaches the
+	// administrator; the preparation frame must not have come before it.
+	audit := await(t, asAdmin, "the administrator's audit frame", func(f sseFrame) bool {
+		return f.event == string(events.KindAudit) || isTransfer(f)
+	})
+	if isTransfer(audit) {
+		t.Fatalf("a fleet administrator was sent the transfer preparation: %s", audit.data)
 	}
 }

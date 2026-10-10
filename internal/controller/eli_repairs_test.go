@@ -3,6 +3,7 @@ package controller
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/eyupio/zoomies/internal/github"
 	"github.com/eyupio/zoomies/internal/prrepair"
@@ -256,7 +257,7 @@ func TestRepairWorkerStopsBeforeModelUseWhenPersonalProviderIsMissing(t *testing
 	row := &store.EliRepair{DedupKey: "missing", Repo: "acme/repo", InstallationID: inst.ID, PullNumber: 1, Trigger: "mention", UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
 	h.st.EnqueueEliRepair(h.ctx, row, 5)
 	h.c.runEliRepair(h.ctx, row)
-	if row.State != "failed" || fake.commits != 0 || !strings.Contains(row.Message, "personal default") {
+	if row.State != "failed" || fake.commits != 0 || !strings.Contains(row.Message, "personal provider") {
 		t.Fatalf("installation fallback: %+v", row)
 	}
 }
@@ -352,5 +353,31 @@ func TestTheTriggeringCommentIsReadBackFromTheDedupKey(t *testing.T) {
 		if got := triggerCommentID(&store.EliRepair{Repo: "acme/repo", DedupKey: key}); got != want {
 			t.Errorf("%q gave %d, want %d", key, got, want)
 		}
+	}
+}
+
+// A person who has not marked a provider as their default is still answered in
+// chat by the first usable one they own, so a repair they ask for is paid for by
+// the same provider rather than refused for want of a tick. A subscription
+// provider a viewer may not use is passed over, not tripped on.
+func TestARepairFallsBackToThePersonsOnlyUsableProviderWhenNoneIsDefault(t *testing.T) {
+	h := newHarness(t)
+	user := &store.User{Username: "octo", Role: store.RoleViewer}
+	h.st.CreateUser(h.ctx, user)
+	if _, err := h.c.personalChatProvider(h.ctx, "", user.ID); !errors.Is(err, ErrAssistantNoModel) {
+		t.Fatalf("with no provider at all: %v", err)
+	}
+	// Listed by name, so "a-claude" comes first and must be passed over.
+	claude := &store.AssistantProvider{Name: "a-claude", Kind: "claude_code", Enabled: true, OwnerID: user.ID}
+	h.st.CreateAssistantProvider(h.ctx, claude)
+	off := &store.AssistantProvider{Name: "b-off", Kind: "openai", Model: "m", Enabled: false, OwnerID: user.ID}
+	h.st.CreateAssistantProvider(h.ctx, off)
+	mine := &store.AssistantProvider{Name: "c-mine", Kind: "openai", Model: "m", Enabled: true, OwnerID: user.ID}
+	h.st.CreateAssistantProvider(h.ctx, mine)
+	theirs := &store.AssistantProvider{Name: "d-theirs", Kind: "openai", Model: "m", Enabled: true, OwnerID: "someone-else"}
+	h.st.CreateAssistantProvider(h.ctx, theirs)
+	got, err := h.c.personalChatProvider(h.ctx, "", user.ID)
+	if err != nil || got.ID != mine.ID {
+		t.Fatalf("got %+v, %v; want the person's own enabled API provider", got, err)
 	}
 }

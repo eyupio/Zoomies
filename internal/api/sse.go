@@ -244,6 +244,16 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 				}
 				data = filtered
 			}
+			if ev.Kind == events.KindTransfer {
+				// A transfer's preparation names runners, hosts and jobs
+				// the route itself only shows the process operator, so the
+				// frame goes to that audience and nobody below it. Resolved
+				// per frame, as the others are.
+				id, err := s.resolveIdentity(r)
+				if err != nil || id == nil || !id.Role.AtLeast(store.RolePlatform) {
+					continue
+				}
+			}
 			if ev.Kind == events.KindUpdates {
 				// The same status GET /updates serves this caller, chosen per
 				// subscriber. Resolved per frame, like the problems list, for the

@@ -61,7 +61,7 @@ Conventions:
 | GET | `/api/openapi.yaml` | - | The spec this document describes. |
 | GET | `/robots.txt` | - | Declines crawling unless `server.allow_indexing` is on. Rendered per request, because it has to name this controller's own address. |
 | GET | `/sitemap.xml` | - | The interface's top-level pages, absolute. Nothing about the fleet: a pool or runner address is gone by tomorrow. |
-| POST | `/mcp` | viewer | The fleet over the [Model Context Protocol](https://modelcontextprotocol.io)'s Streamable HTTP transport, for an agent that reaches the controller directly; see [`zoomies mcp`](cli.md#zoomies-mcp). One JSON-RPC message per POST, answered with JSON; stateless, so no session ID and no event stream, and `GET` is 405. A **bearer token only**: a session cookie is refused, and so is an `Origin` that is not this controller's. Every tool is a call to a route on this page with the caller's token, so each one needs that route's role, `rerun_job`, `drain_runner`, `update_pool`, `update_host` and `apply_remedy` are offered only to a token whose role reaches them. With `security.mcp_oauth` on it also takes an MCP access token from the OAuth flow below, which works here and nowhere else, and a 401 carries `WWW-Authenticate: Bearer resource_metadata=…` so a client such as Claude can start that flow; see [Connect Claude to Zoomies](connect-claude.md). |
+| POST | `/mcp` | viewer | The fleet over the [Model Context Protocol](https://modelcontextprotocol.io)'s Streamable HTTP transport, for an agent that reaches the controller directly; see [`zoomies mcp`](cli.md#zoomies-mcp). One JSON-RPC message per POST, answered with JSON; stateless, so no session ID and no event stream, and `GET` is 405. A **bearer token only**: a session cookie is refused, and so is an `Origin` that is not this controller's. Every tool is a call to a route on this page with the caller's token, so each one needs that route's role, `rerun_job`, `drain_runner`, `update_pool`, `update_host`, `apply_remedy` and `context_publish` are offered only to a token whose role reaches them. With `security.mcp_oauth` on it also takes an MCP access token from the OAuth flow below, which works here and nowhere else, and a 401 carries `WWW-Authenticate: Bearer resource_metadata=…` so a client such as Claude can start that flow; see [Connect Claude to Zoomies](connect-claude.md). |
 | GET | `/.well-known/oauth-protected-resource` | - | RFC 9728 protected resource metadata for `/mcp`: `resource` is `<external URL>/mcp` exactly, and the controller is its own authorisation server. Also served at `/.well-known/oauth-protected-resource/mcp`, which a client tries first. 404 while `security.mcp_oauth` is off, as is everything down to `/oauth/revoke`. |
 | GET | `/.well-known/oauth-authorization-server` | - | RFC 8414 authorisation server metadata: the code flow with S256 PKCE only, `none`, `client_secret_basic` and `client_secret_post` at the token endpoint, the `iss` parameter on every redirect (RFC 9207), and, while `security.mcp_open_registration` is on, a registration endpoint and client ID metadata documents. There is no OpenID Connect discovery document: this server issues no ID tokens. |
 | POST | `/oauth/register` | - | RFC 7591 dynamic client registration, JSON. Always a public client that must use PKCE; redirect URIs must be https, or http to loopback. Twenty an hour per address, then 429. 403 while `security.mcp_open_registration` is off. |
@@ -355,7 +355,7 @@ running beside it, and the gateway's Tailcat address is handled the same way:
 | POST | `/api/v1/assistant/personal/providers/{id}/check` | viewer | Runs the check and one token of completion, and records the result on the row. Audited, because it uses the key. |
 | POST | `/api/v1/assistant/personal/providers/{id}/default` | viewer | Makes this the provider that answers, and the previous default stops being it in the same write. |
 | GET | `/api/v1/assistant/repairs` | viewer | The latest 100 repairs. Administrators see all; other users see their own explicit requests. |
-| POST | `/api/v1/assistant/repairs` | viewer | Queues a repair for `repo`, `pull_number` and `instruction` using the caller’s personal default provider. Requires a linked GitHub identity, current write access and an enabled repository policy. Returns 202. |
+| POST | `/api/v1/assistant/repairs` | viewer | Queues a repair for `repo`, `pull_number` and `instruction` using the caller’s personal provider (their default, or the first usable one they own). Requires a linked GitHub identity, current write access and an enabled repository policy. Returns 202. |
 | GET | `/api/v1/assistant/repairs/settings` | viewer | Own GitHub account link; administrators also see all links and repository policies. |
 | PUT | `/api/v1/assistant/repairs/consent` | viewer | Confirms or revokes use of the caller’s personal provider by their linked GitHub account. Body carries `github_user_id` and `enabled`; another user or a stale numeric ID cannot be confirmed. Returns 204. |
 | PUT | `/api/v1/assistant/repairs/policy` | admin | Sets repository, installation, installation provider, enabled, automatic, workflow-edit opt-in and daily attempt budget (1 to 50). |
@@ -455,7 +455,7 @@ fenced controller is not restarted by its own runtime.
 
 | Method | Path | Role | Notes |
 | --- | --- | --- | --- |
-| GET | `/api/v1/transfers/preparation` | process operator | Drain progress: busy and remaining runners, cleanup, jobs and machine operations; ready when fenced. |
+| GET | `/api/v1/transfers/preparation` | process operator | Drain progress: busy and remaining runners, cleanup, jobs on this fleet's runners and machine operations, each named with its host under `waiting`, and a `summary` sentence; ready when fenced. The same document is the `transfer.updated` event. |
 | POST | `/api/v1/transfers/preparation` | process operator | One-click preparation: pause demand, let busy jobs finish, drain idle runners, and fence after cleanup. Saved pool settings remain intact. |
 | DELETE | `/api/v1/transfers/preparation` | process operator | Cancel before the fence; saved pools resume. Once fenced, use the explicit recovery action after checking that no destination is running. |
 | POST | `/api/v1/transfers/export` | process operator | Download a mandatory passphrase-encrypted complete instance, with fleet secrets under a disposable transfer key. Requires a drained and fenced source. |
@@ -618,7 +618,7 @@ flowchart LR
 `problems.updated` · `stats` · `audit` · `webhook.delivery` ·
 `provider.updated` · `provider.deleted` · `machine.updated` ·
 `machine.deleted` · `kennel.updated` · `kennel.deleted` · `kennel.summary` ·
-`updates.updated` · `heartbeat` · `resync`
+`updates.updated` · `transfer.updated` · `heartbeat` · `resync`
 
 Every frame but `heartbeat` and `resync` carries an `id` of the form
 `<epoch>.<sequence>`, where the epoch names one run of the controller. A client
@@ -668,6 +668,10 @@ client ever has to poll or ask the operator to reload:
   is one repository's `GET` shape and `kennel.deleted` carries `{ "id": … }`.
   `updates.updated` is `GET /updates` whole, sent when it changes, because nothing
   writes a row when a soak ends and the sentence in it moves with the clock.
+  `transfer.updated` is `GET /transfers/preparation` whole, sent when it changes
+  and only to process operators, because a runner confirmed gone or a job
+  finishing moves every count in it without any row saying "the transfer
+  moved"; nothing is computed while no transfer is being prepared.
 * **An operator's change is announced by the handler that made it.** Creating,
   editing, enabling, disabling or deleting a pool; editing, cordoning, clearing
   the throttle on or deleting a host; adding, editing or removing an

@@ -4183,7 +4183,7 @@ export interface paths {
         put?: never;
         /**
          * Drain this instance for transfer
-         * @description Stops new runner and machine demand without changing saved pool settings. Busy jobs finish naturally. Idle runners withdraw safely, cleanup continues, and the recovery fence is raised automatically when no work is in flight. Preparation survives a restart. Requires process operator authority.
+         * @description Stops new runner and machine demand without changing saved pool settings. Busy jobs finish naturally. Idle runners withdraw safely, cleanup continues, and the recovery fence is raised automatically when no work is in flight. Preparation survives a restart. The page follows it in `transfer.updated`. Requires process operator authority.
          */
         post: operations["prepareInstanceTransfer"];
         /**
@@ -7444,14 +7444,55 @@ export interface components {
             /** @description Why the fence is on -- normally the backup this database was restored from. */
             reason?: string;
         };
+        /** @description Where preparation stands. The counts are exact; `waiting` names what they count, up to twenty-five of each kind, oldest first; `summary` is the sentence that says what is happening and whether any of it needs the operator. The same document is the payload of the `transfer.updated` event, sent to process operators when it changes. */
         TransferProgress: {
             draining: boolean;
             ready: boolean;
             live_runners: number;
             busy_runners: number;
             pending_cleanup: number;
+            /** @description Jobs in progress on a runner this fleet still has. A job on GitHub's own runners, or on another fleet's, is not waited for: this controller can neither drain nor hurry it. */
             active_jobs: number;
             machine_operations: number;
+            /** @description Of the pending cleanup, the runners whose host has not yet confirmed them gone. */
+            cleanup_awaiting_host: number;
+            /** @description Of the pending cleanup, the runners whose registration GitHub has not yet confirmed gone. */
+            cleanup_awaiting_github: number;
+            /** @description Of the pending cleanup, the runners with a cleanup failure recorded on them. */
+            cleanup_failed: number;
+            waiting: components["schemas"]["TransferWait"][];
+            summary: string;
+        };
+        /** @description One thing preparation is waiting for, with the sentence that says what and where. */
+        TransferWait: {
+            /**
+             * @description `runner` is a runner still live, `cleanup` one removed or failed but not yet confirmed gone, `job` one in progress on this fleet, `machine` a provider operation in flight.
+             * @enum {string}
+             */
+            kind: "runner" | "cleanup" | "job" | "machine";
+            id: string;
+            name: string;
+            /** @description The repository a job belongs to. */
+            repo?: string;
+            /** @description The runner's or machine's state, as its own page shows it. */
+            state?: string;
+            host_id?: string;
+            /** @description The host a runner or job is on. */
+            host?: string;
+            /** @description Whether that host has sent a heartbeat lately. A removed runner is confirmed gone by its host, and nobody else can do it for an agent that has stopped talking. */
+            host_healthy: boolean;
+            /** @description The host has seen the workload gone. */
+            host_confirmed: boolean;
+            /** @description GitHub has seen the registration gone. */
+            registration_confirmed: boolean;
+            /** @description The cleanup failure recorded on the runner, if any. */
+            error?: string;
+            /**
+             * Format: date-time
+             * @description When the wait began.
+             */
+            since?: string;
+            detail: string;
         };
         TransferInfo: {
             version: number;

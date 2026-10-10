@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // secretColumns is deliberately closed. A new encrypted column needs a transfer
@@ -343,8 +344,8 @@ func (s *Store) TransferReady(ctx context.Context) error {
 	}
 	for _, query := range []string{
 		`SELECT COUNT(*) FROM runners WHERE state NOT IN ('removed','failed') OR (state IN ('removed','failed') AND cleaned_up_at IS NULL)`,
-		`SELECT COUNT(*) FROM jobs WHERE state='in_progress'`,
-		`SELECT COUNT(*) FROM machines WHERE state IN ('planned','creating','starting','bootstrapping','enrolling','draining','deleting') OR op_id<>'' OR op_outcome_unknown=1`,
+		`SELECT COUNT(*) FROM jobs WHERE ` + transferActiveJobSQL,
+		`SELECT COUNT(*) FROM machines WHERE ` + transferMachineSQL,
 	} {
 		var n int
 		if err := s.read.QueryRowContext(ctx, query).Scan(&n); err != nil {
@@ -366,6 +367,71 @@ func (s *Store) TransferHasOperator(ctx context.Context) (bool, error) {
 
 const SettingTransferDraining = "transfer.draining"
 
+// transferActiveJobSQL names the jobs a cutover could interrupt: those GitHub
+// says are in progress on a runner this fleet still has. GitHub reports every
+// job in an installed repository, and on an organisation that also uses its
+// hosted runners most of them run somewhere this controller cannot drain. The
+// first version of this count waited for all of them, so a transfer sat at
+// "11 running jobs" that nothing here could hurry or stop. A job on one of
+// this fleet's runners that has since been removed or failed is not waited for
+// either: GitHub will finish it on its own, and the fleet's part is over.
+const transferActiveJobSQL = `jobs.state='in_progress' AND jobs.runner_id<>''
+	AND jobs.runner_id IN (SELECT id FROM runners WHERE state NOT IN ('removed','failed'))`
+
+// transferMachineSQL names the machines whose provider operation is still in
+// flight, or whose outcome is not known: a clone the destination would find
+// half-made, or a delete it would find done but unrecorded.
+const transferMachineSQL = `machines.state IN ('planned','creating','starting','bootstrapping','enrolling','draining','deleting')
+	OR machines.op_id<>'' OR machines.op_outcome_unknown=1`
+
+// transferWaitLimit bounds how many of each kind of wait are named. The counts
+// are exact; the list is what an operator reads, and a fleet with hundreds of
+// runners to confirm gone needs the first few and the host they share.
+const transferWaitLimit = 25
+
+// TransferWait is one thing preparation is waiting for, named: a runner
+// still live, a runner nobody has confirmed gone, a job on this fleet, or a
+// machine operation. It carries the facts; the controller writes the sentence.
+type TransferWait struct {
+	Kind string `json:"kind"`
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	// Repo is the repository a job belongs to.
+	Repo string `json:"repo,omitempty"`
+	// State is the runner's or machine's state, as its own page shows it.
+	State string `json:"state,omitempty"`
+	// HostID and HostName are the host a runner or job is on. HostHealthy says
+	// whether that host has sent a heartbeat lately, because a removed runner
+	// is confirmed gone by its host and nobody else can do it for an agent
+	// that has stopped talking. The controller sets it from HostLastHeartbeat
+	// against its own clock, as it does for every host view.
+	HostID            string    `json:"host_id,omitempty"`
+	HostName          string    `json:"host,omitempty"`
+	HostHealthy       bool      `json:"host_healthy"`
+	HostLastHeartbeat time.Time `json:"-"`
+	// HostConfirmed and RegistrationConfirmed are the two halves of a cleanup:
+	// the host has seen the workload gone, and GitHub has seen the
+	// registration gone. A cleanup wait has at least one of them false.
+	HostConfirmed         bool `json:"host_confirmed"`
+	RegistrationConfirmed bool `json:"registration_confirmed"`
+	// Error is the cleanup failure recorded on the runner, if any.
+	Error string `json:"error,omitempty"`
+	// Since is when the wait began: the runner's finish, the job's start, the
+	// machine's last change.
+	Since *time.Time `json:"since,omitempty"`
+	// Detail is the sentence the controller writes about this wait, for the
+	// page and the CLI to show as they are.
+	Detail string `json:"detail"`
+}
+
+// The kinds of TransferWait.
+const (
+	TransferWaitRunner  = "runner"
+	TransferWaitCleanup = "cleanup"
+	TransferWaitJob     = "job"
+	TransferWaitMachine = "machine"
+)
+
 type TransferProgress struct {
 	Draining          bool `json:"draining"`
 	Ready             bool `json:"ready"`
@@ -374,6 +440,18 @@ type TransferProgress struct {
 	PendingCleanup    int  `json:"pending_cleanup"`
 	ActiveJobs        int  `json:"active_jobs"`
 	MachineOperations int  `json:"machine_operations"`
+	// The pending cleanup, split by what is outstanding. A runner can be
+	// counted in more than one: both sides may be unconfirmed, and a failed
+	// cleanup is unconfirmed on at least one of them.
+	CleanupAwaitingHost   int `json:"cleanup_awaiting_host"`
+	CleanupAwaitingGitHub int `json:"cleanup_awaiting_github"`
+	CleanupFailed         int `json:"cleanup_failed"`
+	// Waiting names what the counts count, up to transferWaitLimit of each
+	// kind, so that "8 awaiting cleanup" is eight runners with a host each.
+	Waiting []TransferWait `json:"waiting"`
+	// Summary is the sentence the controller writes about where preparation
+	// stands and what, if anything, an operator has to do about it.
+	Summary string `json:"summary"`
 }
 
 func (p TransferProgress) Quiescent() bool {
@@ -381,7 +459,7 @@ func (p TransferProgress) Quiescent() bool {
 }
 
 func (s *Store) TransferProgress(ctx context.Context) (TransferProgress, error) {
-	var p TransferProgress
+	p := TransferProgress{Waiting: []TransferWait{}}
 	raw, err := s.GetSetting(ctx, SettingTransferDraining)
 	if err != nil {
 		return p, err
@@ -391,14 +469,106 @@ func (s *Store) TransferProgress(ctx context.Context) (TransferProgress, error) 
   (SELECT COUNT(*) FROM runners WHERE state NOT IN ('removed','failed')),
   (SELECT COUNT(*) FROM runners WHERE state='busy'),
   (SELECT COUNT(*) FROM runners WHERE state IN ('removed','failed') AND cleaned_up_at IS NULL),
-  (SELECT COUNT(*) FROM jobs WHERE state='in_progress'),
-  (SELECT COUNT(*) FROM machines WHERE state IN ('planned','creating','starting','bootstrapping','enrolling','draining','deleting') OR op_id<>'' OR op_outcome_unknown=1)`).Scan(&p.LiveRunners, &p.BusyRunners, &p.PendingCleanup, &p.ActiveJobs, &p.MachineOperations)
+  (SELECT COUNT(*) FROM jobs WHERE `+transferActiveJobSQL+`),
+  (SELECT COUNT(*) FROM machines WHERE `+transferMachineSQL+`),
+  (SELECT COUNT(*) FROM runners WHERE state IN ('removed','failed') AND cleaned_up_at IS NULL AND host_removed_at IS NULL),
+  (SELECT COUNT(*) FROM runners WHERE state IN ('removed','failed') AND cleaned_up_at IS NULL AND registration_deleted_at IS NULL),
+  (SELECT COUNT(*) FROM runners WHERE state IN ('removed','failed') AND cleaned_up_at IS NULL AND cleanup_error<>'')`).Scan(
+		&p.LiveRunners, &p.BusyRunners, &p.PendingCleanup, &p.ActiveJobs, &p.MachineOperations,
+		&p.CleanupAwaitingHost, &p.CleanupAwaitingGitHub, &p.CleanupFailed)
 	if err != nil {
 		return p, err
+	}
+	if p.Draining && !p.Quiescent() {
+		if p.Waiting, err = s.transferWaits(ctx); err != nil {
+			return p, err
+		}
 	}
 	f, err := s.RecoveryFenced(ctx)
 	p.Ready = p.Draining && p.Quiescent() && f.Fenced
 	return p, err
+}
+
+// transferWaits names what TransferProgress counts. Each kind is read with
+// the host it is on, oldest first, because the oldest wait is the one most
+// likely to be stuck rather than merely slow.
+func (s *Store) transferWaits(ctx context.Context) ([]TransferWait, error) {
+	beatAt := func(beat sql.NullInt64) time.Time {
+		if !beat.Valid {
+			return time.Time{}
+		}
+		return time.UnixMilli(beat.Int64).UTC()
+	}
+	out := []TransferWait{}
+	collect := func(query string, scan func(*sql.Rows) (TransferWait, error)) error {
+		rows, err := s.read.QueryContext(ctx, query, transferWaitLimit)
+		if err != nil {
+			return err
+		}
+		defer rows.Close()
+		for rows.Next() {
+			w, err := scan(rows)
+			if err != nil {
+				return err
+			}
+			out = append(out, w)
+		}
+		return rows.Err()
+	}
+	runnerWait := func(kind string) func(*sql.Rows) (TransferWait, error) {
+		return func(rows *sql.Rows) (TransferWait, error) {
+			w := TransferWait{Kind: kind}
+			var hostID, hostName sql.NullString
+			var beat, since, hostDone, githubDone sql.NullInt64
+			if err := rows.Scan(&w.ID, &w.Name, &w.State, &hostID, &hostName, &beat, &since, &hostDone, &githubDone, &w.Error); err != nil {
+				return w, err
+			}
+			w.HostID, w.HostName, w.HostLastHeartbeat = hostID.String, hostName.String, beatAt(beat)
+			w.Since = atp(since)
+			w.HostConfirmed, w.RegistrationConfirmed = hostDone.Valid, githubDone.Valid
+			return w, nil
+		}
+	}
+	const runnerSelect = `SELECT r.id, r.name, r.state, r.host_id, h.name, h.last_heartbeat,
+		COALESCE(r.finished_at, r.started_at, r.created_at), r.host_removed_at, r.registration_deleted_at, r.cleanup_error
+		FROM runners r LEFT JOIN hosts h ON h.id=r.host_id `
+	if err := collect(runnerSelect+`WHERE r.state NOT IN ('removed','failed') ORDER BY r.created_at LIMIT ?`,
+		runnerWait(TransferWaitRunner)); err != nil {
+		return nil, err
+	}
+	if err := collect(runnerSelect+`WHERE r.state IN ('removed','failed') AND r.cleaned_up_at IS NULL ORDER BY COALESCE(r.finished_at, r.created_at) LIMIT ?`,
+		runnerWait(TransferWaitCleanup)); err != nil {
+		return nil, err
+	}
+	if err := collect(`SELECT jobs.id, jobs.job_name, jobs.repo, jobs.runner_id, r.host_id, h.name, h.last_heartbeat, jobs.started_at
+		FROM jobs LEFT JOIN runners r ON r.id=jobs.runner_id LEFT JOIN hosts h ON h.id=r.host_id
+		WHERE `+transferActiveJobSQL+` ORDER BY jobs.started_at LIMIT ?`, func(rows *sql.Rows) (TransferWait, error) {
+		w := TransferWait{Kind: TransferWaitJob, State: string(JobInProgress)}
+		var runnerID string
+		var hostID, hostName sql.NullString
+		var beat, since sql.NullInt64
+		if err := rows.Scan(&w.ID, &w.Name, &w.Repo, &runnerID, &hostID, &hostName, &beat, &since); err != nil {
+			return w, err
+		}
+		w.HostID, w.HostName, w.HostLastHeartbeat = hostID.String, hostName.String, beatAt(beat)
+		w.Since = atp(since)
+		return w, nil
+	}); err != nil {
+		return nil, err
+	}
+	if err := collect(`SELECT machines.id, machines.name, machines.state, machines.updated_at FROM machines
+		WHERE `+transferMachineSQL+` ORDER BY machines.updated_at LIMIT ?`, func(rows *sql.Rows) (TransferWait, error) {
+		w := TransferWait{Kind: TransferWaitMachine}
+		var since sql.NullInt64
+		if err := rows.Scan(&w.ID, &w.Name, &w.State, &since); err != nil {
+			return w, err
+		}
+		w.Since = atp(since)
+		return w, nil
+	}); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // Only unissued reservations are cancelled. A create whose outcome is unknown

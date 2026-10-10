@@ -26,7 +26,7 @@ Appearance → **Zoomies vocabulary** offers three choices:
 | --- | --- | --- |
 | Off (default) | Plain state names | Standard Lucide status icon |
 | Cute | Zoomies dog-park vocabulary | Original animated avatar |
-| Standard | Zoomies dog-park vocabulary | Playful line-drawn dog with a distinct gesture and persistent cue per state |
+| Standard | Zoomies dog-park vocabulary | The dog icon and paw prints, with a gesture and a persistent cue glyph per state |
 
 The choice stays in this browser. A browser that has never chosen (a new
 install, or one whose saved preferences were cleared) starts on Off. Existing
@@ -39,7 +39,15 @@ Off draws each state with a Lucide icon from the state map in
 `web/src/lib/status.ts`. Runner, workflow and queue icons sit in a compact
 24px tile, with an 18px glyph, a slightly firmer stroke and the state's subtle
 background and border. This keeps their weight and alignment consistent while
-labels and tooltips carry the meaning. **An icon names a state, never an action**: the
+labels and tooltips carry the meaning. A state still in progress moves a
+little, chosen by glyph so the same glyph moves the same way on a runner, a
+job or a machine: being set up turns, work executing sends one pulse along its
+trace, being accepted breathes, finishing turns its hourglass over now and
+then, extra CPU lifts its trend line a touch and maximum CPU charges its bolt
+with a soft fill. Everything waiting or finished holds still, and so does CPU
+being held back, so a page of idle runners is
+a calm one and a failure never draws the eye by moving, and reduced motion
+stops all of it. **An icon names a state, never an action**: the
 Queue's Run now, Pause, Resume and Delete carry Zap, Pause, Play and the bin,
 Re-run a turning arrow, and the Runners page's Drain the slashed circle, so a
 status drawn with one of them beside those buttons reads as something to press.
@@ -62,14 +70,20 @@ One glyph also means one thing wherever it appears:
 | `IterationCcw` | another attempt asked for | a re-run requested on a job's timeline |
 | `Zap`, `TrendingUp`, `TrendingDown` | CPU lent at maximum, lent, taken back | elastic CPU on a busy or idle runner |
 
-Standard shares Eli's line-drawn dog and CSS motion component. Busy runners trot,
-extra zoomies scoot from side to side, and maximum zoomies chase a faster circle.
-Idle dogs look patiently around, provisioning dogs sniff, registering dogs wave,
-throttled dogs wait, and draining dogs settle down. Failed dogs look sad, removed
-dogs sleep and unknown dogs tilt their heads; these three states stay still.
-A small persistent cue distinguishes every state, including a single or double
-chevron for the two boost levels, pause bars for throttling and a cross for
-failure. Labels, colours and tooltips keep their existing status meaning.
+Standard is the same `Dog` icon as Eli's avatar with two `PawPrint` marks
+under it, in one SVG per runner, moved by CSS alone: each state's gesture is a
+set of keyframes for those marks, so there is no drawing to keep. Busy runners
+trot on alternating paws, extra zoomies scoot from side to side, and maximum
+zoomies chase a faster circle, both leaving paw prints. Idle dogs look patiently
+around, provisioning dogs sniff along a trail, registering dogs wave a paw,
+throttled dogs wait, and draining dogs settle down. Failed dogs hang their
+heads, removed dogs lie low and unknown dogs tilt their heads; these three
+states stay still. The glyph in the corner is the cue, and it is the icon Off
+draws for the same state (`Activity`, `CircleDot`, `Hourglass`, `CircleX` and
+so on, with `TrendingUp` and `Zap` for the two boost levels), so one glyph
+keeps one meaning across the styles; throttled, which Off has no glyph for,
+wears a `Turtle` rather than a pause, since pause is a button on the Queue.
+Labels, colours and tooltips keep their existing status meaning.
 
 Each runner ID seeds its timing so rows and workflow packs do not move together.
 Reduced motion disables every animation while retaining the expression and cue.
@@ -1053,8 +1067,10 @@ Five things make it fit, in this order:
   press on Android and never on iOS, so the order was once a preference a
   phone could read and not write, on the Rows layout that exists to give a
   phone columns to arrange. Under `@media (pointer: coarse)` the heading takes
-  `--z-control-touch`, both controls grow into it, and the resize edge stops
-  waiting for a hover that will never come. `web/src/lib/actions/columnGesture.ts`
+  `--z-control-touch`, and both controls grow into it. The resize edge's line
+  is drawn at rest on every pointer, so the handle is findable before anything
+  is hovered; it turns accent under the pointer or the keyboard.
+  `web/src/lib/actions/columnGesture.ts`
   is the one implementation, shared with the tables that are not grids, and
   `web/tests/column-layout.spec.ts` holds it true under both a cursor and a
   touchscreen.
@@ -1246,9 +1262,13 @@ Playwright suite asserts on, so the picture and the tests stay honest together.
 Every user can open Eli from the circular dog button on any page. Drag the
 identity in the panel header to move it, or focus it and use arrow keys (Shift
 for larger steps). The panel stays within the viewport when moved or resized;
-left and right placement reset its position. Thinking cycles through six routines
-(zoomies, fetch, sniffing, pouncing, a happy wiggle and chasing circles) and 24 playful quotes. Quotes change every
-4.5 seconds, routines every 9 seconds, with a varied starting point per answer.
+left and right placement reset its position. Thinking is the avatar's own dog icon
+and two paw prints on a short track, and nothing else moves: each of its six
+routines (zoomies, fetch, sniffing, pouncing, a happy wiggle and chasing circles)
+is a set of keyframes for those three marks, so the picture stays as light as a
+status icon and a new routine needs no drawing. It cycles the routines with 24
+playful quotes. Quotes change every 4.5 seconds, routines every 9 seconds, with a
+varied starting point per answer.
 Avatar hover greetings vary between a tilt, a boop and a wiggle. All animations
 are disabled for reduced motion.
 The panel offers Compact, Default
@@ -1264,7 +1284,10 @@ facts. Never pass a whole API object, credentials, environment variables or
 unrequested logs. Clicking the action opens Eli and asks with that snapshot.
 Questions clicked during an answer wait in order and can be discarded. When no
 provider is available, they remain visible until the operator configures one and
-reopens Eli. The model has no live fleet access or mutation tools.
+reopens Eli. The model has no mutation tools. It reads the fleet only through a
+provider whose fleet switch is on, and the snapshot prompt tells it to check the
+live state with those tools when it has them, so the facts are a starting point
+and not the model's only view.
 
 Host and runner details and problem entries use the same action. Add another
 entry point by supplying its own display facts to `AskEli`; it needs no chat

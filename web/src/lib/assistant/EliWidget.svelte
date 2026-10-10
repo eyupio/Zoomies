@@ -291,6 +291,8 @@
 <style>
   .launch {
     display: flex;
+    width: var(--z-eli-launcher);
+    height: var(--z-eli-launcher);
     padding: 0;
     border: 0;
     border-radius: var(--z-radius-full);

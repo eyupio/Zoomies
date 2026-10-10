@@ -51,7 +51,7 @@
         <span class="leader"><ZoomiesStatusIcon state={activity.motion} {seed} /></span>
       </span>
     {:else}
-      <OffStatusIcon status={activity.status} />
+      <OffStatusIcon status={activity.status} {seed} />
     {/if}
     <span class="labels">
       <span>{activity.label}</span>

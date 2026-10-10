@@ -1456,6 +1456,11 @@
   thead th:last-child .resizer {
     right: 0;
   }
+  /*
+    The line is drawn at rest, because a handle an operator has to discover by
+    hovering is one they never find. It turns accent when the column or the
+    handle is under the pointer, or when the keyboard has reached the handle.
+  */
   .resizer::after {
     content: '';
     position: absolute;
@@ -1464,11 +1469,11 @@
     left: 50%;
     width: var(--z-border-width);
     background: var(--z-border-strong);
-    opacity: 0;
   }
   thead th:hover .resizer::after,
+  .resizer:hover::after,
   .resizer:focus-visible::after {
-    opacity: 1;
+    background: var(--z-accent);
   }
   thead th.drop-target {
     box-shadow: inset var(--z-focus-width) 0 var(--z-focus-colour);
@@ -1632,9 +1637,8 @@
     pull and a 20px grip are fine for a cursor that lands where it is pointed,
     and are most of a fingertip's width apart from each other. Under a coarse
     pointer the heading takes the touch height the rest of the product uses and
-    both controls grow into it -- and the resize handle stops waiting for the
-    hover that will never come, because a control nobody can see is one nobody
-    reports as too small.
+    both controls grow into it. The handle's line is drawn at rest on every
+    pointer, so there is nothing for a finger to be missing.
   */
   @media (pointer: coarse) {
     .heading {
@@ -1647,9 +1651,6 @@
     .resizer {
       right: calc(-1 * var(--z-space-3));
       width: var(--z-space-6);
-    }
-    .resizer::after {
-      opacity: 1;
     }
   }
 

@@ -12,7 +12,8 @@ sign in, opens your controller's own sign-in page, and asks you what the
 connection may do. Nobody copies a token anywhere.
 
 The connection acts as you, at the role you choose for it (**viewer** to read
-the fleet, **operator** to also re-run a failed job or drain an idle runner)
+the fleet, **operator** to also re-run a failed job, drain an idle runner, apply
+a remedy or change a pool's or a host's sizing)
 and never above your own. It works on `/mcp` and nowhere else, and you can
 disconnect it at any time.
 
@@ -142,6 +143,17 @@ jobs, runners, pools, hosts and logs, and, for an operator connection only,
 `rerun_job`, `drain_runner`, `update_pool` and `update_host` (a pool's scale, smallest runner, sidecar shares, folder placement and burst valves, and a host's capacity and runner sizes), and `apply_remedy`, which makes a change a problem proposes after the controller has priced it. An administrator can also switch on **Offer administrator tools over MCP** (`security.mcp_admin_tools`, off by default) under Settings, Security: an administrator connection is then offered `edit_host`, `clear_host_throttle`, `get_settings` and `update_settings`, which can rename, relabel and cordon a host and change the tuning settings, but never security, sign-in, GitHub, provider or database ones, nor the update mode and soak that decide whether, and how soon, Zoomies updates itself. Each call is the documented API route, run as
 your connection, so it meets the same role check and writes the same audit row
 as the CLI would.
+
+### Reading the catalog
+
+Every problem code the controller raises and every check Kennel Club makes is
+explained once, in the [catalog](ai-context.md), and `get_catalog` reads it with
+your connection, so Claude can open an entry before it explains a problem's
+code, a finding's check or a job explanation's `problem_code`. Without
+arguments it is an index of codes by category; `code` returns one entry in
+full, and `category` lists one category's codes with their titles and
+severity. The text is Zoomies' own, fixed when the binary was built, and names
+no fleet, repository or person.
 
 ### Asking about Kennel Club
 

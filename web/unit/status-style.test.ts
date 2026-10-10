@@ -67,6 +67,16 @@ test('terminal and unrecognised states never play a happy animation', () => {
   assert.equal(standardMotion('removed', 'runner').motion, 'sleep');
 });
 
+test('a runner starts its lap partway through, never ahead of it', () => {
+  // The phase is a negative delay, so a page of busy dogs is spread across the
+  // lap rather than bobbing together; a positive one would hold the dog still.
+  for (const seed of ['runner-one', 'runner-two', 'workflow-left']) {
+    const busy = standardMotion('busy', seed);
+    assert.ok(busy.phase <= 0 && -busy.phase < busy.duration);
+    assert.equal(standardMotion('failed', seed).phase, standardMotion('failed', seed).phase);
+  }
+});
+
 test('runner and workflow seeds spread animation timing across the cycle', () => {
   const phases = Array.from({ length: 400 }, (_, i) => dogPhase('run_' + i));
   assert.ok(phases.every((phase) => phase >= 0 && phase < 1));

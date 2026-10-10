@@ -647,6 +647,23 @@ test('Eli keeps drafts and history through layout changes, minimisation and navi
   page,
   isMobile,
 }) => {
+  // The follow-ups under an answer are the model's own since #838, and the
+  // built-in demo model writes none, so the first answer carries the block the
+  // controller asks every model for: what the test clicks is a suggestion the
+  // page parsed out of the stream, not a fixture of its own. The demo answers
+  // the click itself, so the suggestion is seen to go once it has been asked.
+  let answered = false;
+  await page.route('**/api/v1/assistant/personal/chat', (route) => {
+    if (answered) return route.continue();
+    answered = true;
+    return route.fulfill({
+      status: 200,
+      contentType: 'text/event-stream',
+      body: answerStream(
+        'The built-in model heard: Help me diagnose a runner failure\n\n<follow-ups>\nTrace the failure\nWhich logs do I need?\n</follow-ups>\n',
+      ),
+    });
+  });
   await goto(page, '/runners', 'Runners');
   await page.getByRole('button', { name: 'Ask Eli', exact: true }).click();
   const panel = page.getByRole('dialog', { name: 'Eli assistant' });
@@ -792,12 +809,13 @@ test('thinking varies its quotes and routines, respects reduced motion and stops
   try {
     await expect(thinking).toBeVisible();
     const quote = await thinking.locator('p').innerText();
-    const motion = await thinking.locator('svg').getAttribute('data-motion');
+    const track = thinking.locator('.track');
+    const motion = await track.getAttribute('data-motion');
     await page.clock.runFor(4500);
     await expect(thinking.locator('p')).not.toHaveText(quote);
-    await expect(thinking.locator('svg')).toHaveAttribute('data-motion', motion!);
+    await expect(track).toHaveAttribute('data-motion', motion!);
     await page.clock.runFor(4500);
-    await expect(thinking.locator('svg')).not.toHaveAttribute('data-motion', motion!);
+    await expect(track).not.toHaveAttribute('data-motion', motion!);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await expect
       .poll(() => thinking.evaluate((node) => node.getAnimations({ subtree: true }).length))

@@ -576,11 +576,12 @@ again.
 | `fleet_status` | Queued and running jobs, outcomes, queue wait and pool utilisation over a window. `GET /stats`. |
 | `list_problems` | Everything the controller thinks is wrong, with what to do. `GET /problems`. |
 | `list_jobs` | Jobs, with the same filters as `zoomies jobs list`: `failed`, `ours`, `theirs`, `unmatched`, `repo`, `since`, `until`, `job_name`, `hosted`, `controller_version` and `host_id`. Each job is a summary without its steps unless `include_steps` is set, and a full page carries `next` to pass back as `before`. |
-| `job_stats` | Completed jobs counted and timed over a window, grouped by up to two of `controller_version`, `day`, `host`, `pool` and `job_name`. `GET /jobs/stats`. |
+| `job_stats` | Completed jobs counted and timed over a window, grouped by up to two of `controller_version`, `day`, `host`, `pool`, `job_name` and `size`. `GET /jobs/stats`. |
 | `get_job` | One job, its timeline and the controller's explanation, as one document: the class of failure, how sure, the evidence, the catalog code and the next steps. The runner's last lines, and any evidence quoted from them, come in a second block announced as untrusted, the way a runner's log does. |
 | `get_runner_log` | The last lines of a runner's output, while the runner still exists. It asks the controller for just the end, holds what it returns to 256 KiB, and says so when it had to shorten it or could only read the start of a very long log. |
 | `list_runners`, `list_pools`, `list_hosts`, `host_health` | The fleet's resources as their `GET` routes return them, with a host's tags and size class, a pool's automatic settings where the controller works them out, and the memory valve: a pool's `memory_burst`, a host's `memory_pool`, and a runner's `memory_resource` and `scratch`. A host's `doctor` is its OS report with the controller's own count, `doctor.summary`, which the tool tells the assistant to read before `doctor.results`; the text in the results is written by the host and is untrusted. |
 | `label_advice` | What to change in the `runs-on` of workflows whose measured runs call for something other than what they ask for, with what to write instead. `GET /label-advice`. |
+| `get_catalog` | The [catalog](ai-context.md#for-an-agent-operating-the-fleet): every problem code and every Kennel Club check, with what it means, what to change and how to see that it worked. `GET /catalog`, read with the caller's token, so an agent that reaches the fleet only over `/mcp` can read it too. Without arguments it is an index of codes by category; `code` returns one entry in full, which is what to read before explaining a problem's code, a finding's check or a job explanation's `problem_code`; `category` lists one category's codes with their titles and severity. A code that is not in the catalog is refused by name, not answered with an empty entry. |
 | `kennel_overview`, `kennel_repository`, `kennel_findings` | How the repositories this fleet serves measure up against what affects CI and the fleet: `GET /kennel`, `GET /kennel/repositories/{id}`, and `GET /kennel/repositories` narrowed by `code`, `severity`, `state` and `q`, and by the yes-or-no filters `tracked`, `active`, `incomplete` and `waived`, with `limit` (25 unless told) and `offset`. They only read: no tool waives a finding or asks for a repository to be read again, because that is a decision for a person. A finding's evidence, the pools and runs it is about, arrives in a block of its own after a notice that it is untrusted, and the list carries none. A response it cannot take apart is refused, not passed on. |
 | `list_providers`, `provider_pairings`, `list_machines` | The machines this fleet rents from an infrastructure provider such as Proxmox: `GET /providers`, `GET /providers/pairings` and `GET /machines`. `list_providers` also says `providers_available`, whether this controller can rent at all (read from the public `GET /meta`), so a full pool that buys nothing can be told apart from one with no provider added. `provider_pairings` takes `pool_id` or `provider_id` and says, for each pair, whether the provider would rent for the pool and whose selector or machine shape says no. `list_machines` takes `provider_id`, `pool_id`, `state` and `limit` (50 unless told). They only read and need `providers:read` and `machines:read`, which a viewer has; nothing configures, pauses or drains a provider or a machine, and no credential is ever returned. The texts a hypervisor or a new machine reported are untrusted. |
 | `rerun_job` | Only with `--allow-actions`. `POST /jobs/{id}/rerun`; needs `operator`. |
@@ -630,9 +631,10 @@ connector on claude.ai, needs no token at all: see
 [Connect Claude to Zoomies](connect-claude.md).
 
 Give it a `viewer` token, narrowed with `--scope` if the agent only needs some
-of the fleet. `--allow-actions` offers the two actions to the agent but grants
-nothing: a viewer token's re-run is still refused by the controller, and the
-agent is told which role was missing.
+of the fleet. `--allow-actions` offers the tools that change the fleet
+(`rerun_job`, `drain_runner`, `update_pool`, `update_host`, `apply_remedy` and
+`context_publish`) to the agent but grants nothing: a viewer token's re-run is
+still refused by the controller, and the agent is told which role was missing.
 
 A workflow's log, and its job, step and branch names, are text anyone who can
 open a pull request can write, so they are prompt-injection material for the

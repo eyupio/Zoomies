@@ -1,4 +1,8 @@
-import { THINKING_MOTIONS } from '../mascot/dog-motion';
+/**
+ * The routines EliThinking can run through. Each one moves the same dog icon and
+ * the same two paw prints, so adding one is a set of keyframes, not a drawing.
+ */
+export const THINKING_MOTIONS = ['zoomies', 'fetch', 'sniff', 'pounce', 'wiggle', 'orbit'] as const;
 
 export const THINKING_QUOTES = [
   'Give me a sniff. There is an answer here somewhere.',

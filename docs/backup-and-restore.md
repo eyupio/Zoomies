@@ -607,9 +607,17 @@ container caches, a running job or the service installation.
 Choose **Prepare for transfer** on the source. This one action pauses new demand,
 lets busy jobs finish naturally, safely withdraws idle runners and waits for
 cleanup and machine operations. It leaves saved pool settings intact and
-survives a restart. The progress counts identify what remains; an offline agent
-or failed cleanup must be resolved rather than assumed safe. When the counts
-reach zero, Zoomies raises its recovery fence and enables encrypted download.
+survives a restart. The page follows the drain as it happens: each step shows
+its count, and under it every runner, job and machine operation still in the
+way is named with the host it is on and what is being waited for, so "eight
+awaiting cleanup" is eight runners and the host that has to confirm each one
+gone. Only jobs on this fleet's own runners are waited for; a job on GitHub's
+hosted runners, or on another fleet, is not this controller's to drain. A host
+that has stopped sending heartbeats is named in the summary, because nobody
+but its agent can confirm its runners gone: start the agent again, or remove
+the host so its runners are forgotten. A failed cleanup is resolved on the
+Runners page rather than assumed safe. When the counts reach zero, Zoomies
+raises its recovery fence and enables encrypted download.
 
 Choose a passphrase and download the complete instance. Every retained fleet and team secret is
 converted to a fresh transfer key; that key travels only inside the encrypted

@@ -1,10 +1,14 @@
 <script lang="ts">
   import { onMount } from 'svelte';
+  import Badge from '$lib/components/Badge.svelte';
   import Button from '$lib/components/Button.svelte';
   import Field from '$lib/components/Field.svelte';
   import Input from '$lib/components/Input.svelte';
+  import RelativeTime from '$lib/components/RelativeTime.svelte';
   import RestartWait from './RestartWait.svelte';
   import { saveBlob } from './backups';
+  import { transferSteps, waitLabel, waitTone } from './transfer';
+  import { events } from '$lib/api/sse';
   import {
     ApiError,
     getTransferPreparation,
@@ -35,6 +39,12 @@
         ? cause.message
         : 'The transfer did not complete. Try again.';
   }
+  // The stream carries the preparation as it moves, in the shape the route
+  // returns, so a frame is dropped straight in. The fetch is for the first
+  // paint, for a reconnection whose gap could not be replayed, and once a
+  // while besides: a drain is the one thing an operator sits and watches,
+  // and a stream that quietly stopped should not leave them watching a
+  // number that is no longer true.
   onMount(() => {
     const abort = new AbortController();
     const poll = () => {
@@ -47,12 +57,22 @@
         });
     };
     poll();
-    const timer = setInterval(poll, 3000);
+    const timer = setInterval(poll, 15000);
+    const stops = [
+      events.subscribe('transfer.updated', (value) => {
+        progress = value;
+      }),
+      events.subscribe('resync', poll),
+    ];
     return () => {
       abort.abort();
       clearInterval(timer);
+      stops.forEach((stop) => stop());
     };
   });
+
+  const steps = $derived(progress?.draining && !progress.ready ? transferSteps(progress) : []);
+  const waitsOf = (kind: string) => (progress?.waiting ?? []).filter((w) => w.kind === kind);
 
   async function prepare() {
     busy = true;
@@ -144,11 +164,44 @@
         {#if progress?.ready}
           <p role="status">Ready to export. The instance is fenced.</p>
         {:else if progress?.draining}
-          <p role="status">
-            Preparing: {progress.busy_runners} busy runners, {progress.live_runners} runners remaining,
-            {progress.pending_cleanup} awaiting cleanup, {progress.active_jobs} running jobs and {progress.machine_operations}
-            machine operations. Offline hosts or unfinished cleanup need attention before export.
-          </p>
+          <p role="status" class="summary">{progress.summary}</p>
+          <ol class="progress" aria-label="Preparation progress">
+            {#each steps as step (step.kind)}
+              <li class="step" data-done={step.done} data-tone={step.tone}>
+                <div class="step-head">
+                  <span class="tick" aria-hidden="true">{step.done ? '✓' : '·'}</span>
+                  <span class="step-label">{step.label}</span>
+                  <Badge
+                    tone={step.tone}
+                    label={step.done ? 'Done' : String(step.count)}
+                    dot={false}
+                    size="sm"
+                  />
+                </div>
+                {#if step.note}<p class="note">{step.note}</p>{/if}
+                {#if waitsOf(step.kind).length > 0}
+                  <ul class="waits">
+                    {#each waitsOf(step.kind) as w (w.id)}
+                      <li class="wait">
+                        <Badge tone={waitTone(w)} label={waitLabel(w)} dot={false} size="sm" />
+                        <span class="wait-name">
+                          <span>{w.repo ? `${w.repo}: ${w.name}` : w.name}</span>
+                          {#if w.host}<span class="wait-host">on {w.host}</span>{/if}
+                        </span>
+                        <span class="wait-detail">
+                          <span>{w.detail}</span>
+                          {#if w.since}<RelativeTime value={w.since} prefix="since" plain />{/if}
+                        </span>
+                      </li>
+                    {/each}
+                    {#if step.count > waitsOf(step.kind).length}
+                      <li class="wait more">and {step.count - waitsOf(step.kind).length} more</li>
+                    {/if}
+                  </ul>
+                {/if}
+              </li>
+            {/each}
+          </ol>
           <Button onclick={() => void cancel()} loading={busy}>Cancel preparation</Button>
         {:else}
           <Button
@@ -305,5 +358,82 @@
   }
   .error {
     color: var(--z-danger);
+  }
+  .summary {
+    color: var(--z-text);
+  }
+  .progress {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-2);
+  }
+  .step {
+    border: var(--z-border-width) solid var(--z-border);
+    border-radius: var(--z-radius-md);
+    padding: var(--z-space-3);
+  }
+  .step[data-done='true'] {
+    color: var(--z-text-muted);
+  }
+  .step-head {
+    display: flex;
+    align-items: center;
+    gap: var(--z-space-2);
+  }
+  .step-label {
+    flex: 1;
+    font-weight: 500;
+  }
+  .tick {
+    width: 1em;
+    text-align: center;
+  }
+  .step[data-done='true'] .tick {
+    color: var(--z-idle);
+  }
+  .note {
+    margin-block: var(--z-space-1) 0;
+    font-size: var(--z-text-sm);
+  }
+  .waits {
+    list-style: none;
+    margin: var(--z-space-2) 0 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+    gap: var(--z-space-1);
+    font-size: var(--z-text-sm);
+  }
+  .wait {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: var(--z-space-2);
+    align-items: baseline;
+  }
+  .wait-name,
+  .wait-detail {
+    display: flex;
+    flex-wrap: wrap;
+    column-gap: var(--z-space-1);
+  }
+  .wait-name {
+    font-weight: 500;
+    color: var(--z-text);
+  }
+  .wait-host {
+    font-weight: 400;
+    color: var(--z-text-muted);
+  }
+  .wait-detail {
+    grid-column: 2;
+    color: var(--z-text-muted);
+  }
+  .more {
+    grid-template-columns: 1fr;
+    color: var(--z-text-muted);
   }
 </style>

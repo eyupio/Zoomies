@@ -390,7 +390,7 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 		}
 		provider, err = c.personalChatProvider(ctx, "", r.UserID)
 		if err != nil {
-			fail("The requester has no enabled personal default provider. Set one in Zoomies, Settings, Assistant, then ask again.")
+			fail("The requester has no enabled personal provider. Add one in Zoomies, Settings, Assistant, then ask again.")
 			return
 		}
 	} else {

@@ -16,7 +16,7 @@ export function contextPrompt(context: EliContext): string {
     .filter(([, value]) => value !== undefined && value !== null && value !== '')
     .map(([key, value]) => `${key}: ${value}`)
     .join('\n');
-  return `${context.question ?? 'Help me understand this situation, prioritise checks and suggest safe next steps.'}\n\nContext shared from the ${context.kind} UI: ${context.title}\n${facts}\n\nThese are a snapshot of displayed facts, not live access. Ask for missing evidence and distinguish facts from possible causes.`;
+  return `${context.question ?? 'Help me understand this situation, prioritise checks and suggest safe next steps.'}\n\nContext shared from the ${context.kind} UI: ${context.title}\n${facts}\n\nThese facts are a snapshot of what the page showed when I asked, not the fleet now: if you have tools, use them to check the current state before you rely on the snapshot. Ask for missing evidence and distinguish facts from possible causes.`;
 }
 
 const OPEN = '<follow-ups>';

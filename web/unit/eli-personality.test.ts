@@ -1,7 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { thinkingBeat, THINKING_QUOTES } from '../src/lib/assistant/personality';
-import { THINKING_MOTIONS } from '../src/lib/mascot/dog-motion';
+import { thinkingBeat, THINKING_MOTIONS, THINKING_QUOTES } from '../src/lib/assistant/personality';
 
 test('every starting point visits all quotes without repetition and all six routines', () => {
   for (let offset = 0; offset < THINKING_QUOTES.length; offset += 2) {
