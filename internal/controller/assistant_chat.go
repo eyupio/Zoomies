@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/eyupio/zoomies/internal/assistant"
+	"github.com/eyupio/zoomies/internal/redact"
 	"github.com/eyupio/zoomies/internal/store"
 )
 
@@ -226,6 +227,19 @@ func (c *Controller) StartAssistantChat(ctx context.Context, in AssistantChatReq
 	if err != nil {
 		return nil, err
 	}
+	// Nothing leaves for a model with a credential or an email address in it that
+	// the rules know: not what was typed or pasted, not what the page shared. The
+	// whole conversation is read each time, because all of it is sent each time, but
+	// only what is new in the last question is counted: the earlier ones were
+	// counted when they were asked, and saying so again would read as new trouble.
+	var hidden redact.Result
+	for i := range messages {
+		var res redact.Result
+		messages[i].Content, res = redact.Text(messages[i].Content)
+		if i == len(messages)-1 {
+			hidden = res
+		}
+	}
 	var row *store.AssistantProvider
 	if in.Personal {
 		row, err = c.personalChatProvider(ctx, in.ProviderID, in.OwnerID)
@@ -271,6 +285,7 @@ func (c *Controller) StartAssistantChat(ctx context.Context, in AssistantChatReq
 	chat := &AssistantChat{
 		Provider: row.Name, ProviderID: row.ID, Model: shown,
 		FleetAccess: len(req.Tools) > 0,
+		redacted:    hidden,
 		provider:    p, req: req, box: in.Tools, allowed: allowed, cancel: cancel,
 	}
 	if err := chat.open(ctx); err != nil {

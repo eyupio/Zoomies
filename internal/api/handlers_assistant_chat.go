@@ -84,6 +84,7 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 		s.auth.Auditor().Act(r.Context(), Identity(r.Context()), "assistant.chat", "assistant_provider", chat.ProviderID, map[string]any{
 			"provider": chat.Provider, "model": chat.Model, "fleet_access": chat.FleetAccess,
 			"tools": chat.ToolsUsed(), "outcome": outcome,
+			"credentials_hidden_count": chat.Redactions().Credentials, "emails_hidden_count": chat.Redactions().Emails,
 		})
 	}()
 	for {
@@ -108,7 +109,11 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 				return
 			}
 		case ev.Done:
-			send("done", map[string]any{"provider": chat.Provider, "model": chat.Model, "fleet_access": chat.FleetAccess, "tools": chat.ToolsUsed()})
+			hidden := chat.Redactions()
+			send("done", map[string]any{
+				"provider": chat.Provider, "model": chat.Model, "fleet_access": chat.FleetAccess, "tools": chat.ToolsUsed(),
+				"redacted": map[string]int{"credentials": hidden.Credentials, "emails": hidden.Emails},
+			})
 			return
 		case ev.Delta != "":
 			if !send("delta", map[string]string{"text": ev.Delta}) {

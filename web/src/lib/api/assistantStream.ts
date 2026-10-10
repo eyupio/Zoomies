@@ -12,7 +12,15 @@ export type ChatFrame =
   | { kind: 'delta'; text: string }
   | { kind: 'usage'; inputTokens: number; outputTokens: number }
   | { kind: 'tool'; name: string; status: 'running' | 'done' | 'failed' }
-  | { kind: 'done'; provider: string; model: string; fleetAccess: boolean; tools: string[] }
+  | {
+      kind: 'done';
+      provider: string;
+      model: string;
+      fleetAccess: boolean;
+      tools: string[];
+      /** How many credentials and email addresses were hidden from the model. */
+      redacted: { credentials: number; emails: number };
+    }
   | { kind: 'error'; message: string };
 
 export class FrameParser {
@@ -63,6 +71,10 @@ function parseBlock(block: string): ChatFrame | undefined {
       return { kind, name: text('name'), status };
     }
     case 'done': {
+      const redacted =
+        typeof payload['redacted'] === 'object' && payload['redacted'] !== null
+          ? (payload['redacted'] as Record<string, unknown>)
+          : {};
       const tools = Array.isArray(payload['tools'])
         ? payload['tools'].filter((t): t is string => typeof t === 'string')
         : [];
@@ -72,6 +84,10 @@ function parseBlock(block: string): ChatFrame | undefined {
         model: text('model'),
         fleetAccess: payload['fleet_access'] === true,
         tools,
+        redacted: {
+          credentials: wholeCount(redacted['credentials']),
+          emails: wholeCount(redacted['emails']),
+        },
       };
     }
     case 'error':
@@ -79,4 +95,9 @@ function parseBlock(block: string): ChatFrame | undefined {
     default:
       return undefined;
   }
+}
+
+/** A count from the controller, and nothing at all when it is not a whole number. */
+function wholeCount(v: unknown): number {
+  return typeof v === 'number' && Number.isInteger(v) && v > 0 ? v : 0;
 }

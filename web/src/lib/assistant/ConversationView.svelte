@@ -209,6 +209,9 @@
                   <span class="sr-only">Eli is thinking</span>
                 </p>
               {/if}
+              {#if turn.hidden}
+                <p class="hidden-note">{turn.hidden}</p>
+              {/if}
               {#if turn.error}
                 <p class="error" role="alert">{turn.error}</p>
               {/if}
@@ -470,6 +473,12 @@
   }
   .meta {
     margin-left: auto;
+    color: var(--z-text-subtle);
+  }
+
+  .hidden-note {
+    margin: var(--z-space-1) 0 0;
+    font-size: var(--z-text-xs);
     color: var(--z-text-subtle);
   }
 
