@@ -1335,8 +1335,9 @@ reopens Eli. The model has no live fleet access or mutation tools.
 Host and runner details and problem entries use the same action. Add another
 entry point by supplying its own display facts to `AskEli`; it needs no chat
 transport or page-specific event listener. `assistant/prompts.ts` holds the pure
-prompt builder and narrative registry. Add topic patterns and labelled steps
-there to extend follow-ups. Suggestions follow the latest question and answer,
-wait until streaming finishes, omit steps already asked, and keep general ways
-to continue available as new evidence arrives. These are local suggestions,
-not an additional model request.
+prompt builder and `splitFollowUps`. The controller asks the model to end each
+answer with a `<follow-ups>` block of questions specific to the conversation;
+the page strips the block from the answer, shows the questions under
+**Continue the conversation** once streaming finishes, and offers none when the
+model gave none. They arrive in the same response, not an additional model
+request.

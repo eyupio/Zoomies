@@ -22,7 +22,6 @@
   import EliAvatar from './EliAvatar.svelte';
   import EliThinking from './EliThinking.svelte';
   import Markdown from './Markdown.svelte';
-  import { followUps } from './prompts';
   import { toolLabel } from './tools';
 
   interface Props {
@@ -65,8 +64,8 @@
   let scroller = $state<HTMLElement>();
   let atBottom = $state(true);
 
-  const suggestions = $derived(followUps(conversation.turns));
   const last = $derived(conversation.turns[conversation.turns.length - 1]);
+  const suggestions = $derived(last?.error || last?.streaming ? [] : (last?.suggestions ?? []));
   // Changes as an answer grows or finishes (its actions appear), which is what the view follows.
   const growth = $derived(
     [

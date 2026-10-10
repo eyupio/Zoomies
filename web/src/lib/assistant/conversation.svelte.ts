@@ -10,7 +10,7 @@
 import { ApiError, streamAssistantChat } from '$lib/api/client';
 import { supportHint } from '$lib/errors';
 import { hiddenNote } from './redaction';
-import type { EliContext } from './prompts';
+import { splitFollowUps, type EliContext, type Suggestion } from './prompts';
 
 export interface Turn {
   id: number;
@@ -26,6 +26,8 @@ export interface Turn {
   fleetAccess?: boolean;
   /** What was hidden from the model before it answered, in words, or empty. */
   hidden?: string;
+  /** Questions the model proposed to ask next, once the answer is complete. */
+  suggestions?: Suggestion[];
   error?: string;
   streaming?: boolean;
 }
@@ -81,6 +83,8 @@ export class Conversation {
     this.busy = true;
     const controller = new AbortController();
     this.#controller = controller;
+    // The answer as the model wrote it, follow-up block included; the turn holds only what is read.
+    let raw = '';
     try {
       await streamAssistantChat(
         {
@@ -88,11 +92,14 @@ export class Conversation {
           ...(this.#provider ? { provider_id: this.#provider } : {}),
         },
         (frame) => {
-          if (frame.kind === 'delta') answer.content += frame.text;
-          else if (frame.kind === 'usage')
+          if (frame.kind === 'delta') {
+            raw += frame.text;
+            answer.content = splitFollowUps(raw).text;
+          } else if (frame.kind === 'usage')
             answer.tokens = `${frame.inputTokens} in, ${frame.outputTokens} out`;
           else if (frame.kind === 'tool') note(answer, frame.name, frame.status);
           else if (frame.kind === 'done') {
+            answer.suggestions = splitFollowUps(raw).suggestions;
             answer.by = `${frame.provider}, ${frame.model}`;
             answer.fleetAccess = frame.fleetAccess;
             answer.hidden = hiddenNote(frame.redacted.credentials, frame.redacted.emails);
