@@ -11,9 +11,7 @@
   Three things come from the driver's description of itself rather than from
   here: what to prepare before the first question (the guide), where each
   answer is found (a help icon beside the label), and the menus discovery can
-  offer once there is a credential to ask with. The same form is also shown as
-  the `zoomies providers add` line it would be in a terminal, on the review
-  step, because a wizard somebody wants to script is a wizard they read once.
+  offer once there is a credential to ask with.
 
   Two things are borrowed from the pool wizard on purpose. Numbers are held as
   strings in the draft, because '' and '0' are different answers and
@@ -75,7 +73,6 @@
     emptyDraft,
     FIELD_LABELS,
     normaliseEndpoint,
-    providerCommand,
     stepForField,
     STEP_FIELDS,
     suggestName,
@@ -297,9 +294,6 @@
   const clientErrors = $derived(draftErrors(draft, specs, { editing }));
   const body = $derived(toProviderBody(draft));
   const nothingRented = $derived(willRentNothing(draft));
-  const command = $derived(
-    providerCommand(draft, { editing, existingName: provider?.name ?? undefined, specs }),
-  );
   /** The host the credential is being asked about, for the sentences below. */
   const endpointHost = $derived.by(() => {
     try {
@@ -1332,21 +1326,6 @@
           </div>
         </dl>
 
-        {#if !draft.setup_id}
-          <section class="terminal" aria-label="The same thing from a terminal">
-            <p class="prose">
-              {editing ? 'The same change' : 'The same provider'}, as one command for a shell that
-              can reach Zoomies, for a setup you would rather keep in a script. It asks for the
-              credential itself, so nothing secret is in the line.
-            </p>
-            <div class="command">
-              <pre class="mono"><code>{command}</code></pre>
-              <div class="command-actions">
-                <CopyButton value={command} label="Copy the command" size="md" showLabel />
-              </div>
-            </div>
-          </section>
-        {/if}
         <section class="verdict" aria-live="polite" aria-label="What the controller makes of it">
           {#if validating && !verdict}
             <p class="note">Asking the controller…</p>
@@ -1504,11 +1483,6 @@
     display: flex;
     flex-direction: column;
     gap: var(--z-space-2);
-  }
-  .terminal {
-    display: flex;
-    flex-direction: column;
-    gap: var(--z-space-3);
   }
   .advanced {
     border: var(--z-border-width) solid var(--z-border);
