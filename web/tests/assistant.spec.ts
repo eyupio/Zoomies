@@ -428,19 +428,21 @@ test('a provider card keeps its long kind label inside the card on a narrow scre
 }) => {
   // The OpenAI-compatible label is the longest a card carries, and a badge is
   // one line, so it once ran out of the card on the right.
-  await page.route('**/api/v1/assistant/providers', async (route) => {
-    const res = await route.fetch();
-    const body = await res.json();
-    body.items = body.items.map((p: Record<string, unknown>) => ({
-      ...p,
-      kind: 'openai_compatible',
-      fleet_access: true,
-    }));
-    await route.fulfill({ json: body });
-  });
+  // The list is read up front, the way the other specs read the API, and served
+  // back with every provider claiming that kind: the page then draws the label
+  // without a real OpenAI-compatible provider, which needs a key to be added.
+  const list = await (await page.request.get('/api/v1/assistant/providers')).json();
+  const items = list.items.map((p: Record<string, unknown>) => ({
+    ...p,
+    kind: 'openai_compatible',
+    fleet_access: true,
+  }));
+  await page.route('**/api/v1/assistant/providers', (route) =>
+    route.fulfill({ json: { ...list, items } }),
+  );
   await page.setViewportSize({ width: 390, height: 800 });
   await goto(page, '/settings/assistant', 'Assistant');
-  const card = page.getByRole('article', { name: 'Demo model (built in)' });
+  const card = page.getByRole('article').first();
   const badge = card.locator('.badge', { hasText: 'OpenAI-compatible server' });
   await expect(badge).toBeVisible();
   const [cardBox, badgeBox] = await Promise.all([card.boundingBox(), badge.boundingBox()]);
