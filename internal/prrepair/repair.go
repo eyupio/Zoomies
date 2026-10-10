@@ -40,6 +40,28 @@ type Message struct {
 type Model interface {
 	Answer(context.Context, []Message) (string, error)
 }
+
+// ReadError is a file Eli asked for and could not have. Its text is written for
+// the person reading the PR comment it ends up in, which is why it is a type
+// and not a string: a comment starts with a capital and ends with a sentence,
+// and an error string in Go does neither.
+type ReadError struct {
+	Path string
+	// Err is why the read failed, or nil when the file was read but is not
+	// something Eli may use (too large, or not text).
+	Err error
+}
+
+func (e *ReadError) Error() string {
+	const advice = "Point Eli at a smaller change, or fix that file by hand."
+	if e.Err != nil {
+		return fmt.Sprintf("Eli needed to read `%s` and could not: %v. %s", e.Path, e.Err, advice)
+	}
+	return fmt.Sprintf("Eli needed to read `%s`, but it is larger than %d KiB or is not plain text. %s", e.Path, MaxFileBytes/1024, advice)
+}
+
+func (e *ReadError) Unwrap() error { return e.Err }
+
 type Reader interface {
 	ReadFile(context.Context, string) (File, error)
 }
@@ -137,10 +159,10 @@ func Generate(ctx context.Context, model Model, reader Reader, s Snapshot, instr
 				}
 				f, err := reader.ReadFile(ctx, name)
 				if err != nil {
-					return Plan{}, fmt.Errorf("Eli needed to read `%s` and could not: %w. Point Eli at a smaller change, or fix that file by hand.", name, err)
+					return Plan{}, &ReadError{Path: name, Err: err}
 				}
 				if len(f.Content) > MaxFileBytes || !utf8.ValidString(f.Content) || strings.ContainsRune(f.Content, 0) {
-					return Plan{}, fmt.Errorf("Eli needed to read `%s`, but it is larger than %d KiB or is not plain text. Point Eli at a smaller change, or fix that file by hand.", name, MaxFileBytes/1024)
+					return Plan{}, &ReadError{Path: name}
 				}
 				sourceBytes += len(f.Content)
 				if sourceBytes > MaxSourceBytes {

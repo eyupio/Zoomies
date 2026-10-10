@@ -94,3 +94,13 @@ func TestRepairRedactionRemovesTheWholePrivateKeyRatherThanJustItsHeader(t *test
 		t.Fatal("unterminated key leaked")
 	}
 }
+
+// The text ends up in a PR comment, so it names the file and says what to do.
+func TestAFileEliCannotReadIsNamedAndComesWithAdvice(t *testing.T) {
+	for _, e := range []*ReadError{{Path: "big.sql"}, {Path: "x.go", Err: fmt.Errorf("not found")}} {
+		got := e.Error()
+		if !strings.Contains(got, "`"+e.Path+"`") || !strings.Contains(got, "fix that file by hand") {
+			t.Errorf("unhelpful message %q", got)
+		}
+	}
+}
