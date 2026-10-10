@@ -1273,8 +1273,10 @@ Avatar hover greetings vary between a tilt, a boop and a wiggle. All animations
 are disabled for reduced motion.
 The panel offers Compact, Default
 and Expanded sizes, left or right placement, manual corner resizing and a
-full-screen view. Size and side are browser preferences. A phone uses the whole
-screen. Minimising or navigating preserves the conversation and draft; a reload,
+full-screen view. Size and side are browser preferences. A phone shows the panel
+as a sheet inset by `--z-space-3` on every side, above the scrim every modal
+shares, with the rest of the page inert; the sizes and sides do not apply there.
+Minimising or navigating preserves the conversation and draft; a reload,
 sign-out or New conversation clears them. Chat uses the owner-scoped personal API and that user’s enabled default
 provider. Installation provider management retains its administrator gate.
 

@@ -785,6 +785,31 @@ test('Eli has a circular launcher and can roam without leaving the viewport', as
   await expect.poll(async () => (await panel.boundingBox())!.x).toBeGreaterThan(100);
 });
 
+// A phone used to get the panel edge to edge, with its border drawn at the
+// screen's edge, so it read as a page rather than the sheet it is. It now sits
+// inside the same small margin the Toaster and the Dialog keep on a phone, with
+// the UI's radius, above a scrim, and a tap on the scrim puts it away.
+test('on a phone the panel is a sheet with a margin, rounded corners and a scrim behind it', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(!isMobile, 'Desktop keeps the floating panel.');
+  await goto(page, '/settings/assistant', 'Eli AI Assistant');
+  await openEli(page);
+  const panel = page.getByRole('dialog', { name: 'Eli assistant' });
+  const viewport = page.viewportSize()!;
+  const rect = (await panel.boundingBox())!;
+  expect(rect.x).toBeGreaterThanOrEqual(8);
+  expect(rect.x + rect.width).toBeLessThanOrEqual(viewport.width - 8);
+  expect(rect.y).toBeGreaterThan(0);
+  expect(rect.y + rect.height).toBeLessThan(viewport.height);
+  expect(await panel.evaluate((el) => getComputedStyle(el).borderRadius)).not.toBe('0px');
+  const scrim = page.locator('[data-eli-scrim]');
+  await expect(scrim).toBeVisible();
+  await scrim.click({ position: { x: 2, y: 2 } });
+  await expect(panel).toBeHidden();
+});
+
 test('thinking varies its quotes and routines, respects reduced motion and stops with the answer', async ({
   page,
 }) => {
