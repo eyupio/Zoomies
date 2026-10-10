@@ -110,6 +110,29 @@ func (c *Controller) enqueueRepairWebhook(ctx context.Context, inst *store.Insta
 		if r.UserID == "" {
 			return nil
 		}
+		user, err := c.st.GetUser(ctx, r.UserID)
+		if err != nil || user.Disabled {
+			return nil
+		}
+		admissionCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		raw, err := c.ClientFor(admissionCtx, inst.ID)
+		if err != nil {
+			cancel()
+			return err
+		}
+		client, supported := raw.(github.RepairClient)
+		if !supported {
+			cancel()
+			return nil
+		}
+		actor, err := client.RepairActor(admissionCtx, r.Repo, p.Comment.User.Login)
+		cancel()
+		if err != nil {
+			return err
+		}
+		if actor.ID != p.Comment.User.ID || !actor.CanWrite {
+			return nil
+		}
 		r.PullNumber = p.Issue.Number
 		r.GitHubUserID = p.Comment.User.ID
 		r.GitHubLogin = p.Comment.User.Login
@@ -134,6 +157,31 @@ func (c *Controller) enqueueRepairWebhook(ctx context.Context, inst *store.Insta
 		if ownCommit {
 			return nil
 		}
+		// A failing default-branch run must not spend a PR's budget. GitHub's job
+		// delivery has no PR association, so resolve the pinned run before admission.
+		admissionCtx, cancel := context.WithTimeout(ctx, 10*time.Second)
+		raw, err := c.ClientFor(admissionCtx, inst.ID)
+		if err != nil {
+			cancel()
+			return err
+		}
+		client, supported := raw.(github.RepairClient)
+		if !supported {
+			cancel()
+			return nil
+		}
+		pull, err := client.RepairPullForRun(admissionCtx, r.Repo, e.RunID)
+		cancel()
+		if errors.Is(err, github.ErrRepairUnsupported) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		if pull.HeadSHA != e.HeadSHA {
+			return nil
+		}
+		r.PullNumber = pull.Number
 		r.JobID = e.JobID
 		r.RunID = e.RunID
 		r.HeadSHA = e.HeadSHA
@@ -233,6 +281,14 @@ func (c *Controller) repairNotice(ctx context.Context, client github.RepairClien
 	r.CommentID = id
 	_ = c.st.SaveEliRepair(ctx, r)
 }
+
+// Model deadlines stop work, but must not prevent recording its terminal outcome.
+func (c *Controller) persistEliRepair(ctx context.Context, r *store.EliRepair) error {
+	persistCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+	defer cancel()
+	return c.st.SaveEliRepair(persistCtx, r)
+}
+
 func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 	defer cancel()
@@ -240,14 +296,14 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 	if err != nil || r.Trigger == "automatic" && !policy.Automatic {
 		r.State = "blocked"
 		r.Message = "Repository repairs are disabled or the installation changed."
-		_ = c.st.SaveEliRepair(ctx, r)
+		_ = c.persistEliRepair(ctx, r)
 		return
 	}
 	raw, err := c.ClientFor(ctx, r.InstallationID)
 	if err != nil {
 		r.State = "blocked"
 		r.Message = "The GitHub installation is unavailable."
-		_ = c.st.SaveEliRepair(ctx, r)
+		_ = c.persistEliRepair(ctx, r)
 		return
 	}
 	installation, installationErr := c.st.GetInstallation(ctx, r.InstallationID)
@@ -255,18 +311,18 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 	if !ok || installationErr != nil {
 		r.State = "blocked"
 		r.Message = "This GitHub client does not support PR repair."
-		_ = c.st.SaveEliRepair(ctx, r)
+		_ = c.persistEliRepair(ctx, r)
 		return
 	}
 	r.State = "working"
 	r.Message = "Reading the PR and failed-job evidence."
-	if err := c.st.SaveEliRepair(ctx, r); err != nil {
+	if err := c.persistEliRepair(ctx, r); err != nil {
 		return
 	}
 	fail := func(message string) {
 		r.State = "failed"
 		r.Message = prrepair.Redact(message)
-		_ = c.st.SaveEliRepair(ctx, r)
+		_ = c.persistEliRepair(ctx, r)
 		c.repairNotice(ctx, client, r, r.Message)
 	}
 	var pull github.RepairPull
@@ -291,7 +347,7 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 		if err != nil || actor.ID != r.GitHubUserID || !actor.CanWrite {
 			r.State = "blocked"
 			r.Message = "The requester needs current repository write permission."
-			_ = c.st.SaveEliRepair(ctx, r)
+			_ = c.persistEliRepair(ctx, r)
 			return
 		}
 		user, err := c.st.GetUser(ctx, r.UserID)
@@ -329,7 +385,7 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 		return
 	}
 	r.ProviderID = provider.ID
-	_ = c.st.SaveEliRepair(ctx, r)
+	_ = c.persistEliRepair(ctx, r)
 	c.repairNotice(ctx, client, r, "Investigating this PR using "+provider.Name+". The repair is limited to one commit and will leave normal review in place.")
 	source, err := client.RepairSource(ctx, r.Repo, pull, policy.AllowWorkflows)
 	if err != nil {
@@ -401,9 +457,11 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 		return
 	}
 	r.CommitSHA = sha
+	published := c.Now()
+	r.PublishedAt = &published
 	r.State = "checking"
 	r.Message = plan.Summary + " CI has not been verified yet."
-	if err := c.st.SaveEliRepair(ctx, r); err != nil {
+	if err := c.persistEliRepair(ctx, r); err != nil {
 		c.log.Error("could not record the published Eli repair", "repair", r.ID)
 		return
 	}
@@ -418,12 +476,18 @@ func (c *Controller) checkEliRepairs(ctx context.Context) {
 		if r.State != "checking" {
 			continue
 		}
+		checkStarted := r.UpdatedAt
+		if r.PublishedAt != nil {
+			checkStarted = *r.PublishedAt
+		} else {
+			r.PublishedAt = &checkStarted
+		}
 		if c.Now().Sub(r.UpdatedAt) < 30*time.Second {
 			continue
 		}
 		raw, e := c.ClientFor(ctx, r.InstallationID)
 		if e != nil {
-			if c.Now().Sub(r.CreatedAt) >= time.Hour {
+			if c.Now().Sub(checkStarted) >= time.Hour {
 				r.State = "unverified"
 				r.Message = "The GitHub installation is unavailable. Check the PR's CI results before accepting the repair."
 				_ = c.st.SaveEliRepair(ctx, r)
@@ -443,7 +507,7 @@ func (c *Controller) checkEliRepairs(ctx context.Context) {
 			state, e = client.RepairChecks(checkCtx, r.Repo, r.CommitSHA)
 		}
 		cancel()
-		if e != nil && c.Now().Sub(r.CreatedAt) < time.Hour {
+		if e != nil && c.Now().Sub(checkStarted) < time.Hour {
 			continue
 		}
 		switch state {
@@ -457,7 +521,7 @@ func (c *Controller) checkEliRepairs(ctx context.Context) {
 			r.State = "superseded"
 			r.Message = "The PR has a newer commit. This repair's checks no longer describe its current head."
 		default:
-			if c.Now().Sub(r.CreatedAt) < time.Hour {
+			if c.Now().Sub(checkStarted) < time.Hour {
 				r.UpdatedAt = c.Now()
 				_ = c.st.SaveEliRepair(ctx, r)
 				continue

@@ -19,7 +19,6 @@ class Eli {
   open = $state(false);
   pending = $state<EliContext[]>([]);
   returnFocus: HTMLElement | null = null;
-  #loaded = $state(false);
   #revision = 0;
 
   /**
@@ -33,7 +32,7 @@ class Eli {
 
   /** Whether the widget is shown at all. */
   get available(): boolean {
-    return this.#loaded && session.phase === 'ready' && session.can('viewer') && !!this.answering;
+    return session.phase === 'ready' && session.can('viewer');
   }
 
   /** Whether Eli can read the fleet through the provider that answers. */
@@ -58,18 +57,13 @@ class Eli {
       // simply does not offer one, and the Settings page says what is wrong.
       if (revision !== this.#revision) return;
       this.providers = [];
-    } finally {
-      if (revision === this.#revision) this.#loaded = true;
     }
-    if (!this.answering) this.open = false;
   }
 
   /** Use the providers a page has just read, without asking again. */
   know(providers: readonly AssistantProvider[]): void {
     this.#revision++;
     this.providers = providers;
-    this.#loaded = true;
-    if (!this.answering) this.open = false;
   }
 
   show(): void {
@@ -116,7 +110,6 @@ class Eli {
     this.providers = [];
     this.pending = [];
     this.open = false;
-    this.#loaded = false;
   }
 }
 

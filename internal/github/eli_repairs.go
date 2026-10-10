@@ -3,6 +3,7 @@ package github
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/url"
@@ -12,6 +13,9 @@ import (
 	"github.com/eyupio/zoomies/internal/prrepair"
 	gh "github.com/google/go-github/v88/github"
 )
+
+// ErrRepairUnsupported identifies a run that cannot be admitted as a PR repair.
+var ErrRepairUnsupported = errors.New("unsupported PR repair target")
 
 type RepairActor struct {
 	ID       int64
@@ -117,7 +121,7 @@ func (c *appClient) RepairPull(ctx context.Context, repo string, number int) (Re
 	}
 	out := RepairPull{Number: p.Number, AuthorID: p.User.ID, Author: p.User.Login, Branch: p.Head.Ref, HeadSHA: p.Head.SHA, Title: p.Title, Body: p.Body, URL: p.HTMLURL, DefaultBranch: p.Head.Repo.DefaultBranch, Fork: p.Head.Repo.FullName != repo, Open: p.State == "open"}
 	if out.Number <= 0 || !out.Open || out.Fork || out.HeadSHA == "" || out.Branch == "" || out.Branch == out.DefaultBranch {
-		return out, fmt.Errorf("an Eli repair needs an open PR on a non-default branch in this repository; forks are not writable")
+		return out, fmt.Errorf("%w: an Eli repair needs an open PR on a non-default branch in this repository; forks are not writable", ErrRepairUnsupported)
 	}
 	return out, nil
 }
@@ -139,17 +143,17 @@ func (c *appClient) RepairPullForRun(ctx context.Context, repo string, run int64
 		return RepairPull{}, err
 	}
 	if r.HeadRepository.FullName != repo {
-		return RepairPull{}, fmt.Errorf("an Eli repair does not support fork workflow runs")
+		return RepairPull{}, fmt.Errorf("%w: fork workflow runs are not writable", ErrRepairUnsupported)
 	}
 	if len(r.Pulls) != 1 {
-		return RepairPull{}, fmt.Errorf("the failed run must identify exactly one pull request")
+		return RepairPull{}, fmt.Errorf("%w: the failed run must identify exactly one pull request", ErrRepairUnsupported)
 	}
 	p, err := c.RepairPull(ctx, repo, r.Pulls[0].Number)
 	if err != nil {
 		return p, err
 	}
 	if p.HeadSHA != r.HeadSHA {
-		return p, ErrSetupConflict
+		return p, ErrRepairUnsupported
 	}
 	return p, nil
 }

@@ -65,6 +65,7 @@ CREATE TABLE eli_repairs (
     state TEXT NOT NULL DEFAULT 'queued',
     message TEXT NOT NULL DEFAULT '',
     comment_id INTEGER NOT NULL DEFAULT 0,
+    published_at INTEGER,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL
 );

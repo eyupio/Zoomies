@@ -3355,16 +3355,20 @@ export interface paths {
          * Personal provider, Ask the assistant's model a question
          * @description Answers a conversation as a `text/event-stream`: `delta` frames carrying
          *     `{"text": ...}` as the model writes, one `usage` frame with
-         *     `{"input_tokens", "output_tokens"}` when the provider reports them, and a final
-         *     `done` frame with the provider's name and the model, or an `error` frame with a
+         *     `{"input_tokens", "output_tokens"}` when the provider reports them, `tool` frames
+         *     reporting read-only fleet lookups when enabled, and a final `done` frame with
+         *     the provider's name, model, `fleet_access` and `tools`, or an `error` frame with a
          *     `message` if the answer failed after it began (the status had gone out with the
          *     first byte by then).
          *
          *     The controller keeps nothing between requests: send the conversation so far,
          *     ending in the person's question, and send it again with the next one. Only
          *     `user` and `assistant` messages are accepted. The model is told what Zoomies
-         *     is and that it cannot see this fleet or change anything; no tool is offered
-         *     and no fleet data is attached automatically. UI Ask Eli actions include a snapshot of the displayed facts in the user message.
+         *     is. With `fleet_access` off it has no fleet tools. With it on, it receives the
+         *     fixed read-only tools using the caller's permissions. UI Ask Eli actions include
+         *     a snapshot of displayed facts in the user message. Only the caller's personal
+         *     providers may be selected; installation keys are never a fallback. Controller
+         *     subscription tools additionally require administrator permission.
          *
          *     Everything that can be refused is refused before the stream opens: a conversation
          *     that is empty, too long or does not end in a user message is a 422 naming the
@@ -9338,13 +9342,13 @@ export interface components {
             is_default: boolean;
             /** @description The address names this machine or a private network. */
             local: boolean;
-            /** @description The assistant may read this fleet through the provider. An administrator's decision per provider, off until made: what the tools return is sent to the provider, which for a hosted one leaves this network. */
+            /** @description The assistant may read this fleet through the provider. The personal provider's owner chooses this; administrators choose it for installation providers. Off until enabled: what the tools return is sent to the provider, which for a hosted one leaves this network. */
             fleet_access: boolean;
             /** @description Somebody's own subscription, used through the vendor's own tool on the controller's machine. Such a provider belongs to the person who added it. */
             subscription: boolean;
-            /** @description The username it belongs to */
+            /** @description The username a personal provider belongs to. */
             owner?: string;
-            /** @description The person asking is the owner of this subscription. */
+            /** @description The person asking owns this personal provider. */
             owned_by_you: boolean;
             /** @description The person asking may use this provider: it is shared, or it is their own subscription. Anyone else's gets a 403 `assistant.provider_not_yours` where it is used, changed or tested. */
             usable: boolean;

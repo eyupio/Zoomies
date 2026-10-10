@@ -639,3 +639,37 @@ test('a runner contextual action asks Eli with its displayed snapshot', async ({
   expect(asked[0]!.messages[0]!.content).toContain('State:');
   await expect(panel.getByText(/^Shared runner:/)).toBeVisible();
 });
+
+test('changing the personal default updates an already open Eli panel', async ({
+  page,
+  isMobile,
+}) => {
+  test.skip(isMobile, 'The mobile panel deliberately keeps the settings behind it inert.');
+  await goto(page, '/settings/assistant', 'Assistant');
+  const res = await page.request.post('/api/v1/assistant/personal/providers', {
+    data: { name: 'Another model', kind: 'fake', model: 'demo' },
+  });
+  expect(res.ok()).toBeTruthy();
+  const added = await res.json();
+  try {
+    await page.reload();
+    await openEli(page);
+    await page
+      .getByRole('article', { name: 'Another model', exact: true })
+      .getByRole('button', { name: 'Set as default' })
+      .click();
+    const panel = page.getByRole('dialog', { name: 'Eli assistant' });
+    await expect(panel.getByText(/Answers from Another model/)).toBeVisible();
+    const asked = page.waitForRequest((r) => r.url().endsWith('/assistant/personal/chat'));
+    await panel.getByRole('textbox', { name: 'Message' }).fill('Use my new default');
+    await panel.getByRole('button', { name: 'Send', exact: true }).click();
+    expect((await asked).postDataJSON().provider_id).toBe(added.id);
+  } finally {
+    const providers = await (await page.request.get('/api/v1/assistant/providers')).json();
+    const demo = providers.items.find((p: { name: string }) => p.name === 'Demo model (built in)');
+    await page.request.post(`/api/v1/assistant/providers/${demo.id}/default`, { data: {} });
+    await page.request.delete(`/api/v1/assistant/personal/providers/${added.id}`, {
+      data: { name: added.name },
+    });
+  }
+});

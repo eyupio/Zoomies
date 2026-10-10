@@ -29,6 +29,8 @@ func TestRepairMentionsIgnoreQuotesFencesAndUnrelatedNames(t *testing.T) {
 func TestRepairAdmissionRequiresLinkedHumanCommentAndDeduplicates(t *testing.T) {
 	h := newHarness(t)
 	inst := h.installation()
+	fake := &repairFake{Client: h.gh.Client(inst.Target, inst.TargetType)}
+	h.c.clients.entries[inst.ID] = &clientEntry{client: fake, updatedAt: inst.UpdatedAt.Truncate(time.Millisecond)}
 	repo := inst.Target + "/repo"
 	p := &store.AssistantProvider{Name: "install", Kind: "openai", Enabled: true}
 	if e := h.st.CreateAssistantProvider(h.ctx, p); e != nil {
@@ -61,7 +63,7 @@ func TestRepairAdmissionRequiresLinkedHumanCommentAndDeduplicates(t *testing.T) 
 		if rec := h.deliver("issue_comment", body, testWebhookSecret); rec.Code != 202 {
 			t.Fatalf("signed delivery: %d %s", rec.Code, rec.Body.String())
 		}
-		if rec := h.deliver("issue_comment", body, "forged"); rec.Code == 200 {
+		if rec := h.deliver("issue_comment", body, "forged"); rec.Code >= 200 && rec.Code < 300 {
 			t.Fatal("forged repair delivery accepted")
 		}
 	}
@@ -75,13 +77,15 @@ func TestRepairAdmissionRequiresLinkedHumanCommentAndDeduplicates(t *testing.T) 
 // progress and publication decision are the same path the worker runs.
 type repairFake struct {
 	github.Client
-	commits int
-	check   string
-	onRead  func()
+	commits        int
+	check          string
+	onRead         func()
+	unsupportedRun bool
+	noWrite        bool
 }
 
 func (f *repairFake) RepairActor(context.Context, string, string) (github.RepairActor, error) {
-	return github.RepairActor{ID: 42, Login: "octo", CanWrite: true}, nil
+	return github.RepairActor{ID: 42, Login: "octo", CanWrite: !f.noWrite}, nil
 }
 func (f *repairFake) RepairPull(context.Context, string, int) (github.RepairPull, error) {
 	head := "old"
@@ -91,6 +95,9 @@ func (f *repairFake) RepairPull(context.Context, string, int) (github.RepairPull
 	return github.RepairPull{Number: 1, Branch: "feature", HeadSHA: head, Open: true}, nil
 }
 func (f *repairFake) RepairPullForRun(ctx context.Context, repo string, _ int64) (github.RepairPull, error) {
+	if f.unsupportedRun {
+		return github.RepairPull{}, github.ErrRepairUnsupported
+	}
 	return f.RepairPull(ctx, repo, 1)
 }
 func (f *repairFake) RepairSource(context.Context, string, github.RepairPull, bool) (*github.RepairSource, error) {
@@ -116,7 +123,7 @@ func (f *repairFake) RepairChecks(context.Context, string, string) (string, erro
 	return f.check, nil
 }
 func TestRepairWorkerSelectsTheHybridProviderAndRecordsRealCheckOutcome(t *testing.T) {
-	for _, trigger := range []string{"mention", "automatic", "revoked", "expired-lease"} {
+	for _, trigger := range []string{"mention", "automatic", "revoked", "expired-lease", "cancelled", "queued-old"} {
 		t.Run(trigger, func(t *testing.T) {
 			h := newHarness(t)
 			inst := h.installation()
@@ -148,7 +155,10 @@ func TestRepairWorkerSelectsTheHybridProviderAndRecordsRealCheckOutcome(t *testi
 			}
 			repo := "acme/repo"
 			h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: shared.ID, Enabled: true, Automatic: true, DailyLimit: 5})
-			actualTrigger := trigger
+			actualTrigger := "mention"
+			if trigger == "automatic" {
+				actualTrigger = "automatic"
+			}
 			if trigger == "revoked" || trigger == "expired-lease" {
 				actualTrigger = "mention"
 				fake.onRead = func() {
@@ -161,7 +171,25 @@ func TestRepairWorkerSelectsTheHybridProviderAndRecordsRealCheckOutcome(t *testi
 			}
 			row := &store.EliRepair{DedupKey: trigger, Repo: repo, InstallationID: inst.ID, PullNumber: 1, HeadSHA: "old", RunID: 9, Trigger: actualTrigger, UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
 			h.st.EnqueueEliRepair(h.ctx, row, 5)
-			h.c.runEliRepair(h.ctx, row)
+			if trigger == "queued-old" {
+				h.advance(2 * time.Hour)
+				fake.check = "waiting"
+			}
+			runCtx := h.ctx
+			if trigger == "cancelled" {
+				var cancel context.CancelFunc
+				runCtx, cancel = context.WithCancel(h.ctx)
+				defer cancel()
+				fake.onRead = cancel
+			}
+			h.c.runEliRepair(runCtx, row)
+			if trigger == "cancelled" {
+				rows, _ := h.st.ListEliRepairs(h.ctx)
+				if len(rows) != 1 || rows[0].State != "failed" || fake.commits != 0 {
+					t.Fatalf("cancelled repair stuck: %+v", rows)
+				}
+				return
+			}
 			if trigger == "expired-lease" {
 				if fake.commits != 0 || row.State != "failed" || !strings.Contains(row.Message, "stopped before publication") {
 					t.Fatalf("published without a current lease: %+v", row)
@@ -183,6 +211,19 @@ func TestRepairWorkerSelectsTheHybridProviderAndRecordsRealCheckOutcome(t *testi
 			}
 			h.advance(31 * time.Second)
 			h.c.checkEliRepairs(h.ctx)
+			if trigger == "queued-old" {
+				rows, _ := h.st.CheckingEliRepairs(h.ctx)
+				if len(rows) != 1 {
+					t.Fatal("queue age shortened the verification window")
+				}
+				h.advance(time.Hour)
+				h.c.checkEliRepairs(h.ctx)
+				all, _ := h.st.ListEliRepairs(h.ctx)
+				if all[0].State != "unverified" {
+					t.Fatalf("verification never expired: %+v", all[0])
+				}
+				return
+			}
 			rows, _ := h.st.CheckingEliRepairs(h.ctx)
 			if len(rows) != 0 {
 				t.Fatal("failed checks remained pending")
@@ -212,5 +253,74 @@ func TestRepairWorkerStopsBeforeModelUseWhenPersonalProviderIsMissing(t *testing
 	h.c.runEliRepair(h.ctx, row)
 	if row.State != "failed" || fake.commits != 0 || !strings.Contains(row.Message, "personal default") {
 		t.Fatalf("installation fallback: %+v", row)
+	}
+}
+
+func TestAutomaticRepairIgnoresNonPRFailuresBeforeChargingTheBudget(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	repo := inst.Target + "/repo"
+	fake := &repairFake{Client: h.gh.Client(inst.Target, inst.TargetType), unsupportedRun: true}
+	h.c.clients.entries[inst.ID] = &clientEntry{client: fake, updatedAt: inst.UpdatedAt.Truncate(time.Millisecond)}
+	p := &store.AssistantProvider{Name: "Install", Kind: "openai", Enabled: true}
+	h.st.CreateAssistantProvider(h.ctx, p)
+	h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: p.ID, Enabled: true, Automatic: true, DailyLimit: 1})
+	body, _ := json.Marshal(map[string]any{"action": "completed", "repository": map[string]any{"full_name": repo}, "workflow_job": map[string]any{"id": 12, "run_id": 9, "head_sha": "old", "conclusion": "failure"}})
+	if err := h.c.enqueueRepairWebhook(h.ctx, inst, "workflow_job", body); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := h.st.ListEliRepairs(h.ctx)
+	if len(rows) != 0 {
+		t.Fatal("non-PR job charged the budget")
+	}
+	fake.unsupportedRun = false
+	if err := h.c.enqueueRepairWebhook(h.ctx, inst, "workflow_job", body); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = h.st.ListEliRepairs(h.ctx)
+	if len(rows) != 1 || rows[0].PullNumber != 1 {
+		t.Fatalf("PR was not admitted: %+v", rows)
+	}
+}
+
+func TestLinkedCommentCannotSpendTheBudgetAfterRepositoryAccessIsRemoved(t *testing.T) {
+	h := newHarness(t)
+	inst := h.installation()
+	repo := inst.Target + "/repo"
+	fake := &repairFake{Client: h.gh.Client(inst.Target, inst.TargetType), noWrite: true}
+	h.c.clients.entries[inst.ID] = &clientEntry{client: fake, updatedAt: inst.UpdatedAt.Truncate(time.Millisecond)}
+	p := &store.AssistantProvider{Name: "Install", Kind: "openai", Enabled: true}
+	h.st.CreateAssistantProvider(h.ctx, p)
+	h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: p.ID, Enabled: true, DailyLimit: 1})
+	user := &store.User{Username: "octo", Role: store.RoleViewer}
+	h.st.CreateUser(h.ctx, user)
+	h.st.SetEliIdentity(h.ctx, store.EliIdentity{UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"})
+	h.st.ConfirmEliIdentity(h.ctx, user.ID, 42, true)
+	body, _ := json.Marshal(map[string]any{"action": "created", "repository": map[string]any{"full_name": repo}, "issue": map[string]any{"number": 1, "pull_request": map[string]any{}}, "comment": map[string]any{"id": 101, "body": "@eli fix this PR", "user": map[string]any{"id": 42, "login": "octo", "type": "User"}}, "sender": map[string]any{"id": 42}})
+	if err := h.c.enqueueRepairWebhook(h.ctx, inst, "issue_comment", body); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ := h.st.ListEliRepairs(h.ctx)
+	if len(rows) != 0 {
+		t.Fatal("removed collaborator charged the budget")
+	}
+	fake.noWrite = false
+	user.Disabled = true
+	h.st.UpdateUser(h.ctx, user)
+	if err := h.c.enqueueRepairWebhook(h.ctx, inst, "issue_comment", body); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = h.st.ListEliRepairs(h.ctx)
+	if len(rows) != 0 {
+		t.Fatal("disabled user charged the budget")
+	}
+	user.Disabled = false
+	h.st.UpdateUser(h.ctx, user)
+	if err := h.c.enqueueRepairWebhook(h.ctx, inst, "issue_comment", body); err != nil {
+		t.Fatal(err)
+	}
+	rows, _ = h.st.ListEliRepairs(h.ctx)
+	if len(rows) != 1 {
+		t.Fatal("current collaborator was not admitted")
 	}
 }

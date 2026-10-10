@@ -2,7 +2,6 @@
   import { onMount, tick } from 'svelte';
   import { Maximize2, Minimize2, PanelLeft, PanelRight, Trash2, X } from '@lucide/svelte';
   import { listAssistantProviders } from '$lib/api/client';
-  import type { AssistantProvider } from '$lib/api/types';
   import Button from '$lib/components/Button.svelte';
   import IconButton from '$lib/components/IconButton.svelte';
   import ConversationView from './ConversationView.svelte';
@@ -11,15 +10,14 @@
   import { contextPrompt } from './prompts';
   import { layers, lockScroll, pageInert, trapFocus } from '$lib/keys';
   import { router } from '$lib/router';
-  import { answeringProvider } from '$lib/settings/assistant';
 
   let phone = $state(false);
   let size = $state('comfortable');
   let side = $state('right');
   let full = $state(false);
   const modal = $derived(full || phone);
-  let answering = $state<AssistantProvider>();
   let loading = $state(false);
+  const answering = $derived(loading ? undefined : eli.answering);
   let error = $state('');
   let panel = $state<HTMLElement>();
   let request: AbortController | undefined;
@@ -70,10 +68,9 @@
     request = controller;
     loading = true;
     error = '';
-    answering = undefined;
     try {
       const result = await listAssistantProviders(controller.signal);
-      if (!controller.signal.aborted) answering = answeringProvider(result.items ?? []);
+      if (!controller.signal.aborted) eli.know(result.items ?? []);
     } catch (cause) {
       if (!controller.signal.aborted)
         error =

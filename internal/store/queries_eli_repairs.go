@@ -24,27 +24,28 @@ type EliRepairPolicy struct {
 	DailyLimit     int    `json:"daily_limit"`
 }
 type EliRepair struct {
-	RequesterAdmin bool      `json:"-"`
-	ID             string    `json:"id"`
-	DedupKey       string    `json:"-"`
-	InstallationID string    `json:"installation_id"`
-	Repo           string    `json:"repo"`
-	PullNumber     int       `json:"pull_number"`
-	JobID          int64     `json:"job_id"`
-	RunID          int64     `json:"run_id"`
-	HeadSHA        string    `json:"head_sha"`
-	CommitSHA      string    `json:"commit_sha"`
-	UserID         string    `json:"user_id"`
-	GitHubUserID   int64     `json:"github_user_id"`
-	GitHubLogin    string    `json:"github_login"`
-	ProviderID     string    `json:"provider_id"`
-	Trigger        string    `json:"trigger"`
-	Instruction    string    `json:"-"`
-	State          string    `json:"state"`
-	Message        string    `json:"message"`
-	CommentID      int64     `json:"comment_id"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
+	PublishedAt    *time.Time `json:"-"`
+	RequesterAdmin bool       `json:"-"`
+	ID             string     `json:"id"`
+	DedupKey       string     `json:"-"`
+	InstallationID string     `json:"installation_id"`
+	Repo           string     `json:"repo"`
+	PullNumber     int        `json:"pull_number"`
+	JobID          int64      `json:"job_id"`
+	RunID          int64      `json:"run_id"`
+	HeadSHA        string     `json:"head_sha"`
+	CommitSHA      string     `json:"commit_sha"`
+	UserID         string     `json:"user_id"`
+	GitHubUserID   int64      `json:"github_user_id"`
+	GitHubLogin    string     `json:"github_login"`
+	ProviderID     string     `json:"provider_id"`
+	Trigger        string     `json:"trigger"`
+	Instruction    string     `json:"-"`
+	State          string     `json:"state"`
+	Message        string     `json:"message"`
+	CommentID      int64      `json:"comment_id"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
 }
 
 func (s *Store) SetEliIdentity(ctx context.Context, in EliIdentity) error {
@@ -97,13 +98,15 @@ func (s *Store) EliRepairPolicies(ctx context.Context) ([]EliRepairPolicy, error
 	return out, rows.Err()
 }
 
-const eliRepairCols = `id,dedup_key,installation_id,repo,pull_number,job_id,run_id,head_sha,commit_sha,user_id,github_user_id,github_login,provider_id,trigger,requester_admin,instruction,state,message,comment_id,created_at,updated_at`
+const eliRepairCols = `id,dedup_key,installation_id,repo,pull_number,job_id,run_id,head_sha,commit_sha,user_id,github_user_id,github_login,provider_id,trigger,requester_admin,instruction,state,message,comment_id,published_at,created_at,updated_at`
 
 func scanEliRepair(row interface{ Scan(...any) error }) (*EliRepair, error) {
 	var v EliRepair
 	var created, updated int64
-	err := row.Scan(&v.ID, &v.DedupKey, &v.InstallationID, &v.Repo, &v.PullNumber, &v.JobID, &v.RunID, &v.HeadSHA, &v.CommitSHA, &v.UserID, &v.GitHubUserID, &v.GitHubLogin, &v.ProviderID, &v.Trigger, &v.RequesterAdmin, &v.Instruction, &v.State, &v.Message, &v.CommentID, &created, &updated)
+	var published sql.NullInt64
+	err := row.Scan(&v.ID, &v.DedupKey, &v.InstallationID, &v.Repo, &v.PullNumber, &v.JobID, &v.RunID, &v.HeadSHA, &v.CommitSHA, &v.UserID, &v.GitHubUserID, &v.GitHubLogin, &v.ProviderID, &v.Trigger, &v.RequesterAdmin, &v.Instruction, &v.State, &v.Message, &v.CommentID, &published, &created, &updated)
 	v.CreatedAt, v.UpdatedAt = at(created), at(updated)
+	v.PublishedAt = atp(published)
 	return &v, err
 }
 
@@ -152,7 +155,7 @@ func (s *Store) EnqueueEliRepair(ctx context.Context, r *EliRepair, limit int) (
 		r.State = "queued"
 		r.CreatedAt = s.Now()
 		r.UpdatedAt = r.CreatedAt
-		_, err = tx.ExecContext(ctx, `INSERT INTO eli_repairs (`+eliRepairCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.ID, r.DedupKey, r.InstallationID, r.Repo, r.PullNumber, r.JobID, r.RunID, r.HeadSHA, r.CommitSHA, r.UserID, r.GitHubUserID, r.GitHubLogin, r.ProviderID, r.Trigger, boolInt(r.RequesterAdmin), r.Instruction, r.State, r.Message, r.CommentID, ms(r.CreatedAt), ms(r.UpdatedAt))
+		_, err = tx.ExecContext(ctx, `INSERT INTO eli_repairs (`+eliRepairCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.ID, r.DedupKey, r.InstallationID, r.Repo, r.PullNumber, r.JobID, r.RunID, r.HeadSHA, r.CommitSHA, r.UserID, r.GitHubUserID, r.GitHubLogin, r.ProviderID, r.Trigger, boolInt(r.RequesterAdmin), r.Instruction, r.State, r.Message, r.CommentID, msp(r.PublishedAt), ms(r.CreatedAt), ms(r.UpdatedAt))
 		added = err == nil
 		return err
 	})
@@ -195,7 +198,7 @@ func (s *Store) NextEliRepair(ctx context.Context) (*EliRepair, error) {
 }
 func (s *Store) SaveEliRepair(ctx context.Context, r *EliRepair) error {
 	r.UpdatedAt = s.Now()
-	_, err := s.exec(ctx, `UPDATE eli_repairs SET pull_number=?,head_sha=?,commit_sha=?,user_id=?,provider_id=?,state=?,message=?,comment_id=?,updated_at=? WHERE id=?`, r.PullNumber, r.HeadSHA, r.CommitSHA, r.UserID, r.ProviderID, r.State, r.Message, r.CommentID, ms(r.UpdatedAt), r.ID)
+	_, err := s.exec(ctx, `UPDATE eli_repairs SET pull_number=?,head_sha=?,commit_sha=?,user_id=?,provider_id=?,state=?,message=?,comment_id=?,published_at=?,updated_at=? WHERE id=?`, r.PullNumber, r.HeadSHA, r.CommitSHA, r.UserID, r.ProviderID, r.State, r.Message, r.CommentID, msp(r.PublishedAt), ms(r.UpdatedAt), r.ID)
 	return err
 }
 
