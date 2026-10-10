@@ -525,6 +525,13 @@ rollout reads **Done** in the idle one, and a host that is behind stays a
 neutral fact. Operators and viewers see neither the button nor the panel; the
 rollout is on Settings → Updates for everyone.
 
+A host that is behind the controller's release has an update row on its card,
+above the command that updates it by hand. **Can be updated** offers **Update**
+when its update helper is installed; **Update by command** draws the button but
+cannot press it, and says why, when it is not. While an update is open the row
+reads **Updating**, and afterwards **Updated**, **Failed**, **Timed out** or
+**Cancelled**, with **Try again** where another attempt would be taken.
+
 ![Two host cards on the Hosts page, both behind the controller's release: one says it can be updated, with its Update button, and the other says to update it by command because its update helper is not installed, with the button drawn but not pressable; under each, folded away, is the command that updates the host by hand](screenshots/hosts-update-dark.webp#only-dark){ .zoomies-shot }
 ![Two host cards on the Hosts page, both behind the controller's release: one says it can be updated, with its Update button, and the other says to update it by command because its update helper is not installed, with the button drawn but not pressable; under each, folded away, is the command that updates the host by hand](screenshots/hosts-update-light.webp#only-light){ .zoomies-shot }
 

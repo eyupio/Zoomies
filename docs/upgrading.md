@@ -216,8 +216,8 @@ that the owner of each host installs:
 
 | Mode | What it does |
 | --- | --- |
-| `off` (the default) | Nothing new. The Overview says that a newer release exists, each host's card keeps its command to copy, and the mode creates no folder, unit or button. |
-| `manual` | **Update** buttons: for the controller on Settings → Updates, on the card of each host whose helper is installed, and **Update N hosts** on the Hosts page for every host behind the controller. Nothing moves without a click. |
+| `off` (the default) | Nothing new. The Overview says that a newer release exists, each host's card keeps its command to copy, and the mode creates no folder or unit. The Update buttons on the Hosts page are drawn but cannot be pressed, with the reason beside them. |
+| `manual` | **Update** buttons: for the controller on Settings → Updates, on the card of each host whose helper is installed, and **Update N hosts** on the Hosts page for every host behind the controller whose helper is installed (N counts the hosts whose card offers Update). Nothing moves without a click. |
 | `auto` | The controller takes the newest release once it has been public for `updates.soak`, then takes every host behind it to the release it runs, one at a time. The buttons stay, and mean "now, without the wait". |
 
 Only the `platform` role changes the mode and the soak, on the Configuration
@@ -385,8 +385,9 @@ with `zoomies updates resume` or `zoomies updates cancel`. Resuming moves on to
 the next host while the one that failed waits out its retry. Cancelling starts
 nothing more; an update a helper has already been handed finishes by itself and
 is recorded. While any update is open, neither a rollout nor `auto` starts
-another, so the controller is never updated under a host or a host under the
-controller.
+another, so automatic updating never updates the controller under a host or a
+host under the controller. A person pressing a button is not held back the same
+way: only a second update of the same machine is refused.
 
 ### What auto does, and the soak
 
@@ -397,7 +398,9 @@ soak is never installed: `v1.3.2` published four hours after `v1.3.1` means
 `v1.3.1` is passed over and `v1.3.2` is taken a day after its own publication.
 The cost is that a project publishing faster than the soak would never be taken
 by `auto`, and Settings → Updates says so. Then it starts a rollout of the hosts
-behind the release it now runs. The soak is `auto`'s alone: a person pressing a
+behind the release it now runs. A controller that is already behind a release
+older than the soak when you switch to `auto`, with its helper installed, is
+updated on the next pass, and the hosts are rolled after it. The soak is `auto`'s alone: a person pressing a
 button has decided.
 
 Auto acts only through helpers that are there. While a release is due and the
@@ -405,7 +408,10 @@ helper beside the controller is not installed, it waits, and updates no host
 either, because no host may go ahead of its controller. Where that helper can
 never be installed (see above), the controller is left to a person and hosts
 follow the release it runs. A rollout cancelled by hand is not started again for
-the same release. Switching to `manual` cancels a rollout `auto` started, and
+the same release, for as long as its record is kept: once
+`retention.update_attempts` (90 days by default, 24 hours at the least) prunes
+it, `auto` may start that release's rollout again, so keep the retention long if
+you rely on a cancel. Switching to `manual` cancels a rollout `auto` started, and
 switching to `off` cancels any open rollout; an update a helper is already
 running finishes either way, and is recorded.
 
@@ -449,7 +455,9 @@ On a native controller, stop the service, put `zoomies.previous` back in place o
 `zoomies`, and start it. If the older binary refuses to start because the
 database has migrations it does not have, stop it again and put the pre-migration
 copy back with [`zoomies restore`](backup-and-restore.md#upgrades-copy-the-database-first)
-first. A host's agent has nothing to migrate, so the binary is all it needs. Turn
+first. That has two costs: the restore fences the fleet and ends every session,
+and anything written since the update is lost, the update's own attempt rows
+among it. A host's agent has nothing to migrate, so the binary is all it needs. Turn
 the mode to `off` or `manual` before you start, or `auto` will take the release
 again once it is due. A container deployment's service is its image, so there
 roll back by running the previous release's `vX.Y.Z` image, under the same rule
@@ -461,7 +469,10 @@ A machine that runs a release from before updating from the web UI cannot be
 updated from it: its agent does not know the task, and its binary has no helper
 to install. Upgrade each one by hand once, controller first, with
 `sudo zoomies upgrade`. Answer yes when it asks to add the update helper (or pass
-`--update-helper`), and from then on the web UI can update it.
+`--update-helper`), and from then on the web UI can update it. A service that
+runs as root can upgrade itself and needs no helper, but the web UI cannot
+update it either, and Settings → Updates may still offer
+`sudo zoomies updates helper install`, which then refuses.
 
 ## Settings that were in `.env`
 
