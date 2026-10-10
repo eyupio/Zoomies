@@ -19,12 +19,33 @@ export interface Turn {
   /** Who answered, once the answer says: the provider and the model. */
   by?: string;
   tokens?: string;
+  /** What Eli looked at while answering, in the order it looked. */
+  tools?: ToolLook[];
+  /** Whether the fleet could be read through the provider that answered. */
+  fleetAccess?: boolean;
   error?: string;
   streaming?: boolean;
 }
 
+export interface ToolLook {
+  name: string;
+  status: 'running' | 'done' | 'failed';
+}
+
 function failure(cause: unknown): string {
   return cause instanceof ApiError ? cause.message : `That could not be done. ${supportHint()}`;
+}
+
+/** Record a look: a new one when it starts, and the end of the last one still running. */
+function note(answer: Turn, name: string, status: ToolLook['status']): void {
+  const looks = (answer.tools ??= []);
+  if (status === 'running') {
+    looks.push({ name, status });
+    return;
+  }
+  const open = looks.findLast((l) => l.name === name && l.status === 'running');
+  if (open) open.status = status;
+  else looks.push({ name, status });
 }
 
 export class Conversation {
@@ -33,6 +54,8 @@ export class Conversation {
   draft = $state('');
   #controller: AbortController | undefined;
   #next = 0;
+  /** Which provider the last question went to, so that asking again goes to the same one. */
+  #provider: string | undefined;
 
   /** Whether the last answer failed, so the page can offer to ask again. */
   get failed(): boolean {
@@ -40,9 +63,10 @@ export class Conversation {
     return last?.role === 'assistant' && !!last.error;
   }
 
-  async send(text: string, context?: EliContext): Promise<void> {
+  async send(text: string, context?: EliContext, providerId?: string): Promise<void> {
     const question = text.trim();
     if (!question || this.busy) return;
+    this.#provider = providerId ?? this.#provider;
     // What was said before is what the model is told it said: a turn that failed
     // before it began has nothing to repeat, and is left out.
     const history = this.turns
@@ -56,13 +80,19 @@ export class Conversation {
     this.#controller = controller;
     try {
       await streamAssistantChat(
-        { messages: [...history, { role: 'user', content: question }] },
+        {
+          messages: [...history, { role: 'user', content: question }],
+          ...(this.#provider ? { provider_id: this.#provider } : {}),
+        },
         (frame) => {
           if (frame.kind === 'delta') answer.content += frame.text;
           else if (frame.kind === 'usage')
             answer.tokens = `${frame.inputTokens} in, ${frame.outputTokens} out`;
-          else if (frame.kind === 'done') answer.by = `${frame.provider}, ${frame.model}`;
-          else answer.error = frame.message || 'The model stopped answering.';
+          else if (frame.kind === 'tool') note(answer, frame.name, frame.status);
+          else if (frame.kind === 'done') {
+            answer.by = `${frame.provider}, ${frame.model}`;
+            answer.fleetAccess = frame.fleetAccess;
+          } else answer.error = frame.message || 'The model stopped answering.';
         },
         controller.signal,
       );

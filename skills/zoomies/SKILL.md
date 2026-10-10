@@ -114,7 +114,7 @@ minutes.
 * `zoomies kennel recheck`
 * `zoomies size-pins set`, `zoomies size-pins delete`
 * `zoomies hosts edit`, `zoomies hosts cordon`, `zoomies hosts drain`, `zoomies hosts uncordon`, `zoomies hosts delete`, `zoomies hosts join-token`
-* `zoomies updates check`, `zoomies updates apply`
+* `zoomies updates check`, `zoomies updates apply`, `zoomies updates resume`, `zoomies updates cancel`
 * `zoomies providers connect-proxmox`, `zoomies providers add`, `zoomies providers edit`, `zoomies providers pause`, `zoomies providers resume`
 * `zoomies installations verify`
 * `zoomies export`, `zoomies import`, `zoomies diagnostics`, `zoomies backup`

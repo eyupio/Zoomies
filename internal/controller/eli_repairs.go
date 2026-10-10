@@ -312,7 +312,7 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 			fail("The GitHub account link was removed or changed.")
 			return
 		}
-		provider, err = c.chatProvider(ctx, "", r.UserID)
+		provider, err = c.personalChatProvider(ctx, "", r.UserID)
 		if err != nil {
 			fail("The requester has no enabled personal default provider. Set one in Zoomies, Settings, Assistant, then ask again.")
 			return
@@ -509,7 +509,7 @@ func (c *Controller) RequestEliRepair(ctx context.Context, userID, repo string, 
 	if err != nil {
 		return nil, store.ErrConflict
 	}
-	provider, err := c.chatProvider(ctx, "", userID)
+	provider, err := c.personalChatProvider(ctx, "", userID)
 	if err != nil {
 		return nil, err
 	}

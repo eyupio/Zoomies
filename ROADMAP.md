@@ -1,6 +1,6 @@
 # Zoomies follow-on roadmap
 
-Version 3.7 · 9 October 2026 · derived from the owner's
+Version 3.8 · 10 October 2026 · derived from the owner's
 [follow-on roadmap v1.0](roadmap/source/2026-09-06-follow-on-roadmap-v1.0.md),
 reconciled against `main` at `6d12a72` on 6 September, at `9a80b31`
 on 19 September and at `88c41f6` on 8 October, when the owner set a new primary target, withdrew the
@@ -666,6 +666,16 @@ in section 7 rather than here.
   choice, the observed connection badge, `hosts join-token create
   --connection tailcat`, two real-relay tests in the ordinary suite, and the
   two recovery fixes of 18 September (#327, #329).
+
+### The October packages
+
+* **ZF-232**: updating Zoomies from the web UI, off by default: `updates.mode`
+  and `updates.soak`, a root-owned update helper that each host's owner
+  installs, the controller and each host updated as recorded attempts, `auto`'s
+  pure planner taking hosts to the controller's release one at a time and
+  halting at the first failure, and the drills, `docs/upgrading.md` and the
+  screenshots (#719, #734, #743, #757, #759, #786, #789, #797, #801, #803, #816
+  and the Part 6 pull request).
 
 ## 7. Withdrawn
 
@@ -1493,31 +1503,6 @@ never `unknown`; a hostile log survives only as scrubbed text.
 
 Depends on ZF-230. Size M.
 
-### ZF-232: updating from the web UI
-
-**Classification: extension; L; proposed 8 October, design approved by the
-owner; nothing built.** The controller says a release exists and each host's
-card prints a command, but every update is still somebody running
-`sudo zoomies upgrade`, on the controller and then on each agent host.
-
-**Implement:** `updates.mode` (`off`, `manual` or `auto`; off by default) and
-`updates.soak`; a root-owned helper on each host, installed with that host's
-consent, that runs the existing `zoomies upgrade` for one validated release
-tag; the controller and each host updated as recorded attempts; and a pure
-planner that rolls hosts to the controller's release one at a time and halts
-at the first failure. The design is
-[roadmap/in-product-updates.md](roadmap/in-product-updates.md) and the plan
-[roadmap/in-product-updates-plan.md](roadmap/in-product-updates-plan.md). The
-decision, which narrows decision 25, is
-[decision 0011](roadmap/decisions/0011-an-operator-may-let-zoomies-update-itself.md).
-
-**Accepted because:** a request can only name a published release; the mode is
-off by default and creates nothing; a host is updated only if someone on it
-installed the helper; the planner is a table test; and every refusal and
-failure has a test that fails with its rule removed.
-
-Depends on ZF-207 and ZF-404. Size L.
-
 ### ZF-233: skills for a coding agent
 
 **Classification: new; S; proposed 8 October; implemented 9 October.**
@@ -1733,6 +1718,11 @@ remaining dependency. Do not invent live runs, elapsed observation, benchmark
 results or user feedback; do not wait for them either.
 
 ## 13. Change record
+
+* **10 October 2026: Version 3.8:** ZF-232 moved from section 8 to section 6:
+  updating from the web UI is delivered, in eleven pull requests and the Part 6
+  pull request, which adds the drills, the narrative in `docs/upgrading.md` and
+  the screenshots. Its record row is `done`.
 
 * **9 October 2026: Version 3.7:** ZF-237 added at the owner's request: complete instance transfer between independently configured controllers, with portable secrets, destination operator handover and recovery fencing. It is the next implementation priority.
 

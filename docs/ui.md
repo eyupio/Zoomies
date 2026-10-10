@@ -500,6 +500,41 @@ the machine, held back for the daemon whatever the operator sets.
 ![The Hosts page scrolled to its host cards, below the capacity map: each card shows its connection state beside a health link, then the slots in use, committed CPU and memory, the memory it can lend and its backends](screenshots/hosts-dark.webp#only-dark){ .zoomies-shot }
 ![The Hosts page scrolled to its host cards, below the capacity map: each card shows its connection state beside a health link, then the slots in use, committed CPU and memory, the memory it can lend and its backends](screenshots/hosts-light.webp#only-light){ .zoomies-shot }
 
+### Updating every host that is behind
+
+An administrator sees **Update N hosts** in the page header when hosts are
+behind the controller's release and can update themselves; the count is the
+hosts whose own card offers **Update**, read from the same answer. Its
+confirmation names the release and the number of hosts and says what follows:
+one host at a time, the one running the fewest jobs first, each agent restarting
+when its turn comes without waiting for its jobs (they keep running and the new
+agent takes them over), and the first failure halting the rollout. The request
+names no hosts, which the API reads as every host behind. With `updates.mode`
+off the action is drawn and cannot be pressed, and the reason is the line under
+the page title, as it is on a card.
+
+While a rollout is open the button gives way to a **Host rollout** panel above
+the hosts: how many hosts it has updated of how many, the host being updated
+now, and the controller's sentence for what it is doing or waiting on.
+**Rolling out** is news; **Halted** wears the draining colour, because it is
+held until a person acts, and says which host failed in the controller's words,
+with **Resume the rollout** (the host that failed waits out its retry while the
+next goes) and **Cancel the rollout** (an update a host has already been handed
+finishes by itself). The failed host's card wears the danger colour, a finished
+rollout reads **Done** in the idle one, and a host that is behind stays a
+neutral fact. Operators and viewers see neither the button nor the panel; the
+rollout is on Settings → Updates for everyone.
+
+A host that is behind the controller's release has an update row on its card,
+above the command that updates it by hand. **Can be updated** offers **Update**
+when its update helper is installed; **Update by command** draws the button but
+cannot press it, and says why, when it is not. While an update is open the row
+reads **Updating**, and afterwards **Updated**, **Failed**, **Timed out** or
+**Cancelled**, with **Try again** where another attempt would be taken.
+
+![Two host cards on the Hosts page, both behind the controller's release: one says it can be updated, with its Update button, and the other says to update it by command because its update helper is not installed, with the button drawn but not pressable; under each, folded away, is the command that updates the host by hand](screenshots/hosts-update-dark.webp#only-dark){ .zoomies-shot }
+![Two host cards on the Hosts page, both behind the controller's release: one says it can be updated, with its Update button, and the other says to update it by command because its update helper is not installed, with the button drawn but not pressable; under each, folded away, is the command that updates the host by hand](screenshots/hosts-update-light.webp#only-light){ .zoomies-shot }
+
 **Tags and size class.** A host's tags are the labels pools select it by, and its
 card lists them in two groups: those stored on the host, which **Edit** changes,
 and those the controller works out from the machine (`os`, `arch` and, while a
@@ -667,9 +702,13 @@ everybody, marked rather than hidden.
 Where each user connects their personal model. Administrators also configure
 installation providers for automatic PR repairs. A new provider
 starts as **Ollama Cloud** with its address already filled in; **OpenCode Go**,
+Where an administrator connects the model the assistant talks to. A new provider
+starts as **Ollama Cloud** with its address already filled in; **OpenCode Zen**, **OpenCode Go**,
 a local or other OpenAI-compatible server, Anthropic and OpenAI are one choice
-away, and an address or name you have already typed is never overwritten by
-changing the choice. Once the key is entered the **model** is chosen from the
+away, and so are **Claude, ChatGPT and GitHub Copilot on your own plan**, which have no
+address or key to type and are usable only by the person who added them
+([how that works](eli.md)). An address or name you have already typed is never
+overwritten by changing the choice. Once the key is entered the **model** is chosen from the
 list the provider itself offers (**Load the list of models** fetches it, and it
 loads by itself when you leave the key field), so a model the provider has
 retired cannot be picked by mistake. A provider that will not list its models
@@ -693,6 +732,12 @@ The same settings page links your GitHub account, asks you to confirm personal
 provider use and shows PR repair history. Administrators configure repository
 policies and automatic repair budgets. See [Eli conversations and PR repairs](eli.md)
 for setup, GitHub permissions and repair limits.
+Under the provider cards, a card says where Eli is: in the corner of every page,
+for administrators, once there is an enabled default provider. **Open Eli** opens
+it from here, and <kbd>E</kbd> opens it from anywhere. Each provider has a switch,
+**Let Eli read this fleet through this provider**, off until you turn it on, and a
+card says when it is on. The conversation itself, what Eli can see and what is sent
+to the provider are on [their own page](eli.md).
 
 ### Backups
 
@@ -724,25 +769,36 @@ in [Backup and restore](backup-and-restore.md).
 
 Which release the update mode would take, and when, and for the platform role
 the one thing on the page that installs anything: the **Update** button for this
-controller. A host is updated from its own card on **Hosts**.
+controller. A host is updated from its own card on **Hosts**, or with every
+other host that is behind in a [rollout](#updating-every-host-that-is-behind).
 
 At the top is one line saying what the mode does about the newest release
 that can be installed on this system (*Manual offers v1.3.2 and waits for a
-person to take it*, or *Auto would take v1.3.2 in 18 hours*; auto takes no
-release by itself yet) and under it the controller's own sentence for why,
-exactly as the API gives it. Then the release
+person to take it*, or *Auto would take v1.3.2 in 18 hours*) and under it the
+controller's own sentence for what happens next and why, exactly as the API
+gives it: in `auto` that is the planner's, which says when it updates this
+controller, which host a rollout is updating and what it is waiting on. Below
+the release, while there is one, is the hosts' rollout as it stands, the same
+block the Hosts page shows; an administrator is sent there to resume or cancel
+it. Then the release
 itself, linked to its notes when the address GitHub gave for it is an `https`
 one, with how long ago it was published and when the list was last read.
 
-The mode and the soak follow, as text with a sentence of what each would do.
-Auto's says what its wait costs: a newer release restarts the wait, so if
-releases are published faster than the soak, auto never takes one. Both are
+The mode and the soak follow, as text with a sentence of what each does.
+Auto's says what it does by itself (this controller first, through its update
+helper, then every host behind it, one at a time), what its wait costs (a newer
+release restarts the wait, so if releases are published faster than the soak,
+auto never takes one) and what stops it: a host whose update fails halts the
+rollout until an administrator resumes or cancels it. Both are
 settings that only the platform role changes, on the Configuration page; this
 page shows them to everybody, because an administrator is not sent those rows
 and still has to be able to tell what the controller is set to do. Last is the
 build the controller is running and whether it came from a release. One built
 from `main` is left alone, since it is usually ahead of the newest release and
 an update would take it back.
+
+![Settings → Updates in manual mode: a newer release is available and waits for a person, with the release linked to its notes, when it was published and when the list was last read; the Update to v1.3.2 button for this controller; and the mode and the soak, each with a sentence of what it does](screenshots/settings-updates-dark.webp#only-dark){ .zoomies-shot }
+![Settings → Updates in manual mode: a newer release is available and waits for a person, with the release linked to its notes, when it was published and when the list was last read; the Update to v1.3.2 button for this controller; and the mode and the soak, each with a sentence of what it does](screenshots/settings-updates-light.webp#only-light){ .zoomies-shot }
 
 ## The status page
 

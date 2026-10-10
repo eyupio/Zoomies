@@ -4875,16 +4875,23 @@ paths:
       description: |
         Answers a conversation as a `text/event-stream`: `delta` frames carrying
         `{"text": ...}` as the model writes, one `usage` frame with
-        `{"input_tokens", "output_tokens"}` when the provider reports them, and a final
-        `done` frame with the provider's name and the model, or an `error` frame with a
-        `message` if the answer failed after it began (the status had gone out with the
-        first byte by then).
+        `{"input_tokens", "output_tokens"}` when the provider reports them (summed over
+        every round when the assistant looked at the fleet), `tool` frames with
+        `{"name", "status"}` as it looks (`running`, then `done` or `failed`), and a final
+        `done` frame with the provider's name and the model, `fleet_access` (whether the
+        fleet could be read through this provider) and the `tools` it used, or an `error`
+        frame with a `message` if the answer failed after it began (the status had gone
+        out with the first byte by then).
 
         The controller keeps nothing between requests: send the conversation so far,
         ending in the person's question, and send it again with the next one. Only
         `user` and `assistant` messages are accepted. The model is told what Zoomies
-        is and that it cannot see this fleet or change anything; no tool is offered
-        and no fleet data is attached automatically. UI Ask Eli actions include a snapshot of the displayed facts in the user message.
+        is. Unless an administrator has turned on `fleet_access` for the provider it is
+        told it cannot see this fleet, and no tool is offered and no fleet data attached.
+        With it on, the model is offered a fixed list of read-only fleet tools (never one
+        that changes anything and never one that reads a repository's source), each call
+        is made as the person asking, and the chat is audited as `assistant.chat` with the
+        tools used and never what was said.
 
         Everything that can be refused is refused before the stream opens: a conversation
         that is empty, too long or does not end in a user message is a 422 naming the
@@ -7037,6 +7044,96 @@ paths:
         "409": { $ref: "#/components/responses/UpdateRefused" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
+  /updates/hosts:
+    post:
+      operationId: startHostRollout
+      tags: [updates]
+      summary: Update the hosts, one at a time
+      description: >-
+        Starts a rollout that takes every host behind this controller's release to it, or only
+        the hosts `host_ids` names. It answers 202 with the status, whose `rollout` is the one
+        just started: nothing is asked of a host here, and the controller moves the rollout on
+        from its next pass, one host at a time, waiting for each to report the release before it
+        asks the next. A host's failed or timed-out update halts the rollout until an
+        administrator resumes or cancels it. Refused with `update.rollout_halted` while a halted
+        rollout waits for a person, `update.in_progress` while one is running,
+        `update.nothing_newer` when no host asked for is behind, and `update.host_cannot_update`
+        when none of those behind can update itself. An id that names no host is a 422 on
+        `host_ids` whose message names it, and so is an empty list or an empty id. Audited as
+        `update.rollout_started` once it is accepted, and not before.
+      x-zoomies-role: admin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StartHostRolloutRequest" }
+      responses:
+        "202":
+          description: Started. The `rollout` is `running`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatesStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/UpdateRefused" }
+        "413": { description: The body is over the 64 KiB this route reads. }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /updates/rollout/resume:
+    post:
+      operationId: resumeRollout
+      tags: [updates]
+      summary: Let a halted rollout carry on
+      description: >-
+        Lets the open rollout carry on after it halted. The failure it halted on stays on the
+        host's attempt, and that host waits out its retry while the rollout goes on to the next.
+        A rollout that is already running is left as it is. It answers 202 with the status, because
+        the next host is asked on the controller's next pass and not here. With no open rollout it
+        is a 404. Takes no body; a field sent is a 422 naming it. Audited as
+        `update.rollout_resumed` once it is accepted, with `changed` false when the rollout was
+        already running and nothing moved.
+      x-zoomies-role: admin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        "202":
+          description: Resumed. The `rollout` is `running`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatesStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/UpdateRefused" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /updates/rollout:
+    delete:
+      operationId: cancelRollout
+      tags: [updates]
+      summary: Stop the rollout
+      description: >-
+        Ends the open rollout, running or halted. An update a host's helper has already been
+        handed finishes by itself and is recorded; nothing new starts for the rollout, and in
+        `auto` mode the controller does not start that release's rollout again by itself. It
+        answers 200 with the status, whose `rollout` is the one just `cancelled`. With no open
+        rollout it is a 404. Audited as `update.rollout_cancelled` once it is accepted, with
+        `changed` false when the rollout had already ended by the time the cancel reached it.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: Cancelled.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatesStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/UpdateRefused" }
+
   # ==========================================================================
   # Agent routes
   # ==========================================================================
@@ -7596,7 +7693,7 @@ components:
           properties:
             code:
               type: string
-              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, too_large, rate_limited, limit_reached, update.mode_off, update.check_disabled, update.helper_missing, update.in_progress, update.not_a_release, update.nothing_newer, update.host_cannot_update, update.rollout_halted, update.check_failed, assistant.provider_failed, internal]
+              enum: [bad_request, unauthorized, forbidden, not_found, conflict, unprocessable, too_large, rate_limited, limit_reached, update.mode_off, update.check_disabled, update.helper_missing, update.in_progress, update.not_a_release, update.nothing_newer, update.host_cannot_update, update.rollout_halted, update.check_failed, assistant.provider_failed, assistant.provider_not_yours, internal]
             message: { type: string, description: Written for a person to read, and to act on. }
             field: { type: string, description: "The form field at fault, or on a `limit_reached` refusal the `limits.*` setting that refused." }
             detail: { type: string }
@@ -12122,11 +12219,17 @@ components:
 
     AssistantProviderKind:
       type: string
-      enum: [fake, openai_compatible, anthropic, openai]
+      enum: [fake, openai_compatible, anthropic, openai, claude_code, codex, copilot]
       description: >-
         Which protocol the provider speaks. `openai_compatible` covers Ollama, LM Studio,
         vLLM, llama.cpp, OpenRouter and the gateways; `fake` is the demo's built-in model
-        and cannot be created elsewhere.
+        and cannot be created elsewhere. `claude_code`, `codex` and `copilot` are somebody's
+        own subscription (Claude, ChatGPT, GitHub Copilot), used by running their signed-in
+        command line tool on the controller's machine: no address, no key, and only the
+        person who added it may use it. Claude Code is run with every tool off; Codex and
+        Copilot have no such mode, so they are run read-only or with no tool pre-approved,
+        and what their tools do is ignored. The model may be left empty for these, and the
+        tool chooses its own.
 
     AssistantProviderCheck:
       type: object
@@ -12158,7 +12261,7 @@ components:
 
     AssistantProvider:
       type: object
-      required: [id, owner_id, name, kind, base_url, model, key_configured, enabled, is_default, local, created_at, updated_at]
+      required: [id, owner_id, name, kind, base_url, model, key_configured, enabled, is_default, local, fleet_access, subscription, owned_by_you, usable, created_at, updated_at]
       properties:
         id: { type: string }
         owner_id: { type: string, description: User ID for a personal provider; empty for an installation provider. }
@@ -12170,6 +12273,25 @@ components:
         enabled: { type: boolean }
         is_default: { type: boolean }
         local: { type: boolean, description: The address names this machine or a private network. }
+        fleet_access:
+          type: boolean
+          description: >-
+            The assistant may read this fleet through the provider. An administrator's
+            decision per provider, off until made: what the tools return is sent to the
+            provider, which for a hosted one leaves this network.
+        subscription:
+          type: boolean
+          description: >-
+            Somebody's own subscription, used through the vendor's own tool on the
+            controller's machine. Such a provider belongs to the person who added it.
+        owner: { type: string, description: The username it belongs to, for a subscription. }
+        owned_by_you: { type: boolean, description: The person asking is the owner of this subscription. }
+        usable:
+          type: boolean
+          description: >-
+            The person asking may use this provider: it is shared, or it is their own
+            subscription. Anyone else's gets a 403 `assistant.provider_not_yours` where it is
+            used, changed or tested.
         last_check: { $ref: "#/components/schemas/AssistantProviderCheck" }
         created_at: { type: string, format: date-time }
         updated_at: { type: string, format: date-time }
@@ -12270,6 +12392,7 @@ components:
         base_url: { type: string, description: Required for openai_compatible; optional for the hosted kinds, whose own address is used when it is empty. }
         model: { type: string }
         enabled: { type: boolean }
+        fleet_access: { type: boolean, description: Let the assistant read this fleet through the provider. Changing it writes an `assistant.provider.fleet_access` audit row. }
         api_key:
           type: string
           description: >-
@@ -12918,6 +13041,19 @@ components:
             controller last read, or is not newer than the running build is refused with
             `update.nothing_newer`.
           examples: [v1.3.5]
+    StartHostRolloutRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        host_ids:
+          type: array
+          minItems: 1
+          items: { type: string, minLength: 1 }
+          description: >-
+            The hosts to take, by id. Left out, it is every host behind the controller's release.
+            A host named twice is taken once. An empty list is refused rather than read as every
+            host.
+          examples: [[hst_k3f9qz2m]]
     UpdatesStatus:
       type: object
       required: [mode, soak, running, latest, target, reason, checked_at, helper, controller, rollout]
@@ -12993,8 +13129,9 @@ components:
         halted_reason:
           type: string
           description: >-
-            The sentence it halted with, naming the host and the release; empty unless it halted.
-            It never carries the helper's text, so every role reads it.
+            The sentence it halted with, naming the host and the release; empty unless the state is
+            `halted` now, so a rollout resumed or cancelled after halting carries none. It never
+            carries the helper's text, so every role reads it.
         done: { type: integer, description: Hosts it has updated. }
         total:
           type: integer

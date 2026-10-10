@@ -173,6 +173,7 @@ nav:
       - Upgrading: upgrading.md
       - Host health and tuning: host-health.md
       - Kennel Club: kennel-club.md
+      - Eli, the assistant: eli.md
       - Troubleshooting: troubleshooting.md
       - A job stuck in the queue: queued-job.md
   - Eli conversations and PR repairs: eli.md

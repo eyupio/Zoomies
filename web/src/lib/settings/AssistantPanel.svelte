@@ -23,6 +23,7 @@
   import type { AssistantScope } from '$lib/api/client';
   import { session } from '$lib/state/session.svelte';
   import EliRepairs from './EliRepairs.svelte';
+  import { eli } from '$lib/assistant/eli.svelte';
   import { supportHint } from '$lib/errors';
   import { toasts } from '$lib/state/toasts.svelte';
   import Button from '$lib/components/Button.svelte';
@@ -30,7 +31,7 @@
   import EmptyState from '$lib/components/EmptyState.svelte';
   import PageHeader from '$lib/components/PageHeader.svelte';
   import Switch from '$lib/components/Switch.svelte';
-  import AssistantChat from './AssistantChat.svelte';
+  import AssistantEliCard from './AssistantEliCard.svelte';
   import AssistantProviderCard from './AssistantProviderCard.svelte';
   import AssistantProviderForm from './AssistantProviderForm.svelte';
 
@@ -60,6 +61,8 @@
       if (revision !== loadRevision) return;
       providerRevision++;
       providers = list.items ?? [];
+      // The widget in the corner is told at once, not at the next page load.
+      if (scope === 'personal') eli.know(providers);
       settings = cfg.settings ?? [];
     } catch (cause) {
       toasts.error('Could not read the assistant settings', failure(cause));
@@ -194,7 +197,7 @@
 {/if}
 
 {#if !loading && scope === 'personal'}
-  <AssistantChat {providers} />
+  <AssistantEliCard {providers} />
 {/if}
 
 {#if session.can('admin')}

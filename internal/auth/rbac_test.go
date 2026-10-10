@@ -56,7 +56,7 @@ func TestEveryActionHasARole(t *testing.T) {
 		ActionTokensRead, ActionTokensWrite,
 		ActionSettingsRead, ActionSettingsWrite,
 		ActionMetricsRead, ActionEventsRead, ActionLogsRead, ActionJoinsWrite,
-		ActionDiagnosticsRead, ActionUpdatesRead, ActionUpdatesCheck, ActionUpdatesApply,
+		ActionDiagnosticsRead, ActionUpdatesRead, ActionUpdatesCheck, ActionUpdatesApply, ActionUpdatesRollout,
 	} {
 		if !required.Known() {
 			t.Errorf("%s is missing from the RBAC table", required)
@@ -209,6 +209,31 @@ func TestUpdatingAHostIsAnAdministratorsAndHasAScopeOfItsOwn(t *testing.T) {
 	if !updates.Can(ActionHostsUpdate) || updates.Can(ActionHostsCordon) {
 		t.Errorf("a token scoped to hosts:update may update = %v, may cordon = %v; want true, false",
 			updates.Can(ActionHostsUpdate), updates.Can(ActionHostsCordon))
+	}
+}
+
+// A rollout walks every host behind the controller's release through the same
+// update one host's button asks for, so it is the administrator's, as that button
+// is, and not the platform's: it touches the fleet's machines and not the
+// process every fleet runs through. Its scope is its own, so that a token that may
+// update one host is not one that may update them all.
+func TestARolloutIsAnAdministratorsAndHasAScopeOfItsOwn(t *testing.T) {
+	if got := ActionUpdatesRollout.MinRole(); got != store.RoleAdmin {
+		t.Errorf("%s needs %s; want admin", ActionUpdatesRollout, got)
+	}
+	if got := ActionUpdatesRollout.Scope(); got != "updates:rollout" {
+		t.Errorf("the scope is %q, want updates:rollout", got)
+	}
+	operator := &Identity{Kind: KindUser, ID: "usr_o", Name: "olu", Role: store.RoleOperator}
+	if operator.Can(ActionUpdatesRollout) {
+		t.Error("an operator may start a rollout")
+	}
+	if msg := Explain(operator, ActionUpdatesRollout); !strings.Contains(msg, "admin") {
+		t.Errorf("refusing an operator says %q, which does not name the role they are missing", msg)
+	}
+	oneHost := &Identity{Kind: KindToken, Name: "ci", Role: store.RolePlatform, Scopes: []string{"hosts:update"}}
+	if oneHost.Can(ActionUpdatesRollout) {
+		t.Error("a token scoped to hosts:update may start a rollout")
 	}
 }
 

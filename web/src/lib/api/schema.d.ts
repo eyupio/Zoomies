@@ -3153,16 +3153,23 @@ export interface paths {
          * Ask the assistant's model a question
          * @description Answers a conversation as a `text/event-stream`: `delta` frames carrying
          *     `{"text": ...}` as the model writes, one `usage` frame with
-         *     `{"input_tokens", "output_tokens"}` when the provider reports them, and a final
-         *     `done` frame with the provider's name and the model, or an `error` frame with a
-         *     `message` if the answer failed after it began (the status had gone out with the
-         *     first byte by then).
+         *     `{"input_tokens", "output_tokens"}` when the provider reports them (summed over
+         *     every round when the assistant looked at the fleet), `tool` frames with
+         *     `{"name", "status"}` as it looks (`running`, then `done` or `failed`), and a final
+         *     `done` frame with the provider's name and the model, `fleet_access` (whether the
+         *     fleet could be read through this provider) and the `tools` it used, or an `error`
+         *     frame with a `message` if the answer failed after it began (the status had gone
+         *     out with the first byte by then).
          *
          *     The controller keeps nothing between requests: send the conversation so far,
          *     ending in the person's question, and send it again with the next one. Only
          *     `user` and `assistant` messages are accepted. The model is told what Zoomies
-         *     is and that it cannot see this fleet or change anything; no tool is offered
-         *     and no fleet data is attached automatically. UI Ask Eli actions include a snapshot of the displayed facts in the user message.
+         *     is. Unless an administrator has turned on `fleet_access` for the provider it is
+         *     told it cannot see this fleet, and no tool is offered and no fleet data attached.
+         *     With it on, the model is offered a fixed list of read-only fleet tools (never one
+         *     that changes anything and never one that reads a repository's source), each call
+         *     is made as the person asking, and the chat is audited as `assistant.chat` with the
+         *     tools used and never what was said.
          *
          *     Everything that can be refused is refused before the stream opens: a conversation
          *     that is empty, too long or does not end in a user message is a 422 naming the
@@ -4757,6 +4764,66 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/updates/hosts": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Update the hosts, one at a time
+         * @description Starts a rollout that takes every host behind this controller's release to it, or only the hosts `host_ids` names. It answers 202 with the status, whose `rollout` is the one just started: nothing is asked of a host here, and the controller moves the rollout on from its next pass, one host at a time, waiting for each to report the release before it asks the next. A host's failed or timed-out update halts the rollout until an administrator resumes or cancels it. Refused with `update.rollout_halted` while a halted rollout waits for a person, `update.in_progress` while one is running, `update.nothing_newer` when no host asked for is behind, and `update.host_cannot_update` when none of those behind can update itself. An id that names no host is a 422 on `host_ids` whose message names it, and so is an empty list or an empty id. Audited as `update.rollout_started` once it is accepted, and not before.
+         */
+        post: operations["startHostRollout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/updates/rollout/resume": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Let a halted rollout carry on
+         * @description Lets the open rollout carry on after it halted. The failure it halted on stays on the host's attempt, and that host waits out its retry while the rollout goes on to the next. A rollout that is already running is left as it is. It answers 202 with the status, because the next host is asked on the controller's next pass and not here. With no open rollout it is a 404. Takes no body; a field sent is a 422 naming it. Audited as `update.rollout_resumed` once it is accepted, with `changed` false when the rollout was already running and nothing moved.
+         */
+        post: operations["resumeRollout"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/updates/rollout": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Stop the rollout
+         * @description Ends the open rollout, running or halted. An update a host's helper has already been handed finishes by itself and is recorded; nothing new starts for the rollout, and in `auto` mode the controller does not start that release's rollout again by itself. It answers 200 with the status, whose `rollout` is the one just `cancelled`. With no open rollout it is a 404. Audited as `update.rollout_cancelled` once it is accepted, with `changed` false when the rollout had already ended by the time the cancel reached it.
+         */
+        delete: operations["cancelRollout"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/agent/join": {
         parameters: {
             query?: never;
@@ -5152,7 +5219,7 @@ export interface components {
         ErrorEnvelope: {
             error: {
                 /** @enum {string} */
-                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "too_large" | "rate_limited" | "limit_reached" | "update.mode_off" | "update.check_disabled" | "update.helper_missing" | "update.in_progress" | "update.not_a_release" | "update.nothing_newer" | "update.host_cannot_update" | "update.rollout_halted" | "update.check_failed" | "assistant.provider_failed" | "internal";
+                code: "bad_request" | "unauthorized" | "forbidden" | "not_found" | "conflict" | "unprocessable" | "too_large" | "rate_limited" | "limit_reached" | "update.mode_off" | "update.check_disabled" | "update.helper_missing" | "update.in_progress" | "update.not_a_release" | "update.nothing_newer" | "update.host_cannot_update" | "update.rollout_halted" | "update.check_failed" | "assistant.provider_failed" | "assistant.provider_not_yours" | "internal";
                 /** @description Written for a person to read */
                 message: string;
                 /** @description The form field at fault, or on a `limit_reached` refusal the `limits.*` setting that refused. */
@@ -9229,10 +9296,10 @@ export interface components {
             warnings: components["schemas"]["Problem"][];
         };
         /**
-         * @description Which protocol the provider speaks. `openai_compatible` covers Ollama, LM Studio, vLLM, llama.cpp, OpenRouter and the gateways; `fake` is the demo's built-in model and cannot be created elsewhere.
+         * @description Which protocol the provider speaks. `openai_compatible` covers Ollama, LM Studio, vLLM, llama.cpp, OpenRouter and the gateways; `fake` is the demo's built-in model and cannot be created elsewhere. `claude_code`, `codex` and `copilot` are somebody's own subscription (Claude, ChatGPT, GitHub Copilot), used by running their signed-in command line tool on the controller's machine: no address, no key, and only the person who added it may use it. Claude Code is run with every tool off; Codex and Copilot have no such mode, so they are run read-only or with no tool pre-approved, and what their tools do is ignored. The model may be left empty for these, and the tool chooses its own.
          * @enum {string}
          */
-        AssistantProviderKind: "fake" | "openai_compatible" | "anthropic" | "openai";
+        AssistantProviderKind: "fake" | "openai_compatible" | "anthropic" | "openai" | "claude_code" | "codex" | "copilot";
         AssistantProviderCheck: {
             ok: boolean;
             /** @description The model that answered. */
@@ -9271,6 +9338,16 @@ export interface components {
             is_default: boolean;
             /** @description The address names this machine or a private network. */
             local: boolean;
+            /** @description The assistant may read this fleet through the provider. An administrator's decision per provider, off until made: what the tools return is sent to the provider, which for a hosted one leaves this network. */
+            fleet_access: boolean;
+            /** @description Somebody's own subscription, used through the vendor's own tool on the controller's machine. Such a provider belongs to the person who added it. */
+            subscription: boolean;
+            /** @description The username it belongs to */
+            owner?: string;
+            /** @description The person asking is the owner of this subscription. */
+            owned_by_you: boolean;
+            /** @description The person asking may use this provider: it is shared, or it is their own subscription. Anyone else's gets a 403 `assistant.provider_not_yours` where it is used, changed or tested. */
+            usable: boolean;
             last_check?: components["schemas"]["AssistantProviderCheck"];
             /** Format: date-time */
             created_at: string;
@@ -9342,6 +9419,8 @@ export interface components {
             base_url?: string;
             model?: string;
             enabled?: boolean;
+            /** @description Let the assistant read this fleet through the provider. Changing it writes an `assistant.provider.fleet_access` audit row. */
+            fleet_access?: boolean;
             /** @description Sealed with the instance key and never returned. An empty string leaves the stored key alone, so a form with a blank key box does not erase it. */
             api_key?: string;
         };
@@ -9936,6 +10015,15 @@ export interface components {
              */
             tag?: string;
         };
+        StartHostRolloutRequest: {
+            /**
+             * @description The hosts to take, by id. Left out, it is every host behind the controller's release. A host named twice is taken once. An empty list is refused rather than read as every host.
+             * @example [
+             *       "hst_k3f9qz2m"
+             *     ]
+             */
+            host_ids?: string[];
+        };
         UpdatesStatus: {
             /**
              * @description `updates.mode` as the controller acts on it. `off` offers nothing, `manual` offers the newest release to a person, and `auto` takes it once it has been public for the soak.
@@ -9975,7 +10063,7 @@ export interface components {
              * @enum {string}
              */
             state: "running" | "halted" | "done" | "cancelled";
-            /** @description The sentence it halted with, naming the host and the release; empty unless it halted. It never carries the helper's text, so every role reads it. */
+            /** @description The sentence it halted with, naming the host and the release; empty unless the state is `halted` now, so a rollout resumed or cancelled after halting carries none. It never carries the helper's text, so every role reads it. */
             halted_reason: string;
             /** @description Hosts it has updated. */
             done: number;
@@ -17818,6 +17906,94 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             409: components["responses"]["UpdateRefused"];
             422: components["responses"]["Unprocessable"];
+        };
+    };
+    startHostRollout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": components["schemas"]["StartHostRolloutRequest"];
+            };
+        };
+        responses: {
+            /** @description Started. The `rollout` is `running`. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdatesStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            409: components["responses"]["UpdateRefused"];
+            /** @description The body is over the 64 KiB this route reads. */
+            413: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    resumeRollout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: {
+            content: {
+                "application/json": Record<string, never>;
+            };
+        };
+        responses: {
+            /** @description Resumed. The `rollout` is `running`. */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdatesStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["UpdateRefused"];
+            422: components["responses"]["Unprocessable"];
+        };
+    };
+    cancelRollout: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Cancelled. */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UpdatesStatus"];
+                };
+            };
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["UpdateRefused"];
         };
     };
     agentJoin: {

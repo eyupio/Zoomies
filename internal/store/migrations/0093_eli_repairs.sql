@@ -8,6 +8,7 @@ CREATE TABLE assistant_providers_personal (
     model TEXT NOT NULL DEFAULT '',
     key_enc BLOB,
     enabled INTEGER NOT NULL DEFAULT 1,
+    fleet_access INTEGER NOT NULL DEFAULT 0,
     is_default INTEGER NOT NULL DEFAULT 0,
     last_check TEXT,
     last_checked_at INTEGER,
@@ -15,8 +16,8 @@ CREATE TABLE assistant_providers_personal (
     updated_at INTEGER NOT NULL,
     UNIQUE(owner_id, name)
 );
-INSERT INTO assistant_providers_personal SELECT id, '', name, kind, base_url, model,
-    key_enc, enabled, is_default, last_check, last_checked_at, created_at, updated_at
+INSERT INTO assistant_providers_personal SELECT id, owner_id, name, kind, base_url, model,
+    key_enc, enabled, fleet_access, is_default, last_check, last_checked_at, created_at, updated_at
     FROM assistant_providers;
 DROP TABLE assistant_providers;
 ALTER TABLE assistant_providers_personal RENAME TO assistant_providers;

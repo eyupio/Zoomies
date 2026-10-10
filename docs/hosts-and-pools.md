@@ -138,6 +138,11 @@ lag its controller by releases while the protocol version matches, which is the
 normal state during a rolling upgrade. The direction to avoid is a **newer agent
 against an older controller**, upgrade the controller first.
 
+A host whose owner installed the update helper can be brought to its
+controller's release from the web UI instead, when `updates.mode` is `manual`
+or `auto`, and never past it: see
+[Updating from the web UI](upgrading.md#updating-from-the-web-ui).
+
 What an older agent costs is description rather than placement. A host on a
 build from before agents measured themselves reports no CPUs, memory or disk at
 all, so a pool's resource limits have nothing to fit against and the Hosts page

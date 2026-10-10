@@ -1825,7 +1825,7 @@ func (c *Config) validateUpdates(add func(Finding)) {
 			Code: "updates.mode", Severity: SeverityError, Setting: "updates.mode",
 			Title: fmt.Sprintf("%q is not a release update mode", u.Mode),
 			Fix: "choose off, which says that a release exists and nothing more; manual, which adds the Update buttons and moves nothing " +
-				"without a click; or auto, which takes a release once it has been public for updates.soak. " + updatesAutoNotYet,
+				"without a click; or auto, which takes a release once it has been public for updates.soak. " + updatesAutoNeedsHelper,
 		})
 	}
 	if u.Soak < 0 {
@@ -1840,7 +1840,8 @@ func (c *Config) validateUpdates(add func(Finding)) {
 			Code: "updates.mode_without_check", Severity: SeverityWarning, Setting: "updates.mode",
 			Title: fmt.Sprintf("updates.mode is %s but the release check is switched off", u.Mode),
 			Detail: "updates.check_interval is 0, which is the setting for a deployment with no route to github.com, so this controller never learns " +
-				"that a release exists. The mode has nothing to act on, and nothing would tell you why no update is ever offered.",
+				"of a newer release and is never updated from here, and nothing would tell you why no update is offered. " +
+				"In auto, hosts whose update helper is installed are still taken to the release the controller runs, once you upgrade it by hand.",
 			Fix: `give updates.check_interval a duration such as "24h", or set updates.mode to off if this controller cannot reach github.com.`,
 		})
 	}
@@ -1858,7 +1859,7 @@ func (c *Config) validateUpdates(add func(Finding)) {
 		Title: "the update mode is auto",
 		Detail: "the controller takes the newest release " + taken + ", and the hosts that have opted in then follow it, " +
 			"one at a time. Nobody is asked first, updating the controller restarts it, and there is no automatic rollback: a migration is one way. " +
-			updatesAutoNotYet,
+			updatesAutoNeedsHelper,
 		Fix: "nothing to change if that is what you want. Set updates.mode to manual to take each update yourself, or to off to be told that a release exists and nothing more.",
 	})
 	if u.Soak == 0 {

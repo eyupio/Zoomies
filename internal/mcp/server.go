@@ -335,20 +335,31 @@ func (s *Server) call(ctx context.Context, params json.RawMessage) (any, *RPCErr
 	if err := json.Unmarshal(params, &p); err != nil {
 		return nil, &RPCError{rpcInvalidParams, "tools/call wants a name and arguments: " + err.Error()}
 	}
-	t, ok := s.byName[p.Name]
+	result, rpcErr := s.callTool(ctx, p.Name, p.Arguments)
+	if rpcErr != nil {
+		return nil, rpcErr
+	}
+	return result, nil
+}
+
+// callTool runs one tool by name. It is the part of tools/call that does not
+// depend on JSON-RPC, so a caller that is not an MCP client can use the same
+// tools with the same refusals.
+func (s *Server) callTool(ctx context.Context, name string, arguments json.RawMessage) (CallResult, *RPCError) {
+	t, ok := s.byName[name]
 	if !ok {
-		if s.actions[p.Name] {
+		if s.actions[name] {
 			// Said as a tool result, not a protocol error, so that the model
 			// reads it and can tell the person what to change.
-			msg := p.Name + " changes the fleet, and this server does not offer it"
+			msg := name + " changes the fleet, and this server does not offer it"
 			if s.refusal != nil {
-				msg = s.refusal(p.Name)
+				msg = s.refusal(name)
 			}
 			return toolError(errors.New(msg)), nil
 		}
-		return nil, &RPCError{rpcInvalidParams, "no tool named " + strconv.Quote(p.Name)}
+		return CallResult{}, &RPCError{rpcInvalidParams, "no tool named " + strconv.Quote(name)}
 	}
-	args := p.Arguments
+	args := arguments
 	if len(bytes.TrimSpace(args)) == 0 || string(bytes.TrimSpace(args)) == "null" {
 		args = json.RawMessage("{}")
 	}
@@ -357,6 +368,45 @@ func (s *Server) call(ctx context.Context, params json.RawMessage) (any, *RPCErr
 		return toolError(err), nil
 	}
 	return CallResult{Content: content}, nil
+}
+
+// Definition is a tool as a model is told about it when the model is not an MCP
+// client: its name, what it is for, and the JSON Schema of its arguments.
+type Definition struct {
+	Name        string
+	Description string
+	InputSchema map[string]any
+}
+
+// Definitions lists the tools this server offers, in the order it lists them to
+// an MCP client. A tool that changes the fleet is in the list only if the
+// server was given leave to offer it.
+func (s *Server) Definitions() []Definition {
+	out := make([]Definition, 0, len(s.tools))
+	for _, t := range s.tools {
+		out = append(out, Definition{Name: t.Name, Description: t.Description, InputSchema: t.InputSchema})
+	}
+	return out
+}
+
+// CallTool runs a tool and returns what it answered as text. A tool that
+// failed, or that this server does not offer, is an answer too and not an
+// error: failed is true and the text says why, which is what a model should be
+// handed. The error is for a call that could not be made at all, such as a name
+// no tool has.
+func (s *Server) CallTool(ctx context.Context, name string, arguments json.RawMessage) (text string, failed bool, err error) {
+	result, rpcErr := s.callTool(ctx, name, arguments)
+	if rpcErr != nil {
+		return "", false, errors.New(rpcErr.Message)
+	}
+	var b strings.Builder
+	for _, c := range result.Content {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString(c.Text)
+	}
+	return b.String(), result.IsError, nil
 }
 
 // Content is one block of a tool's answer.

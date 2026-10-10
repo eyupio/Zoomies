@@ -204,6 +204,11 @@ func (s *Server) apiRoutes() chi.Router {
 		r.With(s.require(auth.ActionUpdatesRead)).Get("/updates", s.handleGetUpdates)
 		r.With(s.require(auth.ActionUpdatesCheck)).Post("/updates/check", s.handleCheckUpdates)
 		r.With(s.require(auth.ActionUpdatesApply)).Post("/updates/controller", s.handleUpdateController)
+		// Admin, as one host's update is: a rollout walks the hosts through that
+		// same update and touches nothing of the instance.
+		r.With(s.require(auth.ActionUpdatesRollout)).Post("/updates/hosts", s.handleStartRollout)
+		r.With(s.require(auth.ActionUpdatesRollout)).Post("/updates/rollout/resume", s.handleResumeRollout)
+		r.With(s.require(auth.ActionUpdatesRollout)).Delete("/updates/rollout", s.handleCancelRollout)
 
 		// Installations.
 		r.Route("/installations", func(r chi.Router) {

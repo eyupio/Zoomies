@@ -66,7 +66,7 @@
   $effect(() => {
     if (!eli.open || loading || !answering || eli.conversation.busy || !eli.pending.length) return;
     const prompt = eli.pending.shift();
-    if (prompt) void eli.conversation.send(contextPrompt(prompt), prompt);
+    if (prompt) void eli.conversation.send(contextPrompt(prompt), prompt, answering.id);
   });
   $effect(() => {
     void size;
@@ -121,7 +121,7 @@
           icon={Trash2}
           label="New conversation"
           disabled={!eli.conversation.turns.length && !eli.pending.length}
-          onclick={() => eli.reset()}
+          onclick={() => eli.newConversation()}
         />
         <IconButton
           icon={full ? Minimize2 : Maximize2}
@@ -208,6 +208,7 @@
       {/if}
       <ConversationView
         conversation={eli.conversation}
+        fleetAccess={answering?.fleet_access ?? false}
         {answering}
         height="100%"
         closedHint={loading

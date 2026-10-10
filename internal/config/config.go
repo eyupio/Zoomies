@@ -212,14 +212,14 @@ type Updates struct {
 // cannot be offered by the page and then refused at the next start.
 var updateModes = []string{"off", "manual", "auto"}
 
-// updatesAutoNotYet is said wherever the modes are described, because this
-// release installs only on a click: an operator who picks auto on the strength of
-// a description that says every host follows a release unasked would wait for an
-// update that nothing makes. The controller is updated from Settings → Updates,
-// and a host from its card once its update helper is installed. The docs quote
-// it word for word. Changing it is one grep for this sentence, in the release
-// that lets auto take a release by itself.
-const updatesAutoNotYet = "In this release you press Update yourself, on Settings → Updates for the controller and on a host's card for a host whose update helper is installed; auto takes no release by itself yet."
+// updatesAutoNeedsHelper is said wherever the modes are described, because what
+// auto leaves alone is what surprises an operator: one who picks auto on a
+// host with no update helper, and reads only that every host follows a release
+// unasked, would wait for an update that nothing can make. It says what stops a
+// rollout and who starts it again, because there is no automatic rollback. The
+// docs quote it word for word, so changing what auto does is one grep for this
+// sentence.
+const updatesAutoNeedsHelper = "Auto updates a machine only through its own update helper: while a release is due and the helper beside the controller is not installed, auto waits and updates no host either (where that helper cannot be installed, the controller is left to a person and hosts follow the release it runs). Hosts go one at a time, nothing starts while the controller is fenced, and a failed update halts the rollout until an administrator resumes or cancels it on the Hosts page (or with zoomies updates resume or cancel), where a running rollout can be cancelled too."
 
 // Backup is the controller's own copies of its database: where they go, how
 // often one is taken, how many are kept, and which object stores each one is

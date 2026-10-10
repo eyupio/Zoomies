@@ -70,3 +70,13 @@ func TestOnlyThePersonalProviderOwnerCanConfirmTheirGitHubLink(t *testing.T) {
 		t.Fatal("consent not revoked")
 	}
 }
+
+func TestPersonalProviderDraftsCannotRunControllerSubscriptionToolsForAViewer(t *testing.T) {
+	h := newHarness(t)
+	_, viewer := h.user("viewer", store.RoleViewer)
+	for _, path := range []string{"/api/v1/assistant/personal/providers/check", "/api/v1/assistant/personal/providers/models"} {
+		for _, kind := range []string{"claude_code", "codex", "copilot"} {
+			h.do(request{method: "POST", path: path, cookie: viewer, body: map[string]any{"name": "My plan", "kind": kind}}).mustStatus(t, 422, "controller credentials stay behind administrator permission")
+		}
+	}
+}

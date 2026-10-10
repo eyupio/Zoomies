@@ -1,0 +1,14 @@
+#!/bin/sh
+# A stand-in for Codex, for the specs: first on the PATH of the controller the
+# browser tests run. The prompt is on standard input, as the real one is given it,
+# and the answer comes as `codex exec --json` prints it, after a line about a
+# command the agent "ran", which Eli must ignore.
+case "$1" in
+  --version) echo "codex-cli 0.99.0"; exit 0 ;;
+  login) echo "Logged in using ChatGPT"; exit 0 ;;
+esac
+last=$(grep '^User: ' | tail -1 | sed 's/^User: //' | sed 's/\\/\\\\/g; s/"/\\"/g')
+echo '{"type":"thread.started","thread_id":"t"}'
+echo '{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":"ls","aggregated_output":"NOT-FOR-ELI","status":"completed"}}'
+echo "{\"type\":\"item.completed\",\"item\":{\"id\":\"i2\",\"type\":\"agent_message\",\"text\":\"Codex heard: $last\"}}"
+echo '{"type":"turn.completed","usage":{"input_tokens":11,"output_tokens":5}}'

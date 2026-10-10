@@ -1,9 +1,10 @@
 /**
  * What the Updates page says, as functions of what the API answered.
  *
- * What auto would take is in the conditional, because auto takes no release on
- * its own yet; manual, which offers the Update buttons, is described as it is.
- * An update a person has asked for is in the present,
+ * When auto would take a release is in the conditional, because whether it
+ * does is the planner's to say (a missing helper or a halted rollout holds it),
+ * and that sentence is shown beside the line. What each mode does is described
+ * as it is. An update a person has asked for is in the present,
  * and only as far as the controller has said so: a sentence that an update
  * worked is written from an attempt the controller closed as succeeded, or from
  * a build it reports running the release, and never from a request having been
@@ -11,7 +12,7 @@
  * and is shown as it was given; these are the lines around it, kept out of the
  * components so that they are tested once and read the same wherever they appear.
  */
-import type { Role, UpdatesStatus } from '../api/types';
+import type { Host, Role, UpdatesStatus } from '../api/types';
 import { describeWindow, parseGoDuration, pluralise, toMillis } from '../format';
 import type { RestartCopy } from '../settings/restart-copy';
 
@@ -32,12 +33,13 @@ export function modeLabel(mode: UpdateMode): string {
 const MODE_SENTENCES: Record<UpdateMode, string> = {
   off: 'Zoomies tells you when a newer release exists and does nothing about it. Updating stays a command you run yourself.',
   manual:
-    'Zoomies offers the newest release that can be installed on this system, with an Update button for this controller and for each host whose update helper is installed. Nothing moves until someone presses one.',
+    'Zoomies offers the newest release that can be installed on this system, with an Update button for this controller and for each host whose update helper is installed, and one on the Hosts page that updates every host behind this controller, one at a time. Nothing moves until someone presses one.',
   // The cost is part of the choice: a release replaced inside the soak is never
   // taken, so a project that publishes faster than the soak is never updated by
-  // auto, and an operator is told so before they depend on it. And it does not
-  // act yet, which an operator choosing it has to know before waiting on it.
-  auto: 'Zoomies would take the newest release that can be installed on this system once it has been public for the soak. A newer release restarts the wait, so if releases are published faster than the soak, auto never takes one. In this release auto takes no release by itself yet, and the Update buttons work as they do in manual.',
+  // auto, and an operator is told so before they depend on it. So is what stops
+  // it, because a halted rollout waits for a person and somebody has to know to
+  // look.
+  auto: 'Zoomies takes the newest release that can be installed on this system once it has been public for the soak: it updates this controller through its update helper, then every host behind the controller, one at a time. A newer release restarts the wait, so if releases are published faster than the soak, auto never takes one. A host whose update fails halts the rollout until an administrator resumes or cancels it.',
 };
 
 /** What the mode would do, and what it costs, in the words the choice is made by. */
@@ -351,3 +353,167 @@ export const UPDATE_RESTART: RestartCopy = {
     `The update stays open until the controller says how it ended, and a build that fails to start is not rolled back for you. ${HELPER_LOOK_AT}`,
   command: 'zoomies updates helper status',
 };
+
+/* -- updating the hosts ----------------------------------------------------- */
+
+/** The open rollout, or the last one that ended. */
+export type Rollout = NonNullable<UpdatesStatus['rollout']>;
+
+/** What the hosts action reads of a host: its own update block, as its card does. */
+export type RolloutHost = Pick<Host, 'embedded' | 'version_skew' | 'update'>;
+
+export interface RolloutWords {
+  /** One word for the badge. */
+  label: string;
+  /**
+   * A status colour only where the mapping gives one: halted is held until an
+   * operator acts, which is draining, and done is idle. A running rollout is
+   * news, as an update in flight is, and a cancelled one is a fact.
+   */
+  tone: 'accent' | 'draining' | 'idle' | 'neutral';
+  title: string;
+  /** How many hosts it has updated, of how many. */
+  progress: string;
+  /** The host being updated now, or the controller's sentence for the halt, or empty. */
+  detail: string;
+  /** What Resume and Cancel each do, for a halted rollout; empty otherwise. */
+  next: string;
+  /** Running or halted: Cancel is offered. */
+  open: boolean;
+  /** Halted: Resume is offered. */
+  canResume: boolean;
+  /** What the polite region says. */
+  live: string;
+}
+
+/**
+ * The rollout, in words. Only the controller's figures and sentences are used:
+ * which host is next, and why, is the planner's, and the status shows its
+ * sentence beside this rather than this page guessing at it.
+ */
+export function rolloutWords(rollout: Rollout): RolloutWords {
+  const { target, done, total } = rollout;
+  const progress = `${done} of ${pluralise(total, 'host')} updated.`;
+  const words = (
+    over: Pick<RolloutWords, 'label' | 'tone' | 'title'> & Partial<RolloutWords>,
+  ): RolloutWords => {
+    const all: RolloutWords = {
+      progress,
+      detail: '',
+      next: '',
+      open: false,
+      canResume: false,
+      live: '',
+      ...over,
+    };
+    all.live = `${all.title}. ${progress}${all.detail ? ` ${all.detail}` : ''}`;
+    return all;
+  };
+  switch (rollout.state) {
+    case 'running':
+      return words({
+        label: 'Rolling out',
+        tone: 'accent',
+        title: `Updating hosts to ${target}`,
+        detail: rollout.current ? `${rollout.current} is being updated now.` : '',
+        open: true,
+      });
+    case 'halted':
+      // What each button does is the API's own account of it: the failure stays
+      // on that host's attempt, and an update already handed over finishes.
+      return words({
+        label: 'Halted',
+        tone: 'draining',
+        title: `The rollout to ${target} is halted`,
+        detail:
+          rollout.halted_reason ||
+          "A host's update did not succeed, so nothing more is updated until an administrator acts.",
+        next:
+          'Resume goes on to the next host, and the one that failed waits out its retry. ' +
+          'Cancel stops the rollout; an update a host has already been handed finishes by itself.',
+        open: true,
+        canResume: true,
+      });
+    case 'done':
+      return words({ label: 'Done', tone: 'idle', title: `The rollout to ${target} is done` });
+    default:
+      return words({
+        label: 'Cancelled',
+        tone: 'neutral',
+        title: `The rollout to ${target} was cancelled`,
+      });
+  }
+}
+
+/** Whether a rollout is still moving or waiting for a person. */
+export function rolloutIsOpen(rollout: Rollout | null | undefined): boolean {
+  return rollout?.state === 'running' || rollout?.state === 'halted';
+}
+
+export type RolloutOffer =
+  /** "Update N hosts", for the release the controller runs. */
+  | { kind: 'offer'; count: number; tag: string }
+  /** Drawn and not pressable, with the reason beside it, as a host card is with the mode off. */
+  | { kind: 'off'; sentence: string }
+  | { kind: 'none' };
+
+/**
+ * Whether an administrator is offered to update every host that is behind.
+ *
+ * The count is the hosts whose own update block says they can be asked now,
+ * the answer each card's button is drawn from, so the page never works out
+ * eligibility for itself. With the mode off no block says so, and the action is
+ * drawn disabled while any host is behind, which is the card's fact too.
+ */
+export function rolloutOffer(
+  status: UpdatesStatus | null,
+  hosts: readonly RolloutHost[],
+  canAdmin: boolean,
+): RolloutOffer {
+  if (!canAdmin || !status || rolloutIsOpen(status.rollout)) return { kind: 'none' };
+  if (status.mode === 'off') {
+    return hosts.some((h) => h.version_skew === 'behind' && !h.embedded)
+      ? {
+          kind: 'off',
+          sentence:
+            'Updating is off. Set updates.mode to manual or auto to update hosts from here.',
+        }
+      : { kind: 'none' };
+  }
+  const count = hosts.filter((h) => h.update?.can_update === true).length;
+  const tag = bare(status.running.version);
+  if (count === 0 || tag === '') return { kind: 'none' };
+  return { kind: 'offer', count, tag: `v${tag}` };
+}
+
+/**
+ * What the confirmation says before every host behind is updated.
+ *
+ * Each line is as true as the code behind it. The planner asks one host at a
+ * time and waits for it to report the release; the agent's restart does not
+ * wait for its jobs, which keep running and are taken over, so it is not said
+ * to; the first failure halts the rollout; and a host that has failed twice on
+ * this release is counted in the button but passed over by the planner.
+ */
+export function confirmRollout(
+  tag: string,
+  count: number,
+): {
+  title: string;
+  description: string;
+  consequences: readonly string[];
+  confirmLabel: string;
+} {
+  const hosts = pluralise(count, 'host');
+  return {
+    title: `Update ${hosts}`,
+    description: `Update ${hosts} to ${tag}, one at a time?`,
+    consequences: [
+      `The host running the fewest jobs goes first, and each waits until the one before it reports ${tag}.`,
+      'Each host’s agent restarts when its turn comes. Jobs that are running keep running: their runners stay in place and the new agent takes them over. The restart does not wait for them to finish.',
+      'If one host’s update fails or times out, the rollout halts, and nothing more is updated until an administrator resumes or cancels it.',
+      `A host whose update to ${tag} has already failed twice is skipped, and left for a person to update.`,
+    ],
+    confirmLabel: `Update ${hosts}`,
+  };
+}

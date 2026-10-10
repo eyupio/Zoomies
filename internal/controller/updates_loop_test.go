@@ -1,6 +1,7 @@
 package controller
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -220,12 +221,12 @@ func TestARolloutHaltsOnTheFirstFailureAndResumesWhenAnOperatorSaysSo(t *testing
 	h.pass(h.c)
 	h.pass(h.c)
 	h.noAttemptFor(second)
-	if _, err := h.c.StartHostRollout(h.ctx, alice, nil); !errors.Is(err, ErrUpdateRolloutHalted) {
+	if _, _, err := h.c.StartHostRollout(h.ctx, alice, nil); !errors.Is(err, ErrUpdateRolloutHalted) {
 		t.Errorf("starting a rollout over a halted one: err = %v, want ErrUpdateRolloutHalted", err)
 	}
 
 	h.advance(time.Minute)
-	if _, err := h.c.ResumeRollout(h.ctx, alice); err != nil {
+	if _, _, err := h.c.ResumeRollout(h.ctx, alice); err != nil {
 		t.Fatalf("ResumeRollout: %v", err)
 	}
 	h.advance(time.Minute)
@@ -409,7 +410,7 @@ func TestAnOperatorsRolloutRecordsTheOperatorAndWritesNoAuditRowOfItsOwn(t *test
 	h.autoFleet("manual")
 	h.updatableHost("vm-a")
 
-	view, err := h.c.StartHostRollout(h.ctx, alice, nil)
+	view, _, err := h.c.StartHostRollout(h.ctx, alice, nil)
 	if err != nil {
 		t.Fatalf("StartHostRollout: %v", err)
 	}
@@ -423,10 +424,10 @@ func TestAnOperatorsRolloutRecordsTheOperatorAndWritesNoAuditRowOfItsOwn(t *test
 	if _, err := h.st.HaltUpdateRollout(h.ctx, r.ID, "vm-a did not come back"); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.c.ResumeRollout(h.ctx, alice); err != nil {
+	if _, _, err := h.c.ResumeRollout(h.ctx, alice); err != nil {
 		t.Fatalf("ResumeRollout: %v", err)
 	}
-	if _, err := h.c.CancelRollout(h.ctx, alice); err != nil {
+	if _, _, err := h.c.CancelRollout(h.ctx, alice); err != nil {
 		t.Fatalf("CancelRollout: %v", err)
 	}
 	if got := h.lastRollout(); got.ID != r.ID || got.State != store.RolloutCancelled || got.CancelledBy != "alice" {
@@ -441,7 +442,7 @@ func TestAnOperatorsRolloutRecordsTheOperatorAndWritesNoAuditRowOfItsOwn(t *test
 			t.Errorf("the controller wrote an audit row of its own for a person's press: %+v", e)
 		}
 	}
-	if _, err := h.c.ResumeRollout(h.ctx, alice); !errors.Is(err, store.ErrNotFound) {
+	if _, _, err := h.c.ResumeRollout(h.ctx, alice); !errors.Is(err, store.ErrNotFound) {
 		t.Errorf("resuming with no rollout open: err = %v, want ErrNotFound", err)
 	}
 }
@@ -450,34 +451,34 @@ func TestStartingARolloutIsRefusedWhenItWouldDoNothingOrDoubleUp(t *testing.T) {
 	h := newHarness(t)
 	h.autoFleet("off")
 	host := h.updatableHost("vm-a")
-	if _, err := h.c.StartHostRollout(h.ctx, alice, nil); !errors.Is(err, ErrUpdateModeOff) {
+	if _, _, err := h.c.StartHostRollout(h.ctx, alice, nil); !errors.Is(err, ErrUpdateModeOff) {
 		t.Errorf("with updating off: err = %v, want ErrUpdateModeOff", err)
 	}
 	h.inMode("manual")
-	if _, err := h.c.StartHostRollout(h.ctx, alice, []string{"host_nothere"}); !errors.Is(err, store.ErrNotFound) {
-		t.Errorf("for a host that is not there: err = %v, want ErrNotFound", err)
+	if _, _, err := h.c.StartHostRollout(h.ctx, alice, []string{"host_nothere"}); !errors.Is(err, ErrUnknownHost) {
+		t.Errorf("for a host that is not there: err = %v, want ErrUnknownHost", err)
 	}
 	h.agentHost("vm-current", "1.3.5", agent.FeatureSelfUpdate)
 	h.agentHost("vm-describe", "1.3.5-3-gabcdef1", agent.FeatureSelfUpdate)
 	current := h.agentHost("vm-current-2", "v1.3.5", agent.FeatureSelfUpdate)
-	if _, err := h.c.StartHostRollout(h.ctx, alice, []string{current.ID}); !errors.Is(err, ErrUpdateNothingNewer) {
+	if _, _, err := h.c.StartHostRollout(h.ctx, alice, []string{current.ID}); !errors.Is(err, ErrUpdateNothingNewer) {
 		t.Errorf("for a host on the release: err = %v, want ErrUpdateNothingNewer", err)
 	}
 	old := h.agentHost("vm-old", "1.3.4")
-	if _, err := h.c.StartHostRollout(h.ctx, alice, []string{old.ID}); !errors.Is(err, ErrUpdateHostCannotUpdate) {
+	if _, _, err := h.c.StartHostRollout(h.ctx, alice, []string{old.ID}); !errors.Is(err, ErrUpdateHostCannotUpdate) {
 		t.Errorf("for a host with no helper: err = %v, want ErrUpdateHostCannotUpdate", err)
 	}
-	if _, err := h.c.StartHostRollout(h.ctx, alice, []string{host.ID}); err != nil {
+	if _, _, err := h.c.StartHostRollout(h.ctx, alice, []string{host.ID}); err != nil {
 		t.Fatalf("StartHostRollout: %v", err)
 	}
-	if _, err := h.c.StartHostRollout(h.ctx, alice, nil); !errors.Is(err, ErrUpdateInProgress) {
+	if _, _, err := h.c.StartHostRollout(h.ctx, alice, nil); !errors.Is(err, ErrUpdateInProgress) {
 		t.Errorf("over a running rollout: err = %v, want ErrUpdateInProgress", err)
 	}
 	h.fence("restored from a backup")
 	for name, err := range map[string]error{
-		"start":  func() error { _, err := h.c.StartHostRollout(h.ctx, alice, nil); return err }(),
-		"resume": func() error { _, err := h.c.ResumeRollout(h.ctx, alice); return err }(),
-		"cancel": func() error { _, err := h.c.CancelRollout(h.ctx, alice); return err }(),
+		"start":  func() error { _, _, err := h.c.StartHostRollout(h.ctx, alice, nil); return err }(),
+		"resume": func() error { _, _, err := h.c.ResumeRollout(h.ctx, alice); return err }(),
+		"cancel": func() error { _, _, err := h.c.CancelRollout(h.ctx, alice); return err }(),
 	} {
 		if !errors.Is(err, ErrUpdateFenced) {
 			t.Errorf("%s while fenced: err = %v, want ErrUpdateFenced", name, err)
@@ -492,7 +493,7 @@ func TestARolloutStartedForNamedHostsUpdatesOnlyThose(t *testing.T) {
 	h.autoFleet("manual")
 	left := h.updatableHost("vm-a")
 	asked := h.updatableHost("vm-b")
-	if _, err := h.c.StartHostRollout(h.ctx, alice, []string{asked.ID}); err != nil {
+	if _, _, err := h.c.StartHostRollout(h.ctx, alice, []string{asked.ID}); err != nil {
 		t.Fatalf("StartHostRollout: %v", err)
 	}
 	h.pass(h.c)
@@ -532,7 +533,7 @@ func TestAutoDoesNotStartAgainARolloutAPersonCancelled(t *testing.T) {
 	if h.openRollout() == nil {
 		t.Fatal("no rollout started")
 	}
-	if _, err := h.c.CancelRollout(h.ctx, alice); err != nil {
+	if _, _, err := h.c.CancelRollout(h.ctx, alice); err != nil {
 		t.Fatalf("CancelRollout: %v", err)
 	}
 	h.pass(h.c)
@@ -745,7 +746,7 @@ func TestAHostUpdateReadsTheModeOnceSoASwitchToOffIsNeverTheWrongRefusal(t *test
 	third.autoFleet("manual")
 	third.updatableHost("vm-3")
 	flipModeAfterFirstRead(t, updates.ModeManual, updates.ModeOff)
-	if _, err := third.c.StartHostRollout(third.ctx, alice, nil); errors.Is(err, ErrUpdateHostCannotUpdate) || (err != nil && !errors.Is(err, ErrUpdateModeOff)) {
+	if _, _, err := third.c.StartHostRollout(third.ctx, alice, nil); errors.Is(err, ErrUpdateHostCannotUpdate) || (err != nil && !errors.Is(err, ErrUpdateModeOff)) {
 		t.Errorf("starting a rollout with the mode switched off mid-request: err = %v, want it taken on the one reading, or ErrUpdateModeOff", err)
 	}
 }
@@ -787,7 +788,7 @@ func TestEveryAnswerAgreesThatADescribeBuildIsNotUpdatedFromHere(t *testing.T) {
 			if _, err := h.c.RequestHostUpdate(h.ctx, alice, host.ID); !errors.Is(err, ErrUpdateHostCannotUpdate) || !strings.Contains(err.Error(), "not a release build") {
 				t.Errorf("the button: err = %v, want the card's refusal", err)
 			}
-			if _, err := h.c.StartHostRollout(h.ctx, alice, []string{host.ID}); !errors.Is(err, ErrUpdateNothingNewer) {
+			if _, _, err := h.c.StartHostRollout(h.ctx, alice, []string{host.ID}); !errors.Is(err, ErrUpdateNothingNewer) {
 				t.Errorf("a rollout of it alone: err = %v, want ErrUpdateNothingNewer, since it is not behind", err)
 			}
 			pic, err := h.c.updatesSnapshot(h.ctx, h.c.cfg().Updates, h.c.probeUpdateHelper())
@@ -800,7 +801,7 @@ func TestEveryAnswerAgreesThatADescribeBuildIsNotUpdatedFromHere(t *testing.T) {
 				}
 			}
 
-			if _, err := h.c.StartHostRollout(h.ctx, alice, nil); err != nil {
+			if _, _, err := h.c.StartHostRollout(h.ctx, alice, nil); err != nil {
 				t.Fatalf("StartHostRollout: %v", err)
 			}
 			if r := h.status().Rollout; r == nil || r.Total != 1 {
@@ -869,7 +870,7 @@ func TestARolloutStoppedBetweenThePlanAndItsStepAsksNoHost(t *testing.T) {
 		do   func(h *harness)
 	}{
 		{"cancelled", func(h *harness) {
-			if _, err := h.c.CancelRollout(h.ctx, alice); err != nil {
+			if _, _, err := h.c.CancelRollout(h.ctx, alice); err != nil {
 				h.t.Fatalf("CancelRollout: %v", err)
 			}
 		}},
@@ -918,14 +919,16 @@ func TestARolloutsHostIdsAreReadOnceAgainstTheFleet(t *testing.T) {
 	if err := h.st.SetHostReported(h.ctx, embedded); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := h.c.StartHostRollout(h.ctx, alice, []string{embedded.ID}); !errors.Is(err, ErrUpdateNothingNewer) {
+	if _, _, err := h.c.StartHostRollout(h.ctx, alice, []string{embedded.ID}); !errors.Is(err, ErrUpdateNothingNewer) {
 		t.Errorf("a rollout of the embedded agent alone: err = %v, want ErrUpdateNothingNewer", err)
 	}
-	_, err := h.c.StartHostRollout(h.ctx, alice, []string{host.ID, "host_nothere"})
-	if !errors.Is(err, store.ErrNotFound) || !strings.Contains(err.Error(), "host_nothere") {
-		t.Errorf("with an id that names no host: err = %v, want ErrNotFound naming it", err)
+	_, _, err := h.c.StartHostRollout(h.ctx, alice, []string{host.ID, "host_nothere"})
+	// Not ErrNotFound: the handler reads that as the route's own 404, and an id
+	// in the body is the body to fix.
+	if !errors.Is(err, ErrUnknownHost) || errors.Is(err, store.ErrNotFound) || !strings.Contains(err.Error(), "host_nothere") {
+		t.Errorf("with an id that names no host: err = %v, want ErrUnknownHost naming it", err)
 	}
-	if _, err := h.c.StartHostRollout(h.ctx, alice, []string{host.ID, host.ID, embedded.ID}); err != nil {
+	if _, _, err := h.c.StartHostRollout(h.ctx, alice, []string{host.ID, host.ID, embedded.ID}); err != nil {
 		t.Fatalf("StartHostRollout: %v", err)
 	}
 	if r := h.openRollout(); len(r.HostIDs) != 2 {
@@ -959,4 +962,99 @@ func (h *harness) mustPicture() *updatesPicture {
 		h.t.Fatal(err)
 	}
 	return pic
+}
+
+// The handler audits the rollout a press acted on, and says whether it moved: a
+// resume of a rollout that is already running is still a press, and the record
+// must say it changed nothing rather than claim it resumed something.
+func TestResumeAndCancelSayWhichRolloutTheyActedOnAndWhetherItMoved(t *testing.T) {
+	h := newHarness(t)
+	h.autoFleet("manual")
+	h.updatableHost("vm-a")
+	_, started, err := h.c.StartHostRollout(h.ctx, alice, nil)
+	if err != nil {
+		t.Fatalf("StartHostRollout: %v", err)
+	}
+	r := h.openRollout()
+	if started != (RolloutChange{ID: r.ID, Target: "v1.3.5", Changed: true}) {
+		t.Errorf("the start says %+v, want rollout %s to v1.3.5, changed", started, r.ID)
+	}
+	if _, err := h.st.HaltUpdateRollout(h.ctx, r.ID, "vm-a did not come back"); err != nil {
+		t.Fatal(err)
+	}
+	for _, step := range []struct {
+		name string
+		call func() (*UpdatesView, RolloutChange, error)
+		want bool
+	}{
+		{"resuming the halted rollout", func() (*UpdatesView, RolloutChange, error) { return h.c.ResumeRollout(h.ctx, alice) }, true},
+		{"resuming it again while it runs", func() (*UpdatesView, RolloutChange, error) { return h.c.ResumeRollout(h.ctx, alice) }, false},
+		{"cancelling it", func() (*UpdatesView, RolloutChange, error) { return h.c.CancelRollout(h.ctx, alice) }, true},
+	} {
+		_, got, err := step.call()
+		if err != nil {
+			t.Fatalf("%s: %v", step.name, err)
+		}
+		if want := (RolloutChange{ID: r.ID, Target: "v1.3.5", Changed: step.want}); got != want {
+			t.Errorf("%s says %+v, want %+v", step.name, got, want)
+		}
+	}
+}
+
+// A rollout that was written stays written when the status after it cannot be
+// worked out, so the caller is told which rollout it was: the handler audits it
+// before it reports the failure, and a press is never missing from the record.
+func TestARolloutPressWhoseStatusCannotBeReadStillSaysWhichRolloutItMoved(t *testing.T) {
+	h := newHarness(t)
+	h.autoFleet("manual")
+	h.updatableHost("vm-a")
+	render := renderUpdates
+	t.Cleanup(func() { renderUpdates = render })
+	renderUpdates = func(*Controller, context.Context) (*UpdatesView, error) {
+		return nil, errors.New("the database is busy")
+	}
+
+	_, started, err := h.c.StartHostRollout(h.ctx, alice, nil)
+	r := h.openRollout()
+	if err == nil || r == nil || started != (RolloutChange{ID: r.ID, Target: "v1.3.5", Changed: true}) {
+		t.Fatalf("start: err = %v, change = %+v, open = %+v; want the failure and the rollout it wrote", err, started, r)
+	}
+	if _, err := h.st.HaltUpdateRollout(h.ctx, r.ID, "vm-a did not come back"); err != nil {
+		t.Fatal(err)
+	}
+	if _, got, err := h.c.ResumeRollout(h.ctx, alice); err == nil || got != (RolloutChange{ID: r.ID, Target: "v1.3.5", Changed: true}) {
+		t.Errorf("resume: err = %v, change = %+v; want the failure and rollout %s, changed", err, got, r.ID)
+	}
+	if _, got, err := h.c.CancelRollout(h.ctx, alice); err == nil || got != (RolloutChange{ID: r.ID, Target: "v1.3.5", Changed: true}) {
+		t.Errorf("cancel: err = %v, change = %+v; want the failure and rollout %s, changed", err, got, r.ID)
+	}
+}
+
+// A person's cancel can land after the planner has read the rollout as running
+// and before it asks the host. The host must not then be asked: the person said
+// stop, and a restart that starts after they did is the one they meant to stop.
+func TestACancelBetweenTheRereadAndTheRequestAsksNoHost(t *testing.T) {
+	h := newHarness(t)
+	h.autoFleet("auto")
+	host := h.updatableHost("vm-a")
+	h.pass(h.c)
+	r := h.openRollout()
+	if r == nil {
+		t.Fatal("no rollout started")
+	}
+	hook := beforeRolloutStep
+	t.Cleanup(func() { beforeRolloutStep = hook })
+	beforeRolloutStep = func(c *Controller) {
+		if _, _, err := c.CancelRollout(h.ctx, alice); err != nil {
+			t.Errorf("CancelRollout: %v", err)
+		}
+	}
+	h.pass(h.c)
+	h.noAttemptFor(host)
+	if tasks := h.tasksFor(host.ID); len(tasks) != 0 {
+		t.Errorf("vm-a was sent %+v after the rollout was cancelled", tasks)
+	}
+	if got := h.lastRollout(); got.ID != r.ID || got.State != store.RolloutCancelled {
+		t.Errorf("the rollout ended as %+v, want %s cancelled", got, r.ID)
+	}
 }

@@ -286,8 +286,9 @@ func TestUpdateAttemptsForReadsByReleaseAndByRollout(t *testing.T) {
 	if _, err := s.FinishUpdateAttempt(ctx, toTarget.ID, UpdateFailed, "no"); err != nil {
 		t.Fatal(err)
 	}
+	rollout := mustCreateRollout(t, s, newRollout())
 	step := hostAttempt("host_b")
-	step.ToVersion, step.RolloutID = "v1.3.4", "rol_1"
+	step.ToVersion, step.RolloutID = "v1.3.4", rollout.ID
 	mustCreateAttempt(t, s, step)
 	for i := range 3 {
 		clock.at = clock.at.Add(time.Minute)
@@ -299,7 +300,7 @@ func TestUpdateAttemptsForReadsByReleaseAndByRollout(t *testing.T) {
 		}
 	}
 
-	got, err := s.UpdateAttemptsFor(ctx, []string{"v1.3.5"}, []string{"rol_1"})
+	got, err := s.UpdateAttemptsFor(ctx, []string{"v1.3.5"}, []string{rollout.ID})
 	if err != nil {
 		t.Fatal(err)
 	}
