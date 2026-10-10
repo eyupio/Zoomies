@@ -1,34 +1,6 @@
-.zoomies-brand { width: min(320px, 100%); position: relative; padding-bottom: 44px; }
+.zoomies-brand { width: min(320px, 100%); position: relative; }
 .zoomies-brand__art { width: 100%; aspect-ratio: 1; }
 .zoomies-brand__fallback { display: block; width: 100%; height: 100%; filter: none; }
-.zoomies-brand .zoomies-brand__pause {
-  display: block;
-  position: absolute;
-  bottom: 0;
-  left: 50%;
-  transform: translateX(-50%);
-  width: max-content;
-  max-width: 100%;
-  padding: 0.45rem 0.7rem;
-  border: 1px solid rgba(255, 255, 255, 0.22);
-  border-radius: 0.4rem;
-  background: transparent;
-  color: #f4f5f7;
-  font: inherit;
-  font-size: 0.6rem;
-  min-height: 36px;
-  cursor: pointer;
-}
-.zoomies-brand .zoomies-brand__pause[hidden] {
-  display: none;
-}
-.zoomies-brand__pause:is(:hover, :focus-visible) {
-  background: rgba(255, 255, 255, 0.1);
-}
-.zoomies-brand__pause:focus-visible {
-  outline: 2px solid var(--z-brand-fast-cyan);
-  outline-offset: 3px;
-}
 
 .zoomies-brand[data-gesture] .zoomies-brand__art { animation: brand-bound 6s ease-in-out; }
 .zoomies-brand[data-paused="true"] .zoomies-brand__art { animation-play-state: paused; }

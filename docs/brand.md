@@ -214,8 +214,8 @@ The homepage gives the approved full logo a gentle whole-artwork movement.
 It does not slice or reshape the dog. The old anatomy-specific animation has
 been retired because its clips belong to the previous design.
 
-The pause control, reduced-motion preference, off-screen pause and instant
-navigation cleanup remain supported. Without JavaScript the logo is static.
+The reduced-motion preference, off-screen pause and instant navigation cleanup
+remain supported. Without JavaScript the logo is static.
 The treatment lives in `overrides/partials/animated-logo.html`,
 `docs/stylesheets/animated-logo.css` and `docs/javascripts/animated-logo.js`.
 
