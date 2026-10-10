@@ -113,7 +113,9 @@
 </script>
 
 {#if !eli.open}
-  <div class="launcher" data-side={side}>
+  <!-- Exempt from the inert that a drawer or dialog puts on the rest of the
+       page: Eli stays clickable above whatever is open. -->
+  <div class="launcher" data-side={side} data-inert-exempt>
     <button
       class="launch"
       onclick={launch}
@@ -130,6 +132,7 @@
     data-size={size}
     data-side={side}
     class:full
+    data-inert-exempt
     role="dialog"
     aria-modal={modal}
     aria-label="Eli assistant"
@@ -299,7 +302,7 @@
     position: fixed;
     right: var(--z-space-5);
     bottom: var(--z-space-10);
-    z-index: var(--z-layer-drawer);
+    z-index: var(--z-layer-assistant);
   }
   .launcher[data-side='left'] {
     right: auto;
@@ -310,7 +313,7 @@
     position: fixed;
     right: var(--z-space-4);
     bottom: var(--z-space-10);
-    z-index: var(--z-layer-drawer);
+    z-index: var(--z-layer-assistant);
     display: flex;
     flex-direction: column;
     width: min(28rem, calc(var(--z-window-width) - var(--z-space-8)));
