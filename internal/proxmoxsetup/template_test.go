@@ -141,3 +141,39 @@ func TestImagePreparationScriptIsValidAndLeavesAnUnenrolledAgent(t *testing.T) {
 		}
 	}
 }
+
+func bridgeHost(inventory string) Host {
+	return Host{Run: func(_ context.Context, name string, args ...string) ([]byte, error) {
+		if name != "pvesh" || !strings.Contains(strings.Join(args, " "), "/nodes/pve/network") {
+			return nil, errors.New("unexpected command")
+		}
+		return []byte(inventory), nil
+	}}
+}
+
+// A node whose bridge is not vmbr0 is the case that used to be saved with a
+// bridge that does not exist, so the choice has to follow the node.
+func TestActiveBridgePrefersVmbr0ButFollowsTheNode(t *testing.T) {
+	for name, tc := range map[string]struct{ inventory, want string }{
+		"vmbr0 among others": {`[{"iface":"vmbr1","type":"bridge","active":1},{"iface":"vmbr0","type":"bridge","active":1}]`, "vmbr0"},
+		"no vmbr0":           {`[{"iface":"eno1","type":"eth","active":1},{"iface":"vmbr7","type":"bridge","active":1}]`, "vmbr7"},
+		"vmbr0 is down":      {`[{"iface":"vmbr0","type":"bridge","active":0},{"iface":"vmbr1","type":"bridge","active":1}]`, "vmbr1"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := ActiveBridge(context.Background(), bridgeHost(tc.inventory), "pve")
+			if err != nil || got != tc.want {
+				t.Fatalf("ActiveBridge = %q, %v; want %q", got, err, tc.want)
+			}
+		})
+	}
+	if _, err := ActiveBridge(context.Background(), bridgeHost(`[{"iface":"eno1","type":"eth","active":1}]`), "pve"); err == nil {
+		t.Fatal("a node with no bridge was given one")
+	}
+}
+
+func TestAConnectionRefusesAnUnsafeBridgeName(t *testing.T) {
+	c := Connection{Name: "proxmox-pve", Endpoint: "https://pve:8006", Credential: "u@pve!t=secret", Bridge: "vmbr0; reboot"}
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "bridge") {
+		t.Fatalf("Validate = %v, want a refusal that names the bridge", err)
+	}
+}

@@ -15,6 +15,40 @@ import (
 
 const TemplateName = "zoomies-template"
 
+// DefaultBridge is the bridge a stock Proxmox install creates, and the one a
+// guest is attached to when the node has it and nothing else is asked for.
+const DefaultBridge = "vmbr0"
+
+// ActiveBridge names the bridge a guest on this node should attach to: vmbr0
+// when it is up, otherwise the first active bridge. It is read from the node
+// itself, as root, so it does not depend on what an API token may list. The
+// template is built on it and the provider is saved with it, so a node whose
+// bridge is not vmbr0 needs nothing typed by hand.
+func ActiveBridge(ctx context.Context, h Host, node string) (string, error) {
+	raw, err := h.Run(ctx, "pvesh", "get", "/nodes/"+node+"/network", "--output-format", "json")
+	if err != nil {
+		return "", errors.New("proxmox setup: pvesh failed; correct the host configuration and rerun setup")
+	}
+	var networks []struct {
+		Interface string `json:"iface"`
+		Type      string `json:"type"`
+		Active    int    `json:"active"`
+	}
+	if json.Unmarshal(raw, &networks) != nil {
+		return "", errors.New("proxmox setup: invalid network inventory")
+	}
+	bridge := ""
+	for _, n := range networks {
+		if n.Type == "bridge" && n.Active == 1 && (bridge == "" || n.Interface == DefaultBridge) {
+			bridge = n.Interface
+		}
+	}
+	if bridge == "" {
+		return "", errors.New("proxmox setup: create an active network bridge on this node, then retry")
+	}
+	return bridge, nil
+}
+
 // EnsureTemplate prepares the image locally, before reserving a VMID. An
 // interrupted import is resumed only when the VM carries this setup's marker;
 // a guest with the same name is never enough evidence to change it.
@@ -103,26 +137,9 @@ func EnsureTemplate(ctx context.Context, h Host, dir, binary, node, key string) 
 		if storage == "" {
 			return nil, errors.New("proxmox setup: enable storage for disk images with at least 33 GiB free on this node, then retry")
 		}
-		raw, err = run("pvesh", "get", "/nodes/"+node+"/network", "--output-format", "json")
+		bridge, err := ActiveBridge(ctx, h, node)
 		if err != nil {
 			return nil, err
-		}
-		var networks []struct {
-			Interface string `json:"iface"`
-			Type      string `json:"type"`
-			Active    int    `json:"active"`
-		}
-		if json.Unmarshal(raw, &networks) != nil {
-			return nil, errors.New("proxmox setup: invalid network inventory")
-		}
-		bridge := ""
-		for _, n := range networks {
-			if n.Type == "bridge" && n.Active == 1 && (bridge == "" || n.Interface == "vmbr0") {
-				bridge = n.Interface
-			}
-		}
-		if bridge == "" {
-			return nil, errors.New("proxmox setup: create an active network bridge on this node, then retry")
 		}
 		unit, err := installer.RenderSystemdUnit(installer.ServiceSpec{
 			Unit: installer.UnitAgent, ExecPath: "/usr/local/bin/zoomies", ConfigFile: "/etc/zoomies/zoomies.yaml",

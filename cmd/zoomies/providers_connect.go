@@ -176,9 +176,15 @@ func providersConnectProxmox(ctx context.Context, e *env, args []string) error {
 	if err != nil {
 		return err
 	}
-	conn.Templates, err = proxmoxsetup.EnsureTemplate(ctx, h, dir, binaryPath, strings.Split(strings.TrimSpace(string(nodeName)), ".")[0], key)
+	node := strings.Split(strings.TrimSpace(string(nodeName)), ".")[0]
+	conn.Templates, err = proxmoxsetup.EnsureTemplate(ctx, h, dir, binaryPath, node, key)
 	if err != nil {
 		return err
+	}
+	// Best effort: a node whose template already exists has no need of a bridge
+	// to finish setup, and the operator can still choose one on the form.
+	if bridge, err := proxmoxsetup.ActiveBridge(ctx, h, node); err == nil {
+		conn.Bridge = bridge
 	}
 	payload, err := json.Marshal(conn)
 	if err != nil {

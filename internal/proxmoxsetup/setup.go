@@ -16,6 +16,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
 
@@ -23,6 +24,8 @@ import (
 )
 
 const ProviderPrivileges = "Sys.Audit VM.Clone VM.Allocate VM.Audit VM.Config.Disk VM.Config.CPU VM.Config.Memory VM.Config.Network VM.Config.Options VM.PowerMgmt VM.GuestAgent.Unrestricted Datastore.Audit Datastore.AllocateSpace"
+
+var bridgeName = regexp.MustCompile(`^[A-Za-z0-9._-]{1,32}$`)
 
 type Template struct {
 	VMID int    `json:"vmid"`
@@ -37,6 +40,9 @@ type Connection struct {
 	Credential     string     `json:"credential"`
 	CAPEM          string     `json:"ca_pem"`
 	TailcatAddress string     `json:"tailcat_address"`
+	// Bridge is the node's own active bridge, so a provider made by this setup
+	// is saved with one that exists rather than the vmbr0 a form assumes.
+	Bridge string `json:"bridge,omitempty"`
 }
 
 func (c Connection) Validate() error {
@@ -51,6 +57,9 @@ func (c Connection) Validate() error {
 		if template.VMID < 100 || template.VMID > 999999999 || template.Node == "" || len(template.Node) > 256 || len(template.Name) > 256 {
 			return errors.New("proxmox setup: invalid template inventory")
 		}
+	}
+	if c.Bridge != "" && !bridgeName.MatchString(c.Bridge) {
+		return errors.New("proxmox setup: the Proxmox host supplied an invalid network bridge name")
 	}
 	roots := x509.NewCertPool()
 	if !roots.AppendCertsFromPEM([]byte(c.CAPEM)) {
