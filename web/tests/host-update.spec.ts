@@ -652,3 +652,300 @@ test('nothing scrolls sideways at 360px with the update offered, in flight, fail
     await expectNoSidewaysScroll(page, 'the Hosts page after a failed update');
   });
 });
+
+/* -- every host behind, in one rollout ---------------------------------------
+ * The rollout is the real controller's: it is started from the page, moved by
+ * the controller's own passes, and the spec plays each host's helper by
+ * heartbeating the release or a failed result, as it does for one host above.
+ * ------------------------------------------------------------------------- */
+
+const rolloutPanel = (page: Page) =>
+  page.getByRole('region', { name: 'Host rollout', exact: true });
+const rolloutDialog = (page: Page, hosts: string) =>
+  page.getByRole('dialog', { name: `Update ${hosts}`, exact: true });
+
+/** Count what the page sends to start a rollout, and what it sent with it. */
+function rolloutStarts(page: Page): (string | null)[] {
+  const bodies: (string | null)[] = [];
+  page.on('request', (request) => {
+    if (
+      request.method() === 'POST' &&
+      new URL(request.url()).pathname === '/api/v1/updates/hosts'
+    ) {
+      bodies.push(request.postData());
+    }
+  });
+  return bodies;
+}
+
+/** Two hosts behind, named so that the planner (fewest jobs, then by name) takes `first` first. */
+async function withTwoHosts(
+  page: Page,
+  body: (hosts: {
+    first: { credentials: Credentials; name: string };
+    second: { credentials: Credentials; name: string };
+  }) => Promise<void>,
+): Promise<void> {
+  const stamp = `${Date.now() % 1e8}-${Math.floor(Math.random() * 1e4)}`;
+  const first = {
+    name: `upd-roll-a-${stamp}`,
+    credentials: await join(page, `upd-roll-a-${stamp}`),
+  };
+  const second = {
+    name: `upd-roll-b-${stamp}`,
+    credentials: await join(page, `upd-roll-b-${stamp}`),
+  };
+  try {
+    await body({ first, second });
+  } finally {
+    // A rollout left open would take the hosts the next spec joins.
+    await page.request.delete('/api/v1/updates/rollout');
+    for (const host of [first, second]) {
+      await page.request.delete(`/api/v1/hosts/${host.credentials.host_id}?force=true`);
+    }
+  }
+}
+
+/** The id of a host's open attempt, once the controller has opened one. */
+async function openAttempt(page: Page, credentials: Credentials): Promise<string> {
+  await expect
+    .poll(async () => (await hostOnServer(page, credentials)).update?.state, { timeout: 20_000 })
+    .toBe('requested');
+  return (await hostOnServer(page, credentials)).update?.attempt_id ?? '';
+}
+
+test('an administrator updates every host behind in one rollout, and sees it move, halt on a failure, resume and cancel', async ({
+  page,
+}) => {
+  await withTwoHosts(page, async ({ first, second }) => {
+    const bodies = rolloutStarts(page);
+    // The answer is held back until the controller's own frame has overtaken it,
+    // which is how it can arrive on a busy controller: the pass the start kicks
+    // asks the first host before the answer, which predates that, is read.
+    await page.route('**/api/v1/updates/hosts', async (route) => {
+      const response = await route.fetch();
+      await new Promise((resolve) => setTimeout(resolve, 2_000));
+      return route.fulfill({ response });
+    });
+    await goto(page, '/hosts', 'Hosts');
+    const start = page.getByRole('button', { name: 'Update 2 hosts', exact: true });
+    await expect(start).toBeEnabled();
+    await expect(rolloutPanel(page)).toHaveCount(0);
+
+    await start.click();
+    const dialog = rolloutDialog(page, '2 hosts');
+    await expect(dialog).toContainText(`Update 2 hosts to ${TARGET}, one at a time?`);
+    await expect(dialog).toContainText('Each host’s agent restarts when its turn comes.');
+    await expect(dialog).toContainText('does not wait for them to finish');
+    await expect(dialog).toContainText('the rollout halts');
+    await dialog.getByRole('button', { name: 'Update 2 hosts', exact: true }).click();
+
+    // Every host behind is asked for by sending no list at all, never an empty one.
+    await expect.poll(() => bodies.length).toBe(1);
+    expect(bodies[0], 'the request carries no body for a list to hide in').toBeNull();
+
+    const panel = rolloutPanel(page);
+    await expect(panel).toContainText('Rolling out');
+    // A rollout can be of the hosts an administrator named, so the panel never
+    // claims every host is in it.
+    await expect(panel).toContainText(
+      "Hosts behind the controller's release, updated one at a time.",
+    );
+    await expect(panel).not.toContainText('Every host behind');
+    await expect(panel).toBeFocused();
+    await expect(start).toHaveCount(0);
+    await expect(panel).toContainText(`${first.name} is being updated now.`, { timeout: 20_000 });
+    await expect(panel).toContainText('0 of 2 hosts updated.');
+    await expect(panel.getByRole('button', { name: 'Resume the rollout' })).toHaveCount(0);
+    await openAttempt(page, first.credentials);
+
+    // The first host reports the release: one done, and the rollout moves on.
+    await plantMarker(page);
+    await beat(page, first.credentials, { version: '1.3.0' });
+    await expect(panel).toContainText('1 of 2 hosts updated.', { timeout: 20_000 });
+    await expect(panel).toContainText(`${second.name} is being updated now.`, { timeout: 20_000 });
+
+    // The second fails: the rollout halts, in the controller's words, naming it.
+    const attempt = await openAttempt(page, second.credentials);
+    await beat(page, second.credentials, {
+      update: {
+        id: attempt,
+        ok: false,
+        tag: TARGET,
+        error: 'The checksum of the release did not match.',
+        finished_at: new Date().toISOString(),
+      },
+    });
+    await expect(panel).toContainText('Halted', { timeout: 20_000 });
+    await expect(panel).toContainText(
+      `The update of ${second.name} to ${TARGET} did not succeed, so the rollout is halted.`,
+    );
+    await expect(panel).toContainText('Resume goes on to the next host');
+    // Held until a person acts, which is the draining colour; the host's own
+    // failure is the danger one, on its card.
+    await expect(panel.locator('[data-tone="draining"]')).toHaveText('Halted');
+    await expect(row(page, second.name)).toContainText('Failed');
+    await expect(row(page, second.name).locator('[data-tone="danger"]')).toBeVisible();
+    await expect(page.getByRole('status').filter({ hasText: 'is halted' })).toHaveCount(1);
+    await expectNoReload(page);
+
+    await panel.getByRole('button', { name: 'Resume the rollout', exact: true }).click();
+    await expect(panel).toContainText('Rolling out');
+    await expect(panel.getByRole('button', { name: 'Resume the rollout' })).toHaveCount(0);
+    await expect(panel).toBeFocused();
+    // The host that failed waits out its retry, and the planner says so.
+    await expect(panel).toContainText('is waiting', { timeout: 20_000 });
+
+    await panel.getByRole('button', { name: 'Cancel the rollout', exact: true }).click();
+    await expect(panel).toContainText('Cancelled');
+    await expect(panel).toContainText(`The rollout to ${TARGET} was cancelled`);
+    await expect(panel.getByRole('button')).toHaveCount(0);
+    const status = (await (await page.request.get('/api/v1/updates')).json()) as {
+      rollout: { state: string } | null;
+    };
+    expect(status.rollout?.state).toBe('cancelled');
+  });
+});
+
+test('an operator is offered no rollout, and with updating off an administrator is told why it cannot start', async ({
+  page,
+}) => {
+  await withHost(page, SELF_UPDATE, async ({ credentials, name }) => {
+    const bodies = rolloutStarts(page);
+    await signedInAs(page, 'operator');
+    // Even with a rollout waiting on a person, it is not the operator's to act on.
+    await serveHaltedRollout(page);
+    await goto(page, '/hosts', 'Hosts');
+    await expect(card(page, name)).toBeVisible();
+    await expect(page.getByRole('button', { name: /^Update (\d+ hosts?|hosts)$/ })).toHaveCount(0);
+    await expect(page.locator('#hosts-rollout')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /the rollout$/ })).toHaveCount(0);
+
+    await page.unroute('**/api/v1/auth/session');
+    await page.unroute('**/api/v1/meta');
+    await page.unroute('**/api/v1/updates');
+    await page.unroute('**/api/v1/events*');
+    await withUpdatingOff(page, credentials.host_id);
+    await page.route('**/api/v1/updates', async (route) => {
+      const response = await route.fetch();
+      return route.fulfill({ response, json: { ...(await response.json()), mode: 'off' } });
+    });
+    await reload(page, 'Hosts');
+    const start = page.getByRole('button', { name: 'Update hosts', exact: true });
+    await expect(start).toBeDisabled();
+    // The reason is text beside it, not a tooltip: a phone has no hover.
+    await expect(
+      page.getByText(
+        'Updating is off. Set updates.mode to manual or auto to update hosts from here.',
+      ),
+    ).toBeVisible();
+    await start.click({ force: true });
+    await expect(page.getByRole('dialog')).toHaveCount(0);
+    expect(bodies, 'nothing was asked of the controller').toEqual([]);
+  });
+});
+
+/**
+ * A rollout halted on a host with a name that does not break, as the controller
+ * would send it, and no stream, so that no frame of the real controller's puts
+ * its own status over it.
+ */
+async function serveHaltedRollout(page: Page): Promise<void> {
+  await page.route('**/api/v1/events*', (route) =>
+    route.fulfill({
+      status: 200,
+      headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-store' },
+      body: '',
+    }),
+  );
+  const reason =
+    "The update of build-host-with-a-very-long-name-that-has-no-break-at-all to v1.3.0 did not succeed, so the rollout is halted. Read why on the host's card, then resume the rollout or cancel it.";
+  await page.route('**/api/v1/updates', async (route) => {
+    const response = await route.fetch();
+    return route.fulfill({
+      response,
+      json: {
+        ...(await response.json()),
+        rollout: {
+          id: 'rol_e2erollout01',
+          target: TARGET,
+          state: 'halted',
+          halted_reason: reason,
+          done: 1,
+          total: 2,
+          current: '',
+        },
+      },
+    });
+  });
+}
+
+test('the rollout panel has a name, a live region and no stray tab stops', async ({ page }) => {
+  await withHost(page, SELF_UPDATE, async ({ name }) => {
+    await goto(page, '/hosts', 'Hosts');
+    const start = page.getByRole('button', { name: 'Update 1 host', exact: true });
+    await expect(start).toBeVisible();
+    await start.click();
+    const dialog = rolloutDialog(page, '1 host');
+    await expect(dialog).toHaveAttribute('aria-modal', 'true');
+    await expect(dialog.getByRole('button', { name: 'Cancel' })).toBeVisible();
+    await page.keyboard.press('Escape');
+    await expect(dialog).toBeHidden();
+    await expect(start).toBeFocused();
+
+    await serveHaltedRollout(page);
+    await reload(page, 'Hosts');
+    const panel = rolloutPanel(page);
+    await expect(panel).toContainText('Halted');
+    // While a rollout is open it is resumed or cancelled, never started again.
+    await expect(start).toHaveCount(0);
+    await expect(panel.getByRole('heading', { level: 3 })).toHaveText(
+      `The rollout to ${TARGET} is halted`,
+    );
+    await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1);
+    await expect(page.getByRole('button', { name: /^$/ }), 'every button has a name').toHaveCount(
+      0,
+    );
+    await expect(
+      page.locator('[tabindex]:not([tabindex="0"]):not([tabindex="-1"])'),
+      'the tab order is the document order',
+    ).toHaveCount(0);
+    await expect(page.getByRole('status').filter({ hasText: 'is halted' })).toHaveCount(1);
+    const duplicates = await page.evaluate(() => {
+      const ids = [...document.querySelectorAll('[id]')].map((el) => el.id);
+      return ids.filter((id, i) => ids.indexOf(id) !== i);
+    });
+    expect(duplicates, 'no id is used twice').toEqual([]);
+    await expect(card(page, name)).toBeVisible();
+  });
+});
+
+test('nothing scrolls sideways at 360px with a rollout offered, being confirmed or halted', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 360, height: 780 });
+  await withHost(page, SELF_UPDATE, async () => {
+    await goto(page, '/hosts', 'Hosts');
+    const start = page.getByRole('button', { name: 'Update 1 host', exact: true });
+    await expect(start).toBeVisible();
+    await expectNoSidewaysScroll(page, 'the Hosts page with a rollout offered');
+    await start.click();
+    const dialogBox = await rolloutDialog(page, '1 host').boundingBox();
+    expect(
+      dialogBox && dialogBox.x >= 0 && dialogBox.x + dialogBox.width <= 360,
+      'the dialog fits',
+    ).toBe(true);
+    await expectNoSidewaysScroll(page, 'the Hosts page with the rollout being confirmed');
+    await page.keyboard.press('Escape');
+
+    await serveHaltedRollout(page);
+    await reload(page, 'Hosts');
+    await expect(rolloutPanel(page)).toContainText('Halted');
+    const box = await rolloutPanel(page).boundingBox();
+    expect(
+      box && box.x > 0 && box.x + box.width < 360,
+      `the panel sits inside the page's gutters (${JSON.stringify(box)})`,
+    ).toBe(true);
+    await expectNoSidewaysScroll(page, 'the Hosts page with a halted rollout');
+  });
+});

@@ -15,9 +15,10 @@ Scoped guidance for the store, read in addition to the root [AGENTS.md](../../AG
   `ErrInvalidTransition`, `ErrInvalidArtifact` for an assistant-written note
   that breaks a note's rules, `ErrInvalidKennelEvaluation` for a Kennel Club
   document or waiver the store will not keep, `ErrKennelUntracked` for an
-  evaluation that arrives after its repository was told not to be tracked, and
+  evaluation that arrives after its repository was told not to be tracked,
   `ErrJoinTokenUsed` / `ErrJoinTokenExpired` for the two ways a join token that
-  exists is still refused. Match with `errors.Is`. Refusals the auth service makes for a reason the caller can
+  exists is still refused, and `ErrRolloutNotRunning` for a rollout's step
+  once that rollout is no longer running. Match with `errors.Is`. Refusals the auth service makes for a reason the caller can
   act on are `auth.ErrInvalidInput`; the API answers those with a 422 and
   everything else with a 500 and a request ID.
 * **IDs are prefixed** (`pool_`, `run_`, `job_`, `usr_`…) via `store.NewID`, so a

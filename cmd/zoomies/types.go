@@ -919,8 +919,8 @@ type bundleResponse struct {
 	} `json:"truncated"`
 }
 
-// updatesStatus is GET /updates, which is also what POST /updates/check and
-// POST /updates/controller answer with.
+// updatesStatus is GET /updates, which is also what every update route answers
+// with.
 type updatesStatus struct {
 	Mode    string `json:"mode"`
 	Soak    string `json:"soak"`
@@ -946,6 +946,18 @@ type updatesStatus struct {
 		UpgradeCommand string `json:"upgrade_command"`
 	} `json:"helper"`
 	Controller *updatesAttempt `json:"controller"`
+	Rollout    *updatesRollout `json:"rollout"`
+}
+
+// updatesRollout is the hosts' rollout, open or the last that ended.
+type updatesRollout struct {
+	ID           string `json:"id"`
+	Target       string `json:"target"`
+	State        string `json:"state"`
+	HaltedReason string `json:"halted_reason"`
+	Done         int    `json:"done"`
+	Total        int    `json:"total"`
+	Current      string `json:"current"`
 }
 
 // updatesAttempt is the controller's own update attempt, open or ended.

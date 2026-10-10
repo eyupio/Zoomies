@@ -6666,6 +6666,96 @@ paths:
         "409": { $ref: "#/components/responses/UpdateRefused" }
         "422": { $ref: "#/components/responses/Unprocessable" }
 
+  /updates/hosts:
+    post:
+      operationId: startHostRollout
+      tags: [updates]
+      summary: Update the hosts, one at a time
+      description: >-
+        Starts a rollout that takes every host behind this controller's release to it, or only
+        the hosts `host_ids` names. It answers 202 with the status, whose `rollout` is the one
+        just started: nothing is asked of a host here, and the controller moves the rollout on
+        from its next pass, one host at a time, waiting for each to report the release before it
+        asks the next. A host's failed or timed-out update halts the rollout until an
+        administrator resumes or cancels it. Refused with `update.rollout_halted` while a halted
+        rollout waits for a person, `update.in_progress` while one is running,
+        `update.nothing_newer` when no host asked for is behind, and `update.host_cannot_update`
+        when none of those behind can update itself. An id that names no host is a 422 on
+        `host_ids` whose message names it, and so is an empty list or an empty id. Audited as
+        `update.rollout_started` once it is accepted, and not before.
+      x-zoomies-role: admin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/StartHostRolloutRequest" }
+      responses:
+        "202":
+          description: Started. The `rollout` is `running`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatesStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "409": { $ref: "#/components/responses/UpdateRefused" }
+        "413": { description: The body is over the 64 KiB this route reads. }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /updates/rollout/resume:
+    post:
+      operationId: resumeRollout
+      tags: [updates]
+      summary: Let a halted rollout carry on
+      description: >-
+        Lets the open rollout carry on after it halted. The failure it halted on stays on the
+        host's attempt, and that host waits out its retry while the rollout goes on to the next.
+        A rollout that is already running is left as it is. It answers 202 with the status, because
+        the next host is asked on the controller's next pass and not here. With no open rollout it
+        is a 404. Takes no body; a field sent is a 422 naming it. Audited as
+        `update.rollout_resumed` once it is accepted, with `changed` false when the rollout was
+        already running and nothing moved.
+      x-zoomies-role: admin
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema: { type: object, additionalProperties: false }
+      responses:
+        "202":
+          description: Resumed. The `rollout` is `running`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatesStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/UpdateRefused" }
+        "422": { $ref: "#/components/responses/Unprocessable" }
+
+  /updates/rollout:
+    delete:
+      operationId: cancelRollout
+      tags: [updates]
+      summary: Stop the rollout
+      description: >-
+        Ends the open rollout, running or halted. An update a host's helper has already been
+        handed finishes by itself and is recorded; nothing new starts for the rollout, and in
+        `auto` mode the controller does not start that release's rollout again by itself. It
+        answers 200 with the status, whose `rollout` is the one just `cancelled`. With no open
+        rollout it is a 404. Audited as `update.rollout_cancelled` once it is accepted, with
+        `changed` false when the rollout had already ended by the time the cancel reached it.
+      x-zoomies-role: admin
+      responses:
+        "200":
+          description: Cancelled.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/UpdatesStatus" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/Forbidden" }
+        "404": { $ref: "#/components/responses/NotFound" }
+        "409": { $ref: "#/components/responses/UpdateRefused" }
+
   # ==========================================================================
   # Agent routes
   # ==========================================================================
@@ -12492,6 +12582,19 @@ components:
             controller last read, or is not newer than the running build is refused with
             `update.nothing_newer`.
           examples: [v1.3.5]
+    StartHostRolloutRequest:
+      type: object
+      additionalProperties: false
+      properties:
+        host_ids:
+          type: array
+          minItems: 1
+          items: { type: string, minLength: 1 }
+          description: >-
+            The hosts to take, by id. Left out, it is every host behind the controller's release.
+            A host named twice is taken once. An empty list is refused rather than read as every
+            host.
+          examples: [[hst_k3f9qz2m]]
     UpdatesStatus:
       type: object
       required: [mode, soak, running, latest, target, reason, checked_at, helper, controller, rollout]
@@ -12567,8 +12670,9 @@ components:
         halted_reason:
           type: string
           description: >-
-            The sentence it halted with, naming the host and the release; empty unless it halted.
-            It never carries the helper's text, so every role reads it.
+            The sentence it halted with, naming the host and the release; empty unless the state is
+            `halted` now, so a rollout resumed or cancelled after halting carries none. It never
+            carries the helper's text, so every role reads it.
         done: { type: integer, description: Hosts it has updated. }
         total:
           type: integer

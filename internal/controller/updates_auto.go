@@ -255,6 +255,11 @@ func (c *Controller) autoRequestController(ctx context.Context, step updates.Act
 	return true
 }
 
+// beforeRolloutStep runs between autoUpdateHost's second reading of the
+// rollout and the host's attempt being written. It does nothing; it is a
+// variable so that a test can land a cancel in that gap.
+var beforeRolloutStep = func(*Controller) {}
+
 func (c *Controller) autoUpdateHost(ctx context.Context, pic *updatesPicture, step updates.Action) bool {
 	if pic.rollout == nil {
 		return false
@@ -271,8 +276,17 @@ func (c *Controller) autoUpdateHost(ctx context.Context, pic *updatesPicture, st
 		}
 		return false
 	}
+	beforeRolloutStep(c)
+	// A cancel or halt can still land here, after the read above. The store
+	// writes the step only while the rollout runs, in the insert's own
+	// transaction, so a host is never asked for a rollout a person stopped.
 	_, attempt, err := c.requestHostUpdate(ctx, autoUpdateActor(), step.HostID,
 		updateAsk{trigger: store.UpdateTriggerAuto, rolloutID: pic.rollout.ID})
+	if errors.Is(err, store.ErrRolloutNotRunning) {
+		c.log.Info("the rollout stopped before its next host was asked, so that host was not asked",
+			"host", step.HostID, "rollout", pic.rollout.ID)
+		return false
+	}
 	if err != nil {
 		c.log.Warn("automatic updating could not ask a host to update; the next pass will decide again",
 			"host", step.HostID, "rollout", pic.rollout.ID, "error", err)
@@ -336,32 +350,59 @@ func (c *Controller) autoEndRollout(ctx context.Context, pic *updatesPicture, st
 	return true
 }
 
+// RolloutChange is what a person's start, resume or cancel did: the rollout it
+// acted on, and whether that moved. The handler audits it, so a press that
+// moved nothing (a resume of a rollout already running) is still recorded, and
+// says so rather than claiming it resumed something.
+type RolloutChange struct {
+	ID, Target string
+	Changed    bool
+}
+
+// ErrUnknownHost refuses a rollout of a host id that names no host. It is not
+// store.ErrNotFound, which the API answers as the route's own 404: an id the
+// caller sent is the body to fix.
+var ErrUnknownHost = errors.New("no host has that id")
+
+// unknownHostError reads as the sentence that names the id, and is still
+// ErrUnknownHost to errors.Is, so the handler needs no prefix trimmed off.
+type unknownHostError struct{ id string }
+
+func (e *unknownHostError) Error() string {
+	return fmt.Sprintf("no host has the id %q; list the hosts to find it", cutAt(e.id, 64))
+}
+func (e *unknownHostError) Is(target error) bool { return target == ErrUnknownHost }
+
 // StartHostRollout starts a rollout of every host behind this controller's
 // release, or of hostIDs, and returns the status with it. The planner moves it
 // on from the next pass, one host at a time; nothing is asked of a host here.
 //
 // by is only written down, as the rollout's started_by. The handler that took
-// the request audits it with the caller's identity.
-func (c *Controller) StartHostRollout(ctx context.Context, by UpdateActor, hostIDs []string) (*UpdatesView, error) {
+// the request audits it with the caller's identity. Once the rollout is written
+// the change names it even when the status after it cannot be worked out, so
+// that the handler can audit a rollout that exists before it reports the
+// failure.
+func (c *Controller) StartHostRollout(ctx context.Context, by UpdateActor, hostIDs []string) (*UpdatesView, RolloutChange, error) {
+	var none RolloutChange
 	if !c.mayAct() {
-		return nil, fmt.Errorf("%w: %s", ErrUpdateFenced, c.notActingReason())
+		return nil, none, fmt.Errorf("%w: %s", ErrUpdateFenced, c.notActingReason())
 	}
 	mode := readUpdateMode(c)
 	if mode == updates.ModeOff {
-		return nil, ErrUpdateModeOff
+		return nil, none, ErrUpdateModeOff
 	}
 	target := hostTarget()
 	if target == "" {
-		return nil, ErrUpdateNotARelease
+		return nil, none, ErrUpdateNotARelease
 	}
 	if err := c.refuseOverOpenRollout(ctx); err != nil {
-		return nil, err
+		return nil, none, err
 	}
 	// One listing of the fleet, and the ids read against it: a repeated id is
 	// one host, and the list can never be longer than the fleet.
 	fleet, err := c.st.ListHosts(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("listing the hosts: %w", err)
+		return nil, none, fmt.Errorf("listing the hosts: %w", err)
 	}
 	hosts := fleet
 	var ids store.StringSlice
@@ -374,7 +415,7 @@ func (c *Controller) StartHostRollout(ctx context.Context, by UpdateActor, hostI
 		for _, id := range hostIDs {
 			h, ok := byID[id]
 			if !ok {
-				return nil, fmt.Errorf("%w: no host has the id %q; list the hosts to find it", store.ErrNotFound, cutAt(id, 64))
+				return nil, none, &unknownHostError{id: id}
 			}
 			if slices.Contains(ids, id) {
 				continue
@@ -394,24 +435,26 @@ func (c *Controller) StartHostRollout(ctx context.Context, by UpdateActor, hostI
 	}
 	switch {
 	case behind == 0:
-		return nil, fmt.Errorf("%w: no host asked for runs a release behind %s", ErrUpdateNothingNewer, target)
+		return nil, none, fmt.Errorf("%w: no host asked for runs a release behind %s", ErrUpdateNothingNewer, target)
 	case able == 0:
-		return nil, &hostCannotUpdateError{sentence: fmt.Sprintf("No host behind %s can update itself, because none has the update helper installed. "+
+		return nil, none, &hostCannotUpdateError{sentence: fmt.Sprintf("No host behind %s can update itself, because none has the update helper installed. "+
 			"Run sudo zoomies updates helper install on each, or update them with the command on their cards.", target)}
 	}
 	r := &store.UpdateRollout{Target: target, Trigger: store.UpdateTriggerManual, StartedBy: requestedBy(by), HostIDs: ids}
 	if err := c.st.CreateUpdateRollout(ctx, r); err != nil {
 		if errors.Is(err, store.ErrConflict) {
 			if err := c.refuseOverOpenRollout(ctx); err != nil {
-				return nil, err
+				return nil, none, err
 			}
-			return nil, ErrUpdateInProgress
+			return nil, none, ErrUpdateInProgress
 		}
-		return nil, fmt.Errorf("recording the rollout: %w", err)
+		return nil, none, fmt.Errorf("recording the rollout: %w", err)
 	}
 	c.log.Info("a rollout was started", "rollout", r.ID, "to", target, "hosts", len(ids), "started_by", r.StartedBy)
 	c.KickUpdates()
-	return c.publishUpdates(ctx)
+	change := RolloutChange{ID: r.ID, Target: r.Target, Changed: true}
+	view, err := c.publishUpdates(ctx)
+	return view, change, err
 }
 
 // refuseOverOpenRollout is the refusal for a rollout asked for while one is
@@ -451,39 +494,41 @@ func (c *Controller) openRolloutFor(ctx context.Context, doing string) (*store.U
 // ResumeRollout lets a halted rollout carry on. The failure it halted on stays
 // on the host's attempt, and the planner reads only failures after the resume,
 // so the host that failed waits out its retry and the rollout goes on. A
-// rollout already running is left as it is.
-func (c *Controller) ResumeRollout(ctx context.Context, by UpdateActor) (*UpdatesView, error) {
+// rollout already running is left as it is, and the change says nothing moved.
+func (c *Controller) ResumeRollout(ctx context.Context, by UpdateActor) (*UpdatesView, RolloutChange, error) {
 	r, err := c.openRolloutFor(ctx, "resume")
 	if err != nil {
-		return nil, err
+		return nil, RolloutChange{}, err
 	}
 	moved, err := c.st.ResumeUpdateRollout(ctx, r.ID)
 	if err != nil {
-		return nil, fmt.Errorf("resuming the rollout: %w", err)
+		return nil, RolloutChange{}, fmt.Errorf("resuming the rollout: %w", err)
 	}
 	if moved {
 		c.log.Info("a rollout was resumed", "rollout", r.ID, "to", r.Target, "resumed_by", requestedBy(by))
 		c.KickUpdates()
 	}
-	return c.publishUpdates(ctx)
+	view, err := c.publishUpdates(ctx)
+	return view, RolloutChange{ID: r.ID, Target: r.Target, Changed: moved}, err
 }
 
 // CancelRollout ends the open rollout. An update a helper has already been
 // handed finishes by itself and is recorded; nothing new starts for the rollout.
 // Who cancelled is kept, because auto does not start again what a person
 // stopped.
-func (c *Controller) CancelRollout(ctx context.Context, by UpdateActor) (*UpdatesView, error) {
+func (c *Controller) CancelRollout(ctx context.Context, by UpdateActor) (*UpdatesView, RolloutChange, error) {
 	r, err := c.openRolloutFor(ctx, "cancel")
 	if err != nil {
-		return nil, err
+		return nil, RolloutChange{}, err
 	}
 	moved, err := c.st.CancelUpdateRollout(ctx, r.ID, requestedBy(by))
 	if err != nil {
-		return nil, fmt.Errorf("cancelling the rollout: %w", err)
+		return nil, RolloutChange{}, fmt.Errorf("cancelling the rollout: %w", err)
 	}
 	if moved {
 		c.log.Info("a rollout was cancelled", "rollout", r.ID, "to", r.Target, "cancelled_by", requestedBy(by))
 		c.KickUpdates()
 	}
-	return c.publishUpdates(ctx)
+	view, err := c.publishUpdates(ctx)
+	return view, RolloutChange{ID: r.ID, Target: r.Target, Changed: moved}, err
 }

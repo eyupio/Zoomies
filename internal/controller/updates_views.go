@@ -70,9 +70,9 @@ type UpdatesRollout struct {
 	Target string `json:"target"`
 	// State is running or halted while it is open, then done or cancelled.
 	State string `json:"state"`
-	// HaltedReason is the sentence it halted with: it names the host and the
-	// release and never the helper's text, which can name a path on the host,
-	// so every role reads it.
+	// HaltedReason is the sentence it halted with, and empty unless it is
+	// halted now: it names the host and the release and never the helper's
+	// text, which can name a path on the host, so every role reads it.
 	HaltedReason string `json:"halted_reason"`
 	// Done is the hosts it has updated, and Total those and the hosts it would
 	// still update. Neither moves with a heartbeat, only with a host's version.
@@ -277,7 +277,13 @@ func (c *Controller) rolloutView(pic *updatesPicture) *UpdatesRollout {
 	if r == nil {
 		return nil
 	}
-	out := &UpdatesRollout{ID: r.ID, Target: r.Target, State: r.State, HaltedReason: r.HaltedReason}
+	out := &UpdatesRollout{ID: r.ID, Target: r.Target, State: r.State}
+	// The store keeps the sentence after a resume or a cancel, as history. Shown
+	// beside a rollout that is no longer halted it would ask for a resume or a
+	// cancel that can no longer be made.
+	if r.State == store.RolloutHalted {
+		out.HaltedReason = r.HaltedReason
+	}
 	names := make(map[string]string, len(pic.hosts))
 	for _, h := range pic.hosts {
 		names[h.ID] = h.Name

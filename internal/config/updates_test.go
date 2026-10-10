@@ -297,11 +297,21 @@ func TestTheSoakHasNoFloorAndZeroIsAnAnswer(t *testing.T) {
 	}
 }
 
-// Auto taking a release by itself has not shipped, so every place that
-// describes the modes says so in the same words, and says where a person presses
-// Update instead. The sentence is one constant so that changing it, when auto
-// arrives, is one search; the docs quote it and are held to the same text here.
-func TestEveryPlaceThatPromisesAnUpdateSaysAutoTakesNoReleaseYet(t *testing.T) {
+// Every place that describes the modes says, in the same words, that auto moves
+// a machine only through its update helper and that a failure halts the rollout
+// for a person: an operator who reads only "every host follows a release" would
+// wait for an update a missing helper can never make. The sentence is one
+// constant so that changing it is one search; the docs quote it and are held to
+// the same text here.
+func TestEveryPlaceThatDescribesAutoSaysItNeedsAHelperAndHaltsOnAFailure(t *testing.T) {
+	// What the planner does, said in the sentence: it needs a helper, it does
+	// nothing while fenced, a failure halts it, and a person resumes or cancels.
+	for _, says := range []string{"only through its own update helper", "auto waits and updates no host",
+		"nothing starts while the controller is fenced", "a failed update halts the rollout", "resumes or cancels it on the Hosts page (or with zoomies updates resume or cancel)"} {
+		if !strings.Contains(updatesAutoNeedsHelper, says) {
+			t.Errorf("the sentence about auto never says %q: %s", says, updatesAutoNeedsHelper)
+		}
+	}
 	mode, ok := LookupSetting("updates.mode")
 	if !ok {
 		t.Fatal("updates.mode is not a setting")
@@ -317,16 +327,16 @@ func TestEveryPlaceThatPromisesAnUpdateSaysAutoTakesNoReleaseYet(t *testing.T) {
 		{"the updates.auto detail", auto.Detail},
 		{"the updates.mode fix", invalid.Fix},
 	} {
-		if !strings.Contains(tc.text, updatesAutoNotYet) {
-			t.Errorf("%s = %q, want it to say %q", tc.where, tc.text, updatesAutoNotYet)
+		if !strings.Contains(tc.text, updatesAutoNeedsHelper) {
+			t.Errorf("%s = %q, want it to say %q", tc.where, tc.text, updatesAutoNeedsHelper)
 		}
 	}
-	// The title is printed at start-up on its own, so it must not promise what
-	// a release that cannot yet update every host does not do, now or after it does.
+	// The title is printed at start-up on its own, so it must not promise
+	// installing, which auto does only where an update helper is installed.
 	if auto.Title != "the update mode is auto" || strings.Contains(strings.ToLower(auto.Title), "install") {
 		t.Errorf("the updates.auto title = %q, want it to state the mode and promise no installing", auto.Title)
 	}
-	if strings.Contains(auto.Title, updatesAutoNotYet) {
+	if strings.Contains(auto.Title, updatesAutoNeedsHelper) {
 		t.Errorf("the updates.auto title carries the clause; a title is short, so it belongs in the detail")
 	}
 
@@ -339,12 +349,12 @@ func TestEveryPlaceThatPromisesAnUpdateSaysAutoTakesNoReleaseYet(t *testing.T) {
 		line  string
 	}{
 		{"the updates.mode row of docs/configuration.md", lineStarting(t, configuration, "| `updates.mode` |")},
-		{"the paragraph under the mode table of docs/configuration.md", lineAfter(t, configuration, "### `updates.mode`", "In this release")},
+		{"the paragraph under the mode table of docs/configuration.md", lineAfter(t, configuration, "### `updates.mode`", "Auto updates a machine")},
 		{"the updates.mode row of docs/problem-codes.md", lineStarting(t, problems, "| `updates.mode` |")},
 		{"the updates.auto row of docs/problem-codes.md", lineStarting(t, problems, "| `updates.auto` |")},
 	} {
-		if !strings.Contains(tc.line, updatesAutoNotYet) {
-			t.Errorf("%s never says %q: %s", tc.where, updatesAutoNotYet, tc.line)
+		if !strings.Contains(tc.line, updatesAutoNeedsHelper) {
+			t.Errorf("%s never says %q: %s", tc.where, updatesAutoNeedsHelper, tc.line)
 		}
 	}
 }

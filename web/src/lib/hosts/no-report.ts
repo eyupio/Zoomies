@@ -97,7 +97,7 @@ export function noReport(i: { host: HostFields; now: number; canOperate: boolean
         ...NONE,
         ...base,
         detail:
-          'Updating an agent needs an administrator, who can press Update on its host card where the update helper is installed, or an operator, who can run its upgrade command on the host. Ask one of them to update this host’s agent.',
+          'An agent is updated by an administrator, who can press Update on its host card where the update helper is installed, by an operator, who can run its upgrade command on the host, or by Zoomies itself where the helper is installed, while updates.mode is auto. Ask an administrator or an operator to update this host’s agent.',
       };
     }
     if (host.upgrade_command && !host.embedded) {
@@ -110,7 +110,7 @@ export function noReport(i: { host: HostFields; now: number; canOperate: boolean
         commandCaption: 'Run this on the host:',
         copyLabel: 'Copy the upgrade command',
         after:
-          'Running runner containers stay in place. This page fills in by itself once the agent restarts and reports. Zoomies updates the agent itself only when an administrator presses Update on the host’s card, which is offered once the update helper is installed on the host.',
+          'Running runner containers stay in place. This page fills in by itself once the agent restarts and reports. Once the update helper is installed on the host, Zoomies updates the agent itself when an administrator presses Update on the host’s card or starts a rollout from the Hosts page, and by itself while updates.mode is auto.',
       };
     }
     return {

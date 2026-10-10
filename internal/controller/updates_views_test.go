@@ -12,6 +12,7 @@ import (
 
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/events"
+	"github.com/eyupio/zoomies/internal/store"
 	"github.com/eyupio/zoomies/internal/updates"
 )
 
@@ -635,4 +636,39 @@ func TestAFailedReleaseListReadKeepsItsSentenceAndIsTheCheckFailedSentinel(t *te
 			t.Errorf("error = %v, want ErrUpdateCheckFailed", err)
 		}
 	})
+}
+
+// The store keeps the sentence a rollout halted with after it is resumed or
+// cancelled, as history. The status must not: a cancelled rollout shown with
+// "resume the rollout or cancel it" asks for a press that can no longer be made.
+func TestARolloutSaysWhyItHaltedOnlyWhileItIsHalted(t *testing.T) {
+	h := newHarness(t)
+	h.autoFleet("manual")
+	h.updatableHost("vm-a")
+	if _, _, err := h.c.StartHostRollout(h.ctx, alice, nil); err != nil {
+		t.Fatalf("StartHostRollout: %v", err)
+	}
+	r := h.openRollout()
+	const why = "The update of vm-a to v1.3.5 did not succeed, so the rollout is halted."
+	if _, err := h.st.HaltUpdateRollout(h.ctx, r.ID, why); err != nil {
+		t.Fatal(err)
+	}
+	if got := h.status().Rollout; got == nil || got.State != store.RolloutHalted || got.HaltedReason != why {
+		t.Fatalf("the halted rollout shows as %+v, want it halted with its sentence", got)
+	}
+	if _, _, err := h.c.ResumeRollout(h.ctx, alice); err != nil {
+		t.Fatalf("ResumeRollout: %v", err)
+	}
+	if got := h.status().Rollout; got == nil || got.State != store.RolloutRunning || got.HaltedReason != "" {
+		t.Errorf("the resumed rollout shows as %+v, want it running with no halted sentence", got)
+	}
+	if _, err := h.st.HaltUpdateRollout(h.ctx, r.ID, why); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := h.c.CancelRollout(h.ctx, alice); err != nil {
+		t.Fatalf("CancelRollout: %v", err)
+	}
+	if got := h.status().Rollout; got == nil || got.State != store.RolloutCancelled || got.HaltedReason != "" {
+		t.Errorf("the cancelled rollout shows as %+v, want it cancelled with no halted sentence", got)
+	}
 }
