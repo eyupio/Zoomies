@@ -91,8 +91,7 @@
     feed.start();
   });
 
-  // Whether there is an Eli to ask is the controller's to say, and only to an
-  // administrator. Signing out forgets the conversation, so the next person on
+  // Each account's provider list is private. Signing out forgets the conversation, so the next person on
   // this tab does not start in the last one's.
   $effect(() => {
     if (authenticated) void eli.refresh();

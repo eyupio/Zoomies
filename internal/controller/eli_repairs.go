@@ -207,7 +207,7 @@ func (c *Controller) repairLoop(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
-		if !c.Fenced().Fenced && !c.transferDraining.Load() && c.leaseLost.Load() == nil {
+		if c.mayAct() && !c.transferDraining.Load() {
 			if row, err := c.st.NextEliRepair(ctx); err == nil {
 				c.runEliRepair(ctx, row)
 			}
@@ -324,6 +324,10 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 			return
 		}
 	}
+	if strings.HasPrefix(r.DedupKey, "ui:") && assistant.Subscription(assistant.Kind(provider.Kind)) && !r.RequesterAdmin {
+		fail("The requesting credential needs administrator permission to run subscription tools.")
+		return
+	}
 	r.ProviderID = provider.ID
 	_ = c.st.SaveEliRepair(ctx, r)
 	c.repairNotice(ctx, client, r, "Investigating this PR using "+provider.Name+". The repair is limited to one commit and will leave normal review in place.")
@@ -387,7 +391,7 @@ func (c *Controller) runEliRepair(parent context.Context, r *store.EliRepair) {
 			return
 		}
 	}
-	if c.Fenced().Fenced || c.transferDraining.Load() || c.leaseLost.Load() != nil || ctx.Err() != nil {
+	if !c.mayAct() || c.transferDraining.Load() || ctx.Err() != nil {
 		fail("The repair stopped before publication.")
 		return
 	}
@@ -467,7 +471,7 @@ func (c *Controller) checkEliRepairs(ctx context.Context) {
 }
 
 // RequestEliRepair is the same owner-scoped operation as a GitHub mention, reachable from the UI.
-func (c *Controller) RequestEliRepair(ctx context.Context, userID, repo string, pull int, instruction string) (*store.EliRepair, error) {
+func (c *Controller) RequestEliRepair(ctx context.Context, userID, repo string, pull int, instruction string, requesterAdmin bool) (*store.EliRepair, error) {
 	if pull < 1 || len(instruction) > 4000 {
 		return nil, store.ErrConflict
 	}
@@ -513,10 +517,13 @@ func (c *Controller) RequestEliRepair(ctx context.Context, userID, repo string, 
 	if err != nil {
 		return nil, err
 	}
+	if assistant.Subscription(assistant.Kind(provider.Kind)) && !requesterAdmin {
+		return nil, ErrAssistantSubscriptionRestricted
+	}
 	if instruction == "" {
 		instruction = "Fix the underlying issue in this PR using the failed-job evidence."
 	}
-	row := &store.EliRepair{Repo: repo, InstallationID: inst.ID, PullNumber: pull, HeadSHA: pr.HeadSHA, UserID: userID, GitHubUserID: identity.GitHubUserID, GitHubLogin: identity.GitHubLogin, ProviderID: provider.ID, Trigger: "mention", Instruction: instruction, DedupKey: fmt.Sprintf("ui:%s:%d:%s:%s", repo, pull, pr.HeadSHA, userID)}
+	row := &store.EliRepair{Repo: repo, InstallationID: inst.ID, PullNumber: pull, HeadSHA: pr.HeadSHA, UserID: userID, GitHubUserID: identity.GitHubUserID, GitHubLogin: identity.GitHubLogin, ProviderID: provider.ID, Trigger: "mention", RequesterAdmin: requesterAdmin, Instruction: instruction, DedupKey: fmt.Sprintf("ui:%s:%d:%s:%s", repo, pull, pr.HeadSHA, userID)}
 	_, err = c.st.EnqueueEliRepair(ctx, row, policy.DailyLimit)
 	return row, err
 }

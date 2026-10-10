@@ -3,7 +3,7 @@ icon: material/dog-side
 title: Eli, the assistant
 description: >-
   Eli is the assistant built into Zoomies: a chat in the corner of every page that
-  can read your fleet through a model you choose, and cannot change anything.
+  can read your fleet through a model you choose, with separately authorised PR repairs.
 ---
 
 # Eli, the assistant
@@ -17,21 +17,20 @@ about your own fleet.
 Eli talks to a model **you** choose and pay for: one on your own machine such as
 Ollama, or a hosted one such as Ollama Cloud, OpenCode Zen, OpenCode Go, Anthropic or OpenAI, or your own
 Claude, ChatGPT or GitHub Copilot plan.
-Nothing is sent anywhere until somebody asks Eli something.
+Chat sends nothing until somebody asks Eli something. Enabled automatic repair policies also send PR source and failed-job evidence when a job fails.
 
 ## Setting it up
 
 Under **Settings, Assistant**, add a provider, choose its model from the list the
 provider gives, test it, and make it the default. Eli then appears in the corner of
-every page for administrators. Press <kbd>E</kbd> from anywhere that is not a box
+every page for signed-in users with a personal provider. Press <kbd>E</kbd> from anywhere that is not a box
 to type in, or press **Ask Eli**. <kbd>Esc</kbd> puts the panel away.
 
-Until there is an enabled default provider there is no Eli to ask, and the
-button is not shown.
+The Ask Eli button opens setup guidance until you choose an enabled personal default provider. Installation providers remain separate and do not pay for personal chat.
 
 ### Using your own subscription
 
-A provider can also be your own plan, used through the vendor's own program on the
+An administrator can also add their own plan, used through the vendor's own program on the
 controller's machine: **Claude** through Claude Code, **ChatGPT** through Codex, or
 **GitHub Copilot** through its command line tool. Zoomies runs the program and asks
 it the question. You sign in to it once, as the user the controller runs as
@@ -119,7 +118,7 @@ on for a provider only if that provider may be shown this.
 Job and branch names, commit messages and log lines are written by whoever can open
 a pull request against your repositories. Eli is told that such text is data and
 never instructions, and every tool result is marked as the fleet's data. Eli has
-no tool that changes anything, and answers are drawn as text, so the worst a hostile
+no chat tool that changes anything, and chat answers are drawn as text, so a hostile
 name can do is mislead an answer: check what you act on.
 
 ## Limits
@@ -128,14 +127,13 @@ name can do is mislead an answer: check what you act on.
 * A conversation is at most 40 messages, 8 KiB each and 32 KiB in all.
 * The conversation lives in your browser and is gone when you reload. The
   controller keeps nothing between questions.
-* Only administrators can ask. Every chat is written to the audit log as
+* Every signed-in user can ask through their own API provider; controller subscription tools require an administrator. Every chat is written to the audit log as
   `assistant.chat` with the provider, the model, whether the fleet could be read
   and the tools used, and never with what was said.
 
 ## If it is not there
 
-* **No button.** You need to be an administrator, and an enabled provider has to be
-  the default. Check **Settings, Assistant**.
+* **No answer.** Choose an enabled personal default provider in **Settings, Assistant**.
 * **"Eli cannot see this fleet through ..."** The provider's fleet switch is off.
 * **A provider error.** The text says what the provider answered; **Test** on its
   card sends one short prompt and says which part failed. A model that does not
@@ -153,8 +151,7 @@ account and no key.
 Eli uses your configured model provider. In Settings, Assistant, add a personal
 provider, test it and make it your default. Its key is encrypted at rest and
 never returned to the browser. Each account has its own providers and default.
-Administrators manage installation providers separately. Existing providers
-remain installation-owned after an upgrade; they are not assigned to a user.
+Administrators manage installation providers separately. Existing API providers remain installation-owned after an upgrade; existing subscription providers retain their owner.
 
 ## A chat that fits your work
 

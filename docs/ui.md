@@ -699,45 +699,34 @@ everybody, marked rather than hidden.
 
 ### Assistant
 
-Where each user connects their personal model. Administrators also configure
-installation providers for automatic PR repairs. A new provider
-starts as **Ollama Cloud** with its address already filled in; **OpenCode Go**,
-Where an administrator connects the model the assistant talks to. A new provider
-starts as **Ollama Cloud** with its address already filled in; **OpenCode Zen**, **OpenCode Go**,
-a local or other OpenAI-compatible server, Anthropic and OpenAI are one choice
-away, and so are **Claude, ChatGPT and GitHub Copilot on your own plan**, which have no
-address or key to type and are usable only by the person who added them
-([how that works](eli.md)). An address or name you have already typed is never
-overwritten by changing the choice. Once the key is entered the **model** is chosen from the
-list the provider itself offers (**Load the list of models** fetches it, and it
-loads by itself when you leave the key field), so a model the provider has
-retired cannot be picked by mistake. A provider that will not list its models
-leaves the field as a box to type the name into.
+Each user connects their own API provider in **Settings, Assistant**. Administrators
+also manage installation providers for unattended repairs and can add their own
+Claude, ChatGPT or GitHub Copilot subscription through the controller’s vendor tool.
+Existing API providers stay in the installation scope after an upgrade.
 
-Under the provider cards sits **Ask Eli**, a conversation with the default
-provider. Eli is the assistant's name: Extremely Lively Intelligence. A first
-visit offers four things to ask that need no knowledge of your fleet; after that
-your questions sit on the right and Eli's answers on the left, drawn from the
-Markdown a model writes (lists, tables, code with a copy button, links that open
-in a new tab) and never as markup the page runs. The view follows an answer as it
-arrives and stops following when you scroll up to read, with a **Latest** button
-to return. **Stop** ends an answer, **Try again** asks a failed one a second time,
-and **New conversation** clears the page. Eli cannot see the fleet yet and says
-so. Ask Eli buttons share displayed host, runner or problem facts when requested.
-The floating widget follows you between pages, with one-click size presets and
-left or right placement. Follow-on prompts continue the current topic. The
-conversation lives in memory and is cleared on sign-out.
+A new provider starts as **Ollama Cloud**. OpenCode Zen, OpenCode Go, a local or
+other OpenAI-compatible server, Anthropic and OpenAI are one choice away. Choose
+from the provider’s model list where it offers one, test it and make it your default.
+Keys are sealed and never returned to the page. The installation address and
+local-only switches remain administrator settings.
 
-The same settings page links your GitHub account, asks you to confirm personal
-provider use and shows PR repair history. Administrators configure repository
-policies and automatic repair budgets. See [Eli conversations and PR repairs](eli.md)
-for setup, GitHub permissions and repair limits.
-Under the provider cards, a card says where Eli is: in the corner of every page,
-for administrators, once there is an enabled default provider. **Open Eli** opens
-it from here, and <kbd>E</kbd> opens it from anywhere. Each provider has a switch,
-**Let Eli read this fleet through this provider**, off until you turn it on, and a
-card says when it is on. The conversation itself, what Eli can see and what is sent
-to the provider are on [their own page](eli.md).
+**Ask Eli** opens the conversation in the corner of every page. Compact, Default,
+Expanded and fullscreen are one click away, with left or right placement and a
+resize handle. Drafts and conversation history survive minimisation and navigation;
+conversation text is held in memory and cleared on sign-out. The fullscreen and
+mobile panels keep keyboard focus inside and restore it on close.
+
+Ask Eli buttons on host, runner and problem views share displayed details and ask
+a relevant question. Follow-on prompts continue the session’s topic. Answers render
+Markdown safely, follow the stream until you scroll up, and offer **Latest**, **Stop**,
+**Try again** and **New conversation**. Read-only fleet tools are available only
+when the provider’s **Let Eli read this fleet** switch is enabled, and run with
+the person’s own permissions.
+
+The settings page also shows your verified GitHub account link, personal-provider
+consent and PR repair history. Administrators configure repository policies,
+installation providers and automatic repair budgets. See [Eli](eli.md) for setup,
+GitHub permissions and repair limits.
 
 ### Backups
 

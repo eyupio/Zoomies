@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 	"time"
 )
 
@@ -23,6 +24,7 @@ type EliRepairPolicy struct {
 	DailyLimit     int    `json:"daily_limit"`
 }
 type EliRepair struct {
+	RequesterAdmin bool      `json:"-"`
 	ID             string    `json:"id"`
 	DedupKey       string    `json:"-"`
 	InstallationID string    `json:"installation_id"`
@@ -95,12 +97,12 @@ func (s *Store) EliRepairPolicies(ctx context.Context) ([]EliRepairPolicy, error
 	return out, rows.Err()
 }
 
-const eliRepairCols = `id,dedup_key,installation_id,repo,pull_number,job_id,run_id,head_sha,commit_sha,user_id,github_user_id,github_login,provider_id,trigger,instruction,state,message,comment_id,created_at,updated_at`
+const eliRepairCols = `id,dedup_key,installation_id,repo,pull_number,job_id,run_id,head_sha,commit_sha,user_id,github_user_id,github_login,provider_id,trigger,requester_admin,instruction,state,message,comment_id,created_at,updated_at`
 
 func scanEliRepair(row interface{ Scan(...any) error }) (*EliRepair, error) {
 	var v EliRepair
 	var created, updated int64
-	err := row.Scan(&v.ID, &v.DedupKey, &v.InstallationID, &v.Repo, &v.PullNumber, &v.JobID, &v.RunID, &v.HeadSHA, &v.CommitSHA, &v.UserID, &v.GitHubUserID, &v.GitHubLogin, &v.ProviderID, &v.Trigger, &v.Instruction, &v.State, &v.Message, &v.CommentID, &created, &updated)
+	err := row.Scan(&v.ID, &v.DedupKey, &v.InstallationID, &v.Repo, &v.PullNumber, &v.JobID, &v.RunID, &v.HeadSHA, &v.CommitSHA, &v.UserID, &v.GitHubUserID, &v.GitHubLogin, &v.ProviderID, &v.Trigger, &v.RequesterAdmin, &v.Instruction, &v.State, &v.Message, &v.CommentID, &created, &updated)
 	v.CreatedAt, v.UpdatedAt = at(created), at(updated)
 	return &v, err
 }
@@ -116,10 +118,19 @@ func (s *Store) EnqueueEliRepair(ctx context.Context, r *EliRepair, limit int) (
 			if err != nil {
 				return err
 			}
-			*r = *saved
-			return nil
+			// A new explicit UI request may retry a finished failure. Webhook delivery
+			// keys remain permanent, and an in-flight UI request is still idempotent.
+			retry := strings.HasPrefix(r.DedupKey, "ui:") && (saved.State == "failed" || saved.State == "blocked" || saved.State == "interrupted" || saved.State == "unverified" || saved.State == "checks_failed" || saved.State == "superseded")
+			if !retry {
+				*r = *saved
+				return nil
+			}
+			if _, err := tx.ExecContext(ctx, `UPDATE eli_repairs SET dedup_key=? WHERE id=?`, saved.DedupKey+":retry:"+saved.ID, saved.ID); err != nil {
+				return err
+			}
+
 		}
-		if !errors.Is(err, sql.ErrNoRows) {
+		if err != nil && !errors.Is(err, sql.ErrNoRows) {
 			return err
 		}
 		var count int
@@ -141,14 +152,26 @@ func (s *Store) EnqueueEliRepair(ctx context.Context, r *EliRepair, limit int) (
 		r.State = "queued"
 		r.CreatedAt = s.Now()
 		r.UpdatedAt = r.CreatedAt
-		_, err = tx.ExecContext(ctx, `INSERT INTO eli_repairs (`+eliRepairCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.ID, r.DedupKey, r.InstallationID, r.Repo, r.PullNumber, r.JobID, r.RunID, r.HeadSHA, r.CommitSHA, r.UserID, r.GitHubUserID, r.GitHubLogin, r.ProviderID, r.Trigger, r.Instruction, r.State, r.Message, r.CommentID, ms(r.CreatedAt), ms(r.UpdatedAt))
+		_, err = tx.ExecContext(ctx, `INSERT INTO eli_repairs (`+eliRepairCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, r.ID, r.DedupKey, r.InstallationID, r.Repo, r.PullNumber, r.JobID, r.RunID, r.HeadSHA, r.CommitSHA, r.UserID, r.GitHubUserID, r.GitHubLogin, r.ProviderID, r.Trigger, boolInt(r.RequesterAdmin), r.Instruction, r.State, r.Message, r.CommentID, ms(r.CreatedAt), ms(r.UpdatedAt))
 		added = err == nil
 		return err
 	})
 	return added, wrapWrite(err)
 }
 func (s *Store) ListEliRepairs(ctx context.Context) ([]*EliRepair, error) {
-	rows, err := s.read.QueryContext(ctx, `SELECT `+eliRepairCols+` FROM eli_repairs ORDER BY created_at DESC LIMIT 100`)
+	return s.listEliRepairs(ctx, "", false)
+}
+func (s *Store) ListEliRepairsForOwner(ctx context.Context, owner string) ([]*EliRepair, error) {
+	return s.listEliRepairs(ctx, owner, true)
+}
+func (s *Store) listEliRepairs(ctx context.Context, owner string, scoped bool) ([]*EliRepair, error) {
+	query := `SELECT ` + eliRepairCols + ` FROM eli_repairs`
+	args := []any{}
+	if scoped {
+		query += ` WHERE user_id=? AND user_id<>''`
+		args = append(args, owner)
+	}
+	rows, err := s.read.QueryContext(ctx, query+` ORDER BY created_at DESC LIMIT 100`, args...)
 	if err != nil {
 		return nil, err
 	}

@@ -1,4 +1,4 @@
--- Existing providers remain installation-owned; personal defaults cannot change them.
+-- Preserve existing API and subscription ownership while separating personal defaults.
 CREATE TABLE assistant_providers_personal (
     id TEXT PRIMARY KEY,
     owner_id TEXT NOT NULL DEFAULT '',
@@ -60,6 +60,7 @@ CREATE TABLE eli_repairs (
     github_login TEXT NOT NULL DEFAULT '',
     provider_id TEXT NOT NULL DEFAULT '',
     trigger TEXT NOT NULL,
+    requester_admin INTEGER NOT NULL DEFAULT 0,
     instruction TEXT NOT NULL DEFAULT '',
     state TEXT NOT NULL DEFAULT 'queued',
     message TEXT NOT NULL DEFAULT '',

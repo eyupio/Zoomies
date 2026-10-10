@@ -49,6 +49,8 @@ const assistantToolsSystemPrompt = "You are Eli, the assistant built into Zoomie
 
 // ErrAssistantNoModel is a chat asked of an instance with no enabled provider to
 // answer it, or of a provider that is not one.
+var ErrAssistantSubscriptionRestricted = errors.New("subscription tools on the controller require administrator permission")
+
 var ErrAssistantNoModel = errors.New("no assistant model is set up")
 
 // ErrAssistantNotYours is a chat asked through somebody else's own subscription.
@@ -74,7 +76,8 @@ type AssistantChatMessage struct {
 // AssistantChatRequest is a conversation so far, ending in a question. The
 // controller keeps nothing between requests; the page holds the history.
 type AssistantChatRequest struct {
-	Personal bool
+	Personal          bool
+	AllowSubscription bool
 	// ProviderID names the provider to ask, or is empty for the default.
 	ProviderID string
 	OwnerID    string
@@ -186,6 +189,12 @@ func (c *Controller) personalChatProvider(ctx context.Context, id string, owner 
 		if !row.Enabled || row.OwnerID != owner {
 			return nil, ErrAssistantNoModel
 		}
+		if assistant.Subscription(assistant.Kind(row.Kind)) {
+			user, e := c.st.GetUser(ctx, owner)
+			if e != nil || user.Disabled || user.Role != store.RoleAdmin {
+				return nil, ErrAssistantNoModel
+			}
+		}
 		return row, nil
 	}
 	rows, err := c.st.ListAssistantProviders(ctx)
@@ -194,6 +203,12 @@ func (c *Controller) personalChatProvider(ctx context.Context, id string, owner 
 	}
 	for _, row := range rows {
 		if row.IsDefault && row.Enabled && row.OwnerID == owner {
+			if assistant.Subscription(assistant.Kind(row.Kind)) {
+				user, e := c.st.GetUser(ctx, owner)
+				if e != nil || user.Disabled || user.Role != store.RoleAdmin {
+					return nil, ErrAssistantNoModel
+				}
+			}
 			return row, nil
 		}
 	}
@@ -219,6 +234,9 @@ func (c *Controller) StartAssistantChat(ctx context.Context, in AssistantChatReq
 	}
 	if err != nil {
 		return nil, err
+	}
+	if in.Personal && assistant.Subscription(assistant.Kind(row.Kind)) && !in.AllowSubscription {
+		return nil, ErrAssistantSubscriptionRestricted
 	}
 	p, err := c.OpenAssistantProvider(row, "")
 	if err != nil {

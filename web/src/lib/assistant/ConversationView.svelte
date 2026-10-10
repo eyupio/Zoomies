@@ -267,6 +267,7 @@
         bind:value={conversation.draft}
         rows="1"
         aria-label="Message"
+        data-autofocus
         placeholder={answering ? 'Ask Eli anything about Zoomies or GitHub Actions' : closedHint}
         disabled={!answering}
         oninput={fit}

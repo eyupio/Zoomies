@@ -2,11 +2,8 @@
  * Eli, as the rest of the page sees Eli: whether there is one to ask, whether the
  * panel is open, and the one conversation.
  *
- * Eli is there when an administrator is signed in and an enabled provider is the
- * default; asking the providers is an administrator's call, so anyone else never
- * learns of it and the widget never mounts. The conversation is kept here so it
- * survives moving between pages, and it is gone on a reload, as the controller
- * keeps nothing.
+ * Each signed-in account uses its personal providers. The conversation survives
+ * navigation and is forgotten on sign-out or reload.
  */
 import { tick } from 'svelte';
 import type { EliContext } from './prompts';
@@ -23,6 +20,7 @@ class Eli {
   pending = $state<EliContext[]>([]);
   returnFocus: HTMLElement | null = null;
   #loaded = $state(false);
+  #revision = 0;
 
   /**
    * The provider that answers this person: the default, if it is enabled and they
@@ -45,25 +43,30 @@ class Eli {
 
   /** Ask the controller which providers there are. Quiet when it cannot say. */
   async refresh(): Promise<void> {
+    const revision = ++this.#revision;
     if (session.phase !== 'ready' || !session.can('viewer')) {
       this.providers = [];
       this.open = false;
       return;
     }
     try {
-      this.providers = (await listAssistantProviders()).items ?? [];
+      const result = await listAssistantProviders();
+      if (revision !== this.#revision) return;
+      this.providers = result.items ?? [];
     } catch {
       // The widget is an extra: a page that cannot say whether there is a model
       // simply does not offer one, and the Settings page says what is wrong.
+      if (revision !== this.#revision) return;
       this.providers = [];
     } finally {
-      this.#loaded = true;
+      if (revision === this.#revision) this.#loaded = true;
     }
     if (!this.answering) this.open = false;
   }
 
   /** Use the providers a page has just read, without asking again. */
   know(providers: readonly AssistantProvider[]): void {
+    this.#revision++;
     this.providers = providers;
     this.#loaded = true;
     if (!this.answering) this.open = false;
@@ -91,13 +94,15 @@ class Eli {
   close(): void {
     this.open = false;
     const previous = this.returnFocus;
-    void tick().then(() => {
-      if (this.open) return;
-      const target = previous?.isConnected
-        ? previous
-        : document.querySelector<HTMLButtonElement>('[aria-controls="eli-widget"]');
-      target?.focus();
-    });
+    void tick().then(() =>
+      requestAnimationFrame(() => {
+        if (this.open) return;
+        const target = previous?.isConnected
+          ? previous
+          : document.querySelector<HTMLButtonElement>('[aria-controls="eli-widget"]');
+        target?.focus();
+      }),
+    );
   }
   newConversation(): void {
     this.conversation.clear();
@@ -106,6 +111,7 @@ class Eli {
 
   /** Forget everything: somebody else may sign in on this tab. */
   reset(): void {
+    this.#revision++;
     this.conversation.clear();
     this.providers = [];
     this.pending = [];

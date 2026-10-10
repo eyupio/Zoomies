@@ -175,5 +175,9 @@ export function answeringProvider(
   providers: readonly AssistantProvider[],
 ): AssistantProvider | undefined {
   const usable = providers.filter((p) => p.enabled && p.usable);
-  return usable.find((p) => p.is_default) ?? usable[0];
+  return (
+    usable.find((p) => p.is_default && p.owned_by_you) ??
+    usable.find((p) => p.is_default) ??
+    usable[0]
+  );
 }

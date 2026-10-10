@@ -95,6 +95,9 @@ func (s *Server) validateAssistantProvider(r *http.Request, p *store.AssistantPr
 			errs = append(errs, fieldError{"base_url", f.Title + ". " + f.Fix})
 		}
 	}
+	if assistant.Subscription(kind) && p.ID != "" && p.OwnerID == "" {
+		errs = append(errs, fieldError{"kind", "Add a new personal subscription provider rather than converting an installation provider."})
+	}
 	if assistant.Subscription(kind) && !s.isAssistantAdmin(r) {
 		errs = append(errs, fieldError{"kind", "Subscription tools on the controller require an administrator; use your personal API provider instead."})
 	}
@@ -159,7 +162,7 @@ func (s *Server) handleListAssistantProviders(w http.ResponseWriter, r *http.Req
 		if !strings.Contains(r.URL.Path, "/assistant/personal/") && row.OwnerID != "" && !assistant.Subscription(assistant.Kind(row.Kind)) {
 			continue
 		}
-		if strings.Contains(r.URL.Path, "/assistant/personal/") && row.OwnerID != s.assistantOwner(r) {
+		if !s.cfg().Security.DisableAuth && strings.Contains(r.URL.Path, "/assistant/personal/") && row.OwnerID != s.assistantOwner(r) {
 			continue
 		}
 		items = append(items, s.assistantView(r, row))
@@ -474,7 +477,7 @@ func (s *Server) ownedAssistantProvider(r *http.Request, id string) (*store.Assi
 	if err != nil {
 		return nil, err
 	}
-	if strings.Contains(r.URL.Path, "/assistant/personal/") && row.OwnerID != s.assistantOwner(r) {
+	if !s.cfg().Security.DisableAuth && strings.Contains(r.URL.Path, "/assistant/personal/") && row.OwnerID != s.assistantOwner(r) {
 		return nil, store.ErrNotFound
 	}
 	if !strings.Contains(r.URL.Path, "/assistant/personal/") && row.OwnerID != "" && !assistant.Subscription(assistant.Kind(row.Kind)) {

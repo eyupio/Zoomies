@@ -12,7 +12,13 @@ import (
 )
 
 func (s *Server) handleEliRepairs(w http.ResponseWriter, r *http.Request) {
-	rows, err := s.ctrl.Store().ListEliRepairs(r.Context())
+	var rows []*store.EliRepair
+	var err error
+	if Identity(r.Context()).Can(auth.ActionAssistantRead) {
+		rows, err = s.ctrl.Store().ListEliRepairs(r.Context())
+	} else {
+		rows, err = s.ctrl.Store().ListEliRepairsForOwner(r.Context(), Identity(r.Context()).UserID)
+	}
 	if err != nil {
 		s.internal(w, r, "listing Eli repairs", err)
 		return
@@ -138,8 +144,10 @@ func (s *Server) handleRequestEliRepair(w http.ResponseWriter, r *http.Request) 
 		conflict(w, "sign in with a personal account to request a PR repair")
 		return
 	}
-	row, err := s.ctrl.RequestEliRepair(r.Context(), owner, in.Repo, in.PullNumber, in.Instruction)
+	row, err := s.ctrl.RequestEliRepair(r.Context(), owner, in.Repo, in.PullNumber, in.Instruction, s.isAssistantAdmin(r))
 	switch {
+	case errors.Is(err, controller.ErrAssistantSubscriptionRestricted):
+		forbidden(w, err.Error())
 	case errors.Is(err, store.ErrNotFound):
 		notFound(w, "no enabled repair policy or linked GitHub account was found")
 	case errors.Is(err, store.ErrConflict), errors.Is(err, controller.ErrAssistantNoModel):

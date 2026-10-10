@@ -2,6 +2,7 @@ package api
 
 import (
 	"github.com/eyupio/zoomies/internal/assistant/assistanttest"
+	"github.com/eyupio/zoomies/internal/auth"
 	"github.com/eyupio/zoomies/internal/config"
 	"github.com/eyupio/zoomies/internal/store"
 	"net/http"
@@ -79,4 +80,19 @@ func TestPersonalProviderDraftsCannotRunControllerSubscriptionToolsForAViewer(t 
 			h.do(request{method: "POST", path: path, cookie: viewer, body: map[string]any{"name": "My plan", "kind": kind}}).mustStatus(t, 422, "controller credentials stay behind administrator permission")
 		}
 	}
+}
+
+func TestAnOwnedViewerTokenCannotRunItsAdministratorsSubscriptionTool(t *testing.T) {
+	h := newHarness(t)
+	owner, _ := h.user("owner", store.RoleAdmin)
+	p := &store.AssistantProvider{Name: "Own subscription", Kind: "claude_code", Model: "sonnet", OwnerID: owner.ID, Enabled: true}
+	if err := h.st.CreateAssistantProvider(h.ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	h.st.SetDefaultAssistantProvider(h.ctx, p.ID)
+	_, token, err := h.ctrl.Auth().CreateAPIToken(h.ctx, auth.NewToken{Name: "restricted", Role: store.RoleViewer, UserID: owner.ID, Scopes: []string{"*"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	h.do(request{method: "POST", path: "/api/v1/assistant/personal/chat", token: token, body: map[string]any{"messages": []map[string]string{{"role": "user", "content": "hello"}}}}).mustStatus(t, 403, "token role applies to subscription tools")
 }

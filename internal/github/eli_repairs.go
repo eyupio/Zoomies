@@ -117,7 +117,7 @@ func (c *appClient) RepairPull(ctx context.Context, repo string, number int) (Re
 	}
 	out := RepairPull{Number: p.Number, AuthorID: p.User.ID, Author: p.User.Login, Branch: p.Head.Ref, HeadSHA: p.Head.SHA, Title: p.Title, Body: p.Body, URL: p.HTMLURL, DefaultBranch: p.Head.Repo.DefaultBranch, Fork: p.Head.Repo.FullName != repo, Open: p.State == "open"}
 	if out.Number <= 0 || !out.Open || out.Fork || out.HeadSHA == "" || out.Branch == "" || out.Branch == out.DefaultBranch {
-		return out, fmt.Errorf("Eli needs an open PR on a non-default branch in this repository; forks are not writable")
+		return out, fmt.Errorf("an Eli repair needs an open PR on a non-default branch in this repository; forks are not writable")
 	}
 	return out, nil
 }
@@ -139,7 +139,7 @@ func (c *appClient) RepairPullForRun(ctx context.Context, repo string, run int64
 		return RepairPull{}, err
 	}
 	if r.HeadRepository.FullName != repo {
-		return RepairPull{}, fmt.Errorf("Eli does not repair fork workflow runs")
+		return RepairPull{}, fmt.Errorf("an Eli repair does not support fork workflow runs")
 	}
 	if len(r.Pulls) != 1 {
 		return RepairPull{}, fmt.Errorf("the failed run must identify exactly one pull request")

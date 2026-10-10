@@ -26,7 +26,7 @@ type files map[string]File
 
 func (f files) ReadFile(_ context.Context, name string) (File, error) { return f[name], nil }
 func TestRepairPathsProtectCredentialsAndWorkflowPermissions(t *testing.T) {
-	for _, p := range []string{"../a", "a/../b", "/tmp/a", `a\b`, ".git/config", ".env", "dir/.env.local", "key.pem", "credentials.json", "secrets.yaml", ".ssh/id_rsa", ".github/workflows/test.yml"} {
+	for _, p := range []string{".Git/config", ".SSH/id_rsa", ".AWS/config", "secrets/token", ".GITHUB/workflows/ci.yml", "../a", "a/../b", "/tmp/a", `a\b`, ".git/config", ".env", "dir/.env.local", "key.pem", "credentials.json", "secrets.yaml", ".ssh/id_rsa", ".github/workflows/test.yml"} {
 		if AllowedPath(p, false) {
 			t.Errorf("allowed %q", p)
 		}
@@ -81,5 +81,16 @@ func TestRepairStopsAfterItsStepBudget(t *testing.T) {
 	_, e := Generate(context.Background(), m, files{"a": {Path: "a"}}, Snapshot{}, "", false)
 	if e == nil || !strings.Contains(e.Error(), "step limit") {
 		t.Fatalf("%v", e)
+	}
+}
+
+func TestRepairRedactionRemovesTheWholePrivateKeyRatherThanJustItsHeader(t *testing.T) {
+	key := "-----BEGIN RSA PRIVATE KEY-----\nPRIVATE_CONTENT\n-----END RSA PRIVATE KEY-----"
+	got := Redact("before\n" + key + "\nafter")
+	if strings.Contains(got, "PRIVATE_CONTENT") || strings.Contains(got, "PRIVATE KEY") || !strings.Contains(got, "before") || !strings.Contains(got, "after") {
+		t.Fatalf("incomplete redaction: %q", got)
+	}
+	if strings.Contains(Redact("-----BEGIN PRIVATE KEY-----\nPRIVATE_CONTENT"), "PRIVATE_CONTENT") {
+		t.Fatal("unterminated key leaked")
 	}
 }

@@ -116,7 +116,7 @@ func (f *repairFake) RepairChecks(context.Context, string, string) (string, erro
 	return f.check, nil
 }
 func TestRepairWorkerSelectsTheHybridProviderAndRecordsRealCheckOutcome(t *testing.T) {
-	for _, trigger := range []string{"mention", "automatic", "revoked"} {
+	for _, trigger := range []string{"mention", "automatic", "revoked", "expired-lease"} {
 		t.Run(trigger, func(t *testing.T) {
 			h := newHarness(t)
 			inst := h.installation()
@@ -149,13 +149,25 @@ func TestRepairWorkerSelectsTheHybridProviderAndRecordsRealCheckOutcome(t *testi
 			repo := "acme/repo"
 			h.st.SetEliRepairPolicy(h.ctx, store.EliRepairPolicy{Repo: repo, InstallationID: inst.ID, ProviderID: shared.ID, Enabled: true, Automatic: true, DailyLimit: 5})
 			actualTrigger := trigger
-			if trigger == "revoked" {
+			if trigger == "revoked" || trigger == "expired-lease" {
 				actualTrigger = "mention"
-				fake.onRead = func() { h.st.ConfirmEliIdentity(h.ctx, user.ID, 42, false) }
+				fake.onRead = func() {
+					if trigger == "revoked" {
+						h.st.ConfirmEliIdentity(h.ctx, user.ID, 42, false)
+					} else {
+						h.c.lease = &store.ControllerLease{Holder: "stale", RenewedAt: h.c.Now().Add(-2 * LeaseTTL)}
+					}
+				}
 			}
 			row := &store.EliRepair{DedupKey: trigger, Repo: repo, InstallationID: inst.ID, PullNumber: 1, HeadSHA: "old", RunID: 9, Trigger: actualTrigger, UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"}
 			h.st.EnqueueEliRepair(h.ctx, row, 5)
 			h.c.runEliRepair(h.ctx, row)
+			if trigger == "expired-lease" {
+				if fake.commits != 0 || row.State != "failed" || !strings.Contains(row.Message, "stopped before publication") {
+					t.Fatalf("published without a current lease: %+v", row)
+				}
+				return
+			}
 			if trigger == "revoked" {
 				if fake.commits != 0 || row.State != "failed" || !strings.Contains(row.Message, "access changed") {
 					t.Fatalf("published after revocation: %+v", row)

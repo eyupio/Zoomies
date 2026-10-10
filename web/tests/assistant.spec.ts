@@ -100,7 +100,7 @@ test('the demo model answers a question typed on the page, and the next one carr
   const message = page.getByRole('textbox', { name: 'Message' });
   await message.fill('What is a runner?');
   await page.getByRole('button', { name: 'Send' }).click();
-  const answers = page.getByRole('article', { name: 'Eli assistant' });
+  const answers = page.getByRole('article', { name: 'Eli' });
   await expect(answers.first()).toContainText('The built-in model heard: What is a runner?');
   await expect(answers.first()).toContainText('Demo model (built in)');
   await expect(page.getByRole('article', { name: 'You' }).first()).toContainText(
@@ -142,7 +142,7 @@ test('Eli says hello, offers things to ask, and a click asks one', async ({ page
   await expect(starters).toHaveCount(4);
   const first = (await starters.first().textContent()) ?? '';
   await starters.first().click();
-  await expect(page.getByRole('article', { name: 'Eli assistant' }).first()).toContainText(
+  await expect(page.getByRole('article', { name: 'Eli' }).first()).toContainText(
     `The built-in model heard: ${first}`,
   );
   expect(asked[0]!.messages).toEqual([{ role: 'user', content: first }]);
@@ -182,7 +182,7 @@ test('an answer is drawn from its Markdown, and what is not Markdown is never ru
   await page.getByRole('textbox', { name: 'Message' }).fill('hello');
   await page.getByRole('button', { name: 'Send' }).click();
 
-  const answer = page.getByRole('article', { name: 'Eli assistant' });
+  const answer = page.getByRole('article', { name: 'Eli' });
   await expect(answer.getByRole('listitem')).toHaveCount(2);
   await expect(answer.locator('strong', { hasText: 'The dashboard' })).toBeVisible();
   await expect(answer.getByRole('table')).toBeVisible();
@@ -228,7 +228,7 @@ test('a failed answer can be asked again, and the second one replaces it', async
   await page.getByRole('button', { name: 'Send' }).click();
   await expect(page.getByRole('alert').filter({ hasText: 'the provider is down' })).toBeVisible();
   await page.getByRole('button', { name: 'Try again' }).click();
-  await expect(page.getByRole('article', { name: 'Eli assistant' })).toContainText('Back again.');
+  await expect(page.getByRole('article', { name: 'Eli' })).toContainText('Back again.');
   await expect(page.getByRole('alert').filter({ hasText: 'the provider is down' })).toHaveCount(0);
   await expect(page.getByRole('article', { name: 'You' })).toHaveCount(1);
 });
@@ -337,9 +337,7 @@ test('Eli is in the corner of every page, opens and closes from the keyboard, an
   await expect(message).toBeFocused();
   await message.fill('Does this survive a page change?');
   await message.press('Enter');
-  await expect(page.getByRole('article', { name: 'Eli assistant' })).toContainText(
-    'Does this survive',
-  );
+  await expect(page.getByRole('article', { name: 'Eli' })).toContainText('Does this survive');
 
   // Going somewhere else does not end the conversation.
   await page.keyboard.press('Escape');
@@ -374,7 +372,7 @@ test('Eli says it cannot see the fleet until an administrator allows it, and the
     const message = page.getByRole('textbox', { name: 'Message' });
     await message.fill('How is the fleet?');
     await message.press('Enter');
-    const answer = page.getByRole('article', { name: 'Eli assistant' });
+    const answer = page.getByRole('article', { name: 'Eli' });
     await expect(answer.getByRole('list', { name: 'What Eli looked at' })).toContainText(
       'Looked at the fleet at a glance',
     );
@@ -473,7 +471,7 @@ test('a Claude subscription is added with no address and no key, tested, and Eli
     const providers = await (await page.request.get('/api/v1/assistant/providers')).json();
     const mine = providers.items.find((p: { kind: string }) => p.kind === 'claude_code');
     expect((await asked).postDataJSON().provider_id).toBe(mine.id);
-    await expect(page.getByRole('article', { name: 'Eli assistant' })).toContainText(
+    await expect(page.getByRole('article', { name: 'Eli' })).toContainText(
       'Claude Code heard: hello from the spec',
     );
     // It cannot be lent the fleet, so Eli says it cannot see it.
@@ -568,7 +566,7 @@ for (const tool of [
       const message = page.getByRole('textbox', { name: 'Message' });
       await message.fill('hello from the spec');
       await message.press('Enter');
-      const eli = page.getByRole('article', { name: 'Eli assistant' });
+      const eli = page.getByRole('article', { name: 'Eli' });
       await expect(eli).toContainText(`${tool.heard}hello from the spec`);
       // What the agent's own tools did is not part of the answer.
       await expect(eli).not.toContainText('NOT-FOR-ELI');
@@ -585,3 +583,59 @@ for (const tool of [
     }
   });
 }
+
+test('Eli keeps drafts and history through layout changes, minimisation and navigation', async ({
+  page,
+  isMobile,
+}) => {
+  await goto(page, '/runners', 'Runners');
+  await page.getByRole('button', { name: 'Ask Eli', exact: true }).click();
+  const panel = page.getByRole('dialog', { name: 'Eli assistant' });
+  await expect(panel).toBeVisible();
+  const message = panel.getByRole('textbox', { name: 'Message' });
+  await expect(message).toBeEnabled();
+  await message.fill('Help me diagnose a runner failure');
+  if (!isMobile) {
+    await panel.getByRole('button', { name: 'Expanded', exact: true }).click();
+    await panel.getByRole('button', { name: 'Place Eli on the left' }).click();
+    await expect(message).toHaveValue('Help me diagnose a runner failure');
+    await panel.getByRole('button', { name: 'Full screen' }).click();
+    await expect(message).toHaveValue('Help me diagnose a runner failure');
+    await panel.getByRole('button', { name: 'Restore panel' }).click();
+  }
+  await panel.getByRole('button', { name: 'Minimise Eli' }).click();
+  await page.getByRole('button', { name: 'Ask Eli', exact: true }).click();
+  await expect(message).toHaveValue('Help me diagnose a runner failure');
+  await message.press('Enter');
+  await expect(panel.getByRole('article', { name: 'Eli' })).toContainText(
+    'The built-in model heard:',
+  );
+  await panel.getByRole('button', { name: 'Trace the failure' }).click();
+  await expect(panel.getByRole('article', { name: 'You' })).toHaveCount(2);
+  await expect(panel.getByRole('button', { name: 'Trace the failure' })).toHaveCount(0);
+  await panel.getByRole('button', { name: 'Minimise Eli' }).click();
+  await page.getByRole('link', { name: 'Pools', exact: true }).first().click();
+  await page.getByRole('button', { name: 'Ask Eli', exact: true }).click();
+  await expect(panel.getByRole('article', { name: 'You' })).toHaveCount(2);
+  await panel.getByRole('button', { name: 'Minimise Eli' }).click();
+  await expect(page.getByRole('button', { name: 'Ask Eli', exact: true })).toBeFocused();
+});
+
+test('a runner contextual action asks Eli with its displayed snapshot', async ({ page }) => {
+  const asked: Array<{ messages: Array<{ role: string; content: string }> }> = [];
+  await page.route('**/api/v1/assistant/personal/chat', async (route) => {
+    asked.push(route.request().postDataJSON());
+    await route.continue();
+  });
+  await goto(page, '/runners', 'Runners');
+  await page.locator('main a[href^="/runners/"]').first().click();
+  await page.getByTitle('Share these displayed details with Eli and ask for guidance').click();
+  const panel = page.getByRole('dialog', { name: 'Eli assistant' });
+  await expect(panel.getByRole('article', { name: 'Eli' })).toContainText(
+    'The built-in model heard:',
+  );
+  expect(asked).toHaveLength(1);
+  expect(asked[0]!.messages[0]!.content).toContain('Context shared from the runner UI:');
+  expect(asked[0]!.messages[0]!.content).toContain('State:');
+  await expect(panel.getByText(/^Shared runner:/)).toBeVisible();
+});

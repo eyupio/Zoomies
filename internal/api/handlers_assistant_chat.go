@@ -35,7 +35,7 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 	if !decode(w, r, &in) {
 		return
 	}
-	req := controller.AssistantChatRequest{ProviderID: in.ProviderID, OwnerID: s.assistantOwner(r), Personal: strings.Contains(r.URL.Path, "/assistant/personal/")}
+	req := controller.AssistantChatRequest{ProviderID: in.ProviderID, OwnerID: s.assistantOwner(r), AllowSubscription: s.isAssistantAdmin(r), Personal: !s.cfg().Security.DisableAuth && strings.Contains(r.URL.Path, "/assistant/personal/")}
 	// The tools are the person's own: the same routes with the same identity.
 	// Whether the provider may be shown the fleet through them is decided by the
 	// controller, per provider.
@@ -51,6 +51,9 @@ func (s *Server) handleAssistantChat(w http.ResponseWriter, r *http.Request) {
 	switch {
 	case errors.As(err, &invalid):
 		unprocessable(w, invalid.Message, []fieldError{{invalid.Field, invalid.Message}})
+		return
+	case errors.Is(err, controller.ErrAssistantSubscriptionRestricted):
+		forbidden(w, err.Error())
 		return
 	case errors.Is(err, controller.ErrAssistantNotYours):
 		writeError(w, http.StatusForbidden, errorEnvelope{Error: errorBody{Code: codeAssistantNotYours, Message: err.Error()}})

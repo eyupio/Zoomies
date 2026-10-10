@@ -9,16 +9,27 @@
   import EliAvatar from './EliAvatar.svelte';
   import { eli } from './eli.svelte';
   import { contextPrompt } from './prompts';
+  import { layers, lockScroll, pageInert, trapFocus } from '$lib/keys';
+  import { router } from '$lib/router';
+  import { answeringProvider } from '$lib/settings/assistant';
 
+  let phone = $state(false);
   let size = $state('comfortable');
   let side = $state('right');
   let full = $state(false);
+  const modal = $derived(full || phone);
   let answering = $state<AssistantProvider>();
   let loading = $state(false);
   let error = $state('');
   let panel = $state<HTMLElement>();
   let request: AbortController | undefined;
   onMount(() => {
+    const media = window.matchMedia('(max-width: 767px)');
+    const resized = () => {
+      phone = media.matches;
+    };
+    resized();
+    media.addEventListener('change', resized);
     try {
       const saved = JSON.parse(localStorage.getItem('zoomies.eli.layout') ?? '{}');
       if (['compact', 'comfortable', 'expanded'].includes(saved.size)) size = saved.size;
@@ -27,9 +38,23 @@
       /* Storage is optional. */
     }
     return () => {
+      media.removeEventListener('change', resized);
       request?.abort();
       eli.reset();
       eli.open = false;
+    };
+  });
+  $effect(() => {
+    if (!eli.open || !panel) return;
+    const layer = layers.push('dialog', () => eli.close());
+    const unlock = modal ? lockScroll() : () => {};
+    const uninert = modal ? pageInert(panel) : () => {};
+    const trap = modal ? trapFocus(panel) : undefined;
+    return () => {
+      layers.remove(layer);
+      uninert();
+      unlock();
+      trap?.destroy();
     };
   });
   function remember(): void {
@@ -48,8 +73,7 @@
     answering = undefined;
     try {
       const result = await listAssistantProviders(controller.signal);
-      if (!controller.signal.aborted)
-        answering = result.items?.find((provider) => provider.enabled && provider.is_default);
+      if (!controller.signal.aborted) answering = answeringProvider(result.items ?? []);
     } catch (cause) {
       if (!controller.signal.aborted)
         error =
@@ -62,6 +86,13 @@
     if (!eli.open) return;
     void load();
     void tick().then(() => panel?.focus());
+  });
+  $effect(() => {
+    if (!eli.open || loading || !answering || !panel) return;
+    void tick().then(() => {
+      if (eli.open && panel?.contains(document.activeElement))
+        panel.querySelector<HTMLTextAreaElement>('textarea[aria-label="Message"]')?.focus();
+    });
   });
   $effect(() => {
     if (!eli.open || loading || !answering || eli.conversation.busy || !eli.pending.length) return;
@@ -97,12 +128,12 @@
     data-side={side}
     class:full
     role="dialog"
-    aria-modal="false"
+    aria-modal={modal}
     aria-label="Eli assistant"
     tabindex="-1"
     bind:this={panel}
     onkeydown={(event) => {
-      if (event.key === 'Escape') {
+      if (event.key === 'Escape' && layers.top()?.kind === 'dialog') {
         event.stopPropagation();
         eli.close();
       }
@@ -113,7 +144,10 @@
         <EliAvatar size={32} />
         <div>
           <h2>Eli</h2>
-          <p>Your fleet assistant</p>
+          <p>
+            {#if answering}Answers from <strong>{answering.name}</strong>, {answering.model}{:else}Your
+              fleet assistant{/if}
+          </p>
         </div>
       </div>
       <div class="tools">
@@ -188,6 +222,20 @@
             onclick={() => eli.close()}>Assistant settings</a
           > to start chatting.
         </p>{/if}
+      {#if answering && !answering.fleet_access}
+        <p class="notice">
+          Eli cannot see this fleet through {answering.name}. Use Ask Eli to share displayed
+          details, or enable read-only fleet access in
+          <a
+            href="/settings/assistant"
+            onclick={(event) => {
+              event.preventDefault();
+              eli.close();
+              router.navigate('/settings/assistant');
+            }}>Settings, Assistant</a
+          >.
+        </p>
+      {/if}
       {#if eli.pending.length}
         <details class="pending">
           <summary
@@ -298,6 +346,20 @@
   h2 {
     font-size: var(--z-text-base);
     font-weight: var(--z-weight-semibold);
+  }
+  .identity {
+    min-width: 0;
+  }
+  .identity > div {
+    min-width: 0;
+  }
+  .identity p {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .tools {
+    flex-shrink: 0;
   }
   .identity p,
   footer {

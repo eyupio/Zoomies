@@ -70,7 +70,7 @@
       ]);
       installations = i.items ?? [];
       users = u.items ?? [];
-      providers = p.items ?? [];
+      providers = (p.items ?? []).filter((p) => !p.owner_id);
     } catch (cause) {
       error = cause instanceof ApiError ? cause.message : 'Could not read repair setup.';
     }
