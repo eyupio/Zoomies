@@ -396,9 +396,6 @@ func TestVerificationTurnedOffIsAWarningEveryTime(t *testing.T) {
 	}
 }
 
-// Setup runs this on the Proxmox host, as the token it has just made, so a
-// token that cannot do the work is found there with its reason rather than
-// after a provider has been saved and failed.
 // setupPermissions is what setup grants: the whole of /vms and /storage, not
 // the one storage a hand-made role happens to name.
 func setupPermissions() Permissions {
@@ -412,29 +409,15 @@ func setupPermissions() Permissions {
 	}
 }
 
+// Setup runs this on the Proxmox host, as the token it has just made, so a
+// token that cannot do the work is found there with its reason rather than
+// after a provider has been saved and failed.
 func TestSetupCheckPassesForAClusterThatIsReady(t *testing.T) {
 	f := newFakePVE(t, nil)
 	f.SetPermissions(setupPermissions())
 	got := SetupCheck(context.Background(), f.client(t), SetupAnswers{Node: "pve-1", Bridge: "vmbr0", TemplateID: 9000, TemplateNode: "pve-1"})
 	if len(got) != 0 {
 		t.Fatalf("a ready node raised %+v", got)
-	}
-}
-
-func TestSetupCheckNamesWhyATokenCannotListBridges(t *testing.T) {
-	f := newFakePVE(t, nil)
-	f.SetPermissions(setupPermissions())
-	f.anyBridgeEmpty, f.networkForbidden = true, true
-	got := SetupCheck(context.Background(), f.client(t), SetupAnswers{Node: "pve-1", Bridge: "vmbr0", TemplateID: 9000, TemplateNode: "pve-1"})
-	if len(got) == 0 {
-		t.Fatal("a token that cannot list the node's bridges passed")
-	}
-	var text string
-	for _, finding := range got {
-		text += finding.Title + " " + finding.Detail + " " + finding.Fix + "\n"
-	}
-	if !strings.Contains(text, "Sys.Audit") {
-		t.Errorf("the findings do not name the privilege to grant:\n%s", text)
 	}
 }
 
@@ -454,5 +437,24 @@ func TestSetupCheckSaysSoWhenTheTokenSeesNoStorage(t *testing.T) {
 	}
 	if n != 1 {
 		t.Fatalf("want exactly one storage finding, got %d in %+v", n, got)
+	}
+}
+
+// The real case on a 9.x node: root sees vmbr0, and the token is answered with an
+// empty list and no refusal, because it holds no SDN.Use on the local network
+// zone. The finding has to name that grant, not the node's Sys.Audit.
+func TestSetupCheckNamesSDNUseWhenTheTokenIsShownNoBridges(t *testing.T) {
+	f := newFakePVE(t, nil)
+	f.SetPermissions(setupPermissions())
+	f.noBridgesVisible = true
+	got := SetupCheck(context.Background(), f.client(t), SetupAnswers{Node: "pve-1", Bridge: "vmbr0", TemplateID: 9000, TemplateNode: "pve-1"})
+	var text string
+	for _, finding := range got {
+		text += finding.Title + " " + finding.Detail + " " + finding.Fix + "\n"
+	}
+	for _, want := range []string{"SDN.Use", "/sdn/zones/localnetwork"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the findings do not mention %q:\n%s", want, text)
+		}
 	}
 }

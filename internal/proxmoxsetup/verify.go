@@ -12,8 +12,8 @@ import (
 //
 // check is the same preflight the Check button runs, acting as the token, and
 // returns one line per thing that stops the provider working. If it finds
-// something, the one repair that is safe to make unasked is made, an explicit
-// grant on the node itself, and it is run again. Nothing broader is granted:
+// something, the one repair that is safe to make unasked is made, explicit
+// grants on the node itself and on the local network zone, and it is run again. Nothing broader is granted:
 // a role that quietly widened itself to make a check pass would be worse than
 // a check that failed. What still fails is returned with its reasons, and the
 // setup stops there, so a provider that could not work is never saved.
@@ -24,9 +24,13 @@ func VerifyAccess(ctx context.Context, h Host, tokenID, role, node string, check
 	}
 	user, _, _ := strings.Cut(tokenID, "!")
 	path := "/nodes/" + node
-	// Best effort: whether it helps is what the second check says.
-	_, _ = h.Run(ctx, "pveum", "acl", "modify", path, "--users", user, "--roles", role)
-	_, _ = h.Run(ctx, "pveum", "acl", "modify", path, "--tokens", tokenID, "--roles", role)
+	// Best effort: whether it helps is what the second check says. The node is
+	// where a token reads the cluster from, and the local network zone is where
+	// it is allowed to see and use a bridge.
+	for _, p := range []string{path, LocalNetworkPath} {
+		_, _ = h.Run(ctx, "pveum", "acl", "modify", p, "--users", user, "--roles", role)
+		_, _ = h.Run(ctx, "pveum", "acl", "modify", p, "--tokens", tokenID, "--roles", role)
+	}
 	if problems = check(ctx); len(problems) == 0 {
 		return nil
 	}

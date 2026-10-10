@@ -1038,31 +1038,15 @@ func (c *Client) Storages(ctx context.Context, node string) ([]Storage, error) {
 // Bridges lists the network bridges on a node -- the ones a guest's interface
 // can actually be attached to.
 func (c *Client) Bridges(ctx context.Context, node string) ([]NetworkInterface, error) {
-	path := "/nodes/" + url.PathEscape(node) + "/network"
+	// An empty answer here is about the token, not the node. Proxmox shows a
+	// bridge only to a caller holding SDN.Audit or SDN.Use on it (or on the
+	// local network zone it sits in), and it hides the rest from the unfiltered
+	// listing too, so there is no second request that would find them: the
+	// grant is the fix, and the preflight finding names it.
 	var out []NetworkInterface
 	err := c.do(ctx, call{op: "list the network bridges on " + node, ref: node, verb: http.MethodGet,
-		path: path, query: url.Values{"type": {"any_bridge"}}}, &out)
-	if err != nil || len(out) > 0 {
-		return out, err
-	}
-	// Proxmox answers any_bridge for a restricted API token with whatever that
-	// token may attach a guest to, which can be nothing even where the node has
-	// a perfectly good vmbr0 that root sees. The unfiltered list is the node's
-	// own inventory, so ask for that and pick the bridges out here rather than
-	// reporting a bridge missing that is plainly there.
-	var all []NetworkInterface
-	if err := c.do(ctx, call{op: "list the network interfaces on " + node, ref: node, verb: http.MethodGet, path: path}, &all); err != nil {
-		// Not swallowed: an empty answer here that is really a refusal (the
-		// token lacks Sys.Audit on the node) would be reported as a missing
-		// bridge, and the operator would be sent to fix a setting that is right.
-		return nil, err
-	}
-	for _, n := range all {
-		if n.Type == "bridge" || n.Type == "OVSBridge" {
-			out = append(out, n)
-		}
-	}
-	return out, nil
+		path: "/nodes/" + url.PathEscape(node) + "/network", query: url.Values{"type": {"any_bridge"}}}, &out)
+	return out, err
 }
 
 // ClusterVMs lists every guest on every node in one call.

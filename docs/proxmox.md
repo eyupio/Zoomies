@@ -76,6 +76,7 @@ Grant the token these privileges, on these paths:
 | `VM.PowerMgmt` | `/vms` | starting and shutting down |
 | `VM.GuestAgent.Unrestricted` | `/vms` | installing the agent inside the guest, and reading back what it said if that failed |
 | `Datastore.AllocateSpace` | `/storage/<your storage>` | the clone's disk |
+| `SDN.Use` | `/sdn/zones/localnetwork` | seeing the node's bridge and attaching the clone to it; without it the token is shown no bridges |
 
 `VM.GuestAgent.Unrestricted` is the one worth pausing over: it lets the token
 write files into, and run commands inside, any VM on those paths. That is how

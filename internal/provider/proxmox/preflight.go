@@ -409,9 +409,12 @@ func (pf *preflight) checkBridge(ctx context.Context, node string) {
 	fix := "use a bridge that exists on every node this provider places on."
 	if len(bridges) == 0 {
 		// A node always has a bridge to offer, so none at all is the token's
-		// view and not the node's: say so rather than blaming the setting.
-		fix = fmt.Sprintf("the node has bridges this token cannot list; grant it Sys.Audit on /nodes/%s (pveum acl modify /nodes/%s --tokens '%s' --roles <role with Sys.Audit>), then check again.",
-			node, node, pf.client.tokenID)
+		// view and not the node's: say so rather than blaming the setting. A
+		// token sees a bridge only with SDN.Use on it or on the local network
+		// zone, which is a separate grant from reading the node.
+		fix = fmt.Sprintf("the node has bridges this token cannot see: grant it SDN.Use on /sdn/zones/localnetwork "+
+			"(pveum acl modify /sdn/zones/localnetwork --tokens '%s' --roles <role with SDN.Use>) and Sys.Audit on /nodes/%s, then check again.",
+			pf.client.tokenID, node)
 	}
 	pf.add(config.Finding{
 		Code: "proxmox.bridge_missing", Severity: config.SeverityError, Setting: SettingBridge,

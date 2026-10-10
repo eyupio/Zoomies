@@ -189,12 +189,14 @@ func guide() []provider.GuideStep {
 			Detail: "Datacenter -> Permissions -> Users: add zoomies@pve. Then API Tokens: add a token to it with " +
 				"privilege separation on, and copy the whole line Proxmox prints once, user@realm!tokenid=secret. " +
 				"Grant the token VM.Clone on the template, and VM.Allocate, VM.Audit, VM.Config.*, VM.PowerMgmt " +
-				"and VM.GuestAgent.Unrestricted on /vms, plus Datastore.AllocateSpace on the storage. The check " +
+				"and VM.GuestAgent.Unrestricted on /vms, Datastore.AllocateSpace on the storage, and SDN.Use on " +
+				"/sdn/zones/localnetwork so it can see the bridge. The check " +
 				"after saving names any privilege that is missing. Or, on any node, as root:",
 			Command: `pveum user add zoomies@pve
-pveum role add Zoomies -privs "VM.Clone VM.Allocate VM.Audit VM.Config.Disk VM.Config.CPU VM.Config.Memory VM.Config.Network VM.Config.Options VM.PowerMgmt VM.GuestAgent.Unrestricted Datastore.AllocateSpace"
+pveum role add Zoomies -privs "VM.Clone VM.Allocate VM.Audit VM.Config.Disk VM.Config.CPU VM.Config.Memory VM.Config.Network VM.Config.Options VM.PowerMgmt VM.GuestAgent.Unrestricted Datastore.AllocateSpace SDN.Use"
 pveum acl modify /vms -user zoomies@pve -role Zoomies
 pveum acl modify /storage/local-lvm -user zoomies@pve -role Zoomies
+pveum acl modify /sdn/zones/localnetwork -user zoomies@pve -role Zoomies
 pveum user token add zoomies@pve ci --privsep 1`,
 		},
 		{
