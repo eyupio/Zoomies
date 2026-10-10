@@ -24,6 +24,11 @@ import (
 // should say so in seconds. A pass with nothing open is one query.
 const updatesInterval = 10 * time.Second
 
+// heldReportGraceMargin is what a host's time-out waits after a fence lifts on
+// top of one heartbeat interval: room for the beat's own round trip, and for a
+// controller slow to answer it.
+const heldReportGraceMargin = 15 * time.Second
+
 // updatesState is the update loop's own memory: the wake-up flag, the lock that
 // keeps two passes from overlapping, and whether the next pass should read the
 // release list first.
@@ -67,6 +72,13 @@ type updatesState struct {
 	// fenced controller says so once in a while rather than on every beat.
 	heldMu     sync.Mutex
 	heldWarned map[string]time.Time
+
+	// fenceSeen says a pass, or a beat whose report was held, found this
+	// controller unable to act since the last pass that could.
+	fenceSeen atomic.Bool
+	// hostGraceUntil is when hosts' attempts may be timed out again after the
+	// fence last lifted, or nil. See heldReportGrace.
+	hostGraceUntil atomic.Pointer[time.Time]
 }
 
 // updateSight is what the update loop last saw of the things the problems list
@@ -165,7 +177,12 @@ func (c *Controller) ReconcileUpdates(ctx context.Context) error {
 	}
 
 	if !c.mayAct() {
+		c.updates.fenceSeen.Store(true)
 		return nil
+	}
+	if c.updates.fenceSeen.Swap(false) {
+		until := c.Now().Add(c.heldReportGrace())
+		c.updates.hostGraceUntil.Store(&until)
 	}
 	open, err := c.st.OpenUpdateAttempts(ctx)
 	if err != nil {
@@ -248,6 +265,27 @@ func (c *Controller) endAttempt(ctx context.Context, a store.UpdateAttempt, stat
 	}
 	c.withdrawRequest(a)
 	return true
+}
+
+// heldReportGrace is how long, after a fence lifts, a host's attempt is not
+// timed out. A fenced controller times nothing out, so an attempt can pass its
+// 90 minutes under the fence; the agent sends a report the fence held again on
+// its next beat, but the first pass after the lift comes within ten seconds and
+// would close the attempt as timed out first, losing the helper's sentence. One
+// heartbeat interval (the configured one, because an operator can lengthen it)
+// and a margin are long enough for that beat to arrive. The controller's own
+// attempt is answered through the folder the pass reads, and needs none.
+func (c *Controller) heldReportGrace() time.Duration {
+	return c.heartbeatInterval() + heldReportGraceMargin
+}
+
+// hostGraceUntil is when hosts' attempts may be timed out again, or the zero
+// time when no fence has lifted.
+func (c *Controller) hostGraceUntil() time.Time {
+	if until := c.updates.hostGraceUntil.Load(); until != nil {
+		return *until
+	}
+	return time.Time{}
 }
 
 // lookAtUpdates refreshes what the problems list reports on: whether the helper

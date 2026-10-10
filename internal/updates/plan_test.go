@@ -1085,3 +1085,35 @@ func TestDecideDoesNotTimeOutAnAttemptWhoseStartIsNotKnown(t *testing.T) {
 	h.Hosts[0].Open.RequestedAt = time.Time{}
 	wantKinds(t, decide(t, h))
 }
+
+// A controller that was fenced timed nothing out, and an agent whose report was
+// held while it was sends it again on its next beat. A time-out in the moment
+// the fence lifts would close the attempt before that beat and lose the helper's
+// sentence, so a host's time-out waits until HostGraceUntil. The controller's
+// own attempt has no agent to hear from and is timed out as before.
+func TestDecideHoldsAHostsTimeOutUntilTheGraceAfterAFenceHasPassed(t *testing.T) {
+	for _, tc := range []struct {
+		name  string
+		grace time.Duration
+		want  bool
+	}{
+		{"inside the grace", time.Minute, false},
+		{"at the end of the grace", 0, true},
+		{"after the grace", -time.Second, true},
+	} {
+		t.Run("host "+tc.name, func(t *testing.T) {
+			s := planSnapshot()
+			s.Rollout = runningRollout("v1.3.5")
+			s.Hosts = []HostFacts{planHost("h1", "runner-1", "1.3.4", 0)}
+			s.Hosts[0].Open = openAttempt("upd_h1", "host", "h1", "v1.3.5", 91*time.Minute)
+			s.HostGraceUntil = s.Now.Add(tc.grace)
+			checkTimedOut(t, decide(t, s), tc.want, "upd_h1", "h1")
+		})
+	}
+	t.Run("the controller inside the grace", func(t *testing.T) {
+		s := planSnapshot()
+		s.Controller = openAttempt("upd_c", "controller", "", "v1.4.0", 91*time.Minute)
+		s.HostGraceUntil = s.Now.Add(time.Minute)
+		checkTimedOut(t, decide(t, s), true, "upd_c", "")
+	})
+}

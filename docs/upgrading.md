@@ -377,7 +377,11 @@ is never ahead of its controller ([version skew](#version-skew)). An update has
 worked when the host's heartbeat reports that release, not when the task is
 answered. The agent repeats the helper's answer on its heartbeats until the
 controller has recorded it, so an answer that arrives while the controller is
-fenced, or cannot write its database, is recorded on the first beat after.
+fenced, or cannot write its database, is recorded on the first beat after. A
+fenced controller times nothing out, and once the fence lifts a host's 90-minute
+time-out waits one heartbeat interval (and a few seconds more), so an update that
+passed its 90 minutes under the fence still ends with the helper's reason rather
+than a time-out.
 
 **Update** on a host's card updates that host. **Update N hosts** on the Hosts
 page, or `zoomies updates apply --hosts`, starts a *rollout* of every host behind

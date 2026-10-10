@@ -1457,3 +1457,164 @@ func TestForgettingAHostForgetsWhenItsHeldReportWasLogged(t *testing.T) {
 		t.Error("the host was forgotten but when its held report was logged was kept")
 	}
 }
+
+// fencedPastTheTimeOut is a host's attempt that passed its 90 minutes while the
+// controller was fenced, the agent's report of it held on a beat during the
+// fence, and the fence lifted with one pass since, as the loop would run it.
+func (h *harness) fencedPastTheTimeOut(mode string) (*store.Host, store.UpdateAttempt, *agent.UpdateReport) {
+	h.t.Helper()
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+	a := h.requestHost(host)
+	h.inMode(mode)
+	rep := &agent.UpdateReport{ID: a.ID, OK: false, Tag: "v1.3.5", From: "1.3.4", Error: "the download failed", FinishedAt: h.c.Now().UTC()}
+
+	h.fence("a restore is being checked")
+	h.advance(91 * time.Minute)
+	h.pass(h.c)
+	if !h.heldBeat(host, rep) {
+		h.t.Fatal("a beat while fenced was answered as recorded; the agent would not send the result again")
+	}
+	if err := h.c.Unfence(h.ctx); err != nil {
+		h.t.Fatalf("Unfence: %v", err)
+	}
+	h.pass(h.c)
+	return host, a, rep
+}
+
+// The agent sends a held report again on its next beat, not at once, and the
+// loop passes every ten seconds. An attempt that passed its 90 minutes during
+// the fence would be closed as timed out by the first pass after it lifted, the
+// beat would then find nothing open, and the helper's sentence, the only
+// account of why the update failed, would be gone. Time-outs need no mode, and
+// neither does this grace.
+func TestAReportHeldByAFenceBeatsTheTimeOutWhenTheFenceLifts(t *testing.T) {
+	for _, mode := range []string{"manual", "auto", "off"} {
+		t.Run(mode, func(t *testing.T) {
+			h := newHarness(t)
+			host, a, rep := h.fencedPastTheTimeOut(mode)
+			if got := h.attempt(a.ID); got.State != store.UpdateRequested {
+				t.Fatalf("the first pass after the fence lifted closed the attempt as %s %q, want it left for the agent's next beat", got.State, got.Error)
+			}
+
+			h.advance(h.c.heldReportGrace() - time.Second)
+			h.pass(h.c)
+			if h.heldBeat(host, rep) {
+				t.Fatal("the beat after the fence lifted was held, want the result recorded")
+			}
+			if got := h.attempt(a.ID); got.State != store.UpdateFailed || got.Error != "the download failed" {
+				t.Errorf("after the fence lifted the attempt = %s %q, want failed with the helper's sentence", got.State, got.Error)
+			}
+		})
+	}
+}
+
+// The grace is one beat, not a reprieve: an agent that does not report in it is
+// not going to, and the attempt times out as it would have.
+func TestAnAttemptPastItsTimeOutEndsOnceTheGraceAfterAFenceHasPassed(t *testing.T) {
+	h := newHarness(t)
+	_, a, _ := h.fencedPastTheTimeOut("manual")
+
+	h.advance(h.c.heldReportGrace() - time.Second)
+	h.pass(h.c)
+	if got := h.attempt(a.ID); got.State != store.UpdateRequested {
+		t.Fatalf("inside the grace the attempt = %s, want it still requested", got.State)
+	}
+	h.advance(2 * time.Second)
+	h.pass(h.c)
+	if got := h.attempt(a.ID); got.State != store.UpdateTimedOut || !strings.Contains(got.Error, "90 minutes") {
+		t.Errorf("after the grace the attempt = %s %q, want timed_out, saying how long it waited", got.State, got.Error)
+	}
+}
+
+// The grace follows a fence and nothing else. A fence long gone leaves none
+// behind, and an attempt that timed out with no fence is not reopened by one.
+func TestAnAttemptPastItsTimeOutWithNoFenceInTheWayEndsAtOnce(t *testing.T) {
+	h := newHarness(t)
+	h.hostsCanUpdate()
+	host := h.updatableHost("vm-1")
+
+	h.fence("a restore is being checked")
+	h.pass(h.c)
+	if err := h.c.Unfence(h.ctx); err != nil {
+		t.Fatalf("Unfence: %v", err)
+	}
+	h.pass(h.c)
+	h.advance(h.c.heldReportGrace())
+
+	a := h.requestHost(host)
+	h.advance(91 * time.Minute)
+	h.pass(h.c)
+	if got := h.attempt(a.ID); got.State != store.UpdateTimedOut {
+		t.Fatalf("an attempt past 90 minutes with no fence since it was asked for = %s, want timed_out at once", got.State)
+	}
+
+	h.fence("a restore is being checked")
+	h.pass(h.c)
+	rep := &agent.UpdateReport{ID: a.ID, OK: false, Tag: "v1.3.5", From: "1.3.4", Error: "the download failed", FinishedAt: h.c.Now().UTC()}
+	h.heldBeat(host, rep)
+	if err := h.c.Unfence(h.ctx); err != nil {
+		t.Fatalf("Unfence: %v", err)
+	}
+	h.pass(h.c)
+	h.heldBeat(host, rep)
+	if got := h.attempt(a.ID); got.State != store.UpdateTimedOut {
+		t.Errorf("a report after a later fence changed the timed-out attempt to %s %q", got.State, got.Error)
+	}
+}
+
+// The controller's own attempt is answered through the update folder, which
+// the pass reads itself, and no agent holds anything for it: it gets no grace.
+func TestTheControllersAttemptGetsNoGraceAfterAFence(t *testing.T) {
+	h := newHarness(t)
+	h.readyToUpdate()
+	a := h.request()
+	h.takeRequest()
+
+	h.fence("a restore is being checked")
+	h.advance(91 * time.Minute)
+	h.pass(h.c)
+	if err := h.c.Unfence(h.ctx); err != nil {
+		t.Fatalf("Unfence: %v", err)
+	}
+	h.pass(h.c)
+	if got := h.attempt(a.ID); got.State != store.UpdateTimedOut {
+		t.Errorf("the first pass after the fence lifted left the controller's attempt %s, want timed_out", got.State)
+	}
+}
+
+// A fence can stand between two passes and hold a report without the loop
+// seeing it, and the loop can see a fence that no beat came through. Either is
+// a fence the agent may have a report waiting behind, so either gives the grace.
+func TestTheGraceFollowsAFenceSeenByAPassOrByAHeldBeat(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		fenced func(h *harness, host *store.Host, rep *agent.UpdateReport)
+	}{
+		{"a held beat", func(h *harness, host *store.Host, rep *agent.UpdateReport) {
+			if !h.heldBeat(host, rep) {
+				h.t.Fatal("a beat while fenced was answered as recorded")
+			}
+		}},
+		{"a pass", func(h *harness, _ *store.Host, _ *agent.UpdateReport) { h.pass(h.c) }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := newHarness(t)
+			h.hostsCanUpdate()
+			host := h.updatableHost("vm-1")
+			a := h.requestHost(host)
+			rep := &agent.UpdateReport{ID: a.ID, OK: false, Tag: "v1.3.5", From: "1.3.4", Error: "the download failed", FinishedAt: h.c.Now().UTC()}
+
+			h.fence("a restore is being checked")
+			h.advance(91 * time.Minute)
+			tc.fenced(h, host, rep)
+			if err := h.c.Unfence(h.ctx); err != nil {
+				t.Fatalf("Unfence: %v", err)
+			}
+			h.pass(h.c)
+			if got := h.attempt(a.ID); got.State != store.UpdateRequested {
+				t.Errorf("the first pass after a fence seen by %s closed the attempt as %s, want it left for the agent's next beat", tc.name, got.State)
+			}
+		})
+	}
+}
