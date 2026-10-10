@@ -101,6 +101,9 @@
     void size;
     void side;
     void full;
+    // A phone's sheet takes its size from the CSS alone; a width left by a
+    // desktop corner resize must not ride along.
+    void phone;
     if (panel) {
       panel.style.width = '';
       panel.style.height = '';
@@ -126,6 +129,20 @@
     >
   </div>
 {:else}
+  {#if phone}
+    <!-- The sheet keeps a margin on a phone, so the page shows around it while
+         it is inert; the scrim every other modal shares says so, and a tap on
+         it puts the panel away, as a tap on a dialog's backdrop does. It is
+         exempt from the inert the panel puts on its siblings, or the tap would
+         fall through to the page. -->
+    <div
+      class="scrim"
+      data-eli-scrim
+      data-inert-exempt
+      role="presentation"
+      onclick={() => eli.close()}
+    ></div>
+  {/if}
   <div
     id="eli-widget"
     class="panel"
@@ -484,29 +501,44 @@
     gap: var(--z-space-2);
     padding: 0 var(--z-space-4) var(--z-space-2);
   }
+  .scrim {
+    position: fixed;
+    inset: 0;
+    z-index: var(--z-layer-assistant);
+    background: var(--z-scrim);
+    backdrop-filter: blur(var(--z-scrim-blur));
+    animation: fade var(--z-motion-base) var(--z-ease);
+  }
+  @keyframes fade {
+    from {
+      opacity: 0;
+    }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .scrim {
+      animation: none;
+    }
+  }
   @media (max-width: 767px) {
     .launcher {
       bottom: calc(var(--z-space-12) + var(--z-space-4) + var(--z-safe-bottom));
     }
-    header {
-      padding-top: calc(var(--z-space-3) + var(--z-safe-top));
-    }
-    footer {
-      padding-bottom: var(--z-safe-bottom);
-    }
+    /* A sheet inside a small margin, as the Toaster and a Dialog sit on a
+       phone, rather than a page: the safe areas are in the sheet's offsets, so
+       the header and footer keep their ordinary padding inside it. */
     .panel,
     .panel[data-size],
     .panel[data-side],
     .panel.full {
-      left: 0;
+      left: var(--z-space-3);
       right: auto;
-      bottom: 0;
-      width: var(--z-window-width);
+      bottom: calc(var(--z-space-3) + var(--z-safe-bottom));
+      width: calc(var(--z-window-width) - var(--z-space-3) * 2);
       min-width: 0;
-      max-width: var(--z-window-width);
-      height: 100dvh;
-      max-height: 100dvh;
-      border-radius: 0;
+      max-width: calc(var(--z-window-width) - var(--z-space-3) * 2);
+      height: calc(100dvh - var(--z-space-3) * 2 - var(--z-safe-top) - var(--z-safe-bottom));
+      max-height: calc(100dvh - var(--z-space-3) * 2 - var(--z-safe-top) - var(--z-safe-bottom));
+      border-radius: var(--z-radius-lg);
       resize: none;
     }
     .layout {

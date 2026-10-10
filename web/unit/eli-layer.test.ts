@@ -20,7 +20,8 @@ test('Eli sits above every other layer', () => {
   for (const [name, value] of layers) {
     if (name !== 'assistant') assert.ok(eli[1] > value, `above ${name}`);
   }
-  assert.equal([...widget.matchAll(/z-index:\s*var\(--z-layer-assistant\)/g)].length, 2);
+  // The launcher, the panel, and the scrim a phone puts behind the panel.
+  assert.equal([...widget.matchAll(/z-index:\s*var\(--z-layer-assistant\)/g)].length, 3);
 });
 
 test('Eli is exempt from the inert an overlay puts on the page', () => {
