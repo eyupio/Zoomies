@@ -52,8 +52,10 @@
   <header>
     <h3 id="assistant-{provider.id}-name">{provider.name}</h3>
     <div class="badges">
-      <!-- Neutral and accent only: which protocol this speaks and whether it
-           is the default are facts about a provider, not states of a runner. -->
+      <!-- Neutral and accent only: which protocol this speaks, whether it is
+           the default, whether it is switched off or waiting for a key are
+           facts about a provider, not states of a runner, so none borrows a
+           runner's status colour. -->
       <Badge
         tone="neutral"
         label={KIND_LABELS[provider.kind] ?? provider.kind}
@@ -75,7 +77,7 @@
           label="Local"
           size="sm"
           dot={false}
-          title="Its address is this machine or a private network."
+          title="Its address, as typed, is this machine or a private network. A hostname is not looked up, so one that resolves locally does not count."
         />
       {/if}
       {#if provider.subscription}
@@ -99,11 +101,17 @@
         />
       {/if}
       {#if !provider.enabled}
-        <Badge tone="draining" label="Disabled" size="sm" dot={false} />
+        <Badge
+          tone="neutral"
+          label="Disabled"
+          size="sm"
+          dot={false}
+          title="Switched off: it is kept but does not answer."
+        />
       {/if}
       {#if needsKey}
         <Badge
-          tone="pending"
+          tone="neutral"
           label="No key"
           size="sm"
           dot={false}

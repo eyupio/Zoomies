@@ -8,6 +8,15 @@ import type {
   AssistantProviderKind,
 } from '$lib/api/types';
 
+/**
+ * The title a toast about a switch gets: the row's label, as the page shows
+ * it, and the key only when the rows are not loaded (a toast about a key no
+ * row carries is still better than one with no title).
+ */
+export function settingTitle(rows: readonly { key: string; label: string }[], key: string): string {
+  return rows.find((row) => row.key === key)?.label ?? key;
+}
+
 /** One line for a card: what the last Test learned, or that none was run. */
 export function checkSummary(check: AssistantProviderCheck | null | undefined): string {
   if (!check) return 'Never tested';

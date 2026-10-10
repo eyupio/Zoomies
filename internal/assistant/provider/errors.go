@@ -8,30 +8,48 @@ import (
 	"regexp"
 )
 
+// HTTPError is a response that was not a success, with the status kept so a
+// caller can tell a missing route from a refusal without parsing the words.
+type HTTPError struct {
+	Status  int
+	Message string
+}
+
+func (e *HTTPError) Error() string { return e.Message }
+
 // StatusError turns a response that is not a success into an error written
 // for the person who will read it on the settings page. The request is
 // never part of it: its headers hold the key, and a 401's body often quotes
 // the key back, so the two statuses that mean "the key" say only that.
-func StatusError(resp *http.Response) error {
+// hasKey is whether a key was sent at all: a refusal with no key configured
+// sends the person to add one, not to rotate one they never set.
+func StatusError(resp *http.Response, hasKey bool) error {
 	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
 		return nil
 	}
+	return &HTTPError{Status: resp.StatusCode, Message: statusMessage(resp, hasKey)}
+}
+
+func statusMessage(resp *http.Response, hasKey bool) string {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 64*1024))
 	switch resp.StatusCode {
 	case http.StatusUnauthorized, http.StatusForbidden:
-		return fmt.Errorf("the provider refused the key (HTTP %d)", resp.StatusCode)
+		if !hasKey {
+			return fmt.Sprintf("the provider needs an API key (HTTP %d)", resp.StatusCode)
+		}
+		return fmt.Sprintf("the provider refused the key (HTTP %d)", resp.StatusCode)
 	case http.StatusNotFound:
 		if m := modelName.FindSubmatch(body); m != nil {
-			return fmt.Errorf("no model named %s at the provider", m[1])
+			return fmt.Sprintf("no model named %s at the provider", m[1])
 		}
-		return fmt.Errorf("the provider answered 404: check the base URL and the model name")
+		return "the provider answered 404: check the base URL and the model name"
 	case http.StatusTooManyRequests:
-		return fmt.Errorf("the provider rate limited the request (HTTP 429); try again shortly")
+		return "the provider rate limited the request (HTTP 429); try again shortly"
 	}
 	if msg := errorMessage(body); msg != "" {
-		return fmt.Errorf("the provider answered %d: %s", resp.StatusCode, msg)
+		return fmt.Sprintf("the provider answered %d: %s", resp.StatusCode, msg)
 	}
-	return fmt.Errorf("the provider answered %d", resp.StatusCode)
+	return fmt.Sprintf("the provider answered %d", resp.StatusCode)
 }
 
 // modelName finds the quoted model in the sentences both APIs write for an

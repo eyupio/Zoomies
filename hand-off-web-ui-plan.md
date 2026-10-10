@@ -138,24 +138,20 @@ the Eli plan says what rests on documentation alone.
 | 7j docs | `docs/eli.md` exists; `docs/security.md` has the switches; the problems-drawer warning and the FAQ entry are not written |
 | 9.10 subscription gate | the owner decided: one person's own subscription through the vendor's tool, owner-only, on a host install. Routing other people through one plan stays refused. |
 
-## Deferred minors from the 7a and 7b review, still open on main
+## Deferred minors from the 7a and 7b review
 
-1. `internal/assistant/dial.go`: the comment says its prefix list mirrors
-   `internal/config/egress.go`'s; it omits NAT64 and 6to4 on purpose. Say so.
-2. `handlers_assistant.go`, set-default: the re-read error is discarded; a nil
-   row would panic in the view.
-3. `provider/openai.go` Check: `GET /models` is a hard precondition; some
-   gateways serve only chat completions.
-4. `provider/errors.go`: a 401 with no key configured should say "needs an API
-   key", not "refused the key".
-5. `AssistantProviderCard.svelte`: Disabled and No key use the draining and
-   pending status tones; `neutral` follows `web/AGENTS.md` more closely.
-6. The Local badge is literal-only; a private hostname shows none.
-7. `AssistantPanel.svelte`: toast titles are raw setting keys.
-8. A base URL with userinfo is accepted and rendered back; refuse it.
-9. If sealing fails after a create, a keyless row remains with a 500.
-10. The demo's assistant seed is not idempotent against a half-seeded
-    database.
+All ten are closed in one pull request after #833. For the record: the dial
+comment says why its list is shorter than egress.go's (NAT64 and 6to4 are
+translated to a public address, the opposite of local); the set-default
+handler reports a failed re-read; the OpenAI-compatible check lets a 404 on
+the model list through to the completion, which decides; a 401 with no key
+configured says "needs an API key"; the Disabled and No key badges are
+neutral; the Local badge and the spec say the address is judged as typed and
+a hostname is not looked up; toast titles use the setting's label; a base
+URL with a username or password is refused on the `base_url` field; a create
+whose key cannot be sealed removes the keyless row; and the demo seed reuses
+its assistant row by name. The Local badge stays literal-only: looking a
+hostname up from the browser's view is a design change, not a wording one.
 
 ## What a new session should do first
 

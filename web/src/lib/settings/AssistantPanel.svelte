@@ -22,6 +22,7 @@
   import type { AssistantProvider, Setting } from '$lib/api/types';
   import type { AssistantScope } from '$lib/api/client';
   import { session } from '$lib/state/session.svelte';
+  import { settingTitle } from './assistant';
   import EliRepairs from './EliRepairs.svelte';
   import { eli } from '$lib/assistant/eli.svelte';
   import { supportHint } from '$lib/errors';
@@ -86,9 +87,9 @@
     try {
       const result = await updateSettings({ [key]: value } as Record<string, unknown>);
       settings = result.settings ?? settings;
-      toasts.success(`${key} changed`, 'It is in force now.');
+      toasts.success(`${settingTitle(settings, key)} changed`, 'It is in force now.');
     } catch (cause) {
-      toasts.error(`${key} was not changed`, failure(cause));
+      toasts.error(`${settingTitle(settings, key)} was not changed`, failure(cause));
     }
   }
 

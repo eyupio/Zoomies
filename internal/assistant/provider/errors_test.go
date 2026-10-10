@@ -32,7 +32,7 @@ func TestStatusErrorsNameTheCauseAndNotTheRequest(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		got := StatusError(resp)
+		got := StatusError(resp, true)
 		if got == nil || !strings.Contains(got.Error(), tt.want) {
 			t.Errorf("%d: got %v, want it to contain %q", tt.status, got, tt.want)
 		}
@@ -46,7 +46,7 @@ func TestStatusErrorIsNilForASuccess(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}))
 	defer srv.Close()
 	resp, _ := http.Get(srv.URL)
-	if err := StatusError(resp); err != nil {
+	if err := StatusError(resp, true); err != nil {
 		t.Errorf("got %v", err)
 	}
 }

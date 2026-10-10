@@ -127,3 +127,12 @@ func TestAnthropicAppendsTheMessagesPathOnceWhateverThePathGiven(t *testing.T) {
 		}
 	}
 }
+
+func TestAnthropicSaysAKeyIsNeededWhenNoneIsConfigured(t *testing.T) {
+	srv := assistanttest.NewAnthropic(t)
+	srv.Status, srv.Body = 401, `{"type":"error","error":{"message":"missing key"}}`
+	_, err := NewAnthropic(Config{BaseURL: srv.URL, Model: "m"}).Check(context.Background())
+	if err == nil || !strings.Contains(err.Error(), "needs an API key") {
+		t.Errorf("err %v", err)
+	}
+}

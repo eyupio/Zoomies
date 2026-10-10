@@ -879,3 +879,21 @@ func TestTheDemoSeedsABuiltInAssistantProvider(t *testing.T) {
 		t.Errorf("the seeded check did not pass: %s", p.LastCheck)
 	}
 }
+
+// Review minor: a database that holds the demo's assistant row but none of
+// the demo's pools (a seed that stopped half way, or an older build's seed)
+// must not make the next seed fail on a name conflict.
+func TestTheDemoSeedReusesAnAssistantProviderRowItFindsByName(t *testing.T) {
+	h := newHarness(t)
+	leftover := &store.AssistantProvider{Name: demoAssistantProviderName, Kind: "fake", Model: "demo", Enabled: true}
+	if err := h.c.st.CreateAssistantProvider(h.ctx, leftover); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.c.SeedDemo(h.ctx); err != nil {
+		t.Fatalf("seeding over a leftover row: %v", err)
+	}
+	rows, _ := h.c.st.ListAssistantProviders(h.ctx)
+	if len(rows) != 1 || rows[0].ID != leftover.ID || !rows[0].IsDefault {
+		t.Errorf("rows after seeding: %+v", rows)
+	}
+}

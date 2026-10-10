@@ -121,7 +121,7 @@ func (p *Anthropic) chat(ctx context.Context, req assistant.Request, maxTokens i
 	if err != nil {
 		return nil, fmt.Errorf("reaching the provider: %w", err)
 	}
-	if err := StatusError(resp); err != nil {
+	if err := StatusError(resp, p.cfg.APIKey != ""); err != nil {
 		resp.Body.Close()
 		return nil, err
 	}
@@ -242,7 +242,7 @@ func (p *Anthropic) Models(ctx context.Context) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("reaching the provider: %w", err)
 	}
-	if err := StatusError(resp); err != nil {
+	if err := StatusError(resp, p.cfg.APIKey != ""); err != nil {
 		resp.Body.Close()
 		return nil, err
 	}
