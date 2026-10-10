@@ -46,63 +46,6 @@ const specs: ProviderSetting[] = [
   },
 ];
 
-const fullSpecs: ProviderSetting[] = [
-  ...specs,
-  {
-    key: 'vmid_min',
-    label: 'Lowest VMID',
-    kind: 'number',
-    required: true,
-    advanced: false,
-    default: '9000',
-  },
-  {
-    key: 'vmid_max',
-    label: 'Highest VMID',
-    kind: 'number',
-    required: true,
-    advanced: false,
-    default: '9099',
-  },
-  {
-    key: 'full_clone',
-    label: 'Full clone',
-    kind: 'bool',
-    required: false,
-    advanced: true,
-    default: 'true',
-  },
-  {
-    key: 'ipconfig0',
-    label: 'IP',
-    kind: 'text',
-    required: false,
-    advanced: true,
-    default: 'ip=dhcp',
-  },
-  { key: 'pool', label: 'Pool', kind: 'text', required: false, advanced: true },
-];
-
-function proxmoxDraft() {
-  const draft = emptyDraft();
-  draft.kind = 'proxmox';
-  draft.name = 'proxmox-lab';
-  draft.endpoint = 'https://pve.example.com:8006';
-  draft.credential = 'zoomies@pve!ci=secret';
-  draft.settings = {
-    nodes: 'pve1,pve2',
-    template_id: '9000',
-    storage: 'local-lvm',
-    bridge: 'vmbr0',
-    vmid_min: '9000',
-    vmid_max: '9099',
-    pool: 'ci pool',
-  };
-  draft.machine_labels = { arch: 'amd64' };
-  draft.max_machines = '4';
-  return draft;
-}
-
 // People type the host; the API wants an origin with a scheme and the port
 // the driver listens on. Anything already complete is left alone.
 test('an endpoint gains the scheme and the example port it was typed without', () => {

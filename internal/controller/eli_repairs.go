@@ -15,9 +15,26 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-var repairMention = regexp.MustCompile(`(?i)^@(eli|zoomies)(?:\[bot\])?\s+(fix|repair)\b(.*)$`)
+// repairHandles are the names a comment can call Eli by without any set-up.
+var repairHandles = []string{"eli", "zoomies"}
 
-func repairCommand(body string) (string, bool) {
+// repairMention builds the pattern for a comment that starts a repair. The App's
+// own slug is accepted as well: it is the one name GitHub autocompletes and
+// links, so people who pick the bot from the suggestion list would otherwise
+// type a command that silently does nothing.
+func repairMention(appSlug string) *regexp.Regexp {
+	names := make([]string, 0, len(repairHandles)+1)
+	for _, h := range repairHandles {
+		names = append(names, regexp.QuoteMeta(h))
+	}
+	if slug := strings.TrimSpace(appSlug); slug != "" {
+		names = append(names, regexp.QuoteMeta(slug))
+	}
+	return regexp.MustCompile(`(?i)^@(` + strings.Join(names, "|") + `)(?:\[bot\])?\s+(fix|repair)\b(.*)$`)
+}
+
+func repairCommand(body, appSlug string) (string, bool) {
+	mention := repairMention(appSlug)
 	fenced := false
 	for _, line := range strings.Split(body, "\n") {
 		line = strings.TrimSpace(line)
@@ -28,7 +45,7 @@ func repairCommand(body string) (string, bool) {
 		if fenced || strings.HasPrefix(line, ">") {
 			continue
 		}
-		if match := repairMention.FindStringSubmatch(line); len(match) > 0 {
+		if match := mention.FindStringSubmatch(line); len(match) > 0 {
 			return strings.TrimSpace(match[2] + match[3]), true
 		}
 	}
@@ -92,7 +109,7 @@ func (c *Controller) enqueueRepairWebhook(ctx context.Context, inst *store.Insta
 		if err := json.Unmarshal(body, &p); err != nil {
 			return errMalformedDelivery
 		}
-		command, ok := repairCommand(p.Comment.Body)
+		command, ok := repairCommand(p.Comment.Body, inst.AppSlug)
 		if !ok || p.Action != "created" || p.Issue.PullRequest == nil || p.Comment.ID <= 0 || p.Issue.Number <= 0 || p.Comment.User.Type != "User" || p.Sender.ID != p.Comment.User.ID {
 			return nil
 		}
@@ -268,11 +285,34 @@ func (c *Controller) repairLoop(ctx context.Context) {
 		}
 	}
 }
+
+// repairHeading gives each stage of a repair its own face, so a thread of Eli's
+// updates reads as one dog doing something rather than a log. The state is the
+// repair's, not the text's: the wording of a message can change without the
+// heading drifting.
+func repairHeading(state string) string {
+	switch state {
+	case "working":
+		return "### 🐕 Eli is sniffing around"
+	case "checking":
+		return "### 🦴 Eli fetched a fix"
+	case "succeeded":
+		return "### 🎾 Good dog: the checks passed"
+	case "checks_failed":
+		return "### 🐾 Eli's fix did not pass the checks"
+	case "failed", "blocked":
+		return "### 🐶 Eli got stuck"
+	case "superseded", "unverified":
+		return "### 🐕‍🦺 Eli lost the scent"
+	}
+	return "### 🐶 Eli"
+}
+
 func (c *Controller) repairNotice(ctx context.Context, client github.RepairClient, r *store.EliRepair, text string) {
 	if r.PullNumber <= 0 {
 		return
 	}
-	text = "**Eli PR repair**\n\n" + text + "\n\nRepair `" + r.ID + "`. Eli does not merge this PR.\n<!-- zoomies-eli-repair:" + r.ID + " -->"
+	text = repairHeading(r.State) + "\n\n" + text + "\n\n<sub>Repair `" + r.ID + "`. Eli fetches fixes but never merges: that part stays with you. Ask again with `@eli fix`.</sub>\n<!-- zoomies-eli-repair:" + r.ID + " -->"
 	id, err := client.RepairComment(ctx, r.Repo, r.PullNumber, r.CommentID, text)
 	if err != nil {
 		c.log.Warn("could not update Eli's PR comment", "repair", r.ID)
