@@ -100,8 +100,13 @@ it leaves your network. Changing the switch is recorded in the audit log.
 With it on, Eli can look at what an agent of yours could read through the
 [MCP server](ai-context.md): the fleet at a glance, problems, jobs and their
 history, runners, pools, hosts and their health, label advice, a runner's log while
-the runner exists, and [Kennel Club](kennel-club.md) findings. When it does, the
-panel says what it looked at, under the answer.
+the runner exists, [Kennel Club](kennel-club.md) findings, and the machines the
+fleet [rents from a provider](proxmox.md): which providers exist, which pools each
+will buy for and why one will not, and where each machine got to. That last part is
+what lets Eli answer "why is this pool full and not renting?" from the fleet and not
+from a guess. A setting only an administrator can read, such as `provider.enabled`,
+is not something Eli can see, and it is told to say so. When it looks, the panel
+says what it looked at, under the answer.
 
 Eli does not get the tools that change the fleet, and it does not get the ones that
 read a repository's source. It reads as the person asking, through the same routes
@@ -111,7 +116,9 @@ and the same permissions, so it can see nothing that person could not.
 
 When Eli looks at the fleet, what the tools return is sent to the provider with
 your question: runner, host, pool, job, workflow, repository and branch names,
-statuses, counts, and the end of a runner's log if Eli asks for it. A tool's answer
+statuses, counts, a provider's address and the addresses of the machines it rented,
+and the end of a runner's log if Eli asks for it. A provider's credential is never
+part of it: the API reports only that one is configured. A tool's answer
 is cut at 16 KiB. There is no redaction yet, so the switch is the control: turn it
 on for a provider only if that provider may be shown this.
 
