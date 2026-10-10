@@ -22,6 +22,7 @@ const LABELS: Record<string, string> = {
   provider_pairings: 'which providers serve which pools',
   list_machines: 'rented machines',
   get_catalog: 'the catalog of codes and checks',
+  get_usage: 'usage and cost',
 };
 
 export function toolLabel(name: string): string {
