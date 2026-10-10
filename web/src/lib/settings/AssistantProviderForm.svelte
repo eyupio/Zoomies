@@ -61,6 +61,8 @@
   let apiKey = $state('');
   let enabled = $state(true);
   let fleetAccess = $state(false);
+  /** How hard the model should think, in the provider's words; empty is its default. */
+  let reasoningEffort = $state('');
 
   let kinds = $state<readonly { kind: AssistantProviderKind; default_base_url: string }[]>([]);
   // The provider's own list of models, once it has been asked. Empty means not
@@ -94,6 +96,7 @@
       apiKey = '';
       enabled = r ? r.enabled : true;
       fleetAccess = r ? r.fleet_access : false;
+      reasoningEffort = r ? (r.reasoning_effort ?? '') : '';
       errors = {};
       refusal = '';
       tested = '';
@@ -122,6 +125,16 @@
   // Somebody's own subscription has no address to type and no key to hold: it is
   // used through the vendor's own tool, signed in on the controller's machine.
   const subscription = $derived(isSubscriptionKind(kind));
+  // Only the kinds that speak the OpenAI chat protocol can carry the effort; the
+  // API refuses it on the others, so the box is not shown for them.
+  const thinks = $derived(kind === 'openai_compatible' || kind === 'openai');
+  const effortChoices = [
+    { value: '', label: 'The provider’s default' },
+    { value: 'none', label: 'None: answer without thinking, where the model can' },
+    { value: 'low', label: 'Low: the setting for chat' },
+    { value: 'medium', label: 'Medium' },
+    { value: 'high', label: 'High: the most room spent thinking' },
+  ];
   // Only some tools can say which models they have; the rest are typed or left empty.
   const listsModels = $derived(!subscription || !!preset?.listsModels);
   const defaultBaseURL = $derived(kinds.find((k) => k.kind === kind)?.default_base_url ?? '');
@@ -155,6 +168,7 @@
       baseURL = '';
       apiKey = '';
       fleetAccess = false;
+      reasoningEffort = '';
       if (model.trim() === '') model = after.defaultModel ?? '';
       if (after.listsModels) void loadModels();
       return;
@@ -171,6 +185,7 @@
       model: model.trim(),
       enabled,
       fleet_access: fleetAccess,
+      reasoning_effort: reasoningEffort,
     };
     // Absent leaves the sealed key alone; a new provider sends what it has.
     if (apiKey !== '' || !editing) body.api_key = apiKey;
@@ -344,6 +359,21 @@
             // The key is the last thing the list needs; ask when it has been typed.
             if (apiKey !== '' && models.length === 0) void loadModels();
           }}
+        />
+      </Field>
+    {/if}
+
+    {#if thinks}
+      <Field
+        id="assistant-reasoning-effort"
+        label="Reasoning effort"
+        hint="Sent as reasoning_effort on every request, the test included, so a model that does not take it says so under Test. A thinking model at its default effort can spend an answer’s whole room on reasoning."
+        error={errors.reasoning_effort}
+      >
+        <Select
+          id="assistant-reasoning-effort"
+          bind:value={reasoningEffort}
+          options={effortChoices}
         />
       </Field>
     {/if}

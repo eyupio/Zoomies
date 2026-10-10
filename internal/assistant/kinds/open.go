@@ -21,6 +21,9 @@ type Config struct {
 	APIKey    string
 	Model     string
 	LocalOnly bool
+	// ReasoningEffort is passed to a kind that can send it; see
+	// assistant.SupportsReasoningEffort.
+	ReasoningEffort string
 }
 
 // Open builds the provider for a kind.
@@ -37,7 +40,7 @@ func Open(kind assistant.Kind, cfg Config) (assistant.Provider, error) {
 			return fmt.Errorf("the provider answered with a redirect to %s, which is not followed: give the address the API answers at", req.URL.Host)
 		},
 	}
-	pc := provider.Config{BaseURL: base, APIKey: cfg.APIKey, Model: cfg.Model, Client: client}
+	pc := provider.Config{BaseURL: base, APIKey: cfg.APIKey, Model: cfg.Model, Client: client, ReasoningEffort: cfg.ReasoningEffort}
 	switch kind {
 	case assistant.KindFake:
 		return assistant.NewFake(assistant.FakeOptions{Model: cfg.Model}), nil

@@ -9391,6 +9391,11 @@ export interface components {
             local: boolean;
             /** @description The assistant may read this fleet through the provider. The personal provider's owner chooses this; administrators choose it for installation providers. Off until enabled: what the tools return is sent to the provider, which for a hosted one leaves this network. */
             fleet_access: boolean;
+            /**
+             * @description How hard the model is told to think before it answers, sent as `reasoning_effort` on every request a provider of the openai_compatible or openai kind makes, the check included. Empty is the provider's own default and is sent as nothing. The provider reads the word: DeepSeek takes none, low and high, OpenAI low, medium and high, and a model that takes none says so under Test. A thinking model at its default effort can spend an answer's whole room on reasoning, so low is the setting for chat.
+             * @enum {string}
+             */
+            reasoning_effort: "" | "none" | "low" | "medium" | "high";
             /** @description Somebody's own subscription, used through the vendor's own tool on the controller's machine. Such a provider belongs to the person who added it. */
             subscription: boolean;
             /** @description The username a personal provider belongs to. */
@@ -9472,6 +9477,11 @@ export interface components {
             enabled?: boolean;
             /** @description Let the assistant read this fleet through the provider. Changing it writes an `assistant.provider.fleet_access` audit row. */
             fleet_access?: boolean;
+            /**
+             * @description How hard the model should think, in the provider's words, or empty for its default. Refused with a `reasoning_effort` field error on a kind that cannot carry it (anthropic and the subscription kinds), rather than ignored.
+             * @enum {string}
+             */
+            reasoning_effort?: "" | "none" | "low" | "medium" | "high";
             /** @description Sealed with the instance key and never returned. An empty string leaves the stored key alone, so a form with a blank key box does not erase it. */
             api_key?: string;
         };

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 
 	"github.com/eyupio/zoomies/internal/assistant"
@@ -29,6 +30,9 @@ type assistantProviderInput struct {
 	// FleetAccess lets the assistant read this fleet through the provider. It
 	// is the administrator's decision per provider, and absent leaves it as it was.
 	FleetAccess *bool `json:"fleet_access"`
+	// ReasoningEffort is how hard the model should think, in the provider's
+	// words; empty is its default. Absent leaves it as it was.
+	ReasoningEffort *string `json:"reasoning_effort"`
 }
 
 func (in assistantProviderInput) apply(p *store.AssistantProvider) {
@@ -49,6 +53,9 @@ func (in assistantProviderInput) apply(p *store.AssistantProvider) {
 	}
 	if in.FleetAccess != nil {
 		p.FleetAccess = *in.FleetAccess
+	}
+	if in.ReasoningEffort != nil {
+		p.ReasoningEffort = strings.TrimSpace(*in.ReasoningEffort)
 	}
 }
 
@@ -97,6 +104,14 @@ func (s *Server) validateAssistantProvider(r *http.Request, p *store.AssistantPr
 			errs = append(errs, fieldError{"base_url", "the address carries a username or password; leave those out and put the key in the API key field, which is sealed"})
 		} else if f := config.CheckProviderURL(p.BaseURL, s.cfg().Assistant.AllowPrivateProvider); checkAddress && f != nil {
 			errs = append(errs, fieldError{"base_url", f.Title + ". " + f.Fix})
+		}
+	}
+	if p.ReasoningEffort != "" {
+		switch {
+		case !slices.Contains(assistant.ReasoningEfforts, p.ReasoningEffort):
+			errs = append(errs, fieldError{"reasoning_effort", "choose none, low, medium or high, or leave it empty for the provider's default; the provider reads the word, so what each does is its own"})
+		case !assistant.SupportsReasoningEffort(kind):
+			errs = append(errs, fieldError{"reasoning_effort", "only a provider that speaks the OpenAI chat protocol can be told how hard to think; leave this empty for this kind"})
 		}
 	}
 	if assistant.Subscription(kind) && p.ID != "" && p.OwnerID == "" {

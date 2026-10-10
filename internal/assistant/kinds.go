@@ -46,3 +46,17 @@ func Subscription(kind Kind) bool {
 // and take a question as text. Eli's are not offered to it, and what its tools do
 // is ignored.
 func SupportsTools(kind Kind) bool { return !Subscription(kind) }
+
+// ReasoningEfforts are the values a provider's reasoning_effort may hold, in
+// the words the OpenAI chat protocol uses and DeepSeek, OpenAI and others
+// read: none turns thinking off where a model can, and the rest say how hard.
+// Empty is the provider's own default and is sent as nothing.
+var ReasoningEfforts = []string{"none", "low", "medium", "high"}
+
+// SupportsReasoningEffort is whether a kind's requests can carry
+// reasoning_effort: the two that speak the OpenAI chat protocol. Anthropic's
+// thinking is asked for differently and a subscription's tool decides for
+// itself, so a value on those would be ignored, and is refused instead.
+func SupportsReasoningEffort(kind Kind) bool {
+	return kind == KindOpenAICompatible || kind == KindOpenAI
+}

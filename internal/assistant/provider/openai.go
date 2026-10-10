@@ -110,6 +110,11 @@ func (p *OpenAICompatible) body(req assistant.Request, maxTokens int) ([]byte, e
 	if maxTokens > 0 {
 		out["max_tokens"] = maxTokens
 	}
+	// Only when set: a server that does not know the field may refuse the
+	// whole request, and empty means the provider's own default.
+	if p.cfg.ReasoningEffort != "" {
+		out["reasoning_effort"] = p.cfg.ReasoningEffort
+	}
 	if len(req.Tools) > 0 {
 		tools := make([]map[string]any, 0, len(req.Tools))
 		for _, t := range req.Tools {

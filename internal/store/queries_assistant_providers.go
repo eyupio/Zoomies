@@ -21,6 +21,11 @@ type AssistantProvider struct {
 	// FleetAccess is whether the assistant may read this fleet through the
 	// provider. Off unless an administrator turned it on for this one.
 	FleetAccess bool
+	// ReasoningEffort is how hard the provider's model should think before it
+	// answers, in the provider's own words (none, low, medium or high), or empty
+	// for the provider's default. It is the provider's to interpret: a thinking
+	// model at its default effort can spend an answer's whole room on reasoning.
+	ReasoningEffort string
 	// OwnerID is the account a provider belongs to, and empty for one that is
 	// shared by every administrator. Set when it is created and never changed.
 	OwnerID       string
@@ -30,7 +35,7 @@ type AssistantProvider struct {
 	UpdatedAt     time.Time
 }
 
-const assistantProviderCols = `id, name, kind, base_url, model, key_enc, enabled, is_default, fleet_access, owner_id,
+const assistantProviderCols = `id, name, kind, base_url, model, key_enc, enabled, is_default, fleet_access, reasoning_effort, owner_id,
 	last_check, last_checked_at, created_at, updated_at`
 
 func scanAssistantProvider(sc interface{ Scan(...any) error }) (*AssistantProvider, error) {
@@ -39,7 +44,7 @@ func scanAssistantProvider(sc interface{ Scan(...any) error }) (*AssistantProvid
 	var created, updated int64
 	var check sql.NullString
 	var checked sql.NullInt64
-	if err := sc.Scan(&p.ID, &p.Name, &p.Kind, &p.BaseURL, &p.Model, &p.KeyEnc, &enabled, &isDefault, &fleetAccess, &p.OwnerID,
+	if err := sc.Scan(&p.ID, &p.Name, &p.Kind, &p.BaseURL, &p.Model, &p.KeyEnc, &enabled, &isDefault, &fleetAccess, &p.ReasoningEffort, &p.OwnerID,
 		&check, &checked, &created, &updated); err != nil {
 		return nil, err
 	}
@@ -90,21 +95,22 @@ func (s *Store) CreateAssistantProvider(ctx context.Context, p *AssistantProvide
 	now := s.Now()
 	p.CreatedAt, p.UpdatedAt = now, now
 	_, err := s.exec(ctx, `INSERT INTO assistant_providers
-		(id, name, kind, base_url, model, enabled, is_default, fleet_access, owner_id, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?)`,
-		p.ID, p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), boolInt(p.FleetAccess), p.OwnerID, ms(now), ms(now))
+		(id, name, kind, base_url, model, enabled, is_default, fleet_access, reasoning_effort, owner_id, created_at, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)`,
+		p.ID, p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), boolInt(p.FleetAccess), p.ReasoningEffort, p.OwnerID, ms(now), ms(now))
 	return wrapWrite(err)
 }
 
 // UpdateAssistantProvider persists the operator's half of a row: name, kind,
-// address, model, whether it is enabled and whether it may read the fleet. The key and the default have
+// address, model, whether it is enabled, whether it may read the fleet and how
+// hard its model thinks. The key and the default have
 // their own writers, so a form submitted from yesterday's page carries
 // neither.
 func (s *Store) UpdateAssistantProvider(ctx context.Context, p *AssistantProvider) error {
 	now := s.Now()
 	res, err := s.exec(ctx, `UPDATE assistant_providers
-		SET name=?, kind=?, base_url=?, model=?, enabled=?, fleet_access=?, updated_at=? WHERE id=?`,
-		p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), boolInt(p.FleetAccess), ms(now), p.ID)
+		SET name=?, kind=?, base_url=?, model=?, enabled=?, fleet_access=?, reasoning_effort=?, updated_at=? WHERE id=?`,
+		p.Name, p.Kind, p.BaseURL, p.Model, boolInt(p.Enabled), boolInt(p.FleetAccess), p.ReasoningEffort, ms(now), p.ID)
 	if err != nil {
 		return wrapWrite(err)
 	}

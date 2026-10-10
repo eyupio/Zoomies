@@ -226,3 +226,56 @@ func TestABaseURLWithCredentialsInItIsRefused(t *testing.T) {
 		t.Errorf("the refusal does not name the field, or echoes the password: %s", resp.body)
 	}
 }
+
+// How hard the model thinks is set per provider, because the value is the
+// provider's to interpret and a thinking model at its default effort can spend
+// an answer's whole room on reasoning. It is kept, shown, and sent on every
+// request; a value no provider takes is refused by name, and a kind whose tool
+// has no such setting is refused rather than silently ignored.
+func TestAProvidersReasoningEffortIsKeptShownAndSent(t *testing.T) {
+	h, cookie := assistantAdmin(t, func(c *config.Config) { c.Assistant.AllowPrivateProvider = true })
+	srv := assistanttest.NewOpenAI(t)
+	body := providerBody(srv, "DeepSeek")
+	body["reasoning_effort"] = "low"
+	resp := h.do(request{method: http.MethodPost, path: assistantProviders, cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusCreated, "creating with an effort")
+	view := resp.json(t)
+	if view["reasoning_effort"] != "low" {
+		t.Errorf("view = %v, want reasoning_effort low", view)
+	}
+	id := view["id"].(string)
+	h.do(request{method: http.MethodPost, path: assistantProviders + "/" + id + "/check", cookie: cookie}).mustStatus(t, http.StatusOK, "checking")
+	var sent []any
+	for _, r := range srv.Requests() {
+		if r.Path == "/v1/chat/completions" {
+			sent = append(sent, r.Body["reasoning_effort"])
+		}
+	}
+	if len(sent) == 0 || sent[len(sent)-1] != "low" {
+		t.Errorf("the check did not send the effort: %v", sent)
+	}
+
+	body["reasoning_effort"] = "max"
+	bad := h.do(request{method: http.MethodPost, path: assistantProviders, cookie: cookie, body: body})
+	bad.mustStatus(t, http.StatusUnprocessableEntity, "an effort no provider takes here")
+	if !strings.Contains(string(bad.body), `"reasoning_effort"`) {
+		t.Errorf("the refusal does not name the field: %s", bad.body)
+	}
+
+	patch := h.do(request{method: http.MethodPatch, path: assistantProviders + "/" + id, cookie: cookie, body: map[string]any{"reasoning_effort": ""}})
+	patch.mustStatus(t, http.StatusOK, "clearing it")
+	if patch.json(t)["reasoning_effort"] != "" {
+		t.Errorf("cleared effort still shown: %v", patch.json(t))
+	}
+}
+
+func TestAReasoningEffortIsRefusedOnAKindWhoseToolHasNoSuchSetting(t *testing.T) {
+	h, cookie := assistantAdmin(t, func(c *config.Config) { c.Assistant.AllowPrivateProvider = true })
+	srv := assistanttest.NewAnthropic(t)
+	body := map[string]any{"name": "Claude", "kind": "anthropic", "base_url": srv.URL + "/v1", "model": "m", "api_key": "k", "reasoning_effort": "low"}
+	resp := h.do(request{method: http.MethodPost, path: assistantProviders, cookie: cookie, body: body})
+	resp.mustStatus(t, http.StatusUnprocessableEntity, "an effort on a kind that has none")
+	if !strings.Contains(string(resp.body), `"reasoning_effort"`) {
+		t.Errorf("the refusal does not name the field: %s", resp.body)
+	}
+}

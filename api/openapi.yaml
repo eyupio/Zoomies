@@ -12351,7 +12351,7 @@ components:
 
     AssistantProvider:
       type: object
-      required: [id, owner_id, name, kind, base_url, model, key_configured, enabled, is_default, local, fleet_access, subscription, owned_by_you, usable, created_at, updated_at]
+      required: [id, owner_id, name, kind, base_url, model, key_configured, enabled, is_default, local, fleet_access, reasoning_effort, subscription, owned_by_you, usable, created_at, updated_at]
       properties:
         id: { type: string }
         owner_id: { type: string, description: User ID for a personal provider; empty for an installation provider. }
@@ -12369,6 +12369,17 @@ components:
             The assistant may read this fleet through the provider. The personal provider's
             owner chooses this; administrators choose it for installation providers. Off until enabled: what the tools return is sent to the
             provider, which for a hosted one leaves this network.
+        reasoning_effort:
+          type: string
+          enum: ["", none, low, medium, high]
+          description: >-
+            How hard the model is told to think before it answers, sent as
+            `reasoning_effort` on every request a provider of the openai_compatible or
+            openai kind makes, the check included. Empty is the provider's own default and
+            is sent as nothing. The provider reads the word: DeepSeek takes none, low and
+            high, OpenAI low, medium and high, and a model that takes none says so under
+            Test. A thinking model at its default effort can spend an answer's whole room
+            on reasoning, so low is the setting for chat.
         subscription:
           type: boolean
           description: >-
@@ -12483,6 +12494,13 @@ components:
         model: { type: string }
         enabled: { type: boolean }
         fleet_access: { type: boolean, description: Let the assistant read this fleet through the provider. Changing it writes an `assistant.provider.fleet_access` audit row. }
+        reasoning_effort:
+          type: string
+          enum: ["", none, low, medium, high]
+          description: >-
+            How hard the model should think, in the provider's words, or empty for its
+            default. Refused with a `reasoning_effort` field error on a kind that cannot
+            carry it (anthropic and the subscription kinds), rather than ignored.
         api_key:
           type: string
           description: >-

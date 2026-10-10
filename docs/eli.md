@@ -28,6 +28,15 @@ to type in, or press **Ask Eli**. <kbd>Esc</kbd> puts the panel away.
 
 The Ask Eli button opens setup guidance until you have an enabled personal provider; your default answers, or, with none ticked, the first usable one you own. Installation providers remain separate and do not pay for personal chat.
 
+A provider that speaks the OpenAI chat protocol (the OpenAI-compatible and OpenAI
+kinds) can be told how hard its model should think: **Reasoning effort** on the
+provider's form is sent as `reasoning_effort` on every request, the test included,
+so a model that does not take it says so under **Test**. The provider reads the word:
+DeepSeek takes `none`, `low` and `high`, OpenAI `low`, `medium` and `high`. Leave it
+empty for the provider's own default. A thinking model at its default effort can
+spend an answer's whole room on reasoning, which Eli then reports as having run out
+of room, so `low` is the setting for chat.
+
 ### Using your own subscription
 
 An administrator can also add their own plan, used through the vendor's own program on the

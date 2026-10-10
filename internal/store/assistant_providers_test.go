@@ -171,3 +171,30 @@ func TestFleetAccessIsOffUntilAnAdministratorTurnsItOn(t *testing.T) {
 		t.Error("created on, read back off")
 	}
 }
+
+// How hard a provider's model should think is the provider's to keep: it is
+// written with the row and read back as written, and a row that never said is
+// the empty string, which the adapters send as nothing.
+func TestAProvidersReasoningEffortIsKeptWithTheRow(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	p := seedAssistantProvider(t, s, "DeepSeek")
+	got, err := s.GetAssistantProvider(ctx, p.ID)
+	if err != nil || got.ReasoningEffort != "" {
+		t.Fatalf("a new row's effort = %q, %v", got.ReasoningEffort, err)
+	}
+	p.ReasoningEffort = "low"
+	if err := s.UpdateAssistantProvider(ctx, p); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = s.GetAssistantProvider(ctx, p.ID); got.ReasoningEffort != "low" {
+		t.Errorf("after update, effort = %q", got.ReasoningEffort)
+	}
+	q := &AssistantProvider{Name: "Created low", Kind: "openai", Model: "m", Enabled: true, ReasoningEffort: "low"}
+	if err := s.CreateAssistantProvider(ctx, q); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ = s.GetAssistantProvider(ctx, q.ID); got.ReasoningEffort != "low" {
+		t.Errorf("created with an effort, read back %q", got.ReasoningEffort)
+	}
+}

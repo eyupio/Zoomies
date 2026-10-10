@@ -246,3 +246,31 @@ func TestOpenAICompatibleSaysWhenTheProviderCutTheAnswer(t *testing.T) {
 		t.Errorf("the end of a cut answer does not say it was cut: %+v", done)
 	}
 }
+
+// A provider told how hard to think is told on every request, the check
+// included, so a model that does not take the setting says so under Test and
+// not in the middle of a conversation. One told nothing is sent nothing: a
+// server that does not know the field may refuse the whole request.
+func TestOpenAICompatibleSendsTheReasoningEffortItWasGiven(t *testing.T) {
+	srv := assistanttest.NewOpenAI(t)
+	drain(t, NewOpenAICompatible(Config{BaseURL: srv.URL, Model: "m", ReasoningEffort: "low"}), hello())
+	if _, err := NewOpenAICompatible(Config{BaseURL: srv.URL, Model: "m", ReasoningEffort: "low"}).Check(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	drain(t, NewOpenAICompatible(Config{BaseURL: srv.URL, Model: "m"}), hello())
+	var chats []map[string]any
+	for _, r := range srv.Requests() {
+		if r.Path == "/v1/chat/completions" {
+			chats = append(chats, r.Body)
+		}
+	}
+	if len(chats) != 3 {
+		t.Fatalf("chat requests = %d", len(chats))
+	}
+	if chats[0]["reasoning_effort"] != "low" || chats[1]["reasoning_effort"] != "low" {
+		t.Errorf("the effort was not sent on the chat and the check: %v, %v", chats[0]["reasoning_effort"], chats[1]["reasoning_effort"])
+	}
+	if _, sent := chats[2]["reasoning_effort"]; sent {
+		t.Errorf("an effort nobody set was sent: %v", chats[2]["reasoning_effort"])
+	}
+}
