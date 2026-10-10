@@ -525,6 +525,9 @@ rollout reads **Done** in the idle one, and a host that is behind stays a
 neutral fact. Operators and viewers see neither the button nor the panel; the
 rollout is on Settings → Updates for everyone.
 
+![Two host cards on the Hosts page, both behind the controller's release: one says it can be updated, with its Update button, and the other says to update it by command because its update helper is not installed, with the button drawn but not pressable; under each, folded away, is the command that updates the host by hand](screenshots/hosts-update-dark.webp#only-dark){ .zoomies-shot }
+![Two host cards on the Hosts page, both behind the controller's release: one says it can be updated, with its Update button, and the other says to update it by command because its update helper is not installed, with the button drawn but not pressable; under each, folded away, is the command that updates the host by hand](screenshots/hosts-update-light.webp#only-light){ .zoomies-shot }
+
 **Tags and size class.** A host's tags are the labels pools select it by, and its
 card lists them in two groups: those stored on the host, which **Edit** changes,
 and those the controller works out from the machine (`os`, `arch` and, while a
@@ -765,6 +768,9 @@ and still has to be able to tell what the controller is set to do. Last is the
 build the controller is running and whether it came from a release. One built
 from `main` is left alone, since it is usually ahead of the newest release and
 an update would take it back.
+
+![Settings → Updates in manual mode: a newer release is available and waits for a person, with the release linked to its notes, when it was published and when the list was last read; the Update to v1.3.2 button for this controller; and the mode and the soak, each with a sentence of what it does](screenshots/settings-updates-dark.webp#only-dark){ .zoomies-shot }
+![Settings → Updates in manual mode: a newer release is available and waits for a person, with the release linked to its notes, when it was published and when the list was last read; the Update to v1.3.2 button for this controller; and the mode and the soak, each with a sentence of what it does](screenshots/settings-updates-light.webp#only-light){ .zoomies-shot }
 
 ## The status page
 

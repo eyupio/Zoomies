@@ -70,7 +70,9 @@ const FIXTURE = {
  * gives the shot a browser context of its own -- a phone, or a desktop whose
  * `prepare` changes a per-operator preference that must not follow the shots
  * captured after it; `signedOut` keeps the session cookie out of that
- * context, for the one page that is only shown to nobody.
+ * context, for the one page that is only shown to nobody; `updates` takes the
+ * shot from a controller that says it is a release behind two others (see
+ * `updatesEnv`).
  */
 const SHOTS = [
   { name: 'overview', path: '/', heading: 'Overview' },
@@ -500,7 +502,83 @@ const SHOTS = [
     },
     kennel: true,
   },
+
+  // Updating, from a controller of its own (see `capture`): the binary
+  // photographed is not a release, and every other shot shows what it really
+  // runs, so only these two are told they run 1.3.0 behind v1.3.1 and v1.3.2.
+  {
+    name: 'settings-updates',
+    path: '/settings/updates',
+    heading: 'Updates',
+    updates: true,
+  },
+  {
+    // A host that can update itself beside one that cannot, so the card's
+    // button, the reason a card has none to press and the command that stays
+    // beneath both are in one picture. The header's button is waited for
+    // because it is counted from the cards' own answers, and its arriving says
+    // they have been read.
+    name: 'hosts-update',
+    path: '/hosts',
+    heading: 'Hosts',
+    updates: true,
+    async prepare(page) {
+      await page.getByRole('button', { name: 'Update 1 host', exact: true }).waitFor();
+      await page.getByRole('article', { name: UPDATE_HOSTS.helper, exact: true }).evaluate((el) => {
+        window.scrollBy(0, el.getBoundingClientRect().top - 120);
+      });
+      await page.mouse.move(700, 40);
+    },
+  },
 ];
+
+/**
+ * The two hosts the Hosts shot of updating joins, on a release behind the one the
+ * updates controller says it runs. Only the first says its update helper is
+ * installed, which is what its agent's `self-update` feature means.
+ */
+const UPDATE_HOSTS = { helper: 'edge-builder-1', noHelper: 'edge-builder-2', version: '1.2.0' };
+
+/**
+ * Join the updating hosts through a join token, as `zoomies agent join` does, and
+ * send each one heartbeat. A host is behind only once it has said what it runs,
+ * and the shots are taken within the ninety seconds a beat keeps it connected.
+ */
+async function joinHostsBehind(api) {
+  for (const [name, features] of [
+    [UPDATE_HOSTS.helper, ['self-update']],
+    [UPDATE_HOSTS.noHelper, []],
+  ]) {
+    const minted = await api.post('/api/v1/join-tokens', {
+      headers: { Origin: BASE_URL },
+      data: { capacity: 2 },
+    });
+    if (!minted.ok())
+      throw new Error(`minting a join token returned ${minted.status()}: ${await minted.text()}`);
+    const { token } = await minted.json();
+    const joined = await api.post('/api/v1/agent/join', {
+      data: {
+        protocol_version: 1,
+        join_token: token,
+        name,
+        capacity: 2,
+        os: 'linux',
+        arch: 'amd64',
+        version: UPDATE_HOSTS.version,
+        backends: [{ kind: 'docker', available: true }],
+      },
+    });
+    if (!joined.ok())
+      throw new Error(`joining ${name} returned ${joined.status()}: ${await joined.text()}`);
+    const { agent_token } = await joined.json();
+    const beat = await api.post('/api/v1/agent/heartbeat', {
+      headers: { Authorization: `Bearer ${agent_token}` },
+      data: { protocol_version: 1, version: UPDATE_HOSTS.version, features },
+    });
+    if (!beat.ok())
+      throw new Error(`${name}'s heartbeat returned ${beat.status()}: ${await beat.text()}`);
+  }
+}
 
 /**
  * A browser override for sandboxes where Playwright's own Chromium download is
@@ -574,8 +652,12 @@ async function turnOnKennelClub(context) {
   throw new Error('Kennel Club had not evaluated the seeded repositories within three minutes');
 }
 
-/** Boot a seeded controller with authentication on, and wait until it answers. */
-async function bootController(dir) {
+/**
+ * Boot a seeded controller with authentication on, and wait until it answers.
+ * `extraEnv` is the updates fixture for the shots of updating, and empty for
+ * every other shot.
+ */
+async function bootController(dir, extraEnv = {}) {
   const child = spawn(binary, ['controller'], {
     // stdout is piped rather than ignored because the setup token is printed
     // there and nowhere else: the bootstrap route asks for it as proof that
@@ -594,6 +676,7 @@ async function bootController(dir) {
       ZOOMIES_EXTERNAL_URL: `http://127.0.0.1:${PORT}`,
       ZOOMIES_POLL_FALLBACK: 'true',
       ZOOMIES_SEED_DEMO: 'true',
+      ...extraEnv,
     },
   });
   // Scoped to this controller, not to the module: each colour scheme gets a
@@ -708,9 +791,27 @@ async function settle(page, shot) {
   await page.waitForTimeout(SETTLE_MS);
 }
 
-async function capture(browser, scheme, pngDir) {
+/**
+ * The updates fixture the browser suite's Updates project uses
+ * (`internal/controller/seed_updates.go`): the controller says it runs 1.3.0,
+ * reads a release list holding v1.3.1 and v1.3.2, and finds the marker an
+ * installed update helper leaves in the folder named here. The mode is manual,
+ * whose sentences do not move with the clock the way a soak's would.
+ */
+function updatesEnv(dir) {
+  const folder = join(dir, 'update');
+  mkdirSync(folder, { mode: 0o700 });
+  return { ZOOMIES_UPDATE_MODE: 'manual', ZOOMIES_SEED_UPDATES: folder };
+}
+
+/**
+ * Photograph `shots` in one colour scheme from a controller of their own. The
+ * shots of updating are taken from a second one, since what it is told it runs
+ * would otherwise show on every page.
+ */
+async function capture(browser, scheme, pngDir, shots, { updates = false } = {}) {
   const dir = mkdtempSync(join(tmpdir(), 'zoomies-screenshots-'));
-  const { child, setupToken } = await bootController(dir);
+  const { child, setupToken } = await bootController(dir, updates ? updatesEnv(dir) : {});
   const baseURL = `http://127.0.0.1:${PORT}`;
   // en-GB, and a fixed one. Native date inputs render in the browser's locale,
   // and a runner with none set takes the machine's -- so the shipped
@@ -741,7 +842,8 @@ async function capture(browser, scheme, pngDir) {
     const cookies = await desktop.cookies();
     await pingWebhook(baseURL);
 
-    const wanted = (shot) => only.length === 0 || only.includes(shot.name);
+    if (updates) await joinHostsBehind(desktop.request);
+
     const shoot = async (shot) => {
       console.log(`  capturing ${shot.name}-${scheme}`);
       let context = desktop;
@@ -766,8 +868,8 @@ async function capture(browser, scheme, pngDir) {
       await page.close();
       if (shot.device) await context.close();
     };
-    for (const shot of SHOTS) if (wanted(shot) && !shot.kennel) await shoot(shot);
-    const kennelShots = SHOTS.filter((shot) => shot.kennel && wanted(shot));
+    for (const shot of shots) if (!shot.kennel) await shoot(shot);
+    const kennelShots = shots.filter((shot) => shot.kennel);
     if (kennelShots.length > 0) {
       await turnOnKennelClub(desktop);
       for (const shot of kennelShots) await shoot(shot);
@@ -788,9 +890,13 @@ mkdirSync(outDir, { recursive: true });
 const pngDir = mkdtempSync(join(tmpdir(), 'zoomies-screenshots-png-'));
 const browser = await chromium.launch(launchOptions);
 try {
+  const wanted = SHOTS.filter((shot) => only.length === 0 || only.includes(shot.name));
+  const fleet = wanted.filter((shot) => !shot.updates);
+  const updating = wanted.filter((shot) => shot.updates);
   for (const scheme of ['dark', 'light']) {
     console.log(`capturing ${scheme}`);
-    await capture(browser, scheme, pngDir);
+    if (fleet.length > 0) await capture(browser, scheme, pngDir, fleet);
+    if (updating.length > 0) await capture(browser, scheme, pngDir, updating, { updates: true });
   }
   console.log(`encoding into ${outDir}`);
   encodeWebp(pngDir);

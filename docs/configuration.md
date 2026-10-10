@@ -1195,6 +1195,12 @@ accepts `updates.check_interval` from this section and refuses `updates.mode` an
 `updates.soak`, so no assistant, however it was prompted, can be the one that
 turns updating on.
 
+Neither setting installs anything on a host. A machine is updated only through
+the update helper its owner installed, and
+[Updating from the web UI](upgrading.md#updating-from-the-web-ui) says what the
+helper does, what happens to running jobs, and how to roll an update back by
+hand.
+
 ### Deployment models
 
 `zoomies init` can run Zoomies three ways, and offers only the ones your host can

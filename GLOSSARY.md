@@ -92,6 +92,20 @@ _Avoid_: Kennel (alone), AI Context (which is separate)
 Repository context that Zoomies generates for AI tools to read. A top-level area of its own, not part of the Kennel Club.
 _Avoid_: Kennel Club (as its parent), operational context
 
+### Updating
+
+**Update helper**:
+The root-owned pair of systemd units that runs `zoomies upgrade` on a host for a release the service asks for. Only the host's owner installs it, and a host without it is never updated from the web UI. Not the agent, and never installed by it.
+_Avoid_: Updater, update agent, update service, helper (alone, where another helper could be meant)
+
+**Soak**:
+How long a release must have been public before `auto` takes it, counted from when GitHub published it. A newer release restarts it. Applies to `auto` only: a person pressing Update has decided.
+_Avoid_: Delay, grace period, cool-down, bake time
+
+**Rollout**:
+Taking the hosts behind the controller to the release it runs, one host at a time. It is running, halted (held after a failure until a person resumes or cancels it), done or cancelled. Never the controller's own update.
+_Avoid_: Deployment, wave, batch
+
 ### Theme words
 
 **Dog-park vocabulary**:

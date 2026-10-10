@@ -72,7 +72,8 @@ controller only asks: the helper on that host does the work, and the controller 
 not replace the binary of any host itself. Without the helper, a controller upgrade does
 not remotely replace binaries across the fleet. On the controller's own host the
 same helper can replace the controller's binary, with `zoomies updates apply` or the
-Update button on Settings → Updates (the platform role).
+Update button on Settings → Updates (the platform role). [Updating from the web
+UI](#updating-from-the-web-ui) is all of it.
 
 For a **remote agent**, copy the upgrade command from its card on **Hosts**.
 That command targets the controller's published version instead of blindly
@@ -193,10 +194,52 @@ the new image up with, so an unattended upgrade stops before it changes
 anything and says so. `--check` lists what the real run will offer and adds
 none of it.
 
-### Updating from the web UI
+`zoomies upgrade --check` checks the existing deployment without modifying it.
+`zoomies update` is a compatibility alias and accepts the same flags. Both commands
+fetch the newest release (or the rolling `dev` build, for a host running one),
+verify its checksum, replace the installed binary and carry on in the new one,
+so a host upgraded this way gets the new release's checks and prompts too. They
+never downgrade, and a download that cannot be verified is not installed.
+`--version v1.4.0` pins a tag and `--no-download` applies the binary already
+on disk.
 
-On a systemd host that has no update helper yet, an upgrade then asks a
-second question, on its own:
+The parts of that worth knowing before you do it are what happens to work in
+flight, how far the pieces may drift apart, and the one direction you cannot
+go back in.
+
+## Updating from the web UI
+
+`sudo zoomies upgrade` on each machine is still how a fleet is upgraded, and it
+stays the way for any host whose owner has not agreed to more. `updates.mode`
+lets the controller start the same upgrade instead, through an *update helper*
+that the owner of each host installs:
+
+| Mode | What it does |
+| --- | --- |
+| `off` (the default) | Nothing new. The Overview says that a newer release exists, each host's card keeps its command to copy, and the mode creates no folder, unit or button. |
+| `manual` | **Update** buttons: for the controller on Settings → Updates, on the card of each host whose helper is installed, and **Update N hosts** on the Hosts page for every host behind the controller. Nothing moves without a click. |
+| `auto` | The controller takes the newest release once it has been public for `updates.soak`, then takes every host behind it to the release it runs, one at a time. The buttons stay, and mean "now, without the wait". |
+
+Only the `platform` role changes the mode and the soak, on the Configuration
+page ([`updates.mode`](configuration.md#updatesmode-what-is-done-about-a-newer-release));
+everyone can read them on Settings → Updates. The `platform` role updates the
+controller, and an administrator updates hosts and starts, resumes and cancels a
+rollout. With the mode `off` each of those is refused with `update.mode_off`, and
+a controller that is fenced for recovery or has lost its lease does none of
+them. Every button is also a command, in [`zoomies updates`](cli.md#zoomies-updates).
+
+A release is offered only once it is complete: a tag of the form `vX.Y.Z`,
+neither a prerelease nor a draft, with `checksums.txt` and the binary for the
+machine's system attached. GitHub makes a release public before all its files
+are uploaded, so the newest release is not always one that can be installed. A
+controller built from `main`, or from a checkout of your own, is never updated
+this way: it is usually ahead of the newest release, and an update would take it
+back.
+
+### Adding the update helper
+
+On a systemd host that has no update helper yet, an upgrade asks a question of
+its own once the deployment's additions above have been reviewed:
 
 ```text
 Add the update helper? [y/N]
@@ -278,18 +321,147 @@ same rules:
 `zoomies init` on a host where Zoomies is already installed only upgrades it in
 place and does not ask; `zoomies upgrade` is where the question is asked then.
 
-`zoomies upgrade --check` checks the existing deployment without modifying it.
-`zoomies update` is a compatibility alias and accepts the same flags. Both commands
-fetch the newest release (or the rolling `dev` build, for a host running one),
-verify its checksum, replace the installed binary and carry on in the new one,
-so a host upgraded this way gets the new release's checks and prompts too. They
-never downgrade, and a download that cannot be verified is not installed.
-`--version v1.4.0` pins a tag and `--no-download` applies the binary already
-on disk.
+### What the helper does with a request
 
-The parts of that worth knowing before you do it are what happens to work in
-flight, how far the pieces may drift apart, and the one direction you cannot
-go back in.
+The service, which runs as an account without root, writes `request.json` into
+the *update folder*: `update` under the state directory on a native install, or
+under the shared folder in a container. The request names an attempt and a
+release tag, and nothing else: no address, path, command or flag. Its arrival
+starts `zoomies-update.service` as root, which treats everything in the folder
+as hostile. It refuses a request that is not a plain file owned by the service's
+account, a tag of any other shape, an attempt it has already seen, a third try
+at one release, or a second request inside ten minutes, and it does not start
+while `upgrade.lock` says an upgrade is already running. A release already
+installed, or an older one, is answered as done and nothing runs.
+
+Otherwise it runs the upgrade you would run, unattended, as
+`zoomies upgrade --version <tag> --non-interactive`, and never with `--yes`.
+That downloads the release's binary, checks it against the release's
+`checksums.txt` and asks the downloaded binary to check this deployment before
+anything is replaced, so a release that needs something the deployment lacks
+stops with the binary and the service as they were. A required addition stops
+it, with the command that adds it; an optional one is skipped and named. Then
+the binary is replaced, the one it replaced is kept beside it as
+`zoomies.previous`, and the service restarts. The helper writes `result.json`
+saying how it went, which the controller reads, and
+`sudo zoomies updates helper status` shows it with the end of the log.
+
+### Updating the controller
+
+**Update to** the release, on Settings → Updates, or `zoomies updates apply`,
+asks the helper beside the controller to take it to the newest release that can
+be installed (with `--version`, to that one). The controller records the
+attempt, writes the request, and restarts as the new release. The page follows
+the restart and says the update worked only once the controller does: the new
+process closes the attempt when it finds the helper's result, or finds itself
+running the release. A
+controller that runs its agent inside itself updates that agent with it.
+
+If the new controller does not come back, nothing in the web UI can say so. On
+the host, `sudo zoomies updates helper status` and the journal of
+`zoomies-update.service` can, and [rolling back](#rolling-back-by-hand) says
+what to do.
+
+### Updating hosts, and rollouts
+
+A host is updated by its own agent, never by the controller reaching into it:
+the controller hands the agent an `update_agent` task on the agent's own
+long-poll, the agent writes the request into its host's update folder, and the
+helper there does the rest. The agent offers this only while the helper's
+marker is in an update folder it can write to, so a host without the helper is
+never asked, and its card says why and keeps the command. A host is always taken
+to the release its **controller** runs, never to the newest release, so an agent
+is never ahead of its controller ([version skew](#version-skew)). An update has
+worked when the host's heartbeat reports that release, not when the task is
+answered.
+
+**Update** on a host's card updates that host. **Update N hosts** on the Hosts
+page, or `zoomies updates apply --hosts`, starts a *rollout* of every host behind
+the controller (`--host` names some): one host at a time, the one running the
+fewest jobs first, then by name. No host is cordoned or drained for it. The first
+update in a rollout that fails or times out **halts** it, and a halted rollout
+starts nothing until an administrator resumes or cancels it, on the Hosts page or
+with `zoomies updates resume` or `zoomies updates cancel`. Resuming moves on to
+the next host while the one that failed waits out its retry. Cancelling starts
+nothing more; an update a helper has already been handed finishes by itself and
+is recorded. While any update is open, neither a rollout nor `auto` starts
+another, so the controller is never updated under a host or a host under the
+controller.
+
+### What auto does, and the soak
+
+In `auto` the controller updates itself first, once the newest complete release
+has been public for `updates.soak` (24 hours by default), counted from when GitHub
+published it. A newer release restarts the wait, so a release replaced within the
+soak is never installed: `v1.3.2` published four hours after `v1.3.1` means
+`v1.3.1` is passed over and `v1.3.2` is taken a day after its own publication.
+The cost is that a project publishing faster than the soak would never be taken
+by `auto`, and Settings → Updates says so. Then it starts a rollout of the hosts
+behind the release it now runs. The soak is `auto`'s alone: a person pressing a
+button has decided.
+
+Auto acts only through helpers that are there. While a release is due and the
+helper beside the controller is not installed, it waits, and updates no host
+either, because no host may go ahead of its controller. Where that helper can
+never be installed (see above), the controller is left to a person and hosts
+follow the release it runs. A rollout cancelled by hand is not started again for
+the same release. Switching to `manual` cancels a rollout `auto` started, and
+switching to `off` cancels any open rollout; an update a helper is already
+running finishes either way, and is recorded.
+
+### What happens to running jobs
+
+Nothing. An update restarts a service, and [a restart does not touch a running
+job](#what-happens-to-work-in-flight): the job runs in its runner, the new agent
+adopts every runner it finds, and the controller's restart only delays the
+reporting. A rollout therefore does not wait for a host to be idle, and the
+confirmation says so. A drill updates an agent while a job runs on its host and
+holds the job to finishing.
+
+### When an update fails
+
+An attempt that has not finished in 90 minutes is recorded as timed out (the
+engine's own worst case is fifty minutes, so a shorter limit would fail an
+update that was still working). A failure or a time-out leaves the machine on the
+release it had, raises `controller.update_failed` or `host.update_failed` (see
+[Problem codes](problem-codes.md)), with the helper's own sentence for the
+`platform` role on Settings → Updates or the host's card, and in a rollout halts it. After a failure Zoomies waits 30
+minutes before it tries that machine again by itself, and after two failures of
+one release it leaves that release on that machine to a person. The helper keeps its
+own count as well, in `/var/lib/zoomies-update`, where the service cannot reset
+it.
+
+### Rolling back by hand
+
+There is no automatic rollback, because migrations are one-way ([there is no
+downgrade](#there-is-no-downgrade)). What an update leaves makes one by hand
+possible:
+
+* **The binary it replaced**, kept beside the installed one as
+  `zoomies.previous` (`/usr/local/bin/zoomies.previous` on a default install).
+  Each update replaces it, and `sudo zoomies updates helper remove` leaves it;
+  only `zoomies uninstall` removes it.
+* **The database as it was**, which the new controller copied to
+  `pre-migration/zoomies-<timestamp>/` beside the database before it applied a
+  migration, if the release had any.
+
+On a native controller, stop the service, put `zoomies.previous` back in place of
+`zoomies`, and start it. If the older binary refuses to start because the
+database has migrations it does not have, stop it again and put the pre-migration
+copy back with [`zoomies restore`](backup-and-restore.md#upgrades-copy-the-database-first)
+first. A host's agent has nothing to migrate, so the binary is all it needs. Turn
+the mode to `off` or `manual` before you start, or `auto` will take the release
+again once it is due. A container deployment's service is its image, so there
+roll back by running the previous release's `vX.Y.Z` image, under the same rule
+about the database.
+
+### The first update is by hand
+
+A machine that runs a release from before updating from the web UI cannot be
+updated from it: its agent does not know the task, and its binary has no helper
+to install. Upgrade each one by hand once, controller first, with
+`sudo zoomies upgrade`. Answer yes when it asks to add the update helper (or pass
+`--update-helper`), and from then on the web UI can update it.
 
 ## Settings that were in `.env`
 
