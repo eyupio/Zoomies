@@ -3,6 +3,8 @@ package provider
 import (
 	"context"
 	"encoding/json"
+	"io"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -112,6 +114,42 @@ func TestOpenAICompatibleSendsTheKeyOnlyWhenItHasOne(t *testing.T) {
 	}
 	if got := reqs[1].Header.Get("Authorization"); got != "Bearer sk-test" {
 		t.Errorf("with a key, Authorization %q", got)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
+// OpenCode answers 400 "Request is missing x-opencode-session" to anything
+// without the header, so a test of an OpenCode preset failed before the key
+// or the model was ever looked at. Other servers must not be sent it.
+func TestOpenAICompatibleSendsAStableSessionHeaderOnlyToOpenCode(t *testing.T) {
+	var seen []http.Header
+	client := &http.Client{Transport: roundTripFunc(func(r *http.Request) (*http.Response, error) {
+		seen = append(seen, r.Header.Clone())
+		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(`{"data":[]}`)), Header: http.Header{}}, nil
+	})}
+	for base, want := range map[string]bool{
+		"https://opencode.ai/zen/go/v1": true,
+		"https://opencode.ai/zen/v1":    true,
+		"https://api.openai.com/v1":     false,
+		"http://localhost:11434":        false,
+	} {
+		seen = nil
+		p := NewOpenAICompatible(Config{BaseURL: base, Model: "m", Client: client})
+		for i := 0; i < 2; i++ {
+			if resp, err := p.do(context.Background(), http.MethodGet, "/models", nil); err == nil {
+				resp.Body.Close()
+			}
+		}
+		if len(seen) != 2 {
+			t.Fatalf("%s: %d requests", base, len(seen))
+		}
+		a, b := seen[0].Get("x-opencode-session"), seen[1].Get("x-opencode-session")
+		if (a != "") != want || a != b {
+			t.Errorf("%s: session headers %q then %q, want sent=%v and stable", base, a, b, want)
+		}
 	}
 }
 

@@ -3,9 +3,12 @@ package provider
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -18,6 +21,8 @@ import (
 type OpenAICompatible struct {
 	cfg  Config
 	base string
+	// session is the x-opencode-session value, empty for every other server.
+	session string
 }
 
 // NewOpenAICompatible returns an adapter for the server at cfg.BaseURL.
@@ -32,7 +37,35 @@ func NewOpenAICompatible(cfg Config) *OpenAICompatible {
 	if i := strings.Index(base, "://"); i >= 0 && !strings.Contains(base[i+3:], "/") {
 		base += "/v1"
 	}
-	return &OpenAICompatible{cfg: cfg, base: base}
+	p := &OpenAICompatible{cfg: cfg, base: base}
+	if isOpenCode(base) {
+		p.session = newSessionID()
+	}
+	return p
+}
+
+// isOpenCode reports whether the address is one of OpenCode's hosted
+// endpoints (Zen or Go). Only those get the session header: sending a
+// stranger's header to OpenAI or a local server would be noise at best.
+func isOpenCode(base string) bool {
+	u, err := url.Parse(base)
+	if err != nil {
+		return false
+	}
+	h := strings.ToLower(u.Hostname())
+	return h == "opencode.ai" || strings.HasSuffix(h, ".opencode.ai")
+}
+
+// newSessionID returns a random identifier for one adapter's lifetime.
+// OpenCode refuses a request with no x-opencode-session (a 400 saying it
+// cannot be routed efficiently), and it uses the value only to keep one
+// conversation on one backend, so a per-adapter id is enough.
+func newSessionID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "zoomies"
+	}
+	return "zoomies-" + hex.EncodeToString(b[:])
 }
 
 type oaMessage struct {
@@ -112,6 +145,9 @@ func (p *OpenAICompatible) do(ctx context.Context, method, path string, body []b
 	req.Header.Set("Accept", "application/json, text/event-stream")
 	if p.cfg.APIKey != "" {
 		req.Header.Set("Authorization", "Bearer "+p.cfg.APIKey)
+	}
+	if p.session != "" {
+		req.Header.Set("x-opencode-session", p.session)
 	}
 	resp, err := p.cfg.client().Do(req)
 	if err != nil {
