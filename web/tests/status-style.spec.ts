@@ -47,8 +47,11 @@ test('Appearance persists the style across runners, workflows and queue', async 
       await expect(mark).toHaveAttribute('data-cue', cues[state ?? 'unknown']!);
     }
     await expect(page.locator('svg[data-style="cute"]')).toHaveCount(0);
+    // A mark holds Lucide icons as nested SVGs, so count the marks, not every svg.
     if (path === '/workflows')
-      await expect(page.locator('.avatars.pack').first().locator('svg')).toHaveCount(3);
+      await expect(
+        page.locator('.avatars.pack').first().locator('svg[data-style="standard"]'),
+      ).toHaveCount(3);
     await page.emulateMedia({ reducedMotion: 'reduce' });
     await expect
       .poll(() =>
@@ -67,13 +70,36 @@ test('Appearance persists the style across runners, workflows and queue', async 
 
   await goto(page, '/settings/appearance', 'Appearance');
   await choice.getByRole('button', { name: /^Off/ }).click();
+  const tiles = page.locator('.off-status-icon');
+  const animations = () =>
+    tiles.evaluateAll((nodes) =>
+      nodes.reduce((n, node) => n + node.getAnimations({ subtree: true }).length, 0),
+    );
   for (const [path, title] of pages) {
     await goto(page, path, title);
     await expect(page.locator('svg[data-style]')).toHaveCount(0);
     await expect(
       page.locator('.runner-status .standard-icon, .activity-status .standard-icon').first(),
     ).toBeVisible();
+    // Reduced motion is still in force from above: the plain tiles obey it too.
+    await expect.poll(animations).toBe(0);
   }
+
+  // With motion allowed, work in progress moves and nothing waiting or finished
+  // does: the seeded fleet has busy runners, so the Runners page has both.
+  await page.emulateMedia({ reducedMotion: 'no-preference' });
+  await goto(page, '/runners', 'Runners');
+  await expect.poll(animations).toBeGreaterThan(0);
+  await expect
+    .poll(() =>
+      page
+        .locator('.off-status-icon[data-motion="none"]')
+        .evaluateAll((nodes) =>
+          nodes.reduce((n, node) => n + node.getAnimations({ subtree: true }).length, 0),
+        ),
+    )
+    .toBe(0);
+  await expect(page.locator('.off-status-icon[data-motion="none"]').first()).toBeVisible();
 });
 
 test('a saved vocabulary opt-out stays off after the upgrade', async ({ page }) => {

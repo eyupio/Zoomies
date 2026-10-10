@@ -77,7 +77,7 @@
     {#if prefs.quirkyStatus}
       <ZoomiesStatusIcon state={status.key} seed={runner.id} />
     {:else}
-      <OffStatusIcon {status} />
+      <OffStatusIcon {status} seed={runner.id} />
     {/if}
     <span class="label">{status.label}</span>
   </button>
