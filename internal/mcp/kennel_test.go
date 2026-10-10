@@ -421,3 +421,18 @@ func TestAFindingsPromptLeavesWithTheEvidence(t *testing.T) {
 		t.Errorf("the notice does not say where a prompt is had: %q", notice)
 	}
 }
+
+// Eli calls a tool in process and fences what it answers for the model. It is
+// handed the blocks as the tool made them, so a notice that the next block is
+// untrusted and the block it warns of stay two things, as they are for an MCP
+// client, and not one text that the words in the block can reach back into.
+func TestEliIsHandedAToolsBlocksApart(t *testing.T) {
+	s := New(&kennelAPI{body: repoDoc()}, Options{})
+	blocks, failed, err := s.CallTool(t.Context(), "kennel_repository", json.RawMessage(`{"id":"kcr_1"}`))
+	if err != nil || failed {
+		t.Fatalf("failed=%v err=%v", failed, err)
+	}
+	if len(blocks) != 3 || !strings.Contains(blocks[1], "untrusted") || !strings.Contains(blocks[2], hostile) || strings.Contains(blocks[0], hostile) {
+		t.Errorf("blocks = %q, want the repository, the notice and the evidence apart", blocks)
+	}
+}

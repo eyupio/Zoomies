@@ -36,6 +36,6 @@ func (b *assistantToolbox) Tools() []assistant.Tool {
 	return out
 }
 
-func (b *assistantToolbox) Call(ctx context.Context, name string, args json.RawMessage) (string, bool, error) {
+func (b *assistantToolbox) Call(ctx context.Context, name string, args json.RawMessage) ([]string, bool, error) {
 	return b.server.CallTool(ctx, name, args)
 }

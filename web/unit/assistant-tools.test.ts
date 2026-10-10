@@ -13,3 +13,7 @@ test('the provider tools are named for what a person would call them', () => {
   assert.equal(toolLabel('provider_pairings'), 'which providers serve which pools');
   assert.equal(toolLabel('list_machines'), 'rented machines');
 });
+
+test('the catalog is named as what it is, not by its route', () => {
+  assert.equal(toolLabel('get_catalog'), 'the catalog of codes and checks');
+});

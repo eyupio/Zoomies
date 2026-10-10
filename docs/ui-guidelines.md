@@ -1264,7 +1264,10 @@ facts. Never pass a whole API object, credentials, environment variables or
 unrequested logs. Clicking the action opens Eli and asks with that snapshot.
 Questions clicked during an answer wait in order and can be discarded. When no
 provider is available, they remain visible until the operator configures one and
-reopens Eli. The model has no live fleet access or mutation tools.
+reopens Eli. The model has no mutation tools. It reads the fleet only through a
+provider whose fleet switch is on, and the snapshot prompt tells it to check the
+live state with those tools when it has them, so the facts are a starting point
+and not the model's only view.
 
 Host and runner details and problem entries use the same action. Add another
 entry point by supplying its own display facts to `AskEli`; it needs no chat

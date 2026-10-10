@@ -26,7 +26,7 @@ provider gives, test it, and make it the default. Eli then appears in the corner
 every page for signed-in users with a personal provider. Press <kbd>E</kbd> from anywhere that is not a box
 to type in, or press **Ask Eli**. <kbd>Esc</kbd> puts the panel away.
 
-The Ask Eli button opens setup guidance until you choose an enabled personal default provider. Installation providers remain separate and do not pay for personal chat.
+The Ask Eli button opens setup guidance until you have an enabled personal provider; your default answers, or, with none ticked, the first usable one you own. Installation providers remain separate and do not pay for personal chat.
 
 ### Using your own subscription
 
@@ -161,8 +161,8 @@ repository names.
 Job and branch names, commit messages and log lines are written by whoever can open
 a pull request against your repositories. Eli is told that such text is data and
 never instructions, and every tool result is marked as the fleet's data. Eli has
-no chat tool that changes anything, and chat answers are drawn as text, so a hostile
-name can do is mislead an answer: check what you act on.
+no chat tool that changes anything, and chat answers are drawn as text, so the most
+a hostile name can do is mislead an answer: check what you act on.
 
 ## Limits
 
@@ -176,7 +176,7 @@ name can do is mislead an answer: check what you act on.
 
 ## If it is not there
 
-* **No answer.** Choose an enabled personal default provider in **Settings, Eli AI Assistant**.
+* **No answer.** Add an enabled personal provider in **Settings, Eli AI Assistant**, and tick the one you want as your default when you have several.
 * **"Eli cannot see this fleet through ..."** The provider's fleet switch is off.
 * **A provider error.** The text says what the provider answered; **Test** on its
   card sends one short prompt and says which part failed. A model that does not
@@ -215,7 +215,7 @@ new page integrations pass an `EliContext` to `AskEli.svelte`.
 | Request | Provider |
 | --- | --- |
 | Chat and contextual Ask Eli | Signed-in user's personal provider |
-| PR repair requested in Zoomies or a GitHub comment | Requester's personal default provider |
+| PR repair requested in Zoomies or a GitHub comment | Requester's personal provider: their default, or the first usable one they own |
 | Unattended repair of a failed PR job | Installation provider selected by the repository policy |
 
 There is no fallback from a missing personal provider to an installation key
@@ -238,8 +238,8 @@ installation provider removes repository policies that reference it.
    link it. Zoomies resolves and records the numeric GitHub ID. A login rename
    never assigns another person's key to a requester.
 5. Each requester confirms **Allow this GitHub account to request repairs using
-   my provider** on their own Eli AI Assistant settings page, and chooses an enabled
-   personal default provider. Administrators cannot confirm on their behalf.
+   my provider** on their own Eli AI Assistant settings page, and has an enabled
+   personal provider. Administrators cannot confirm on their behalf.
    Changing a link clears this confirmation.
 
 The GitHub App needs **Contents: write**, **Pull requests: write**,

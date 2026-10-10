@@ -57,7 +57,7 @@ Merged as #799 (the owner marked it ready and merged it within seconds, so its C
 Built and checked:
 * `internal/controller/assistant_chat.go`: `ValidateAssistantChat` (roles `user`/`assistant` only, ends with a user turn,
   40 messages, 8 KiB each, 32 KiB total, UTF-8, trimmed), `StartAssistantChat` (named or default enabled provider, the
-  fixed system prompt that says it cannot see the fleet, 1024 max tokens, 5 minute timeout, tool calls dropped),
+  fixed system prompt that says it cannot see the fleet, 2048 max tokens, 5 minute timeout, tool calls dropped),
   `ErrAssistantNoModel`, `AssistantChatInvalid`.
 * `internal/api/handlers_assistant_chat.go`: `POST /api/v1/assistant/chat`, admin only (`auth.ActionAssistantChat`),
   answers as `text/event-stream` with `delta`, `usage`, `done`, `error` frames. 422 names the message, 409 when no model,
@@ -105,7 +105,7 @@ The assistant is named **Eli** (Extremely Lively Intelligence). Plan: `roadmap/p
 * The conversation (`web/src/lib/assistant/`): our own Markdown parser (`markdown.ts`, no HTML is ever injected, 17 parser
   mutants killed), `ConversationView`, `Conversation` (a module-level store), `EliWidget` (floating button and panel, `E`
   opens it, mounted in `App.svelte` when `eli.available`: administrator and an enabled default provider).
-* The tool loop (`internal/controller/assistant_tools.go`): up to 6 rounds and 12 calls, a fixed allowlist of 14 read tools
+* The tool loop (`internal/controller/assistant_tools.go`): up to 6 rounds and 12 calls, a fixed allowlist of 18 read tools
   (`AssistantFleetTools`), called in process as the person chatting (`inProcessAPI` with `direct`), results fenced and capped.
   `assistant_providers.fleet_access` (migration 0091) is a per-provider switch, **off by default**; with it off the model gets
   no tools. A test makes every new MCP read tool be put on the list or named as left off.
