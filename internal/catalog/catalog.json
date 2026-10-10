@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "generated_from": "dc78ea2f",
+  "generated_from": "04da7239",
   "entries": [
     {
       "id": "agent.backend_missing",
@@ -938,7 +938,7 @@
       "detection": "runtime",
       "detects": "The controller's latest update attempt ended as failed or timed out, so it is still running the old release. The entry carries the first line of what the update helper said, cut to 300 bytes and shown as plain text, or the controller's own account when no answer came within 90 minutes. Only the opening of a long reason is shown; the whole of it is on Settings → Updates. It offers no one-click fix.",
       "fix": "The controller's latest update attempt ended as failed or timed out, so it is still running the old release. The entry carries the first line of what the update helper said, cut to 300 bytes and shown as plain text, or the controller's own account when no answer came within 90 minutes. Only the opening of a long reason is shown; the whole of it is on Settings → Updates. It offers no one-click fix.",
-      "verify": "A failed attempt stays on the list until a new attempt opens, a later one succeeds, or this build reaches the release the attempt asked for, whether through Settings → Updates or by running `zoomies upgrade` on the host; otherwise it stays until retention prunes the attempt.",
+      "verify": "A failed attempt stays on the list until a new attempt opens, a later one succeeds, or this build reaches the release the attempt asked for, whether through Settings → Updates or by running `zoomies upgrade` on the host; otherwise it stays, because retention keeps the failures on the release the controller last tried or would take now.",
       "docs_html": "https://zoomies.sh/problem-codes/#runtime-pools-jobs-and-runners",
       "docs_md": "https://github.com/eyupio/zoomies/blob/main/docs/problem-codes.md#runtime-pools-jobs-and-runners"
     },

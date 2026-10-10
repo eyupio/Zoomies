@@ -163,16 +163,28 @@ func tagsInQuestion(s updates.Snapshot) []string {
 	return tags
 }
 
-// updateTagsInQuestion is tagsInQuestion for a caller with no snapshot to
-// hand, read from the settings and releases the snapshot would be made from.
-func (c *Controller) updateTagsInQuestion(now time.Time) []string {
+// retainedUpdateTags is the releases whose failed attempts the retention pass
+// keeps: tagsInQuestion, read from the settings and releases the snapshot would
+// be made from, and the release the controller's latest attempt was for. The
+// last is there because with updating off no release list is read, so the
+// choice names nothing, and the controller's failures would otherwise age out
+// and the cap restart when updating is turned on again.
+func (c *Controller) retainedUpdateTags(ctx context.Context, now time.Time) ([]string, error) {
 	cfg := c.cfg().Updates
 	s := updates.Snapshot{Now: now, Mode: updateModeOf(cfg.Mode), Soak: cfg.Soak, Running: version.Version,
 		GOOS: runtime.GOOS, GOARCH: runtime.GOARCH}
 	if state := c.latestRelease(); state != nil {
 		s.Releases = state.Releases
 	}
-	return tagsInQuestion(s)
+	tags := tagsInQuestion(s)
+	last, err := c.st.ListUpdateAttempts(ctx, store.UpdateScopeController, "", 1)
+	if err != nil {
+		return nil, fmt.Errorf("reading the controller's latest update attempt: %w", err)
+	}
+	if len(last) == 1 && !slices.Contains(tags, last[0].ToVersion) {
+		tags = append(tags, last[0].ToVersion)
+	}
+	return tags, nil
 }
 
 func rolloutFacts(r *store.UpdateRollout) *updates.Rollout {

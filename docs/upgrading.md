@@ -437,8 +437,9 @@ release it had, raises `controller.update_failed` or `host.update_failed` (see
 `platform` role on Settings → Updates or the host's card, and in a rollout halts it. After a failure Zoomies waits 30
 minutes before it tries that machine again by itself, and after two failures of
 one release it leaves that release on that machine to a person. Those failures
-are kept while that release is still the one the machine would be taken to, so
-`retention.update_attempts` never counts them back down. The helper keeps its
+are kept while that release is still the one the machine would be taken to (for
+the controller, also while it is the release it last tried, which covers the mode
+`off`), so `retention.update_attempts` never counts them back down. The helper keeps its
 own count as well, in `/var/lib/zoomies-update`, where the service cannot reset
 it.
 
