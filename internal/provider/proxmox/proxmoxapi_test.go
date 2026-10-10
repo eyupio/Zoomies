@@ -2,6 +2,7 @@ package proxmox
 
 import (
 	"context"
+	"crypto/x509"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -851,5 +852,33 @@ func TestClientDialsThroughTheProvidedDialerAndUsesNoProxy(t *testing.T) {
 	}
 	if len(dialled) == 0 || dialled[0] != "example.com:8006" {
 		t.Fatalf("the dialer was asked for %v, want the endpoint's host and port", dialled)
+	}
+}
+
+// A controller on the Proxmox host itself is usually pointed at localhost, and
+// Proxmox never issues a certificate for that name, so pasting the CA cannot
+// fix it. The message has to say so, and has to name the escape hatch and what
+// it costs, or the operator is left to guess at both.
+func TestALoopbackEndpointExplainsWhyItCannotBeVerified(t *testing.T) {
+	for _, endpoint := range []string{"https://localhost:8006", "https://127.0.0.1:8006", "https://[::1]:8006"} {
+		t.Run(endpoint, func(t *testing.T) {
+			for _, err := range []error{x509.UnknownAuthorityError{}, x509.HostnameError{Host: "localhost"}} {
+				msg, remedy := unreachable(endpoint, err), unreachableRemedy(endpoint, err)
+				if !strings.Contains(msg, "not for localhost") {
+					t.Errorf("message does not explain the name: %q", msg)
+				}
+				for _, want := range []string{"real name or IP", "ca_pem", "insecure_skip_verify", "risk"} {
+					if !strings.Contains(remedy, want) {
+						t.Errorf("remedy does not mention %q: %q", want, remedy)
+					}
+				}
+			}
+		})
+	}
+
+	// A named node keeps the plain advice, and still offers the way out.
+	remedy := unreachableRemedy("https://pve-1:8006", x509.UnknownAuthorityError{})
+	if strings.Contains(remedy, "real name or IP") || !strings.Contains(remedy, "insecure_skip_verify") {
+		t.Errorf("remedy for a named node is wrong: %q", remedy)
 	}
 }
