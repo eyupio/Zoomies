@@ -72,10 +72,13 @@ type fakePVE struct {
 	nodes    []Node
 	storages map[string][]Storage
 	bridges  map[string][]NetworkInterface
-	perms    Permissions
-	errors   []injected
-	stalls   []injected
-	seq      int
+	// anyBridgeEmpty makes the type=any_bridge filter answer nothing, as a
+	// restricted token's does, while the unfiltered list still has the bridge.
+	anyBridgeEmpty bool
+	perms          Permissions
+	errors         []injected
+	stalls         []injected
+	seq            int
 
 	agentSilent    bool
 	ambiguousClone bool
@@ -405,6 +408,9 @@ func (f *fakePVE) routes() map[string]http.HandlerFunc {
 			if !ok {
 				writeFailure(w, http.StatusNotFound, "no such node")
 				return
+			}
+			if f.anyBridgeEmpty && r.URL.Query().Get("type") == "any_bridge" {
+				list = nil
 			}
 			out := make([]map[string]any, 0, len(list))
 			for _, b := range list {

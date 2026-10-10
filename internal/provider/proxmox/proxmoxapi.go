@@ -487,7 +487,7 @@ func (c *Client) classify(cl call, resp *http.Response, err error, sentRequest b
 		// A read that never got its answer changed nothing at the cluster, so
 		// it is a reachability problem and may simply be tried again.
 		return &provider.Error{Kind: provider.FailureUnreachable, Op: cl.op, Ref: cl.ref,
-			Message: unreachable(c.endpoint, err), Remedy: unreachableRemedy(err), Cause: err}
+			Message: unreachable(c.endpoint, err), Remedy: unreachableRemedy(c.endpoint, err), Cause: err}
 	}
 
 	msg := decodeMessage(resp)
@@ -537,6 +537,13 @@ func unreachable(endpoint string, err error) string {
 	var unknown x509.UnknownAuthorityError
 	var hostname x509.HostnameError
 	switch {
+	case isLoopback(endpoint) && (errors.As(err, &unknown) || errors.As(err, &hostname)):
+		// The commonest way to land here is a controller on the Proxmox host
+		// itself, pointed at localhost. Proxmox issues its certificate for the
+		// node's own name and address, so no CA, however it is pinned, will ever
+		// vouch for "localhost"; saying only "not trusted" sends people to paste
+		// a CA that cannot help.
+		return fmt.Sprintf("the certificate %s presented was issued for the node's own name, not for localhost, so it cannot be verified", endpoint)
 	case errors.As(err, &unknown):
 		return fmt.Sprintf("the certificate %s presented is not signed by an authority this controller trusts", endpoint)
 	case errors.As(err, &hostname):
@@ -552,13 +559,37 @@ func unreachable(endpoint string, err error) string {
 	}
 }
 
+// isLoopback reports whether the endpoint names this machine, by name or by
+// loopback address.
+func isLoopback(endpoint string) bool {
+	u, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	h := u.Hostname()
+	if strings.EqualFold(h, "localhost") {
+		return true
+	}
+	ip := net.ParseIP(h)
+	return ip != nil && ip.IsLoopback()
+}
+
 // unreachableRemedy is the next action for the failures that have one.
-func unreachableRemedy(err error) string {
+//
+// Where the certificate is the problem, the last resort is named too, with
+// what it costs: an operator who has to turn verification off should do it
+// knowingly, from the message, not by guessing at the setting.
+func unreachableRemedy(endpoint string, err error) string {
 	var unknown x509.UnknownAuthorityError
 	var hostname x509.HostnameError
+	const accept = "or, to accept the risk, set insecure_skip_verify: the API token is then sent to whatever answers at the endpoint, " +
+		"so anything able to intercept the connection can use it to create and destroy virtual machines"
 	switch {
+	case isLoopback(endpoint) && (errors.As(err, &unknown) || errors.As(err, &hostname)):
+		return "set endpoint to the node's real name or IP address (the one on its certificate) and paste the cluster's CA certificate from " +
+			"/etc/pve/pve-root-ca.pem into ca_pem; " + accept
 	case errors.As(err, &unknown), errors.As(err, &hostname):
-		return "paste the cluster's CA certificate from /etc/pve/pve-root-ca.pem into ca_pem, or use a certificate whose name matches the endpoint"
+		return "paste the cluster's CA certificate from /etc/pve/pve-root-ca.pem into ca_pem, or use a certificate whose name matches the endpoint; " + accept
 	case errors.Is(err, syscall.ECONNREFUSED):
 		return "check the node is up and that the API is on port " + DefaultPort
 	default:
@@ -1007,10 +1038,28 @@ func (c *Client) Storages(ctx context.Context, node string) ([]Storage, error) {
 // Bridges lists the network bridges on a node -- the ones a guest's interface
 // can actually be attached to.
 func (c *Client) Bridges(ctx context.Context, node string) ([]NetworkInterface, error) {
+	path := "/nodes/" + url.PathEscape(node) + "/network"
 	var out []NetworkInterface
 	err := c.do(ctx, call{op: "list the network bridges on " + node, ref: node, verb: http.MethodGet,
-		path: "/nodes/" + url.PathEscape(node) + "/network", query: url.Values{"type": {"any_bridge"}}}, &out)
-	return out, err
+		path: path, query: url.Values{"type": {"any_bridge"}}}, &out)
+	if err != nil || len(out) > 0 {
+		return out, err
+	}
+	// Proxmox answers any_bridge for a restricted API token with whatever that
+	// token may attach a guest to, which can be nothing even where the node has
+	// a perfectly good vmbr0 that root sees. The unfiltered list is the node's
+	// own inventory, so ask for that and pick the bridges out here rather than
+	// reporting a bridge missing that is plainly there.
+	var all []NetworkInterface
+	if err := c.do(ctx, call{op: "list the network interfaces on " + node, ref: node, verb: http.MethodGet, path: path}, &all); err != nil {
+		return out, nil
+	}
+	for _, n := range all {
+		if n.Type == "bridge" || n.Type == "OVSBridge" {
+			out = append(out, n)
+		}
+	}
+	return out, nil
 }
 
 // ClusterVMs lists every guest on every node in one call.
