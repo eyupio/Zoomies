@@ -142,7 +142,7 @@
     {#if ownIdentity}<p>
         Linked to <strong>@{ownIdentity.github_login}</strong>. Comment
         <code>/eli fix this PR</code>
-        or <code>/zoomies fix this issue</code> on a PR. Eli uses your personal default provider.
+        or <code>/zoomies fix this issue</code> on a PR. Eli uses your personal provider: your default, or the first usable one you own.
       </p>
     {:else}<p>
         Ask an administrator to verify and link your GitHub account. You also need a personal

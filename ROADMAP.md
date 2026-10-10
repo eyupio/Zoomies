@@ -1546,14 +1546,23 @@ stays closed until the owner's written confirmation exists.
 
 Depends on ZF-230 to ZF-233, ZF-229e. Size XL.
 
-**Started, 9 October.** Slices 7a and 7b are one pull request from branch
-`claude/brave-ride-o421h9`: the provider interface and its contract tests, the
-three adapters, the dialer with `assistant.local_only` and
-`assistant.allow_private_provider`, the `assistant_providers` table, the
-`/assistant/providers` routes and the Assistant settings page, with the demo
-seeding a built-in model. Gate row 17's acceptance for these two slices is
-the contract run every adapter passes, the API tests, and the Playwright spec
-on the page.
+**Started, 9 October.** Slices 7a and 7b merged as #799: the provider
+interface and its contract tests, the adapters, the dialer with
+`assistant.local_only` and `assistant.allow_private_provider`, the
+`assistant_providers` table, the `/assistant/providers` routes and the
+Assistant settings page, with the demo seeding a built-in model. The pull
+requests up to #842 then shipped the widget, the read-only tool loop over the
+MCP server's tools behind a per-provider fleet switch that is off by default,
+redaction of the conversation and every tool result, personal providers for
+any signed-in person, the subscription kinds (Claude Code, Codex, Copilot,
+administrators only and never with tools), PR repairs from a `/eli fix`
+comment or an opt-in automatic policy, and the shared mention matcher that is
+ZF-239's first slice; `hand-off-ai.md` has the record. Still open: per-person
+limits and data classes (the rest of 7c), mutate tools behind the confirmation
+card (7d), stored conversations, slash shortcuts and context chips (7e),
+deterministic Kennel fixes (7f), step-up (7h) and autonomy (7i).
+[roadmap/eli-review.md](roadmap/eli-review.md) reviews what was built against
+what competitors ship and says what to do next.
 
 ### ZF-236: the figures behind size advice
 

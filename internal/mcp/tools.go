@@ -71,7 +71,7 @@ func enum(description string, values ...string) map[string]any {
 // handful rather than one tool per route: an agent given every route in the
 // API, admin ones included, chooses worse and costs more to run.
 func tools() []*tool {
-	return append(append(append(append(append(append(contextTools(), noteTools()...), kennelTools()...), providerTools()...), configTools()...), adminConfigTools()...), []*tool{
+	return append(append(append(append(append(append(append(contextTools(), noteTools()...), kennelTools()...), catalogTools()...), providerTools()...), configTools()...), adminConfigTools()...), []*tool{
 		{
 			Name:  "fleet_status",
 			Title: "Fleet status",
@@ -659,7 +659,7 @@ func getRunnerLog(ctx context.Context, c API, raw json.RawMessage) ([]Content, e
 	if strings.TrimSpace(tail) == "" {
 		return []Content{{Type: "text", Text: fmt.Sprintf("%s has produced no output yet.", a.RunnerID)}}, nil
 	}
-	tail, shortened := keepEnd(tail, maxLogBlock)
+	tail, shortened := KeepEnd(tail, maxLogBlock)
 
 	shown := strings.Count(tail, "\n") + 1
 	var what string
@@ -685,10 +685,10 @@ func getRunnerLog(ctx context.Context, c API, raw json.RawMessage) ([]Content, e
 	}, nil
 }
 
-// keepEnd holds s to at most limit bytes, keeping its end, and reports whether
+// KeepEnd holds s to at most limit bytes, keeping its end, and reports whether
 // it had to. It starts on a whole line where there is one to start on, and
 // otherwise on a rune boundary, so a cut never leaves half a character.
-func keepEnd(s string, limit int) (string, bool) {
+func KeepEnd(s string, limit int) (string, bool) {
 	if len(s) <= limit {
 		return s, false
 	}

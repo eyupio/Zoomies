@@ -391,24 +391,24 @@ func (s *Server) Definitions() []Definition {
 	return out
 }
 
-// CallTool runs a tool and returns what it answered as text. A tool that
-// failed, or that this server does not offer, is an answer too and not an
-// error: failed is true and the text says why, which is what a model should be
-// handed. The error is for a call that could not be made at all, such as a name
-// no tool has.
-func (s *Server) CallTool(ctx context.Context, name string, arguments json.RawMessage) (text string, failed bool, err error) {
+// CallTool runs a tool and returns what it answered, block by block as the
+// tool made them: a tool that sets a runner's or a repository owner's words
+// apart from Zoomies' own does so with a block of their own, and a caller that
+// fences the answer for a model keeps that boundary by fencing each block. A
+// tool that failed, or that this server does not offer, is an answer too and
+// not an error: failed is true and the text says why, which is what a model
+// should be handed. The error is for a call that could not be made at all, such
+// as a name no tool has.
+func (s *Server) CallTool(ctx context.Context, name string, arguments json.RawMessage) (blocks []string, failed bool, err error) {
 	result, rpcErr := s.callTool(ctx, name, arguments)
 	if rpcErr != nil {
-		return "", false, errors.New(rpcErr.Message)
+		return nil, false, errors.New(rpcErr.Message)
 	}
-	var b strings.Builder
+	blocks = make([]string, 0, len(result.Content))
 	for _, c := range result.Content {
-		if b.Len() > 0 {
-			b.WriteString("\n")
-		}
-		b.WriteString(c.Text)
+		blocks = append(blocks, c.Text)
 	}
-	return b.String(), result.IsError, nil
+	return blocks, result.IsError, nil
 }
 
 // Content is one block of a tool's answer.

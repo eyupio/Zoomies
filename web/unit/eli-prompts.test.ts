@@ -11,7 +11,17 @@ test('context keeps measured zero and false, omits absent facts, and names the s
   assert.match(prompt, /Free: 0/);
   assert.match(prompt, /Healthy: false/);
   assert.doesNotMatch(prompt, /CPU:/);
-  assert.match(prompt, /snapshot of displayed facts, not live access/);
+  assert.match(prompt, /snapshot of what the page showed/);
+});
+
+// The snapshot is what the page showed when the button was pressed. It must not
+// read as the model's only view of the fleet: when a provider has fleet access
+// the tools are the live view, and a prompt that says "not live access" talks
+// the model out of checking.
+test('context tells the model the snapshot is not instead of its tools', () => {
+  const prompt = contextPrompt({ kind: 'runner', title: 'r-1', facts: { State: 'failed' } });
+  assert.doesNotMatch(prompt, /not live access/);
+  assert.match(prompt, /tools.*(check|current)/);
 });
 
 test('the follow-up block is read out of the answer and never shown', () => {

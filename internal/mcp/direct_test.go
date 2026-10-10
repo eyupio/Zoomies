@@ -25,11 +25,11 @@ func TestToolsCanBeListedAndCalledWithoutJSONRPC(t *testing.T) {
 	}
 
 	text, failed, err := s.CallTool(context.Background(), "fleet_status", nil)
-	if err != nil || failed || text != `{"queued":3}` {
+	if err != nil || failed || !slices.Equal(text, []string{`{"queued":3}`}) {
 		t.Errorf("a read tool: %q, %v, %v", text, failed, err)
 	}
 	text, failed, err = s.CallTool(context.Background(), "drain_runner", []byte(`{"runner_id":"r"}`))
-	if err != nil || !failed || !strings.Contains(text, "drain_runner") {
+	if err != nil || !failed || len(text) != 1 || !strings.Contains(text[0], "drain_runner") {
 		t.Errorf("a tool that is not offered: %q, %v, %v", text, failed, err)
 	}
 	if _, _, err = s.CallTool(context.Background(), "no_such_tool", nil); err == nil {
@@ -48,14 +48,15 @@ func TestToolsCanBeListedAndCalledWithoutJSONRPC(t *testing.T) {
 }
 
 // A tool may answer in several blocks of text; a caller that is not an MCP
-// client reads them as one text, in order, one to a line.
-func TestSeveralBlocksOfAnAnswerAreOneTextInOrder(t *testing.T) {
+// client is handed them as the blocks they are, in order, because a block is
+// how a tool sets a stranger's words apart from its own.
+func TestSeveralBlocksOfAnAnswerStayApartAndInOrder(t *testing.T) {
 	s := New(fakeAPI{}, Options{})
 	s.byName["two_blocks"] = &tool{Name: "two_blocks", call: func(context.Context, API, json.RawMessage) ([]Content, error) {
 		return []Content{{Type: "text", Text: "first"}, {Type: "text", Text: "second"}}, nil
 	}}
 	text, failed, err := s.CallTool(context.Background(), "two_blocks", nil)
-	if err != nil || failed || text != "first\nsecond" {
+	if err != nil || failed || !slices.Equal(text, []string{"first", "second"}) {
 		t.Errorf("text = %q, failed %v, err %v", text, failed, err)
 	}
 }

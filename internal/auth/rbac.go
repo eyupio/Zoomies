@@ -111,18 +111,20 @@ const (
 	ActionMachinesDelete  Action = "machines.delete"
 )
 
-// Assistant actions cover the providers the in-UI assistant talks to. Both
-// are admin: which model answers, and with what key, is the administrator's
-// until the step-up slice makes it cost more than an admin session.
+// Assistant actions cover the providers the in-UI assistant talks to. A
+// person's own providers, and the chat they pay for with their own key, are
+// theirs at any role (assistant.own). The installation's providers are admin:
+// which model the installation uses, and with what key, is the administrator's
+// until the step-up slice (7h) makes it cost more than an admin session.
 const (
 	// ActionAssistantOwn grants only the owner-scoped personal endpoints.
 	ActionAssistantOwn   Action = "assistant.own"
 	ActionAssistantRead  Action = "assistant.read"
 	ActionAssistantWrite Action = "assistant.write"
-	// ActionAssistantChat is asking the default model a question. It is admin
-	// until the limits and the redaction of slice 7c exist: a question goes to
-	// whatever provider the administrator chose, a hosted one included, and costs
-	// what that provider charges.
+	// ActionAssistantChat is asking the installation's model a question. It is
+	// admin: a question on this route goes to whatever provider the
+	// administrator chose, a hosted one included, and costs what that provider
+	// charges. A person's own chat is assistant.own, on the personal route.
 	ActionAssistantChat Action = "assistant.chat"
 )
 

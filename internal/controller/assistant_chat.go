@@ -14,9 +14,10 @@ import (
 	"github.com/eyupio/zoomies/internal/store"
 )
 
-// What one chat may carry. They are blunt on purpose: the first chat has no
-// redaction, no tools and no per-person limits yet (slice 7c), so the ceiling on
-// what a single request can send, and on what comes back, is the only ceiling.
+// What one chat may carry. They are blunt on purpose: there are no per-person
+// limits yet (the rest of slice 7c), so the ceiling on what a single request can
+// send, and on what comes back, is the only ceiling a person meets. Redaction and
+// the tool loop have their own, in assistant_tools.go.
 const (
 	assistantChatMaxMessages     = 40
 	assistantChatMaxMessageBytes = 8 << 10
@@ -187,8 +188,13 @@ func (c *Controller) chatProvider(ctx context.Context, id, userID string) (*stor
 	return nil, ErrAssistantNoModel
 }
 
-// chatProvider is the provider a chat is for: the one named, or the default.
-// A disabled provider is not one to answer, whichever way it was asked for.
+// personalChatProvider is the provider a person's own chat, or a repair they
+// asked for, is answered by: the one named, else their default, else the first
+// usable provider they own, which is the rule the page follows when nobody has
+// ticked a default. Without the last step a person could chat and not repair,
+// and be told to set a default they had never been asked for. A disabled
+// provider is not one to answer, whichever way it was asked for, and a
+// subscription provider only answers an administrator.
 func (c *Controller) personalChatProvider(ctx context.Context, id string, owner string) (*store.AssistantProvider, error) {
 	if id != "" {
 		row, err := c.st.GetAssistantProvider(ctx, id)
@@ -213,16 +219,29 @@ func (c *Controller) personalChatProvider(ctx context.Context, id string, owner 
 	if err != nil {
 		return nil, err
 	}
+	var fallback *store.AssistantProvider
 	for _, row := range rows {
-		if row.IsDefault && row.Enabled && row.OwnerID == owner {
-			if assistant.Subscription(assistant.Kind(row.Kind)) {
-				user, e := c.st.GetUser(ctx, owner)
-				if e != nil || user.Disabled || user.Role != store.RoleAdmin {
+		if !row.Enabled || row.OwnerID != owner {
+			continue
+		}
+		if assistant.Subscription(assistant.Kind(row.Kind)) {
+			user, e := c.st.GetUser(ctx, owner)
+			if e != nil || user.Disabled || user.Role != store.RoleAdmin {
+				if row.IsDefault {
 					return nil, ErrAssistantNoModel
 				}
+				continue
 			}
+		}
+		if row.IsDefault {
 			return row, nil
 		}
+		if fallback == nil {
+			fallback = row
+		}
+	}
+	if fallback != nil {
+		return fallback, nil
 	}
 	return nil, ErrAssistantNoModel
 }
