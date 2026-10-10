@@ -18,6 +18,9 @@ const LABELS: Record<string, string> = {
   kennel_overview: 'Kennel Club',
   kennel_repository: 'a repository in Kennel Club',
   kennel_findings: 'Kennel Club findings',
+  list_providers: 'infrastructure providers',
+  provider_pairings: 'which providers serve which pools',
+  list_machines: 'rented machines',
 };
 
 export function toolLabel(name: string): string {

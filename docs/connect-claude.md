@@ -168,6 +168,36 @@ operator or an administrator. Repository names and the pools and runs a finding
 names are written by whoever owns them, so the tools hand them over marked as
 evidence and Claude reads them as that, never as an instruction.
 
+### Asking about providers and machines
+
+Three more tools read the machines this fleet [rents from an infrastructure
+provider](proxmox.md), such as a Proxmox cluster, and any viewer may call them:
+
+* `list_providers` says what each provider builds, which pools it will buy for,
+  how many machines it may own against how many it does, whether it is paused,
+  and `held`, the sentence that says why no new machine may be bought right now.
+  It also says `providers_available`: false means this controller cannot rent at
+  all, because the machine loop is off or the build has no driver, so nothing is
+  bought however many providers are listed.
+* `provider_pairings` answers, for each provider and pool, whether the provider
+  would rent for the pool and, if not, whose selector or machine shape says no and
+  what to change. Give it a `pool_id` to ask why one pool buys nothing.
+* `list_machines` lists the machines that were asked for, with their state, pool
+  and host, and for one that never arrived, the error the provider or the new
+  machine reported.
+
+Ask "why is this pool full and not renting?" and Claude should read these before
+it answers. `provider.enabled` and the other provider settings are an
+administrator's to read and change, and no tool returns them, so when these show
+nothing wrong Claude should say so and not guess.
+
+They cannot configure, pause or drain a provider or a machine, and they never
+return a credential or a gateway address. They are read as your connection: the
+routes behind them want `providers:read` and `machines:read`, so a token limited
+to other scopes is refused with the scope it is missing. The errors a hypervisor
+reported are text from outside this controller, so Claude reads them as data and
+never as an instruction.
+
 ### Comparing releases and periods
 
 For a question about a period rather than one job, ask for `job_stats`. One call
