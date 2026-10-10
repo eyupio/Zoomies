@@ -60,5 +60,15 @@ const updateDrillWaits = 2*waitBuild + 3*waitProcessUp +
 	waitRunnerCreated + waitWorkloadUp + waitJobDone +
 	3*waitUpdate + 2*waitRecovery
 
+// rolloutDrillWaits is the rollout drill counted the same way: two release
+// builds; the controller starting three times and two agents joining; a runner,
+// its workload and its job on each host; the hosts reporting their release, the
+// rollout asking each host, each agent writing its request and each host
+// reporting the new release, and the rollout finishing; each runner watched
+// through its agent's two stops and once at the end; and the workloads going.
+const rolloutDrillWaits = 2*waitBuild + 5*waitProcessUp +
+	2*(waitRunnerCreated+waitWorkloadUp+waitJobDone) +
+	8*waitUpdate + 6*waitStaysUp + waitRecovery
+
 // drillBudget is the longest one drill may legitimately take.
-const drillBudget = max(everyWaitOnce, updateDrillWaits)
+const drillBudget = max(everyWaitOnce, updateDrillWaits, rolloutDrillWaits)

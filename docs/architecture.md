@@ -310,6 +310,8 @@ by trying again.
 | `internal/cryptox` | AES-256-GCM for secrets at rest; argon2id for passwords; SHA-256 for bearer tokens. |
 | `internal/backup` | One copy of the database: taking it with `VACUUM INTO`, the manifest that says what it is, listing, verifying, archiving and passphrase-encrypting it, copying it to the S3-compatible destinations `backup.remotes` names or an administrator stored (a hand-rolled client, for the reason the Docker one is, and one merge rule the controller, the API and the CLI all resolve through) and the restore that puts it back. Shared by `zoomies backup`, the controller's scheduled copies and the settings page, so all three write and read one layout. |
 | `internal/scheduler` | Pure scaling decisions, label matching and platform fit. No I/O. |
+| `internal/updates` | Which release an update mode would take and why, the request and result the update helper reads and writes, where the helper can never be installed, and `Decide`, the planner for automatic updates: from a snapshot of the mode, the soak, the releases, the open attempts and the hosts, the actions to take and the sentence Settings → Updates shows. Pure like the scheduler: the standard library and `internal/version` only, no clock, no database, no network, and a test that fails if that changes. See [Updating from the web UI](upgrading.md#updating-from-the-web-ui). |
+| `internal/updates/channel` | The service's side of the update folder: finding it, writing a request into it and reading what the helper left there. The impure half of `internal/updates`, and what the controller and the agent both reach the folder through. It never creates the folder; the helper's installer does, owned by the service's account, so a folder that is missing means there is no helper. |
 | `internal/kennel` | Kennel Club's decisions: from the facts a snapshot holds, which of its checks fire and what standing the repository has. Pure like the scheduler, and held to it: the standard library only, no clock, no database, no network, and a test that fails if that changes. The controller collects the facts and stores the answer; see [Kennel Club](kennel-club.md). |
 | `internal/kennel/workflow` | The one parser for a GitHub Actions workflow file, which turns its bytes into the facts Kennel Club's workflow checks read, each with the job and the line it was found at, and keeps none of the file's text. Below `internal/kennel` so that the controller's collector and the offline `zoomies kennel check` run the same code without a GitHub client, and so that `internal/kennel` itself stays standard library only. It imports the YAML library and nothing from this module, reads no file and asks no clock, and a test fails if that changes. |
 | `internal/naming` | The `zoomies-*` naming grammar for pools and hosts, and the runner image catalogue. No I/O; see [Naming and platforms](naming.md). |
@@ -557,6 +559,39 @@ one, and the last one to leave is what tells the agent to stop reading. Each
 viewer's queue is bounded, and a viewer that falls behind loses bytes rather
 than growing it: a backgrounded tab nobody is reading must not make the
 controller hold a compiler's output for ever.
+
+Updating a host from the web UI keeps the same rule, and goes one step further:
+not even the agent replaces its own binary. It hands a request to the update
+helper, a root-owned unit its host's owner installed, through a folder on the
+host, and the helper runs `zoomies upgrade`. Success is the host's heartbeat
+reporting the release, not the task's answer, so a task lost to a restart on
+either side costs one more pass and nothing else:
+
+```mermaid
+sequenceDiagram
+    participant C as controller
+    participant A as agent
+    participant F as update folder
+    participant H as update helper, root
+
+    C->>C: record the attempt, one open per host
+    A->>C: long-poll for tasks
+    C-->>A: update_agent, with the attempt and the tag
+    A->>A: check the tag, and never go backwards
+    A->>F: write request.json
+    A->>C: task result: the request was written
+    F-->>H: the path unit starts the helper
+    H->>H: check the request, then run zoomies upgrade
+    H->>A: replace the binary, restart the agent
+    H->>F: write result.json
+    A->>C: heartbeat with the new version and the result
+    C->>C: close the attempt, move a rollout on
+```
+
+The controller updates itself the same way without the task: it writes the
+request into its own update folder, and the process that starts on the new
+release reads the result and closes the attempt. The planner that decides when
+`auto` does either is `internal/updates.Decide`, pure as the scheduler is.
 
 ## Storage
 

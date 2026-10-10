@@ -63,18 +63,28 @@ controller asks github.com which release of Zoomies is current. The request
 carries the version you run in its `User-Agent` (`zoomies/<version>`, which on a
 development build includes its `main-sha-*` identity), and GitHub sees your
 address as it would for any request. Nothing else about your installation is
-sent. With `updates.mode` at `off`, the default, that is the only request and
-nothing is downloaded. With `manual` or `auto` the controller reads GitHub's
-list of recent releases instead of the latest one alone, in a request that
-carries the same `User-Agent`; and when an update is requested, the update
-helper on the controller's host, if you installed it, downloads that release's
-binary and its checksums from GitHub. It then runs `zoomies upgrade`, which on a
-container install pulls the new controller image from `ghcr.io`, and on any
-install refreshes the cached stock runner images from `ghcr.io` too. The
-registry sees your address, as it would for any image pull. Every other call to
-GitHub's API carries the same `User-Agent`. Set the interval to `0` and the update
-check never asks. See
+sent. Every other call to GitHub's API carries the same `User-Agent`. Set the
+interval to `0` and the update check never asks. See
 [`updates.check_interval`](configuration.md#updatescheck_interval-knowing-the-controller-is-behind).
+
+### Updating
+
+With `updates.mode` at `off`, the default, the update check above is the only
+request and nothing is downloaded. With `manual` or `auto`, an update asked for
+from the web UI is fetched by the machine being updated, and only from the
+places a `sudo zoomies upgrade` you typed would use:
+
+| Who | Asks | When |
+| --- | --- | --- |
+| The controller | github.com's API, for the list of the ten most recent releases, in place of the latest one alone, with the same `User-Agent` | at each update check, and when an administrator asks for one |
+| The update helper, as root, on the machine being updated | github.com, for that release's binary for the machine's system and its `checksums.txt`, with the same `User-Agent` | when an update of that machine is asked for |
+| `zoomies upgrade`, which the helper runs | `ghcr.io`, for the new controller or agent image on a container install, and for the cached stock runner images on any install | during that upgrade |
+
+The request a helper reads names a release tag and never an address, so what it
+downloads comes from that release on github.com and from nowhere the controller
+chose. A host's request is written by its own agent. Only a machine whose owner installed the helper is ever
+updated this way, and the registry and GitHub see its address as they would for
+any download. See [Updating from the web UI](upgrading.md#updating-from-the-web-ui).
 
 ### What your controller keeps
 

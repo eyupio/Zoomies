@@ -1840,7 +1840,8 @@ func (c *Config) validateUpdates(add func(Finding)) {
 			Code: "updates.mode_without_check", Severity: SeverityWarning, Setting: "updates.mode",
 			Title: fmt.Sprintf("updates.mode is %s but the release check is switched off", u.Mode),
 			Detail: "updates.check_interval is 0, which is the setting for a deployment with no route to github.com, so this controller never learns " +
-				"that a release exists. The mode has nothing to act on, and nothing would tell you why no update is ever offered.",
+				"of a newer release and is never updated from here, and nothing would tell you why no update is offered. " +
+				"In auto, hosts whose update helper is installed are still taken to the release the controller runs, once you upgrade it by hand.",
 			Fix: `give updates.check_interval a duration such as "24h", or set updates.mode to off if this controller cannot reach github.com.`,
 		})
 	}

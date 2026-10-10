@@ -134,6 +134,12 @@ func TestAModeWithoutAReleaseCheckIsAWarning(t *testing.T) {
 			if !strings.Contains(f.Fix, "updates.check_interval") {
 				t.Errorf("the fix does not say how to give the mode a release to act on: %q", f.Fix)
 			}
+			// The release check only feeds the controller's own update. Hosts follow
+			// the release the controller runs, which needs no list, so a warning that
+			// said the mode did nothing would be wrong about every host with a helper.
+			if !strings.Contains(f.Detail, "taken to the release the controller runs") {
+				t.Errorf("the finding does not say that hosts are still taken to the controller's release: %q", f.Detail)
+			}
 		})
 	}
 

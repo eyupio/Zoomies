@@ -1027,6 +1027,8 @@ jobs:
           shellcheck deploy/runner-entrypoint.sh
           dash -n test/upgrade/upgrade-check.sh
           shellcheck -s sh test/upgrade/upgrade-check.sh
+          dash -n test/upgrade/helper-check.sh
+          shellcheck -s sh test/upgrade/helper-check.sh
           dash -n test/runner-image/check.sh
           shellcheck -s sh test/runner-image/check.sh
           dash -n test/runner-image/dnf-check.sh
