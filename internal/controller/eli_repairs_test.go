@@ -47,7 +47,7 @@ func TestRepairAdmissionRequiresLinkedHumanCommentAndDeduplicates(t *testing.T) 
 		if tc.pr {
 			issue["pull_request"] = map[string]any{}
 		}
-		body, _ := json.Marshal(map[string]any{"action": tc.action, "repository": map[string]any{"full_name": repo}, "issue": issue, "comment": map[string]any{"id": 100, "body": "@eli fix this PR", "user": map[string]any{"id": tc.author, "login": "octo", "type": tc.kind}}, "sender": map[string]any{"id": tc.sender}})
+		body, _ := json.Marshal(map[string]any{"action": tc.action, "repository": map[string]any{"full_name": repo}, "issue": issue, "comment": map[string]any{"id": 100, "body": "/eli fix this PR", "user": map[string]any{"id": tc.author, "login": "octo", "type": tc.kind}}, "sender": map[string]any{"id": tc.sender}})
 		if rec := h.deliver("issue_comment", body, testWebhookSecret); rec.Code != 202 {
 			t.Fatalf("signed delivery: %d %s", rec.Code, rec.Body.String())
 		}
@@ -284,7 +284,7 @@ func TestLinkedCommentCannotSpendTheBudgetAfterRepositoryAccessIsRemoved(t *test
 	h.st.CreateUser(h.ctx, user)
 	h.st.SetEliIdentity(h.ctx, store.EliIdentity{UserID: user.ID, GitHubUserID: 42, GitHubLogin: "octo"})
 	h.st.ConfirmEliIdentity(h.ctx, user.ID, 42, true)
-	body, _ := json.Marshal(map[string]any{"action": "created", "repository": map[string]any{"full_name": repo}, "issue": map[string]any{"number": 1, "pull_request": map[string]any{}}, "comment": map[string]any{"id": 101, "body": "@eli fix this PR", "user": map[string]any{"id": 42, "login": "octo", "type": "User"}}, "sender": map[string]any{"id": 42}})
+	body, _ := json.Marshal(map[string]any{"action": "created", "repository": map[string]any{"full_name": repo}, "issue": map[string]any{"number": 1, "pull_request": map[string]any{}}, "comment": map[string]any{"id": 101, "body": "/eli fix this PR", "user": map[string]any{"id": 42, "login": "octo", "type": "User"}}, "sender": map[string]any{"id": 42}})
 	if err := h.c.enqueueRepairWebhook(h.ctx, inst, "issue_comment", body); err != nil {
 		t.Fatal(err)
 	}

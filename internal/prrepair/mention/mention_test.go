@@ -3,12 +3,12 @@ package mention
 import "testing"
 
 func TestAMentionIsOnlyACommandWhenItStartsALineOutsideQuotesAndFences(t *testing.T) {
-	for _, text := range []string{"> @eli fix this", "```\n@eli fix this\n```", "~~~\n@zoomies repair\n~~~", "someone said @eli fix", "@elizabeth fix", "@eli hello"} {
+	for _, text := range []string{"> @eli fix this", "```\n@eli fix this\n```", "~~~\n@zoomies repair\n~~~", "someone said @eli fix", "@elizabeth fix", "@eli hello", "/elizabeth fix", "/eli hello", "/eli", "see /eli fix", "http://x/eli fix"} {
 		if _, ok := Command(text, ""); ok {
 			t.Errorf("triggered %q", text)
 		}
 	}
-	for _, text := range []string{"@eli fix this PR", "@zoomies fix this issue", "@Eli repair failing tests", "@zoomies[bot] fix", "thanks\n@eli fix it"} {
+	for _, text := range []string{"@eli fix this PR", "@zoomies fix this issue", "@Eli repair failing tests", "@zoomies[bot] fix", "thanks\n@eli fix it", "/eli fix", "/zoomies repair the build", "/Eli FIX this"} {
 		if _, ok := Command(text, ""); !ok {
 			t.Errorf("missed %q", text)
 		}
@@ -43,5 +43,19 @@ func TestTheAppsOwnHandleStartsARepair(t *testing.T) {
 func TestASlugIsNeverReadAsAPattern(t *testing.T) {
 	if _, ok := Command("@anything fix", ".*"); ok {
 		t.Error("a slug of .* matched an unrelated handle")
+	}
+}
+
+// A slash command is the spelling to teach because it notifies nobody, so it
+// must reach the same instruction an at-mention does.
+func TestASlashCommandMeansTheSameAsAnAtMention(t *testing.T) {
+	for _, text := range []string{"/eli fix the failing test", "@eli fix the failing test", "/zoomies fix the failing test"} {
+		got, ok := Command(text, "")
+		if !ok || got != "fix the failing test" {
+			t.Errorf("%q gave %q, %v", text, got, ok)
+		}
+	}
+	if _, ok := Command("/zoomies-eyupio2 fix", "zoomies-eyupio2"); ok {
+		t.Error("the App's slug is an at-mention name, not a slash command")
 	}
 }

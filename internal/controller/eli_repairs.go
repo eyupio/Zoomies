@@ -276,7 +276,7 @@ func (c *Controller) repairNotice(ctx context.Context, client github.RepairClien
 	if r.PullNumber <= 0 {
 		return
 	}
-	text = repairHeading(r.State) + "\n\n" + text + "\n\n<sub>Repair `" + r.ID + "`. Eli fetches fixes but never merges: that part stays with you. Ask again with `@eli fix`.</sub>\n<!-- zoomies-eli-repair:" + r.ID + " -->"
+	text = repairHeading(r.State) + "\n\n" + text + "\n\n<sub>Repair `" + r.ID + "`. 🐾 Zoomies. Eli fetches fixes but never merges: that part stays with you. Ask again with `/eli fix`.</sub>\n<!-- zoomies-eli-repair:" + r.ID + " -->"
 	id, err := client.RepairComment(ctx, r.Repo, r.PullNumber, r.CommentID, text)
 	if err != nil {
 		c.log.Warn("could not update Eli's PR comment", "repair", r.ID)
