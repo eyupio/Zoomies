@@ -1067,8 +1067,10 @@ Five things make it fit, in this order:
   press on Android and never on iOS, so the order was once a preference a
   phone could read and not write, on the Rows layout that exists to give a
   phone columns to arrange. Under `@media (pointer: coarse)` the heading takes
-  `--z-control-touch`, both controls grow into it, and the resize edge stops
-  waiting for a hover that will never come. `web/src/lib/actions/columnGesture.ts`
+  `--z-control-touch`, and both controls grow into it. The resize edge's line
+  is drawn at rest on every pointer, so the handle is findable before anything
+  is hovered; it turns accent under the pointer or the keyboard.
+  `web/src/lib/actions/columnGesture.ts`
   is the one implementation, shared with the tables that are not grids, and
   `web/tests/column-layout.spec.ts` holds it true under both a cursor and a
   touchscreen.
