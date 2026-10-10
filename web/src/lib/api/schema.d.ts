@@ -3357,7 +3357,9 @@ export interface paths {
          *     `{"text": ...}` as the model writes, one `usage` frame with
          *     `{"input_tokens", "output_tokens"}` when the provider reports them, `tool` frames
          *     reporting read-only fleet lookups when enabled, and a final `done` frame with
-         *     the provider's name, model, `fleet_access` and `tools`, or an `error` frame with a
+         *     the provider's name, model, `fleet_access`, `tools` and `redacted` (how many
+         *     `credentials` and `emails` were replaced with a marker before the model saw the
+         *     latest question and what the tools returned), or an `error` frame with a
          *     `message` if the answer failed after it began (the status had gone out with the
          *     first byte by then).
          *

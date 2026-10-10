@@ -9,6 +9,7 @@
  */
 import { ApiError, streamAssistantChat } from '$lib/api/client';
 import { supportHint } from '$lib/errors';
+import { hiddenNote } from './redaction';
 import type { EliContext } from './prompts';
 
 export interface Turn {
@@ -23,6 +24,8 @@ export interface Turn {
   tools?: ToolLook[];
   /** Whether the fleet could be read through the provider that answered. */
   fleetAccess?: boolean;
+  /** What was hidden from the model before it answered, in words, or empty. */
+  hidden?: string;
   error?: string;
   streaming?: boolean;
 }
@@ -92,6 +95,7 @@ export class Conversation {
           else if (frame.kind === 'done') {
             answer.by = `${frame.provider}, ${frame.model}`;
             answer.fleetAccess = frame.fleetAccess;
+            answer.hidden = hiddenNote(frame.redacted.credentials, frame.redacted.emails);
           } else answer.error = frame.message || 'The model stopped answering.';
         },
         controller.signal,

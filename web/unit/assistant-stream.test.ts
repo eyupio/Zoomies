@@ -16,7 +16,14 @@ test('the frames of an answer are read in order', () => {
     { kind: 'delta', text: 'Hello' },
     { kind: 'delta', text: ' there' },
     { kind: 'usage', inputTokens: 7, outputTokens: 4 },
-    { kind: 'done', provider: 'Ollama', model: 'llama3', fleetAccess: false, tools: [] },
+    {
+      kind: 'done',
+      provider: 'Ollama',
+      model: 'llama3',
+      fleetAccess: false,
+      tools: [],
+      redacted: { credentials: 0, emails: 0 },
+    },
   ]);
 });
 
@@ -29,7 +36,14 @@ test('a frame cut anywhere by the network is read once it is whole', () => {
       got,
       [
         { kind: 'delta', text: 'split' },
-        { kind: 'done', provider: 'p', model: 'm', fleetAccess: false, tools: [] },
+        {
+          kind: 'done',
+          provider: 'p',
+          model: 'm',
+          fleetAccess: false,
+          tools: [],
+          redacted: { credentials: 0, emails: 0 },
+        },
       ],
       `cut at ${cut}`,
     );
@@ -83,10 +97,36 @@ test('a look at the fleet is a frame, and the end says which tools were used', (
       model: 'm',
       fleetAccess: true,
       tools: ['fleet_status', 'list_jobs'],
+      redacted: { credentials: 0, emails: 0 },
     },
   ]);
 });
 
 test('a tool frame with a status this page does not know is left unsaid', () => {
   assert.deepEqual(new FrameParser().push(frame('tool', { name: 'x', status: 'exploded' })), []);
+});
+
+test('the end says how many credentials and email addresses were hidden, and nothing odd is believed', () => {
+  const done = (redacted: unknown) =>
+    new FrameParser().push(frame('done', { provider: 'p', model: 'm', redacted }))[0];
+  assert.deepEqual(done({ credentials: 2, emails: 1 }), {
+    kind: 'done',
+    provider: 'p',
+    model: 'm',
+    fleetAccess: false,
+    tools: [],
+    redacted: { credentials: 2, emails: 1 },
+  });
+  for (const odd of [
+    undefined,
+    null,
+    'many',
+    [],
+    { credentials: -1, emails: 1.5 },
+    { credentials: '2' },
+  ]) {
+    const got = done(odd);
+    assert.ok(got && got.kind === 'done');
+    assert.deepEqual(got.redacted, { credentials: 0, emails: 0 });
+  }
 });

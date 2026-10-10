@@ -120,7 +120,10 @@ The assistant is named **Eli** (Extremely Lively Intelligence). Plan: `roadmap/p
   Claude Code, Codex, Copilot or subscription**, so press Test on a machine that has one first. Codex's API-key refusal and Copilot's
   stdin, exit codes and tool behaviour under `-p` rest on guesses where the docs are silent. OpenCode is an API-key preset only
   (Zen and Go).
-* Not done: redaction (7c), per-person limits, stored conversations, write tools and the confirmation card.
+* Redaction (7c): `internal/redact` hides known credential shapes and email addresses from everything sent to a model (the
+  conversation, and every tool result before the 16 KiB cut), for every provider; counts only reach the `done` frame, the widget
+  and the audit row. Not done: `prrepair.Redact` still has its own narrower list.
+* Not done: per-person limits, stored conversations, write tools and the confirmation card.
 * Nothing has been tried against a real model: how well Ollama Cloud and others choose tools is unknown.
 
 ### 3. Smaller loose ends

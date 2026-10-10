@@ -10,6 +10,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/eyupio/zoomies/internal/assistant"
+	"github.com/eyupio/zoomies/internal/redact"
 )
 
 // AssistantFleetTools is every tool Eli may be offered, and nothing else is. It is
@@ -99,6 +100,7 @@ type AssistantChat struct {
 	running   *assistant.ToolCall
 	usage     assistant.Usage
 	used      []string
+	redacted  redact.Result
 	closing   int
 	finished  bool
 }
@@ -106,6 +108,18 @@ type AssistantChat struct {
 // ToolsUsed are the names of the tools Eli called, in order, with repeats. It is
 // what the page shows under the answer and what the audit row records.
 func (a *AssistantChat) ToolsUsed() []string { return slices.Clone(a.used) }
+
+// Redactions is how many credentials and email addresses were hidden from the model
+// in this chat, in what the person sent and in what the tools returned. Only the
+// counts are kept: what was hidden is not recorded anywhere.
+func (a *AssistantChat) Redactions() redact.Result { return a.redacted }
+
+// hide redacts text that is about to go to the model and counts what it hid.
+func (a *AssistantChat) hide(text string) string {
+	out, res := redact.Text(text)
+	a.redacted = a.redacted.Add(res)
+	return out
+}
 
 // open starts the next round: the conversation so far, to the model.
 func (a *AssistantChat) open(ctx context.Context) error {
@@ -237,7 +251,9 @@ func (a *AssistantChat) runTool(ctx context.Context, call assistant.ToolCall) (s
 	if err != nil {
 		text, failed = err.Error(), true
 	}
-	return fenceToolResult(call.Name, text), failed
+	// What the fleet returned is hidden before it is cut and fenced, so that a
+	// credential is never cut in half and left as a recognisable start.
+	return fenceToolResult(call.Name, a.hide(text)), failed
 }
 
 // fenceToolResult is what a tool's answer becomes in front of the model: bounded,

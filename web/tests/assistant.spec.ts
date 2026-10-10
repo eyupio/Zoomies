@@ -119,6 +119,36 @@ test('the demo model answers a question typed on the page, and the next one carr
   await expect(page.getByRole('article', { name: 'You' })).toHaveCount(0);
 });
 
+test('a credential or an email address in a question is hidden from the model, and Eli says so', async ({
+  page,
+}) => {
+  await goto(page, '/settings/assistant', 'Assistant');
+  await openEli(page);
+  const token = 'ghp_abcdefghijklmnopqrstuvwxyz0123456789';
+  const message = page.getByRole('textbox', { name: 'Message' });
+  await message.fill(`It fails with GITHUB_TOKEN=${token} for ada@example.com`);
+  await page.getByRole('button', { name: 'Send' }).click();
+
+  // The demo model repeats what it was sent, which is the question with the parts
+  // the controller hid marked as hidden.
+  const answer = page.getByRole('article', { name: 'Eli' }).first();
+  await expect(answer).toContainText('The built-in model heard: It fails with GITHUB_TOKEN=');
+  await expect(answer).toContainText('[redacted credential]');
+  await expect(answer).toContainText('[redacted email]');
+  await expect(answer).not.toContainText(token);
+  await expect(answer).not.toContainText('ada@example.com');
+  await expect(answer).toContainText(
+    '1 credential and 1 email address were hidden before this went to the model.',
+  );
+
+  // A question with nothing to hide says nothing about it.
+  await message.fill('What is a pool?');
+  await message.press('Enter');
+  const second = page.getByRole('article', { name: 'Eli' }).nth(1);
+  await expect(second).toContainText('The built-in model heard: What is a pool?');
+  await expect(second).not.toContainText('hidden before this went to the model');
+});
+
 /** A streamed answer, cut into small pieces the way a model sends it. */
 function answerStream(markdown: string): string {
   const pieces = markdown.match(/[\s\S]{1,24}/g) ?? [];

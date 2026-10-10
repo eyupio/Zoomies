@@ -119,8 +119,44 @@ your question: runner, host, pool, job, workflow, repository and branch names,
 statuses, counts, a provider's address and the addresses of the machines it rented,
 and the end of a runner's log if Eli asks for it. A provider's credential is never
 part of it: the API reports only that one is configured. A tool's answer
-is cut at 16 KiB. There is no redaction yet, so the switch is the control: turn it
-on for a provider only if that provider may be shown this.
+is cut at 16 KiB. The switch is still the main control: turn it on for a provider
+only if that provider may be shown this.
+
+### What is hidden first
+
+Before anything goes to a model, Zoomies looks in it for credentials and for email
+addresses and replaces what it finds with `[redacted credential]` and
+`[redacted email]`. It looks in what a tool returns, in what you type or paste, and
+in the facts a page shares when you ask Eli about it, and it does so for every
+provider, a model on your own machine included, so that the behaviour does not
+depend on which one answers.
+
+What it recognises:
+
+* GitHub tokens (`ghp_`, `gho_`, `ghu_`, `ghs_`, `ghr_` and `github_pat_`), OpenAI and
+  Anthropic keys (`sk-`), AWS access key ids, Google API keys, Slack tokens, npm
+  tokens and JSON Web Tokens;
+* private key blocks, a password in the address of a repository
+  (`https://user:password@host/...`), and the value of an Authorization or Bearer header;
+* the value of a setting whose name says it is a secret (`password`, `secret`,
+  `token`, `api_key`, `private_key`, `credential`, in any case and with any prefix or
+  suffix), such as `DB_PASSWORD=...` or `"access_token": "..."`. A number, a flag, a
+  value GitHub has already masked and a reference such as `${{ secrets.NAME }}` are
+  left as they are;
+* email addresses, such as the author of a commit. Names, hostnames and IP addresses
+  are not hidden, because working out why a runner failed often needs them.
+
+The answer says how many were hidden ("1 credential and 1 email address were hidden
+before this went to the model."), and the `assistant.chat` audit row records the
+counts, never what was hidden. Only what is new in your latest question is counted:
+the earlier turns of the conversation are sent again and are hidden again, but were
+counted when you asked them.
+
+This is a set of known shapes and not a guarantee. It cannot recognise a secret that
+has no shape, such as a password written in a sentence, a customer's name, or a
+secret that a log has split across two lines. Do not paste what you would not send to
+the provider, and keep the fleet switch off for a provider that must not see job and
+repository names.
 
 Job and branch names, commit messages and log lines are written by whoever can open
 a pull request against your repositories. Eli is told that such text is data and
