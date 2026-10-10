@@ -32,7 +32,7 @@ test('Eli is exempt from the inert an overlay puts on the page', () => {
 // thread would answer it against whatever was discussed before.
 test('an Ask Eli action starts a fresh conversation', () => {
   const store = readFileSync(join(src, 'lib/assistant/eli.svelte.ts'), 'utf8');
-  const ask = store.match(/\n  ask\(context: EliContext\): void \{[\s\S]*?\n  \}/)?.[0] ?? '';
+  const ask = store.match(/\n {2}ask\(context: EliContext\): void \{[\s\S]*?\n {2}\}/)?.[0] ?? '';
   const clear = ask.indexOf('this.newConversation()');
   assert.ok(clear >= 0, 'ask clears the conversation');
   assert.ok(clear < ask.indexOf('this.pending.push'), 'and does so before queueing its prompt');
