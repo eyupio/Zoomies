@@ -192,9 +192,6 @@ func Prepare(ctx context.Context, h Host, dir, key string) (*Connection, error) 
 			return nil, errors.New("proxmox setup: cannot grant the dedicated Proxmox user its provider permissions")
 		}
 	}
-	// Best effort: a Proxmox without the local network zone has no such path, and
-	// needs no grant on it. Whether it was needed is what the later check says.
-	_, _ = h.Run(ctx, "pveum", "acl", "modify", LocalNetworkPath, "--users", user, "--roles", role)
 	raw, err := h.Run(ctx, "pveum", "user", "token", "add", user, tokenName, "--privsep", "1", "--output-format", "json")
 	if err != nil {
 		// A crashed first attempt may have created a token whose secret was
@@ -226,12 +223,25 @@ func Prepare(ctx context.Context, h Host, dir, key string) (*Connection, error) 
 	return c, nil
 }
 
+// GrantToken gives the token, and the user it belongs to, the role on every
+// path the provider works under. Both halves matter: the token is created with
+// privilege separation on, so what it may do is the intersection of its own
+// grants and its user's, and a path granted to one of them alone is granted to
+// neither. It runs on every setup, so a role or path a newer release needs
+// reaches a connection made by an older one.
 func GrantToken(ctx context.Context, h Host, tokenID, role string) error {
+	user, _, _ := strings.Cut(tokenID, "!")
 	for _, path := range []string{"/vms", "/storage", "/nodes"} {
+		if _, err := h.Run(ctx, "pveum", "acl", "modify", path, "--users", user, "--roles", role); err != nil {
+			return errors.New("proxmox setup: cannot grant the dedicated Proxmox user its provider permissions")
+		}
 		if _, err := h.Run(ctx, "pveum", "acl", "modify", path, "--tokens", tokenID, "--roles", role); err != nil {
 			return errors.New("proxmox setup: cannot grant the dedicated Proxmox token its provider permissions")
 		}
 	}
+	// Best effort: a Proxmox without the local network zone has no such path and
+	// needs no grant on it. Whether it was needed is what the check after says.
+	_, _ = h.Run(ctx, "pveum", "acl", "modify", LocalNetworkPath, "--users", user, "--roles", role)
 	_, _ = h.Run(ctx, "pveum", "acl", "modify", LocalNetworkPath, "--tokens", tokenID, "--roles", role)
 	return nil
 }

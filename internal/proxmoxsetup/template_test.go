@@ -209,3 +209,26 @@ func TestVerifyAccessSavesNothingForATokenThatCannotDoTheWork(t *testing.T) {
 		t.Fatalf("an unrepaired token: %v", err)
 	}
 }
+
+// Privilege separation makes a token's rights the intersection of its own and
+// its user's, so a grant that reaches only the token is no grant at all. This
+// is what a connection made by an older release relies on to pick up a path a
+// newer one needs, since Prepare returns early once a credential exists.
+func TestGrantTokenGrantsTheUserAndTheTokenOnEveryPath(t *testing.T) {
+	var granted []string
+	h := Host{Run: func(_ context.Context, name string, args ...string) ([]byte, error) {
+		granted = append(granted, name+" "+strings.Join(args, " "))
+		return nil, nil
+	}}
+	if err := GrantToken(context.Background(), h, "zoomies-abc@pve!provider-1", "Zoomies-abc"); err != nil {
+		t.Fatal(err)
+	}
+	joined := strings.Join(granted, "\n")
+	for _, path := range []string{"/vms", "/storage", "/nodes", LocalNetworkPath} {
+		for _, who := range []string{"--users zoomies-abc@pve", "--tokens zoomies-abc@pve!provider-1"} {
+			if !strings.Contains(joined, "pveum acl modify "+path+" "+who+" --roles Zoomies-abc") {
+				t.Errorf("no grant of %s on %s:\n%s", who, path, joined)
+			}
+		}
+	}
+}
